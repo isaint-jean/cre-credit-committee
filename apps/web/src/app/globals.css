@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@layer base {
+  body {
+    @apply bg-bg-primary text-text-primary font-sans;
+  }
+
+  * {
+    @apply border-border-primary;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-primary;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border-secondary rounded;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-bg-secondary border border-border-primary rounded p-4;
+  }
+
+  .btn-primary {
+    @apply bg-accent hover:bg-accent-hover text-bg-primary font-semibold px-4 py-2 rounded text-sm transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-bg-tertiary hover:bg-border-primary text-text-primary border border-border-primary px-4 py-2 rounded text-sm transition-colors;
+  }
+
+  .input-field {
+    @apply bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-text-primary text-sm
+           focus:outline-none focus:border-accent placeholder-text-muted;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+  }
+
+  .badge-critical {
+    @apply badge bg-risk-critical/20 text-risk-critical;
+  }
+  .badge-high {
+    @apply badge bg-risk-high/20 text-risk-high;
+  }
+  .badge-medium {
+    @apply badge bg-risk-medium/20 text-risk-medium;
+  }
+  .badge-low {
+    @apply badge bg-risk-low/20 text-risk-low;
+  }
+
+  .badge-pass {
+    @apply badge bg-risk-positive/20 text-risk-positive;
+  }
+  .badge-fail {
+    @apply badge bg-risk-high/20 text-risk-high;
+  }
+  .badge-unknown {
+    @apply badge bg-risk-medium/20 text-risk-medium;
+  }
+
+  .table-cell {
+    @apply px-3 py-2 text-sm border-b border-border-primary;
+  }
+
+  .table-header {
+    @apply table-cell font-medium text-text-secondary bg-bg-tertiary;
+  }
+
+  .mono {
+    @apply font-mono text-right;
+  }
+}
