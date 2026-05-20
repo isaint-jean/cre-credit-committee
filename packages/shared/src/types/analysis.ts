@@ -62,8 +62,13 @@ export interface Finding {
   };
 }
 
-export type AdjustmentFlag = 'minor' | 'moderate' | 'material';
-export type AdjustmentBias = 'conservative' | 'neutral' | 'aggressive';
+// Batch 6.2 (audit U5): 'unmeasurable' added to distinguish "we couldn't compare" from
+// "small variance is fine." Mapping null variance to 'minor' silently risk-washed deals
+// where the comparison failed.
+export type AdjustmentFlag = 'minor' | 'moderate' | 'material' | 'unmeasurable';
+// Batch 6.2 (audit U6): 'INSUFFICIENT_DATA' added; verdict downgrades when any finding is
+// unmeasurable.
+export type AdjustmentBias = 'conservative' | 'neutral' | 'aggressive' | 'INSUFFICIENT_DATA';
 
 export type SellerMetricStatus = 'found' | 'missing';
 
@@ -135,6 +140,18 @@ export interface Comment {
   updatedAt: string;
 }
 
+/**
+ * CategoryTier — display tier for a single credit-score category.
+ *
+ * Source of truth for thresholds (80 / 60 / 40): apps/api/src/services/doctrine/credit-policy-bands.ts
+ * (CATEGORY_TIER_THRESHOLDS) — Batch 6 sub-batch 6.1, decision D6.
+ *
+ * NOTE: these thresholds intentionally differ from the overall-score `riskTier`
+ * (85 / 70 / 50). A category can dip into 'watchlist' without dragging the
+ * overall score below 50.
+ */
+export type CategoryTier = 'strong' | 'acceptable' | 'watchlist' | 'high_risk';
+
 export interface CreditScoreCategory {
   category: FindingCategory;
   score: number;
@@ -143,6 +160,8 @@ export interface CreditScoreCategory {
   weightedScore: number;
   findings: string[];
   explanation: string;
+  // 6.1 — server-emitted tier; null when score is missing.
+  tier?: CategoryTier | null;
 }
 
 export interface CreditScore {
@@ -203,6 +222,12 @@ export interface StressScenario {
     ltv: number | null;
     debtYield: number | null;
     impliedValue: number | null;
+    // 6.1 — per-cell breach flags. null = metric not computable
+    // (distinct from false). Source: apps/api/src/services/doctrine/credit-policy-bands.ts
+    // (STRESS_THRESHOLDS — DSCR < 1.15, LTV > 0.80, DY < 0.07).
+    dscrBreached?: boolean | null;
+    ltvBreached?: boolean | null;
+    debtYieldBreached?: boolean | null;
   };
   breaksCovenants: boolean;
   covenantBreaches: string[];
@@ -226,6 +251,17 @@ export interface Analysis {
   currentStep: string;
   createdAt: string;
   updatedAt: string;
+  // Batch 6.3 — revision lineage on the legacy path. Per architecture decision D4 and the
+  // revision-lineage spec (docs/architecture/revision-lineage-spec.md): single-parent,
+  // append-only, immutable. Edits create a NEW Analysis row pointing to its parent rather
+  // than mutating the existing row. The new-spine path (sub-batch 6.4+) will use the full
+  // RevisionLineageEnvelope from @cre/contracts; the legacy path uses these three fields.
+  /** Pointer to the immediate parent revision. `null` ONLY for the original (root) analysis. */
+  parentAnalysisId?: string | null;
+  /** Always equals the original analysis id. Stable across all revisions in the lineage (L3). */
+  lineageRootId?: string;
+  /** 0-based ordinal in the lineage. `0` for root. Strictly monotonic (never edited after write). */
+  revisionOrdinal?: number;
   document: ParsedDocument | null;
   uwDocument: ParsedDocument | null;
   supportingDocuments: SupportingDocument[];
@@ -245,6 +281,20 @@ export interface Analysis {
   stressScenarios: StressScenario[];
   extractionResult?: ExtractionResult | null;
   preValidationGate?: PreValidationGateResult | null;
+  // Batch 1B — rent-roll input record (post-Phase 4 contract addition). Resolved
+  // by the pipeline via precedence: rent_roll_file > ASR table extraction > Seller UW
+  // exhibit extraction. Null when no source produced a parseable rent roll; the
+  // caller surfaces a derivationIssues 'missing-support: rent-roll' entry alongside.
+  rentRoll?: import('@cre/contracts').RentRoll | null;
+  // Batch 1H — property-metadata extraction output. Null when the AI returned
+  // all-null fields (no property facts found). Used by Property & Loan Summary
+  // header + Property Detail tabs.
+  propertyMetadata?: import('@cre/contracts').PropertyMetadata | null;
+  // Batch 0 traceability ledger. The merge layer pushes literal-string entries here
+  // shaped 'merge-conflict[<field>] asr=... seller=... chosen=...'. Batch 1B extends
+  // this with 'missing-support: <subject>' entries when an evidence-gated input is
+  // absent (e.g., 'missing-support: rent-roll').
+  derivationIssues?: string[];
   error?: string;
   inputHash?: string;
   manifestoVersion?: string;
@@ -284,6 +334,27 @@ export interface AnalysisSummary {
   inputHash?: string;
   manifestoVersion?: string;
   modelLogicVersion?: string;
+  // Batch 6.3 — lineage fields. Optional for backwards compatibility with rows
+  // pre-dating revision semantics; new analyses always populate them.
+  parentAnalysisId?: string | null;
+  lineageRootId?: string;
+  revisionOrdinal?: number;
+}
+
+/**
+ * `LineageEntry` — single revision's summary as returned by `GET /analyses/:id/lineage`.
+ * Subset of `AnalysisSummary` plus the lineage chain pointers.
+ */
+export interface LineageEntry {
+  id: string;
+  name: string;
+  parentAnalysisId: string | null;
+  lineageRootId: string;
+  revisionOrdinal: number;
+  createdAt: string;
+  status: AnalysisStatus;
+  creditScore: number | null;
+  riskTier: string | null;
 }
 
 // --- Version Control & Audit ---
@@ -345,9 +416,71 @@ export interface ExtractedField {
 /** The canonical field names required for underwriting. */
 export type CoreFieldName = 'noi' | 'loanAmount' | 'interestRate' | 'capRate' | 'propertyValue';
 
+/**
+ * String-valued descriptor fields. These are NOT numeric — they carry
+ * property identity, addressing, classification, and counterparty names.
+ * The extraction layer captures these via label-then-text patterns and
+ * stores the trimmed string verbatim. No semantic interpretation,
+ * inference, or library matching happens here.
+ */
+export type DescriptorFieldName =
+  | 'propertyName'
+  | 'street'
+  | 'city'
+  | 'state'
+  | 'zip'
+  | 'propertyType'
+  | 'borrowerName'
+  | 'sponsorName';
+
+/** Single extracted descriptor (string value with traceability). */
+export interface ExtractedDescriptor {
+  value: string | null;
+  confidence: ExtractionConfidence;
+  originalLabel: string | null;
+  sourceLocation: string | null;
+  method: 'exact_match' | 'synonym_match' | 'not_found';
+}
+
+/**
+ * Numeric structural fields beyond the core financial five — loan term,
+ * amortization, interest-only period, vintage, building size, unit count,
+ * occupancy. Captured via the same numeric-normalization machinery as the
+ * core fields but expressed as their natural unit (months for time
+ * periods, decimal fraction for occupancy, integer for years/units, etc.).
+ */
+export type StructuralFieldName =
+  | 'loanTermMonths'
+  | 'amortizationMonths'
+  | 'ioMonths'
+  | 'yearBuilt'
+  | 'totalSquareFeet'
+  | 'units'
+  | 'occupancy';
+
 /** Full extraction result for all core fields, with pre-validation status. */
 export interface ExtractionResult {
   fields: Record<CoreFieldName, ExtractedField>;
+  /**
+   * Optional. Present when the extraction layer captures property
+   * descriptors. Absent on legacy analyses extracted before this surface
+   * existed — consumers MUST treat undefined as "no descriptors known"
+   * (not as an empty record).
+   */
+  descriptors?: Record<DescriptorFieldName, ExtractedDescriptor>;
+  /**
+   * Optional. Present when the extraction layer captures structural
+   * numerics. Same legacy semantics as `descriptors`.
+   */
+  structural?: Record<StructuralFieldName, ExtractedField>;
+  /**
+   * Optional. Comparable / CMBS linkage references the extractor found in
+   * the source documents (e.g. CMBS deal codes, sales-comp identifiers,
+   * lease-comp tenant names). String literals from the doc — no resolution
+   * to a comp database happens here. Absent or empty when the extractor
+   * found nothing.
+   */
+  comparablesLinkageRefs?: string[];
   /** True if all required fields are present or derivable. */
   allRequiredPresent: boolean;
   /** List of field names that are missing and could not be derived. */

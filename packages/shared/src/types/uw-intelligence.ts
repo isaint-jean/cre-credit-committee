@@ -396,6 +396,34 @@ export interface TemplateVersion {
   uploadedAt: string;
 }
 
+/**
+ * Versioned compatibility envelope for an underwriting template artifact.
+ *
+ * The render contract requires that, given identical
+ *   (assetClass, contractVersion, structuralVariantKey, templateVersion),
+ * the export pipeline always produce identical Excel structure / sheet
+ * visibility / cell values / table layouts. This metadata is the part of that
+ * tuple that the storage layer cannot self-attest to: it is declared in
+ * code (the template registry) and bound to a specific template artifact
+ * version, so an admin uploading a new file cannot silently widen support.
+ */
+export interface TemplateMetadata {
+  templateType: TemplateType;
+  templateVersion: number;
+  compatibleContractVersion: number;
+  /** Asset class strings (AssetType values) the template is allowed to render. */
+  supportedAssetClasses: string[];
+  /** StructuralVariantKey strings the template is allowed to render. */
+  supportedVariants: string[];
+  /**
+   * UnderwritingMode strings the template is allowed to render. Required at
+   * v5+. A template that ships only the single_loan workbook structure must
+   * declare ['single_loan'] here so a payload composed in roll_up mode is
+   * rejected at compatibility-gate time.
+   */
+  supportedUnderwritingModes: string[];
+}
+
 // --- Applied Intelligence (used during deal analysis) ---
 
 export interface AppliedIntelligence {

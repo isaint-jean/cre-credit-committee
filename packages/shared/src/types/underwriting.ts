@@ -1,3 +1,17 @@
+/**
+ * MetricBand — display classification for credit metrics.
+ *
+ * Source of truth for thresholds: apps/api/src/services/doctrine/credit-policy-bands.ts
+ * (Batch 6 sub-batch 6.1 — UI threshold lift to doctrine, decision D6).
+ *
+ * Shape: 'safe' | 'warning' | 'danger' | null (degraded / not computable).
+ *
+ * Web client consumes these as opaque labels. The client MUST NOT recompute
+ * them from numeric metrics — see docs/architecture/batch6-record-graph-and-resolution.md
+ * §3.2 R3 ("no derived UW booleans").
+ */
+export type MetricBand = 'safe' | 'warning' | 'danger' | null;
+
 export interface LineItem {
   id: string;
   label: string;
@@ -62,6 +76,8 @@ export interface RepaymentScheduleEntry {
   endingBalance: number;
   cumulativePrincipal: number;
   monthlyDSCR: number | null; // null when payment is 0 / not computable
+  // 6.1 — server-emitted display band; null when monthlyDSCR is null.
+  monthlyDscrBand?: MetricBand;
 }
 
 export interface RepaymentSchedule {
@@ -77,6 +93,9 @@ export interface RepaymentSchedule {
     averageDSCR: number | null;
     minDSCR: number | null;
     minDSCRMonth: number | null;
+    // 6.1 — server-emitted display bands.
+    balloonBand?: MetricBand;
+    minDscrBand?: MetricBand;
   };
 }
 
@@ -102,4 +121,9 @@ export interface UnderwritingModel {
   modifiedCells: string[];
   loanDetails: LoanDetails;
   repaymentSchedule: RepaymentSchedule | null;
+  // 6.1 — server-emitted display bands. Web client reads these directly;
+  // it MUST NOT recompute from numeric metrics.
+  dscrBand?: MetricBand;
+  ltvBand?: MetricBand;
+  debtYieldBand?: MetricBand;
 }
