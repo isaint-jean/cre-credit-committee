@@ -1,0 +1,3421 @@
+{
+  "contractVersion": 7,
+  "registeredContractVersions": [
+    6,
+    7
+  ],
+  "assetClassVariantModeTabs": {
+    "office": {
+      "office_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "office_trophy": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "office_value_add": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "office_distressed": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    },
+    "multifamily": {
+      "mf_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "mf_large_scale": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "mf_workforce": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "mf_value_add": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    },
+    "industrial": {
+      "ind_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "ind_logistics": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      },
+      "ind_light": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    },
+    "retail": {
+      "retail_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    },
+    "hotel": {
+      "hotel_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Hotel",
+          "Hotel Op History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Hotel",
+          "Hotel Op History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    },
+    "self_storage": {
+      "self_storage_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    },
+    "mixed_use": {
+      "mixed_use_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - Comm",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    },
+    "manufactured_housing": {
+      "manufactured_housing_core": {
+        "single_loan": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ],
+        "roll_up": [
+          "Property & Loan Summary",
+          "Conclusions & Escrows",
+          "Property Detail - MF SS MHP",
+          "Operating History and Pro Forma",
+          "Stress Scenario",
+          "Third Party Reports Summary",
+          "Borrower",
+          "Market",
+          "Site Inspection",
+          "Lease Comps",
+          "Sales Comps",
+          "CMBS Comps"
+        ]
+      }
+    }
+  },
+  "bindingsByAssetClassVariantMode": {
+    "office": {
+      "office_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "office_distressed": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "office_trophy": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "office_value_add": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    },
+    "multifamily": {
+      "mf_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "mf_large_scale": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "mf_value_add": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "mf_workforce": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    },
+    "industrial": {
+      "ind_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "ind_light": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      },
+      "ind_logistics": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    },
+    "retail": {
+      "retail_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    },
+    "hotel": {
+      "hotel_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    },
+    "self_storage": {
+      "self_storage_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    },
+    "mixed_use": {
+      "mixed_use_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    },
+    "manufactured_housing": {
+      "manufactured_housing_core": {
+        "roll_up": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ],
+        "single_loan": [
+          "Borrower!Borrower",
+          "Borrower!Sponsor",
+          "Conclusions & Escrows!Concluded_Cap_Rate",
+          "Conclusions & Escrows!Concluded_Value",
+          "Property & Loan Summary!Address",
+          "Property & Loan Summary!Amortization_Term",
+          "Property & Loan Summary!Annual_Debt_Service",
+          "Property & Loan Summary!Balloon_Term",
+          "Property & Loan Summary!City",
+          "Property & Loan Summary!Coupon",
+          "Property & Loan Summary!Current_Balance",
+          "Property & Loan Summary!Interest_Only_Period",
+          "Property & Loan Summary!Occupancy",
+          "Property & Loan Summary!Original_Balance",
+          "Property & Loan Summary!Property_Name",
+          "Property & Loan Summary!Property_Type",
+          "Property & Loan Summary!State",
+          "Property & Loan Summary!Year_Built",
+          "Property & Loan Summary!ZIP"
+        ]
+      }
+    }
+  },
+  "structuralFingerprints": {
+    "office|office_core|roll_up": "23e5adea4669a7390bae315ae8e0103303f39c6dd52ec984d90b7eff76aa9994",
+    "office|office_core|single_loan": "ae90bfa5c43bcf180eb83d7d123ba9f021ee6da3b858dbe1d824ce3e0c86e535",
+    "office|office_distressed|roll_up": "e9cae0db2405887e4c1a954ae4c9fb502d1e9fc7ee1d35fb6af589ccd0a74f96",
+    "office|office_distressed|single_loan": "53c257479af5d2575ef4c3174f1c861c2b30594470913d47efc96b0721f4f5bb",
+    "office|office_trophy|roll_up": "07af1a9ffa81496ef70aa4a41408f5da211a8fb9cfb43162a5f28b7cbca2c9e7",
+    "office|office_trophy|single_loan": "1b7f73b9b9747fd94fd75292a3a1c9457d48f19fd48a0a3bf34462eeb924e8b9",
+    "office|office_value_add|roll_up": "9792b485c98fde7b2a57de13d10b9cfe196008b5e17afa2fc82c4479aa00080d",
+    "office|office_value_add|single_loan": "bfbcd12abe7b691efcb3346d9e988e1a0002b15ae63eb75a07782e743ec5253d",
+    "multifamily|mf_core|roll_up": "864efcffaa730d38fca0d9f8eaf0f2851991b13359d66c582bca9f46b67da0f7",
+    "multifamily|mf_core|single_loan": "df7578ab7e742c23c43167f6a9835ced8e579f32a49f0f9a495b1beb088c880b",
+    "multifamily|mf_large_scale|roll_up": "dd4cc205e54535c3fa042dd06005aa5e4b813a3c3ecd95272d2a285b50e43246",
+    "multifamily|mf_large_scale|single_loan": "18b9118f36023f9cc158df68dc8fed2e91b4ed71e0c7e89fbcb29ad7c6eccca4",
+    "multifamily|mf_value_add|roll_up": "55b135b7b945cad7978e4f65c3189c9cbf13e3512616f5281fc6da2cea39da21",
+    "multifamily|mf_value_add|single_loan": "1b7e62e8d7a503df77eabc69b7d8013b3224d1a78de6c68013a57b921f6954de",
+    "multifamily|mf_workforce|roll_up": "2a91fbbbc939c901439fb635db99130a431ae02f67b559eed8a69ca7354a213a",
+    "multifamily|mf_workforce|single_loan": "8efc0c2360b6e385dabbbcd3c1722437eea00b03b48509505679c5e6e76ad4bc",
+    "industrial|ind_core|roll_up": "b1b90b3f4ea61d6272d5606a15dce5741fc935832be5ab0005aa7176940e764d",
+    "industrial|ind_core|single_loan": "925b7bbeadf26bef800add464fb69fd263651260c6d39d358127ee5564a44710",
+    "industrial|ind_light|roll_up": "04f827e566cd4e03a5dba38dd859168dd1cb3783ab5f8bc4404c9154ef758228",
+    "industrial|ind_light|single_loan": "8404b08a58584aac7ccac33a02eca61dc99f9025b390be0116f5dce7502bf94c",
+    "industrial|ind_logistics|roll_up": "5e67f8865ffb3253a73428e0bb5e6827bda9caa30aa8f59e1a56ac3dd0dfb889",
+    "industrial|ind_logistics|single_loan": "f560c6b06dac0650fc43246c356f025ea57d2cdf51e94dc5266518e800dd34cc",
+    "retail|retail_core|roll_up": "4fe329647a249a5674bbe56e578eafac0a3c0eb9319156b6808b6cd5969a5023",
+    "retail|retail_core|single_loan": "76ea3cb0604c46e121038252b4908d5f4767a52abc7bf42ead54fd139accd1ba",
+    "hotel|hotel_core|roll_up": "08a84aeddd7d578897586fde5f248251a6e68e560e864820907ca9c0bec1361c",
+    "hotel|hotel_core|single_loan": "99ac57a3f844812a5a0144fb70c01de8e072471a4786986ed7421198c0b364e7",
+    "self_storage|self_storage_core|roll_up": "25ccd50852774676cc7c9d7b803b2deb6e8318923a4fa485292b73bae5c43dc3",
+    "self_storage|self_storage_core|single_loan": "d0cf73ece2f0cb10631870e5d62bc79aaf88a6f6bd19c8c73cdb0aab62cb37ca",
+    "mixed_use|mixed_use_core|roll_up": "916a8f260ee00495750883bf2010a52cd6484d1d484b431a9ec53bd8a15d0441",
+    "mixed_use|mixed_use_core|single_loan": "41415fad36c8ab6302cd3307cec1c13ae968de73f28f151a3bf3d04dfb8ee654",
+    "manufactured_housing|manufactured_housing_core|roll_up": "dcb613c9f42a54910e20a9faac8884f768c09ccb3877ef0eb89b31af8f28b2b0",
+    "manufactured_housing|manufactured_housing_core|single_loan": "2695cfc765387e73fcda140d15c28560c73ff1304ffd740c8019838036c3f7e8"
+  },
+  "versions": {
+    "6": {
+      "assetClassVariantModeTabs": {
+        "office": {
+          "office_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "office_trophy": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "office_value_add": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "office_distressed": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "multifamily": {
+          "mf_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "mf_large_scale": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "mf_workforce": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "mf_value_add": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "industrial": {
+          "ind_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "ind_logistics": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "ind_light": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "retail": {
+          "retail_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "hotel": {
+          "hotel_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Hotel",
+              "Hotel Op History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Hotel",
+              "Hotel Op History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "self_storage": {
+          "self_storage_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "mixed_use": {
+          "mixed_use_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "manufactured_housing": {
+          "manufactured_housing_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        }
+      },
+      "bindingsByAssetClassVariantMode": {
+        "office": {
+          "office_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "office_distressed": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "office_trophy": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "office_value_add": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        },
+        "multifamily": {
+          "mf_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "mf_large_scale": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "mf_value_add": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "mf_workforce": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        },
+        "industrial": {
+          "ind_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "ind_light": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          },
+          "ind_logistics": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        },
+        "retail": {
+          "retail_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        },
+        "hotel": {
+          "hotel_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        },
+        "self_storage": {
+          "self_storage_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        },
+        "mixed_use": {
+          "mixed_use_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        },
+        "manufactured_housing": {
+          "manufactured_housing_core": {
+            "roll_up": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ],
+            "single_loan": [
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Original_Balance"
+            ]
+          }
+        }
+      }
+    },
+    "7": {
+      "assetClassVariantModeTabs": {
+        "office": {
+          "office_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "office_trophy": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "office_value_add": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "office_distressed": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "multifamily": {
+          "mf_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "mf_large_scale": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "mf_workforce": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "mf_value_add": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "industrial": {
+          "ind_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "ind_logistics": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          },
+          "ind_light": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "retail": {
+          "retail_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "hotel": {
+          "hotel_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Hotel",
+              "Hotel Op History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Hotel",
+              "Hotel Op History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "self_storage": {
+          "self_storage_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "mixed_use": {
+          "mixed_use_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - Comm",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        },
+        "manufactured_housing": {
+          "manufactured_housing_core": {
+            "single_loan": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ],
+            "roll_up": [
+              "Property & Loan Summary",
+              "Conclusions & Escrows",
+              "Property Detail - MF SS MHP",
+              "Operating History and Pro Forma",
+              "Stress Scenario",
+              "Third Party Reports Summary",
+              "Borrower",
+              "Market",
+              "Site Inspection",
+              "Lease Comps",
+              "Sales Comps",
+              "CMBS Comps"
+            ]
+          }
+        }
+      },
+      "bindingsByAssetClassVariantMode": {
+        "office": {
+          "office_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "office_distressed": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "office_trophy": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "office_value_add": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        },
+        "multifamily": {
+          "mf_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "mf_large_scale": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "mf_value_add": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "mf_workforce": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        },
+        "industrial": {
+          "ind_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "ind_light": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          },
+          "ind_logistics": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        },
+        "retail": {
+          "retail_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        },
+        "hotel": {
+          "hotel_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        },
+        "self_storage": {
+          "self_storage_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        },
+        "mixed_use": {
+          "mixed_use_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        },
+        "manufactured_housing": {
+          "manufactured_housing_core": {
+            "roll_up": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ],
+            "single_loan": [
+              "Borrower!Borrower",
+              "Borrower!Sponsor",
+              "Conclusions & Escrows!Concluded_Cap_Rate",
+              "Conclusions & Escrows!Concluded_Value",
+              "Property & Loan Summary!Address",
+              "Property & Loan Summary!Amortization_Term",
+              "Property & Loan Summary!Annual_Debt_Service",
+              "Property & Loan Summary!Balloon_Term",
+              "Property & Loan Summary!City",
+              "Property & Loan Summary!Coupon",
+              "Property & Loan Summary!Current_Balance",
+              "Property & Loan Summary!Interest_Only_Period",
+              "Property & Loan Summary!Occupancy",
+              "Property & Loan Summary!Original_Balance",
+              "Property & Loan Summary!Property_Name",
+              "Property & Loan Summary!Property_Type",
+              "Property & Loan Summary!State",
+              "Property & Loan Summary!Year_Built",
+              "Property & Loan Summary!ZIP"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "structuralFingerprintsByVersion": {
+    "6|office|office_core|roll_up": "375f14c91d6b04bfbe3fff078129e52f91a445ba6fe329c63950560f17aad195",
+    "6|office|office_core|single_loan": "0c94e0b1bd081d934bbdad7bb03bf343ab5e3a32b831b642f675b7d1270a422a",
+    "6|office|office_distressed|roll_up": "00c67c7e3436db36dff2e9be5e902cb8bcf1cc186b7e01eacc6a38f758f2863d",
+    "6|office|office_distressed|single_loan": "a59d000d5c703013e809105a4906c316d2184cb94539e96f8c9ffe4201812ba7",
+    "6|office|office_trophy|roll_up": "7de8e39623e3606829e7a4aef1e5229bd43c78dee764bc90c6333b0d62d1e3bb",
+    "6|office|office_trophy|single_loan": "1788601055cdc1f5c742ceb1326debde5d9ffa4cdf51c653787b9b550b3a37e3",
+    "6|office|office_value_add|roll_up": "524c794555ee884a0b154f2e58e8082ffa9f12926f88851a77239802ec2004fd",
+    "6|office|office_value_add|single_loan": "8e28cfa57256311971b1b58d4e3e23a04d95cfb0ab3372b96f005d2be5fd0295",
+    "6|multifamily|mf_core|roll_up": "f1993b830fbcf6c754c723e7a04745b37b4e8e6c6d823e0ac8517aa93fc43aa5",
+    "6|multifamily|mf_core|single_loan": "e211adf1aeb27a2af931c88bb9269be656d74011d1b09a3a24e021a193478086",
+    "6|multifamily|mf_large_scale|roll_up": "461d4107554420b9edcae94e27a886b0230d7ca6da8f8a2e7261ea8e089ca6e2",
+    "6|multifamily|mf_large_scale|single_loan": "5af2e2f64ebdf98c2f87e72454de814650a23df915b46a2f7c97a431141cbe96",
+    "6|multifamily|mf_value_add|roll_up": "b0e3985f958c04374c8266b9a37b4a521a63872e5cabe92d202ce31a965daf6c",
+    "6|multifamily|mf_value_add|single_loan": "8e4719919f5cd003fc919f2fd84b7d292108780410443df219ccae1fb73a9755",
+    "6|multifamily|mf_workforce|roll_up": "2bda21a03b010ef09e293e862943b3f7d3abc95bacc86cdf38547d687a43e55f",
+    "6|multifamily|mf_workforce|single_loan": "a226d364a55218c0cea4b50e9888e3723754ab203cb0f8a030ffeffd4656d4ca",
+    "6|industrial|ind_core|roll_up": "c0d4008401f528773db5f5e367e6b0fa0365fa3e8b0b14a7f622df4957bdc42b",
+    "6|industrial|ind_core|single_loan": "1144de48878ccf5efa979ea284d0b8228e74dd2abe2e94193527cec1951d2c3e",
+    "6|industrial|ind_light|roll_up": "a52e506da9a631cc58814b27a9e7d6b073d45fb15f012742ca78e0883d827ade",
+    "6|industrial|ind_light|single_loan": "a7db6fad8ed0bc986eda199b7271434e254a6a52e19cb6b452ca6467c1ad1c0b",
+    "6|industrial|ind_logistics|roll_up": "a3d09a741bba20fb623f3de23316c2b44ca60301d96102f09404f70ab2701ed2",
+    "6|industrial|ind_logistics|single_loan": "e118e6a912e283761fd19ef52e266e7c6c121923c3f0867f13b8d388b0e7727b",
+    "6|retail|retail_core|roll_up": "a913a30d6958cdfa4f8a7ed6c2274fcc65edd285200b668a14b839f10ca899a8",
+    "6|retail|retail_core|single_loan": "8104a507fcfd820128c710976037e3894dda80ed6c77bc068783a63410bc5349",
+    "6|hotel|hotel_core|roll_up": "6d09799cb38039a97fa576feef395204cdd4c225de20c4be2fc3556ca93811ce",
+    "6|hotel|hotel_core|single_loan": "ec2eefedeb3b6204fb6de71db3a35cb2d715113726af65b4b765d8e167733b18",
+    "6|self_storage|self_storage_core|roll_up": "104b5cb6238589ef1176210f933b8bbdc0da31fbab894d353e7ea6d54b18a33e",
+    "6|self_storage|self_storage_core|single_loan": "b5237ed59711d211f495d8cd2e196d1aef9b3efb7d11c5f123d917892e140a6e",
+    "6|mixed_use|mixed_use_core|roll_up": "cae695512a7f19c01b077bc876bb4a015aca0d485561068aa5600101c2d058cc",
+    "6|mixed_use|mixed_use_core|single_loan": "04c24821c694739ff7461159f7f7a9599b0858ee5ab10439602113a06b389e49",
+    "6|manufactured_housing|manufactured_housing_core|roll_up": "2e6351edd64a73d5518e01eacc9fedf74fba284d0783eed96b2bdf76c64d0fa7",
+    "6|manufactured_housing|manufactured_housing_core|single_loan": "d3f84549bc04a9223ee8add00c785f4974d3ec4855cffac130a506aa2bacf67f",
+    "7|office|office_core|roll_up": "23e5adea4669a7390bae315ae8e0103303f39c6dd52ec984d90b7eff76aa9994",
+    "7|office|office_core|single_loan": "ae90bfa5c43bcf180eb83d7d123ba9f021ee6da3b858dbe1d824ce3e0c86e535",
+    "7|office|office_distressed|roll_up": "e9cae0db2405887e4c1a954ae4c9fb502d1e9fc7ee1d35fb6af589ccd0a74f96",
+    "7|office|office_distressed|single_loan": "53c257479af5d2575ef4c3174f1c861c2b30594470913d47efc96b0721f4f5bb",
+    "7|office|office_trophy|roll_up": "07af1a9ffa81496ef70aa4a41408f5da211a8fb9cfb43162a5f28b7cbca2c9e7",
+    "7|office|office_trophy|single_loan": "1b7f73b9b9747fd94fd75292a3a1c9457d48f19fd48a0a3bf34462eeb924e8b9",
+    "7|office|office_value_add|roll_up": "9792b485c98fde7b2a57de13d10b9cfe196008b5e17afa2fc82c4479aa00080d",
+    "7|office|office_value_add|single_loan": "bfbcd12abe7b691efcb3346d9e988e1a0002b15ae63eb75a07782e743ec5253d",
+    "7|multifamily|mf_core|roll_up": "864efcffaa730d38fca0d9f8eaf0f2851991b13359d66c582bca9f46b67da0f7",
+    "7|multifamily|mf_core|single_loan": "df7578ab7e742c23c43167f6a9835ced8e579f32a49f0f9a495b1beb088c880b",
+    "7|multifamily|mf_large_scale|roll_up": "dd4cc205e54535c3fa042dd06005aa5e4b813a3c3ecd95272d2a285b50e43246",
+    "7|multifamily|mf_large_scale|single_loan": "18b9118f36023f9cc158df68dc8fed2e91b4ed71e0c7e89fbcb29ad7c6eccca4",
+    "7|multifamily|mf_value_add|roll_up": "55b135b7b945cad7978e4f65c3189c9cbf13e3512616f5281fc6da2cea39da21",
+    "7|multifamily|mf_value_add|single_loan": "1b7e62e8d7a503df77eabc69b7d8013b3224d1a78de6c68013a57b921f6954de",
+    "7|multifamily|mf_workforce|roll_up": "2a91fbbbc939c901439fb635db99130a431ae02f67b559eed8a69ca7354a213a",
+    "7|multifamily|mf_workforce|single_loan": "8efc0c2360b6e385dabbbcd3c1722437eea00b03b48509505679c5e6e76ad4bc",
+    "7|industrial|ind_core|roll_up": "b1b90b3f4ea61d6272d5606a15dce5741fc935832be5ab0005aa7176940e764d",
+    "7|industrial|ind_core|single_loan": "925b7bbeadf26bef800add464fb69fd263651260c6d39d358127ee5564a44710",
+    "7|industrial|ind_light|roll_up": "04f827e566cd4e03a5dba38dd859168dd1cb3783ab5f8bc4404c9154ef758228",
+    "7|industrial|ind_light|single_loan": "8404b08a58584aac7ccac33a02eca61dc99f9025b390be0116f5dce7502bf94c",
+    "7|industrial|ind_logistics|roll_up": "5e67f8865ffb3253a73428e0bb5e6827bda9caa30aa8f59e1a56ac3dd0dfb889",
+    "7|industrial|ind_logistics|single_loan": "f560c6b06dac0650fc43246c356f025ea57d2cdf51e94dc5266518e800dd34cc",
+    "7|retail|retail_core|roll_up": "4fe329647a249a5674bbe56e578eafac0a3c0eb9319156b6808b6cd5969a5023",
+    "7|retail|retail_core|single_loan": "76ea3cb0604c46e121038252b4908d5f4767a52abc7bf42ead54fd139accd1ba",
+    "7|hotel|hotel_core|roll_up": "08a84aeddd7d578897586fde5f248251a6e68e560e864820907ca9c0bec1361c",
+    "7|hotel|hotel_core|single_loan": "99ac57a3f844812a5a0144fb70c01de8e072471a4786986ed7421198c0b364e7",
+    "7|self_storage|self_storage_core|roll_up": "25ccd50852774676cc7c9d7b803b2deb6e8318923a4fa485292b73bae5c43dc3",
+    "7|self_storage|self_storage_core|single_loan": "d0cf73ece2f0cb10631870e5d62bc79aaf88a6f6bd19c8c73cdb0aab62cb37ca",
+    "7|mixed_use|mixed_use_core|roll_up": "916a8f260ee00495750883bf2010a52cd6484d1d484b431a9ec53bd8a15d0441",
+    "7|mixed_use|mixed_use_core|single_loan": "41415fad36c8ab6302cd3307cec1c13ae968de73f28f151a3bf3d04dfb8ee654",
+    "7|manufactured_housing|manufactured_housing_core|roll_up": "dcb613c9f42a54910e20a9faac8884f768c09ccb3877ef0eb89b31af8f28b2b0",
+    "7|manufactured_housing|manufactured_housing_core|single_loan": "2695cfc765387e73fcda140d15c28560c73ff1304ffd740c8019838036c3f7e8"
+  }
+}

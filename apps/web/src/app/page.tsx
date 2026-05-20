@@ -211,12 +211,8 @@ export default function LandingPage() {
                 </div>
                 <div className="flex items-center gap-4">
                   {a.creditScore !== null && (
-                    <span className={`text-sm font-mono font-bold ${
-                      a.creditScore >= 85 ? 'text-score-strong' :
-                      a.creditScore >= 70 ? 'text-score-acceptable' :
-                      a.creditScore >= 50 ? 'text-score-watchlist' :
-                      'text-score-high_risk'
-                    }`}>
+                    /* Color sourced from server-emitted a.riskTier — no client-side threshold. */
+                    <span className={`text-sm font-mono font-bold text-score-${a.riskTier ?? 'high_risk'}`}>
                       {a.creditScore}/100
                     </span>
                   )}

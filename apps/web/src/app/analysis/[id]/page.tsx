@@ -12,6 +12,8 @@ import {
   formatCurrencyFullSafe,
 } from '@/lib/format';
 import type { Analysis, Finding, Severity, Comment, StressScenario, CriteriaEvaluation, CrossCheckFinding, MitigationStrategy, ResearchResult, BPieceDecision, UnderwritingModel, RepaymentScheduleEntry } from '@cre/shared';
+import type { CommitteeTimeline, DealWorkflowState, RenderedAnalysis } from '@cre/contracts';
+import { RenderedAnalysisView } from '@/components/RenderedAnalysisView';
 
 type Tab = 'summary' | 'findings' | 'crosscheck' | 'research' | 'mitigations' | 'score' | 'criteria' | 'decision';
 type UWTab = 'income' | 'expenses' | 'metrics' | 'schedule' | 'stress';
@@ -19,6 +21,14 @@ type UWTab = 'income' | 'expenses' | 'metrics' | 'schedule' | 'stress';
 export default function AnalysisDashboard() {
   const { id } = useParams<{ id: string }>();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  // Post-6.8: graph-backed analyses arrive as RenderedAnalysis. We render a separate
+  // read-only view for them; the legacy dashboard below runs only for the legacy
+  // { analysis: ... } envelope returned by uuid-format ids.
+  const [rendered, setRendered] = useState<RenderedAnalysis | null>(null);
+  // Phase 4 - workflow projections fetched alongside the rendered analysis.
+  // Pure server-derived state; never reconstructed in the browser.
+  const [workflow, setWorkflow] = useState<DealWorkflowState | null>(null);
+  const [timeline, setTimeline] = useState<CommitteeTimeline | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('summary');
   const [uwTab, setUwTab] = useState<UWTab>('income');
@@ -28,7 +38,6 @@ export default function AnalysisDashboard() {
   const [commentTarget, setCommentTarget] = useState<string>('');
   const [stressResults, setStressResults] = useState<StressScenario[]>([]);
   const [populatedTemplateInfo, setPopulatedTemplateInfo] = useState<{ available: boolean; fileName?: string; mappedFields?: any[]; unmappedFields?: string[]; tabsPopulated?: string[] } | null>(null);
-  const [bankUwInfo, setBankUwInfo] = useState<{ available: boolean; fileName?: string; fileType?: string } | null>(null);
 
   // Poll for status while processing
   useEffect(() => {
@@ -36,25 +45,42 @@ export default function AnalysisDashboard() {
 
     const fetchAnalysis = async () => {
       try {
-        const data = await api.getAnalysis(id);
-        setAnalysis(data.analysis);
+        const response = await api.getAnalysis(id);
         setLoading(false);
 
-        if (data.analysis.status === 'complete' || data.analysis.status === 'error') {
+        if (response.kind === 'rendered') {
+          // Graph-backed analysis: content-hashed and immutable. Stop polling -
+          // a content-hash root never changes status and never needs re-fetch.
+          setRendered(response.body);
           clearInterval(interval);
-          if (data.analysis.stressScenarios) {
-            setStressResults(data.analysis.stressScenarios);
+          // Phase 4 - fetch workflow projections for this rootId. Failures are
+          // soft (the rendered analysis remains usable without the committee
+          // surface); errors are silenced so the page does not block on them.
+          const rootId = response.body.rootId;
+          try {
+            const ws = await api.getWorkflowState(rootId);
+            setWorkflow(ws);
+          } catch {}
+          try {
+            const tl = await api.getCommitteeTimeline(rootId);
+            setTimeline(tl);
+          } catch {}
+          return;
+        }
+
+        // Legacy path: { analysis: Analysis } envelope. Existing dashboard logic.
+        const legacy = response.body.analysis as Analysis;
+        setAnalysis(legacy);
+
+        if (legacy.status === 'complete' || legacy.status === 'error') {
+          clearInterval(interval);
+          if (legacy.stressScenarios) {
+            setStressResults(legacy.stressScenarios);
           }
-          // Check if a populated template is available
           try {
             const templateInfo = await api.getPopulatedTemplateInfo(id);
             setPopulatedTemplateInfo(templateInfo);
           } catch { setPopulatedTemplateInfo({ available: false }); }
-          // Check if bank underwriting is available
-          try {
-            const buwInfo = await api.getBankUnderwritingInfo(id);
-            setBankUwInfo(buwInfo);
-          } catch { setBankUwInfo({ available: false }); }
         }
       } catch {
         setLoading(false);
@@ -71,22 +97,26 @@ export default function AnalysisDashboard() {
     try {
       await api.addComment(id, { sectionId, findingId, stance: commentStance, text: commentText });
       setCommentText('');
-      const data = await api.getAnalysis(id);
-      setAnalysis(data.analysis);
+      const response = await api.getAnalysis(id);
+      // Comment flow is legacy-only; the rendered view exposes no comment affordances.
+      if (response.kind === 'legacy') setAnalysis(response.body.analysis as Analysis);
     } catch {}
   }, [id, commentText, commentStance]);
 
+  // Batch 6.3 — UW edits create immutable revisions (POST /revisions). The response is the
+  // full new analysis (decorated with credit-policy bands). Replace local state with the
+  // new revision; URL stays at the lineage root.
   const handleUWUpdate = useCallback(async (path: string, value: number) => {
     try {
-      const result = await api.updateUWModel(id, [{ path, value }]);
-      setAnalysis((prev) => prev ? { ...prev, uwModel: result.uwModel } : prev);
+      const result = await api.createUwModelRevision(id, [{ path, value }]);
+      if (result?.analysis) setAnalysis(result.analysis);
     } catch {}
   }, [id]);
 
   const handleLoanTermUpdate = useCallback(async (updates: Record<string, any>) => {
     try {
-      const result = await api.updateLoanTerms(id, updates);
-      setAnalysis((prev) => prev ? { ...prev, uwModel: result.uwModel } : prev);
+      const result = await api.createLoanTermsRevision(id, updates);
+      if (result?.analysis) setAnalysis(result.analysis);
     } catch {}
   }, [id]);
 
@@ -96,6 +126,37 @@ export default function AnalysisDashboard() {
       setStressResults(result.results);
     } catch {}
   }, [id]);
+
+  // Phase 4 - committee action buttons fire POST /committee-actions; on success
+  // we refetch the workflow + timeline projections so the UI reflects the new
+  // server-side state. State is NEVER mutated locally.
+  const refetchWorkflow = useCallback(async () => {
+    if (rendered === null) return;
+    const rootId = rendered.rootId;
+    try {
+      const ws = await api.getWorkflowState(rootId);
+      setWorkflow(ws);
+    } catch {}
+    try {
+      const tl = await api.getCommitteeTimeline(rootId);
+      setTimeline(tl);
+    } catch {}
+  }, [rendered]);
+
+  // Post-6.8 consumer migration: render the materialized server output for
+  // graph-backed (content-hashed) analyses. The legacy dashboard below runs only
+  // for legacy { analysis: ... } responses. ONE renderer per shape; no dual
+  // rendering paths in the client.
+  if (rendered !== null) {
+    return (
+      <RenderedAnalysisView
+        data={rendered}
+        workflow={workflow ?? undefined}
+        timeline={timeline ?? undefined}
+        onWorkflowChanged={() => { void refetchWorkflow(); }}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -160,35 +221,39 @@ export default function AnalysisDashboard() {
           <span className="badge badge-medium">{analysis.assetType.toUpperCase()}</span>
         </div>
         <div className="flex items-center gap-3">
-          {/* Bank Underwriting — original uploaded file (secondary/outlined style) */}
-          {bankUwInfo?.available && (
-            <button
-              onClick={() => api.downloadBankUnderwriting(analysis.id, bankUwInfo.fileName)}
-              className="text-xs px-4 py-2 flex items-center gap-2 rounded border border-border-primary bg-bg-tertiary text-text-secondary hover:text-text-primary hover:border-text-muted transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              Download Bank Underwriting
-            </button>
+          {/* Bank Underwriter and BP Spire Underwriter — both use the SAME
+              unified Excel export pipeline (/api/underwriting/export). They
+              differ only in the `profile` parameter (input configuration). */}
+          {analysis.status === 'complete' && analysis.uwModel && (
+            <>
+              <button
+                onClick={() =>
+                  api.exportUnderwriting(
+                    analysis.id,
+                    { profile: 'bank', assetClass: analysis.assetType, underwritingMode: 'single_loan' },
+                    `Bank_UW_${analysis.name}.xlsx`,
+                  )
+                }
+                className="text-xs px-4 py-2 flex items-center gap-2 rounded border border-border-primary bg-bg-tertiary text-text-secondary hover:text-text-primary hover:border-text-muted transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Download Bank Underwriter
+              </button>
+              <button
+                onClick={() =>
+                  api.exportUnderwriting(
+                    analysis.id,
+                    { profile: 'bp_spire', assetClass: analysis.assetType, underwritingMode: 'single_loan' },
+                    `BPSpire_UW_${analysis.name}.xlsx`,
+                  )
+                }
+                className="btn-primary text-xs px-4 py-2 flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Download BP Spire Underwriting
+              </button>
+            </>
           )}
-          {/* BP Spiral Underwriting — generated credit memo (primary/accent style) */}
-          {analysis.status === 'complete' && analysis.validationResult?.passed ? (
-            <button
-              onClick={() => api.downloadBPSpiralMemo(analysis.id, `BP_Spiral_UW_${analysis.name}.pdf`)}
-              className="btn-primary text-xs px-4 py-2 flex items-center gap-2"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              Download BP Spiral UW
-            </button>
-          ) : analysis.status === 'complete' ? (
-            <button
-              disabled
-              className="text-xs px-4 py-2 flex items-center gap-2 rounded bg-bg-tertiary text-text-muted opacity-50 cursor-not-allowed"
-              title="Validation did not pass — memo unavailable"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              BP Spiral UW (Validation Failed)
-            </button>
-          ) : null}
           {/* Populated Excel Template (tertiary option) */}
           {populatedTemplateInfo?.available && (
             <button
@@ -201,12 +266,8 @@ export default function AnalysisDashboard() {
           )}
           {score && (
             <>
-              <span className={`text-2xl font-mono font-bold ${
-                score.overall >= 85 ? 'text-score-strong' :
-                score.overall >= 70 ? 'text-score-acceptable' :
-                score.overall >= 50 ? 'text-score-watchlist' :
-                'text-score-high_risk'
-              }`}>
+              {/* Color sourced from server-emitted score.riskTier — no client-side threshold. */}
+              <span className={`text-2xl font-mono font-bold text-score-${score.riskTier ?? 'high_risk'}`}>
                 {score.overall}
               </span>
               <span className="text-xs text-text-muted">/100</span>
@@ -303,12 +364,8 @@ export default function AnalysisDashboard() {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="card text-center py-3">
                       <div className="text-xs text-text-muted mb-1">Credit Score</div>
-                      <div className={`text-2xl font-mono font-bold ${
-                        score.overall >= 85 ? 'text-score-strong' :
-                        score.overall >= 70 ? 'text-score-acceptable' :
-                        score.overall >= 50 ? 'text-score-watchlist' :
-                        'text-score-high_risk'
-                      }`}>{score.overall}</div>
+                      {/* Color sourced from server-emitted score.riskTier — no client-side threshold. */}
+                      <div className={`text-2xl font-mono font-bold text-score-${score.riskTier ?? 'high_risk'}`}>{score.overall}</div>
                     </div>
                     <div className="card text-center py-3">
                       <div className="text-xs text-text-muted mb-1">Red Flags</div>
@@ -579,12 +636,8 @@ export default function AnalysisDashboard() {
               <div className="space-y-4">
                 {/* Score Summary */}
                 <div className="card text-center">
-                  <div className={`text-5xl font-mono font-bold mb-2 ${
-                    score.overall >= 85 ? 'text-score-strong' :
-                    score.overall >= 70 ? 'text-score-acceptable' :
-                    score.overall >= 50 ? 'text-score-watchlist' :
-                    'text-score-high_risk'
-                  }`}>
+                  {/* Color sourced from server-emitted score.riskTier — no client-side threshold. */}
+                  <div className={`text-5xl font-mono font-bold mb-2 text-score-${score.riskTier ?? 'high_risk'}`}>
                     {score.overall}
                   </div>
                   <div className="text-xs text-text-muted mb-4">Credit Score</div>
@@ -592,12 +645,7 @@ export default function AnalysisDashboard() {
                   {/* Progress bar */}
                   <div className="w-full bg-bg-tertiary rounded-full h-3 mb-4">
                     <div
-                      className={`h-3 rounded-full transition-all ${
-                        score.overall >= 85 ? 'bg-score-strong' :
-                        score.overall >= 70 ? 'bg-score-acceptable' :
-                        score.overall >= 50 ? 'bg-score-watchlist' :
-                        'bg-score-high_risk'
-                      }`}
+                      className={`h-3 rounded-full transition-all bg-score-${score.riskTier ?? 'high_risk'}`}
                       style={{ width: `${score.overall}%` }}
                     />
                   </div>
@@ -616,13 +664,9 @@ export default function AnalysisDashboard() {
                           </span>
                         </div>
                         <div className="w-full bg-bg-tertiary rounded-full h-2">
+                          {/* Color sourced from server-emitted cat.tier — no client-side threshold. */}
                           <div
-                            className={`h-2 rounded-full ${
-                              cat.score >= 80 ? 'bg-score-strong' :
-                              cat.score >= 60 ? 'bg-score-acceptable' :
-                              cat.score >= 40 ? 'bg-score-watchlist' :
-                              'bg-score-high_risk'
-                            }`}
+                            className={`h-2 rounded-full bg-score-${cat.tier ?? 'high_risk'}`}
                             style={{ width: `${cat.score}%` }}
                           />
                         </div>
@@ -874,17 +918,16 @@ export default function AnalysisDashboard() {
                         <MetricRow label="Prepayment" value={uw.loanDetails.prepaymentTerms} />
                       )}
                       <div className="border-t border-border-primary my-2" />
-                      {/* Threshold expressions null-guarded for compile only — unit correction (decimal) handled in Step 3. */}
-                      <MetricRow label="DSCR" value={formatMultipleSafe(uw.dscr)} highlight={uw.dscr === null ? undefined : uw.dscr < 1.25 ? 'danger' : uw.dscr < 1.5 ? 'warning' : 'safe'} />
-                      {/* Thresholds in decimal space (LTV/Debt Yield stored as decimal). */}
-                      <MetricRow label="LTV" value={formatDecimalPercent(uw.ltv)} highlight={uw.ltv === null ? undefined : uw.ltv > 0.75 ? 'danger' : uw.ltv > 0.65 ? 'warning' : 'safe'} />
-                      <MetricRow label="Debt Yield" value={formatDecimalPercent(uw.debtYield)} highlight={uw.debtYield === null ? undefined : uw.debtYield < 0.08 ? 'danger' : uw.debtYield < 0.10 ? 'warning' : 'safe'} />
+                      {/* Bands are server-emitted (apps/api/src/services/doctrine/credit-policy-bands.ts); never recomputed here. */}
+                      <MetricRow label="DSCR" value={formatMultipleSafe(uw.dscr)} highlight={uw.dscrBand ?? undefined} />
+                      <MetricRow label="LTV" value={formatDecimalPercent(uw.ltv)} highlight={uw.ltvBand ?? undefined} />
+                      <MetricRow label="Debt Yield" value={formatDecimalPercent(uw.debtYield)} highlight={uw.debtYieldBand ?? undefined} />
                       {uw.repaymentSchedule && (
                         <>
                           <div className="border-t border-border-primary my-2" />
-                          <MetricRow label="Balloon Balance" value={formatCurrencyFull(uw.repaymentSchedule.summary.balloonBalance)} highlight={uw.repaymentSchedule.summary.balloonBalance > uw.loanAmount * 0.9 ? 'danger' : uw.repaymentSchedule.summary.balloonBalance > uw.loanAmount * 0.7 ? 'warning' : 'safe'} />
+                          <MetricRow label="Balloon Balance" value={formatCurrencyFull(uw.repaymentSchedule.summary.balloonBalance)} highlight={uw.repaymentSchedule.summary.balloonBand ?? undefined} />
                           <MetricRow label="Maturity Date" value={uw.repaymentSchedule.summary.balloonDate} />
-                          <MetricRow label="Min Monthly DSCR" value={formatMultipleSafe(uw.repaymentSchedule.summary.minDSCR)} highlight={uw.repaymentSchedule.summary.minDSCR === null ? undefined : uw.repaymentSchedule.summary.minDSCR < 1.15 ? 'danger' : uw.repaymentSchedule.summary.minDSCR < 1.25 ? 'warning' : 'safe'} />
+                          <MetricRow label="Min Monthly DSCR" value={formatMultipleSafe(uw.repaymentSchedule.summary.minDSCR)} highlight={uw.repaymentSchedule.summary.minDscrBand ?? undefined} />
                         </>
                       )}
                     </div>
@@ -927,15 +970,14 @@ export default function AnalysisDashboard() {
                                 <tr key={i}>
                                   <td className="table-cell text-text-secondary">{s.name}</td>
                                   <td className="table-cell mono">{formatCurrencyFull(s.results.noi)}</td>
-                                  {/* Threshold expressions null-guarded; unit correction (decimal) handled in Step 3. */}
-                                  <td className={`table-cell mono ${s.results.dscr !== null && s.results.dscr < 1.15 ? 'text-risk-high' : ''}`}>
+                                  {/* Per-cell breach flags are server-emitted. true = breached, false = pass, null = not computable. */}
+                                  <td className={`table-cell mono ${s.results.dscrBreached === true ? 'text-risk-high' : ''}`}>
                                     {formatMultipleSafe(s.results.dscr)}
                                   </td>
-                                  {/* Thresholds in decimal space (LTV/Debt Yield stored as decimal). */}
-                                  <td className={`table-cell mono ${s.results.ltv !== null && s.results.ltv > 0.80 ? 'text-risk-high' : ''}`}>
+                                  <td className={`table-cell mono ${s.results.ltvBreached === true ? 'text-risk-high' : ''}`}>
                                     {formatDecimalPercent(s.results.ltv)}
                                   </td>
-                                  <td className={`table-cell mono ${s.results.debtYield !== null && s.results.debtYield < 0.07 ? 'text-risk-high' : ''}`}>
+                                  <td className={`table-cell mono ${s.results.debtYieldBreached === true ? 'text-risk-high' : ''}`}>
                                     {formatDecimalPercent(s.results.debtYield)}
                                   </td>
                                   <td className="table-cell text-center">
@@ -1046,19 +1088,20 @@ function LoanSchedulePanel({ uwModel, onUpdateTerms }: {
         </div>
         <div className="card py-2 text-center">
           <div className="text-[10px] text-text-muted mb-0.5">Balloon Balance</div>
-          <div className={`text-xs font-mono font-medium ${schedule.summary.balloonBalance > uwModel.loanAmount * 0.9 ? 'text-risk-high' : 'text-text-primary'}`}>
+          {/* Band sourced from server (summary.balloonBand). 'danger' → high-risk color; otherwise neutral. */}
+          <div className={`text-xs font-mono font-medium ${schedule.summary.balloonBand === 'danger' ? 'text-risk-high' : 'text-text-primary'}`}>
             {formatCurrencyFull(schedule.summary.balloonBalance)}
           </div>
         </div>
         <div className="card py-2 text-center">
           <div className="text-[10px] text-text-muted mb-0.5">Min DSCR</div>
-          {/* SKIP classification when minDSCR is null — never coerce null<1.15 (which is true in JS). */}
+          {/* Band sourced from server (summary.minDscrBand). null → muted (degraded). */}
           <div className={`text-xs font-mono font-medium ${
-            schedule.summary.minDSCR === null
+            schedule.summary.minDscrBand == null
               ? 'text-text-muted'
-              : schedule.summary.minDSCR < 1.15
+              : schedule.summary.minDscrBand === 'danger'
               ? 'text-risk-high'
-              : schedule.summary.minDSCR < 1.25
+              : schedule.summary.minDscrBand === 'warning'
               ? 'text-risk-medium'
               : 'text-risk-positive'
           }`}>
@@ -1165,13 +1208,13 @@ function LoanSchedulePanel({ uwModel, onUpdateTerms }: {
                       <td className="table-cell mono text-right font-medium">{formatCurrencyFull(entry.totalPayment)}</td>
                       <td className="table-cell mono text-right">{formatCurrencyFull(entry.endingBalance)}</td>
                       <td className="table-cell mono text-right">{formatCurrencyFull(entry.cumulativePrincipal)}</td>
-                      {/* SKIP classification when monthlyDSCR is null — never coerce null<1.15. */}
+                      {/* Band sourced from server (entry.monthlyDscrBand). null → muted (degraded). */}
                       <td className={`table-cell mono text-right ${
-                        entry.monthlyDSCR === null
+                        entry.monthlyDscrBand == null
                           ? 'text-text-muted'
-                          : entry.monthlyDSCR < 1.15
+                          : entry.monthlyDscrBand === 'danger'
                           ? 'text-risk-high'
-                          : entry.monthlyDSCR < 1.25
+                          : entry.monthlyDscrBand === 'warning'
                           ? 'text-risk-medium'
                           : 'text-risk-positive'
                       }`}>

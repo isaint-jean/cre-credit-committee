@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@cre/shared'],
+  transpilePackages: ['@cre/shared', '@cre/contracts'],
   async rewrites() {
     return [
       {

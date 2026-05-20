@@ -1,4 +1,55 @@
+import type {
+  CommitteeActionEvent,
+  CommitteeActionPayload,
+  CommitteeSnapshotId,
+  CommitteeTimeline,
+  DealWorkflowState,
+  DoctrineEvaluationId,
+  OverlayId,
+  RenderedAnalysis,
+  RenderedAnalysisId,
+} from '@cre/contracts';
+import { isRenderedAnalysis } from './rendered-analysis-guard';
+
+// Phase 4 (productization layer) - workflow API request/response shapes.
+// The client transports payloads opaquely; the server validates kind/payload
+// alignment. CommitteeActionPayload is exported by @cre/contracts.
+export interface PostCommitteeActionRequest {
+  readonly rootId: DoctrineEvaluationId;
+  readonly renderedAnalysisId: RenderedAnalysisId;
+  readonly snapshotId?: CommitteeSnapshotId;
+  readonly kind: CommitteeActionPayload['kind'];
+  readonly payload: CommitteeActionPayload;
+  readonly occurredAt?: string;
+}
+export interface PostCommitteeActionResponse {
+  readonly action: CommitteeActionEvent;
+}
+export interface AuditReplayResponse {
+  readonly rootId: string;
+  readonly chains: { readonly [overlayId: string]: ReadonlyArray<unknown> };
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+
+// Discriminated union for GET /api/analyses/:id (post-6.8 unified read endpoint).
+//
+// The endpoint returns one of two shapes depending on the id format dispatched on
+// the server side via dispatchByIdFormat. This client does NOT introspect the id
+// format itself; classification belongs only at the server-side dispatch boundary.
+// Instead the client detects the response shape after the response arrives:
+//   - 'rendered': the server's RenderedAnalysis (graph-backed analyses; post-6.8)
+//   - 'legacy':   the historical { analysis: Analysis } envelope (uuid analyses)
+export type GetAnalysisResponse =
+  | { readonly kind: 'rendered'; readonly body: RenderedAnalysis }
+  | { readonly kind: 'legacy'; readonly body: { readonly analysis: any } };
+
+function classifyAnalysisResponse(raw: unknown): GetAnalysisResponse {
+  if (isRenderedAnalysis(raw)) {
+    return { kind: 'rendered', body: raw };
+  }
+  return { kind: 'legacy', body: raw as { analysis: any } };
+}
 
 function getAuthHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {};
@@ -39,11 +90,16 @@ export const api = {
     sellerUwFile?: File,
     supportingDocs?: File[],
     templateFile?: File,
-    templateType?: string
+    templateType?: string,
+    // Batch 1A — dedicated rent-roll xlsx/xlsm slot. Highest precedence input
+    // for tenant-level data. Optional; absence is fine, just degrades downstream
+    // Year-1 fields to null+missingSupport (Batch 1C+).
+    rentRollFile?: File,
   ) => {
     const formData = new FormData();
     formData.append('asr', asrFile);
     if (sellerUwFile) formData.append('seller_uw', sellerUwFile);
+    if (rentRollFile) formData.append('rent_roll', rentRollFile);
     if (supportingDocs) {
       for (const doc of supportingDocs) {
         formData.append('supporting_docs', doc);
@@ -72,12 +128,19 @@ export const api = {
   },
 
   listAnalyses: () => request<any>('/analyses'),
-  getAnalysis: (id: string) => request<any>(`/analyses/${id}`),
+  // Post-6.8 unified read endpoint. Returns a discriminated union so consumers can
+  // branch on response shape (rendered | legacy) without inspecting id format.
+  getAnalysis: async (id: string): Promise<GetAnalysisResponse> => {
+    const raw = await request<unknown>(`/analyses/${id}`);
+    return classifyAnalysisResponse(raw);
+  },
   getAnalysisStatus: (id: string) => request<any>(`/analyses/${id}/status`),
   deleteAnalysis: (id: string) => request<any>(`/analyses/${id}`, { method: 'DELETE' }),
 
   // Populated Template
   getPopulatedTemplateInfo: (id: string) => request<any>(`/analyses/${id}/populated-template/info`),
+  // Coverage report only (no mappedFields). Useful for quick UI dashboards.
+  getPopulatedTemplateCoverage: (id: string) => request<any>(`/analyses/${id}/populated-template/coverage`),
   getPopulatedTemplateDownloadUrl: (id: string) => `${API_BASE}/analyses/${id}/populated-template`,
   downloadPopulatedTemplate: async (id: string, fileName?: string) => {
     const res = await fetch(`${API_BASE}/analyses/${id}/populated-template`, {
@@ -95,15 +158,18 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
-  // UW Model
-  updateUWModel: (id: string, updates: { path: string; value: number }[]) =>
-    request<any>(`/analyses/${id}/uw-model`, {
-      method: 'PATCH',
-      body: JSON.stringify({ updates }),
+  // Batch 6.3 — UW model edits create a NEW analysis revision (immutable lineage). The
+  // legacy PATCH /uw-model endpoint has been removed. The response is the new revision's
+  // analysis object; the caller is expected to navigate to it (e.g., refresh the analysis
+  // page with the new id).
+  createUwModelRevision: (id: string, updates: { path: string; value: number }[]) =>
+    request<any>(`/analyses/${id}/revisions`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'uw-model-cells', updates }),
     }),
 
-  // Loan Terms
-  updateLoanTerms: (id: string, updates: {
+  // Batch 6.3 — Loan-terms edits also create a new revision.
+  createLoanTermsRevision: (id: string, updates: {
     interestRate?: number;
     ioMonths?: number;
     amortizationMonths?: number;
@@ -113,10 +179,14 @@ export const api = {
     prepaymentTerms?: string;
     loanAmount?: number;
   }) =>
-    request<any>(`/analyses/${id}/loan-terms`, {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
+    request<any>(`/analyses/${id}/revisions`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'loan-terms', updates }),
     }),
+
+  // Batch 6.3 — Lineage chain for an analysis (every revision sharing the same root,
+  // ordered by ordinal).
+  getLineage: (id: string) => request<any>(`/analyses/${id}/lineage`),
 
   // Stress Tests
   runStressTest: (id: string, scenarios?: any[]) =>
@@ -345,41 +415,44 @@ export const api = {
   compareManifestos: (baseId: string, compareId: string) =>
     request<any>(`/manifesto/compare?base=${baseId}&compare=${compareId}`),
 
-  // Bank Underwriting (original uploaded file)
-  getBankUnderwritingInfo: (id: string) => request<any>(`/analyses/${id}/bank-underwriting/info`),
-  downloadBankUnderwriting: async (id: string, fileName?: string) => {
-    const res = await fetch(`${API_BASE}/analyses/${id}/bank-underwriting`, {
-      headers: { ...getAuthHeader() },
+  // Unified Underwriting Export — single canonical Excel pipeline.
+  // Both Bank Underwriter and BP Spire Underwriter use this with only a
+  // different `profile` param. Always returns a .xlsx derived from the
+  // canonical underwriting template.
+  exportUnderwriting: async (
+    id: string,
+    params: {
+      profile: 'bank' | 'bp_spire';
+      assetClass: string;
+      // Required by the four-axis render contract (v5+). Caller MUST supply
+      // it — the API rejects missing modes with UNDERWRITING_MODE_REQUIRED.
+      underwritingMode: 'single_loan' | 'roll_up';
+      structuralVariantKey?: string;
+      templateType?: 'single_loan' | 'roll_up';
+    },
+    fileName?: string,
+  ) => {
+    const qs = new URLSearchParams({
+      dealId: id,
+      profile: params.profile,
+      assetClass: params.assetClass,
+      underwritingMode: params.underwritingMode,
     });
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({ error: 'Download failed' }));
-      throw new Error(error.error || 'Download failed');
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName || 'Bank_Underwriting';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  },
+    if (params.structuralVariantKey) qs.set('structuralVariantKey', params.structuralVariantKey);
+    if (params.templateType) qs.set('templateType', params.templateType);
 
-  // BP Spiral Underwriting Memo
-  downloadBPSpiralMemo: async (id: string, fileName?: string) => {
-    const res = await fetch(`${API_BASE}/analyses/${id}/bp-spiral-memo`, {
+    const res = await fetch(`${API_BASE}/underwriting/export?${qs.toString()}`, {
       headers: { ...getAuthHeader() },
     });
     if (!res.ok) {
-      const error = await res.json().catch(() => ({ error: 'Download failed' }));
-      throw new Error(error.error || 'Download failed');
+      const error = await res.json().catch(() => ({ error: 'Export failed' }));
+      throw new Error(error.error || 'Export failed');
     }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = fileName || 'BP_Spiral_Underwriting.pdf';
+    a.download = fileName || `${params.profile === 'bank' ? 'Bank' : 'BPSpire'}_Underwriting.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -412,6 +485,38 @@ export const api = {
   getManifestoHistory: () => request<any>('/manifesto/history'),
   getManifestoStatus: (id: string) => request<any>(`/manifesto/${id}/status`),
   activateManifesto: (id: string) => request<any>(`/manifesto/${id}/activate`, { method: 'POST' }),
+
+  // Phase 4 - workflow API (committee actions / state / timeline / audit replay).
+  // Thin transport over the four endpoints in apps/api/src/routes/workflow.routes.ts.
+  // The UI does not derive workflow state; every read goes through these methods.
+  submitCommitteeAction: (body: PostCommitteeActionRequest) =>
+    request<PostCommitteeActionResponse>('/committee-actions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  // OVERRIDE_DECISION-only entry point (Phase 4 directive). Client sends a
+  // minimal body; the server constructs the canonical payload after looking up
+  // the overlay binding. NO summary, NO occurredAt, NO payload from the client.
+  submitOverrideDecision: (args: {
+    rootId: DoctrineEvaluationId;
+    renderedAnalysisId: RenderedAnalysisId;
+    overlayId: OverlayId;
+  }) =>
+    request<PostCommitteeActionResponse>('/committee-actions', {
+      method: 'POST',
+      body: JSON.stringify({
+        kind: 'OVERRIDE_DECISION',
+        rootId: args.rootId,
+        renderedAnalysisId: args.renderedAnalysisId,
+        overlayId: args.overlayId,
+      }),
+    }),
+  getWorkflowState: (rootId: DoctrineEvaluationId) =>
+    request<DealWorkflowState>(`/workflow-state?rootId=${encodeURIComponent(rootId)}`),
+  getCommitteeTimeline: (rootId: DoctrineEvaluationId) =>
+    request<CommitteeTimeline>(`/committee-timeline?rootId=${encodeURIComponent(rootId)}`),
+  getAuditReplay: (rootId: DoctrineEvaluationId) =>
+    request<AuditReplayResponse>(`/audit-replay?rootId=${encodeURIComponent(rootId)}`),
 
   getMarketIntelligence: (filters?: { assetType?: string; state?: string; city?: string; yearMin?: number; yearMax?: number }) => {
     const params = new URLSearchParams();
