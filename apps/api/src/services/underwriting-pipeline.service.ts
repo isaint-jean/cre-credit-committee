@@ -33,6 +33,7 @@ import {
   runPreValidationGate,
   validateDerivedMetrics,
 } from './data-extraction.service.js';
+import { mergeUnderwritingModels } from './merge-underwriting-models.js';
 import { generateDeterministicCrossCheck } from './cross-check.service.js';
 
 export interface UnderwritingPipelineOutput {
@@ -45,6 +46,12 @@ export interface UnderwritingPipelineOutput {
   preValidationGate: PreValidationGateResult | null;
   derivationIssues: string[];
   uwModel: UnderwritingModel | null;
+  // Batch 1A — pre-merge extractions, surfaced so downstream consumers (template
+  // populator) can render the multi-period Operating History columns. The merged
+  // uwModel above remains the single source of truth for metrics; these are only
+  // for column-level display. Either may be null if its source document was absent.
+  uwModelFromAsr: UnderwritingModel | null;
+  uwModelFromSeller: UnderwritingModel | null;
   crossCheckFindings: CrossCheckFinding[];
   overallAdjustmentBias: AdjustmentBias | null;
 }
@@ -59,6 +66,8 @@ function emptyOutput(): UnderwritingPipelineOutput {
     preValidationGate: null,
     derivationIssues: [],
     uwModel: null,
+    uwModelFromAsr: null,
+    uwModelFromSeller: null,
     crossCheckFindings: [],
     overallAdjustmentBias: null,
   };
@@ -141,8 +150,26 @@ export async function runUnderwritingPipeline(
 
   let uwModel: UnderwritingModel;
   try {
-    const uwSource = uwDocument || asrDocument;
-    uwModel = await extractUnderwriting(uwSource, assetType, extractionResult, sellerMetrics);
+    // Dual-extract + merge. Both documents are independently extracted into a
+    // candidate UnderwritingModel; mergeUnderwritingModels then resolves them
+    // field-by-field via the locked precedence policy. When uwDocument is
+    // absent, we run only the ASR extraction (no merge needed). Conflicts are
+    // surfaced via derivationIssues for IC defensibility.
+    const asrUw = await extractUnderwriting(asrDocument, assetType, extractionResult, sellerMetrics);
+    out.uwModelFromAsr = asrUw;
+    if (uwDocument === null) {
+      uwModel = asrUw;
+    } else {
+      const sellerUw = await extractUnderwriting(uwDocument, assetType, extractionResult, sellerMetrics);
+      out.uwModelFromSeller = sellerUw;
+      const mergeResult = mergeUnderwritingModels(asrUw, sellerUw);
+      uwModel = mergeResult.merged;
+      for (const c of mergeResult.conflicts) {
+        out.derivationIssues.push(
+          `merge-conflict[${c.field}] asr=${JSON.stringify(c.asrValue)} seller=${JSON.stringify(c.sellerValue)} chosen=${JSON.stringify(c.chosen)}`,
+        );
+      }
+    }
   } catch (err: any) {
     return {
       ...out,

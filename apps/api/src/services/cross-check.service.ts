@@ -147,9 +147,18 @@ export function generateDeterministicCrossCheck(
     });
   }
 
-  // Sort: material first, then moderate, then minor
-  const flagOrder: Record<AdjustmentFlag, number> = { material: 0, moderate: 1, minor: 2 };
-  findings.sort((a, b) => (flagOrder[a.flag] ?? 3) - (flagOrder[b.flag] ?? 3));
+  // Sort: material → moderate → unmeasurable → minor.
+  // Unmeasurable findings rank between moderate and minor — they need attention but aren't
+  // quantitative evidence of skew. Batch 6.2 (audit U4): exhaustive Record<> with no
+  // fallback, so any future AdjustmentFlag addition fails compile rather than ranking last
+  // silently.
+  const flagOrder: Record<AdjustmentFlag, number> = {
+    material: 0,
+    moderate: 1,
+    unmeasurable: 2,
+    minor: 3,
+  };
+  findings.sort((a, b) => flagOrder[a.flag] - flagOrder[b.flag]);
 
   const overallBias = computeOverallBias(findings);
 
@@ -161,7 +170,9 @@ export function generateDeterministicCrossCheck(
 // --- Flag Computation ---
 
 export function computeAdjustmentFlag(absPctVariance: number | null): AdjustmentFlag {
-  if (absPctVariance === null) return 'minor';
+  // Batch 6.2 (audit U5): null variance → 'unmeasurable', not 'minor'. The legacy 'minor'
+  // mapping silently classified missing-data deals as "no material concern" — risk-washing.
+  if (absPctVariance === null) return 'unmeasurable';
   if (absPctVariance <= MINOR_THRESHOLD) return 'minor';
   if (absPctVariance <= MODERATE_THRESHOLD) return 'moderate';
   return 'material';
@@ -171,6 +182,7 @@ function flagToSeverity(flag: AdjustmentFlag): Severity {
   switch (flag) {
     case 'material': return 'critical';
     case 'moderate': return 'high';
+    case 'unmeasurable': return 'medium';   // surface as a meaningful warning, not a low.
     case 'minor': return 'low';
   }
 }
@@ -180,14 +192,30 @@ function flagToSeverity(flag: AdjustmentFlag): Severity {
 export function computeOverallBias(findings: CrossCheckFinding[]): AdjustmentBias {
   let conservativeScore = 0;
   let aggressiveScore = 0;
+  let unmeasurableCount = 0;
 
+  // Batch 6.2 (audit U6): skip null-variance findings explicitly (do NOT zero-weight them).
+  // Track a count so we can downgrade the verdict to INSUFFICIENT_DATA if any threshold is
+  // breached. Previously the legacy `Math.abs(f.percentVariance || 0)` silently scored
+  // unmeasurables as zero-weight, allowing a deal with several unmeasurable metrics to roll
+  // up 'neutral' — silent risk-washing.
   for (const f of findings) {
-    const weight = Math.abs(f.percentVariance || 0);
+    if (f.percentVariance === null || f.flag === 'unmeasurable') {
+      unmeasurableCount++;
+      continue;
+    }
+    const weight = Math.abs(f.percentVariance);
     if (f.direction === 'negative') {
       conservativeScore += weight;
     } else if (f.direction === 'positive') {
       aggressiveScore += weight;
     }
+  }
+
+  // If the proportion of unmeasurable findings is high enough, the verdict cannot be trusted.
+  // Threshold: any unmeasurable > 1/3 of total findings → INSUFFICIENT_DATA.
+  if (findings.length > 0 && unmeasurableCount * 3 >= findings.length) {
+    return 'INSUFFICIENT_DATA';
   }
 
   const total = conservativeScore + aggressiveScore;
