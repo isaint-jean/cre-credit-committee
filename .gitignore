@@ -3,8 +3,10 @@ dist/
 .next/
 .turbo/
 *.tsbuildinfo
-.env
-.env.local
+.env*
 uploads/
 .data/
 apps/api/data/
+.DS_Store
+*.log
+.claude/settings.local.*
