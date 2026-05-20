@@ -122,6 +122,7 @@ function makeExtractionResult(dealRef = 'TEST-1'): ExtractionResult {
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: null,
     sourceDocuments: [],
+    extractorVersions: {},
   };
   return { id: computeExtractionResultId(body), ...body } as ExtractionResult;
 }

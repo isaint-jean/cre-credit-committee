@@ -103,6 +103,7 @@ function makeExtractionResult(): ExtractionResult {
     asr: null,
     loanTerms: null,
     sourceDocuments: [],
+    extractorVersions: {},
   };
 }
 

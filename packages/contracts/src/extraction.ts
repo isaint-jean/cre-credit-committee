@@ -173,4 +173,33 @@ export interface ExtractionResult {
   readonly loanTerms: LoanTermsExtraction | null;
 
   readonly sourceDocuments: readonly SourceDocumentRef[];
+
+  /**
+   * Per-sub-record extractor versions, stamped by the composer (Ticket D #?).
+   *
+   * Open-shaped Record<string, string>: keys are sub-record field names from
+   * this contract (e.g., 't12', 'sellerUwOperatingStatement', 'rentRoll',
+   * 'asr'); values are the adapter version strings that produced the
+   * corresponding field's data. New adapters add new keys without contract
+   * widening.
+   *
+   * Composer emission rule: a key appears IFF the sub-record value is
+   * non-null. Empty `{}` is valid for "no extractor produced data" (e.g.,
+   * a synthesized extraction from caller-provided data only). For sub-records
+   * with multiple potential producers (rentRoll: xlsx-adapter vs ASR-AI-fallback),
+   * the version recorded is that of the adapter that won precedence (see
+   * pickRentRoll's source field).
+   *
+   * `loanTerms` is intentionally NOT in this map — it's caller-provided via
+   * the build-and-ingest route's `loanTerms` form field (Ticket K), not
+   * extractor-produced. When a future extractLoanTerms adapter ships (parallel
+   * to Ticket I's extractASR), it'll start emitting a 'loanTerms' key here.
+   * Similarly, pca / appraisal will get adapter producers in later batches
+   * and gain entries then.
+   *
+   * Part of the JCS-canonical hash input: bumping any adapter version
+   * produces a new ExtractionResultId (same discipline as
+   * extractionEngineVersion).
+   */
+  readonly extractorVersions: Record<string, string>;
 }

@@ -244,8 +244,11 @@ export async function buildExtractionResult(
   const asrRentRollFallback = asrOk === null ? null : asrOk.rentRollFallback;
 
   /* Rent-roll precedence: XLSX wins when ok-with-units; AI fallback fills
-     in otherwise. Truth table in pick-rent-roll.ts. */
-  const rentRoll = pickRentRoll(rrOutcome, asrRentRollFallback);
+     in otherwise. Truth table in pick-rent-roll.ts. The returned `source`
+     field tells the extractorVersions stamping below which adapter's version
+     to record under the 'rentRoll' key. */
+  const rentRollPick = pickRentRoll(rrOutcome, asrRentRollFallback);
+  const rentRoll = rentRollPick.value;
 
   /* Concatenate sourceRefs from each slot in [cf, rentRoll, asr] order.
      Order is incidental — see header doc comment for the sort recipe if
@@ -265,6 +268,41 @@ export async function buildExtractionResult(
       ? null
       : args.loanTerms;
 
+  /* extractorVersions — Ticket D per-extractor version metadata.
+   *
+   * Stamp adapter-version strings for each sub-record that was actually
+   * produced. Convention (also documented on the contract field):
+   *   - Key appears IFF the sub-record value is non-null.
+   *   - Empty {} is valid for "no extractor produced data."
+   *   - For sub-records with multiple potential producers (rentRoll: xlsx
+   *     vs ASR-AI-fallback), the version recorded is from whichever
+   *     pickRentRoll selected — `rentRollPick.source` carries that.
+   *   - loanTerms is intentionally NOT in this map: it's caller-provided
+   *     via the route's form field (Ticket K), not extractor-produced.
+   *     When a future extractLoanTerms adapter ships (analog to Ticket I's
+   *     extractASR), it'll start emitting a 'loanTerms' key here.
+   *   - pca / appraisal / sellerUw similarly stay absent until their
+   *     producers land in later batches. */
+  const extractorVersions: Record<string, string> = {};
+  if (cfOutcome !== null && cfOutcome.status === 'ok') {
+    if (t12 !== null) {
+      extractorVersions.t12 = cfOutcome.adapterVersion;
+    }
+    if (sellerUwOperatingStatement !== null) {
+      extractorVersions.sellerUwOperatingStatement = cfOutcome.adapterVersion;
+    }
+  }
+  if (rentRoll !== null && rentRollPick.source !== null) {
+    if (rentRollPick.source === 'xlsx' && rrOutcome !== null) {
+      extractorVersions.rentRoll = rrOutcome.adapterVersion;
+    } else if (rentRollPick.source === 'asr_fallback' && asrOutcome !== null) {
+      extractorVersions.rentRoll = asrOutcome.adapterVersion;
+    }
+  }
+  if (asrOutcome !== null && asrOutcome.status === 'ok' && asr !== null) {
+    extractorVersions.asr = asrOutcome.adapterVersion;
+  }
+
   /* Build the body (everything except id). Fields with no producer in the
      current spine stay null — pca, appraisal, sellerUw (summary triplet).
      Their producers land in later batches. */
@@ -281,6 +319,7 @@ export async function buildExtractionResult(
     asr,
     loanTerms,
     sourceDocuments,
+    extractorVersions,
   };
 
   const id: ExtractionResultId = computeExtractionResultId(body);

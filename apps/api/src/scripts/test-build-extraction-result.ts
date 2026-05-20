@@ -422,6 +422,78 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(oExplicitNull.extractionResult.loanTerms, null, '10.5 args.loanTerms === null → null projection');
   }
 
+  /* CASE 11 — extractorVersions projection (Ticket D).
+   *
+   * Stamps adapter versions per sub-record. Tested scenarios:
+   *   (a) CF-only — t12 + sellerUwOS produced → both keys present with CF version
+   *   (b) ASR-only with PM extracted but null asr (v0.1.0 placeholder)
+   *       → no 'asr' key (asr is null); no 't12' / 'rentRoll' / 'sellerUwOS' keys
+   *   (c) rentRoll precedence — XLSX wins → extractorVersions.rentRoll = RR adapter version
+   *   (d) rentRoll fallback wins — ASR adapter's version stamped under 'rentRoll'
+   *   (e) loanTerms provided via args — does NOT appear in extractorVersions
+   *       (caller-provided, not extractor-produced) */
+  console.log('\n11. extractorVersions projection (Ticket D — per-extractor version metadata)');
+  {
+    // (a) CF-only: t12 + sellerUwOS → CF version under both keys
+    const oCf = await buildExtractionResult(
+      baseArgs({ sellerCfXlsx: SLOT }),
+      makeDeps({ cf: cfOkOutcome() }),
+    );
+    assertEqual(oCf.extractionResult.extractorVersions.t12, '0.1.0', '11.1 (a) t12 → CF adapter version');
+    assertEqual(oCf.extractionResult.extractorVersions.sellerUwOperatingStatement, '0.1.0', '11.2 (a) sellerUwOperatingStatement → CF adapter version');
+    assertEqual('rentRoll' in oCf.extractionResult.extractorVersions, false, '11.3 (a) no rentRoll key (CF doesn\'t produce rent rolls)');
+    assertEqual('asr' in oCf.extractionResult.extractorVersions, false, '11.4 (a) no asr key (no ASR slot)');
+
+    // (b) ASR-only with PM but null asr (v0.1.0 placeholder)
+    const oAsr = await buildExtractionResult(
+      baseArgs({ asrPdf: SLOT }),
+      makeDeps({
+        asr: asrOkOutcome({ pm: makePropertyMetadata() }),
+      }),
+    );
+    assertEqual('asr' in oAsr.extractionResult.extractorVersions, false, '11.5 (b) no asr key when asr-value is null (v0.1.0 placeholder)');
+    assertEqual('t12' in oAsr.extractionResult.extractorVersions, false, '11.6 (b) no t12 key when no CF slot');
+
+    // (c) rentRoll precedence — XLSX wins
+    const oRrXlsx = await buildExtractionResult(
+      baseArgs({ rentRollXlsx: SLOT, asrPdf: SLOT }),
+      makeDeps({
+        rr: rrOkOutcome([makeUnit('100', true)]),
+        asr: asrOkOutcome({ fallback: makeRentRollExtraction([makeUnit('F1', true)]) }),
+      }),
+    );
+    assertEqual(oRrXlsx.extractionResult.extractorVersions.rentRoll, '0.1.0', '11.7 (c) rentRoll key → RR adapter version when XLSX wins');
+
+    // (d) rentRoll fallback wins (ASR adapter version under rentRoll)
+    const oRrFallback = await buildExtractionResult(
+      baseArgs({ rentRollXlsx: SLOT, asrPdf: SLOT }),
+      makeDeps({
+        rr: rrEmptyOutcome(),
+        asr: asrOkOutcome({ fallback: makeRentRollExtraction([makeUnit('F1', true)]) }),
+      }),
+    );
+    assertEqual(oRrFallback.extractionResult.extractorVersions.rentRoll, '0.1.0', '11.8 (d) rentRoll key → ASR adapter version when fallback wins');
+
+    // (e) loanTerms provided via args — NOT in extractorVersions
+    const oWithLoanTerms = await buildExtractionResult(
+      {
+        ...baseArgs({ sellerCfXlsx: SLOT }),
+        loanTerms: { loanAmount: 1, interestRate: 0.05, amortization: 360, interestOnlyPeriod: 0, maturityDate: AS_OF },
+      },
+      makeDeps({ cf: cfOkOutcome() }),
+    );
+    assertEqual(
+      'loanTerms' in oWithLoanTerms.extractionResult.extractorVersions,
+      false,
+      '11.9 (e) loanTerms NOT in extractorVersions (caller-provided, not extractor-produced)',
+    );
+    assert(oWithLoanTerms.extractionResult.loanTerms !== null, '11.10 (e) but extractionResult.loanTerms IS populated (Ticket K input)');
+
+    // Empty case: no slots provided → empty extractorVersions
+    const oEmpty = await buildExtractionResult(baseArgs({}), makeDeps({}));
+    assertEqual(Object.keys(oEmpty.extractionResult.extractorVersions).length, 0, '11.11 no slots → empty extractorVersions {}');
+  }
+
   /* ------------------------------- summary -------------------------------- */
 
   console.log(`\n${passed} passed, ${failed} failed`);

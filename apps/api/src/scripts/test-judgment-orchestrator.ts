@@ -121,6 +121,7 @@ function makeFullExtraction(asOf: string = AS_OF): ExtractionResult {
       interestOnlyPeriod: 0, maturityDate: '2031-05-08T00:00:00Z',
     },
     sourceDocuments: [],
+    extractorVersions: {},
   };
   return { id: computeExtractionResultId(body), ...body } as ExtractionResult;
 }
@@ -387,6 +388,7 @@ console.log('\nConfidence reduction:');
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: ext.loanTerms,
     sourceDocuments: [],
+    extractorVersions: {},
   };
   const sparseExt = { id: computeExtractionResultId(sparseBody), ...sparseBody } as ExtractionResult;
   const args = { ...defaultArgs(), extraction: sparseExt };

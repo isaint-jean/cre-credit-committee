@@ -536,6 +536,7 @@ console.log('\nPersistence round-trip:');
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
+    extractorVersions: {},
   };
   const extId = computeExtractionResultId(extBody);
   const extraction = { id: extId, ...extBody } as import('@cre/contracts').ExtractionResult;

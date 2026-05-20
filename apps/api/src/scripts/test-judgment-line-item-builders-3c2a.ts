@@ -73,6 +73,7 @@ function makeExtraction(o: Partial<ExtractionResult> = {}): ExtractionResult {
     dealRef: 'TEST', rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
+    extractorVersions: {},
     ...o,
   };
 }

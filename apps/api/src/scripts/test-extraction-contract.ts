@@ -163,6 +163,7 @@ function makeFullExtractionBody() {
     },
 
     sourceDocuments,
+    extractorVersions: {} as Record<string, string>,
   };
 }
 
@@ -178,6 +179,7 @@ function makeSparseExtractionBody() {
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: null,
     sourceDocuments: [] as readonly SourceDocumentRef[],
+    extractorVersions: {} as Record<string, string>,
   };
 }
 
@@ -238,6 +240,7 @@ console.log('\nExtractionResult — null preservation in canonical form:');
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: null,
     sourceDocuments: [] as readonly SourceDocumentRef[],
+    extractorVersions: {} as Record<string, string>,
   };
   const id = computeExtractionResultId(body);
   assert(/^[0-9a-f]{64}$/.test(id), 'all-null T-12 still produces a stable hash');

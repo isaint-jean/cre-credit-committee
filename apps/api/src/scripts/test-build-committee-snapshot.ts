@@ -109,6 +109,7 @@ function makeFullExtraction(): ExtractionResult {
       interestOnlyPeriod: 0, maturityDate: '2031-05-08T00:00:00Z',
     },
     sourceDocuments: [],
+    extractorVersions: {},
   };
   return { id: computeExtractionResultId(body), ...body } as ExtractionResult;
 }

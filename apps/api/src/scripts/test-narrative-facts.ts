@@ -97,6 +97,7 @@ function makeExtraction(opts: Partial<{
     sellerUw: null, sellerUwOperatingStatement: null, asr: 'asr' in opts ? opts.asr! : null,
     loanTerms: null,
     sourceDocuments: [],
+    extractorVersions: {},
   };
   return { id: computeExtractionResultId(body), ...body } as ExtractionResult;
 }

@@ -121,6 +121,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
+    extractorVersions: {},
   };
   return { ...base, ...overrides };
 }
