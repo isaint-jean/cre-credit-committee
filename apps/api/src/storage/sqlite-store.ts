@@ -6,8 +6,9 @@ import {
   FindingCategory, AuditLogEntry, ModelLogicVersionEntry
 } from '@cre/shared';
 import { CriteriaRuleSet } from '@cre/shared';
-import type { TemplateType, UnderwritingTemplate, TemplateVersion, CreditManifesto, CreditManifestoDetail } from '@cre/shared';
+import type { TemplateMetadata, TemplateType, UnderwritingTemplate, TemplateVersion, CreditManifesto, CreditManifestoDetail } from '@cre/shared';
 import { getDefaultCriteria } from '../services/default-criteria.js';
+import { getTemplateMetadata } from '../services/template-registry.js';
 
 export interface User {
   id: string;
@@ -20,10 +21,22 @@ export interface User {
 
 const DB_PATH = path.join(process.cwd(), 'data', 'cre.db');
 
-class SqliteStore {
+export class SqliteStore {
   private db: Database.Database;
 
-  constructor() {
+  constructor(dbPathOverride?: string) {
+    // Batch 6.3 — accept an optional override (e.g., `:memory:` for tests).
+    // Default behavior unchanged: prod uses `data/cre.db`.
+    const useMemory = dbPathOverride === ':memory:';
+    if (useMemory) {
+      this.db = new Database(':memory:');
+      this.db.pragma('foreign_keys = ON');
+      this.migrate();
+      this.migrateTemplates();
+      this.seedCriteria();
+      this.seedDefaultUser();
+      return;
+    }
     // Ensure data directory exists
     const dir = path.dirname(DB_PATH);
     const fs = require('fs');
@@ -54,7 +67,13 @@ class SqliteStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         data TEXT NOT NULL,
-        error TEXT
+        error TEXT,
+        -- Batch 6.3 — revision lineage on legacy path. Single-parent, append-only,
+        -- immutable. parent_analysis_id is NULL only for root revisions; lineage_root_id
+        -- defaults to id (root case); revision_ordinal defaults to 0.
+        parent_analysis_id TEXT,
+        lineage_root_id TEXT,
+        revision_ordinal INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS comments (
@@ -205,6 +224,27 @@ class SqliteStore {
         this.db.exec('ALTER TABLE uw_templates ADD COLUMN structure_json TEXT');
       }
     } catch { /* table might not exist yet — that's OK, migrate() just created it */ }
+
+    // Batch 6.3 — lineage columns on the analyses table for revision semantics.
+    // Idempotent: skip if already present, run for older databases.
+    try {
+      const cols = this.db.prepare("PRAGMA table_info('analyses')").all() as any[];
+      if (cols.length > 0) {
+        const has = (n: string) => cols.find((c: any) => c.name === n);
+        if (!has('parent_analysis_id')) {
+          this.db.exec('ALTER TABLE analyses ADD COLUMN parent_analysis_id TEXT');
+        }
+        if (!has('lineage_root_id')) {
+          this.db.exec('ALTER TABLE analyses ADD COLUMN lineage_root_id TEXT');
+        }
+        if (!has('revision_ordinal')) {
+          this.db.exec('ALTER TABLE analyses ADD COLUMN revision_ordinal INTEGER NOT NULL DEFAULT 0');
+        }
+        // Backfill lineage_root_id = id for any existing rows where it's NULL.
+        // parent_analysis_id stays NULL (these are root revisions). revision_ordinal stays 0.
+        this.db.exec(`UPDATE analyses SET lineage_root_id = id WHERE lineage_root_id IS NULL`);
+      }
+    } catch { /* table might not exist yet — that's OK, migrate() just created it */ }
   }
 
   private seedCriteria() {
@@ -239,6 +279,10 @@ class SqliteStore {
       updated_at: a.updatedAt,
       data: JSON.stringify(rest),
       error: a.error ?? null,
+      // Batch 6.3 — lineage fields. Root revisions: parent=null, root=id, ordinal=0.
+      parent_analysis_id: a.parentAnalysisId ?? null,
+      lineage_root_id: a.lineageRootId ?? a.id,
+      revision_ordinal: a.revisionOrdinal ?? 0,
     };
   }
 
@@ -246,7 +290,24 @@ class SqliteStore {
     const data = JSON.parse(row.data) as Omit<Analysis, 'comments'>;
     // Load comments from their own table
     const comments = this.getComments(row.id);
-    return { ...data, comments };
+    // Lineage fields — read from row columns (authoritative; older rows backfilled in migration).
+    return {
+      ...data,
+      comments,
+      parentAnalysisId: row.parent_analysis_id ?? null,
+      lineageRootId: row.lineage_root_id ?? row.id,
+      revisionOrdinal: row.revision_ordinal ?? 0,
+    };
+  }
+
+  /**
+   * Direct better-sqlite3 handle. Reserved for instrumentation that needs
+   * to lazily create its own append-only tables (observability, audit
+   * traces). Callers must NOT mutate analysis / template / criteria rows
+   * through this — use the typed methods instead.
+   */
+  rawDb(): Database.Database {
+    return this.db;
   }
 
   // --- Analyses ---
@@ -254,8 +315,8 @@ class SqliteStore {
   createAnalysis(analysis: Analysis): Analysis {
     const row = this.analysisToRow(analysis);
     this.db.prepare(`
-      INSERT INTO analyses (id, name, asset_type, status, progress, current_step, credit_score_overall, risk_tier, created_at, updated_at, data, error)
-      VALUES (@id, @name, @asset_type, @status, @progress, @current_step, @credit_score_overall, @risk_tier, @created_at, @updated_at, @data, @error)
+      INSERT INTO analyses (id, name, asset_type, status, progress, current_step, credit_score_overall, risk_tier, created_at, updated_at, data, error, parent_analysis_id, lineage_root_id, revision_ordinal)
+      VALUES (@id, @name, @asset_type, @status, @progress, @current_step, @credit_score_overall, @risk_tier, @created_at, @updated_at, @data, @error, @parent_analysis_id, @lineage_root_id, @revision_ordinal)
     `).run(row);
 
     // Insert any initial comments
@@ -290,7 +351,7 @@ class SqliteStore {
 
   listAnalyses(): AnalysisSummary[] {
     const rows = this.db.prepare(
-      'SELECT id, name, asset_type, status, credit_score_overall, risk_tier, created_at, updated_at, data FROM analyses ORDER BY created_at DESC'
+      'SELECT id, name, asset_type, status, credit_score_overall, risk_tier, created_at, updated_at, data, parent_analysis_id, lineage_root_id, revision_ordinal FROM analyses ORDER BY created_at DESC'
     ).all() as any[];
 
     return rows.map((r) => {
@@ -315,8 +376,70 @@ class SqliteStore {
         inputHash,
         manifestoVersion,
         modelLogicVersion,
+        parentAnalysisId: r.parent_analysis_id ?? null,
+        lineageRootId: r.lineage_root_id ?? r.id,
+        revisionOrdinal: r.revision_ordinal ?? 0,
       };
     });
+  }
+
+  /**
+   * Return the LATEST revision in a lineage, given any analysis id within that lineage.
+   * "Latest" = the row with the highest `revision_ordinal` among rows sharing the same
+   * `lineage_root_id`. Used by `GET /analyses/:id` per the revision-lineage spec §7.
+   *
+   * Append-only by construction — there is no "edit" path that would require this query
+   * to disambiguate concurrent writes; the highest ordinal IS the latest.
+   */
+  getLatestRevisionInLineage(analysisId: string): Analysis | null {
+    const head = this.db.prepare(
+      'SELECT lineage_root_id FROM analyses WHERE id = ?'
+    ).get(analysisId) as any;
+    if (!head) return null;
+    const rootId = head.lineage_root_id ?? analysisId;
+    const row = this.db.prepare(
+      `SELECT * FROM analyses
+        WHERE lineage_root_id = ?
+        ORDER BY revision_ordinal DESC, created_at DESC
+        LIMIT 1`
+    ).get(rootId) as any;
+    return row ? this.rowToAnalysis(row) : null;
+  }
+
+  /**
+   * Return the full lineage chain (every revision sharing the same `lineage_root_id`),
+   * ordered by `revision_ordinal` ascending. Append-only by construction (no UPDATE on
+   * lineage columns is allowed; revisions are inserted as new rows).
+   *
+   * Batch 6.3 — backs `GET /analyses/:id/lineage`.
+   */
+  listLineage(analysisId: string): import('@cre/shared').LineageEntry[] {
+    // First resolve which lineage this analysis belongs to (latest revisions and root all share root_id).
+    const head = this.db.prepare(
+      'SELECT lineage_root_id FROM analyses WHERE id = ?'
+    ).get(analysisId) as any;
+    if (!head) return [];
+    const rootId = head.lineage_root_id ?? analysisId;
+
+    const rows = this.db.prepare(
+      `SELECT id, name, parent_analysis_id, lineage_root_id, revision_ordinal,
+              created_at, status, credit_score_overall, risk_tier
+         FROM analyses
+        WHERE lineage_root_id = ?
+        ORDER BY revision_ordinal ASC, created_at ASC`
+    ).all(rootId) as any[];
+
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      parentAnalysisId: r.parent_analysis_id ?? null,
+      lineageRootId: r.lineage_root_id ?? r.id,
+      revisionOrdinal: r.revision_ordinal ?? 0,
+      createdAt: r.created_at,
+      status: r.status,
+      creditScore: r.credit_score_overall,
+      riskTier: r.risk_tier,
+    }));
   }
 
   updateAnalysis(id: string, updates: Partial<Analysis>): Analysis | null {
@@ -552,7 +675,16 @@ class SqliteStore {
     };
   }
 
-  getActiveTemplate(templateType: TemplateType): (UnderwritingTemplate & { fileData: Buffer; structureJson: string | null }) | null {
+  getActiveTemplate(templateType: TemplateType): (UnderwritingTemplate & {
+    fileData: Buffer;
+    structureJson: string | null;
+    /**
+     * Compatibility envelope from the code-declared template registry, looked
+     * up by exact (templateType, version). null when the artifact's version is
+     * not registered — callers MUST treat that as a hard incompatibility.
+     */
+    templateMetadata: TemplateMetadata | null;
+  }) | null {
     const row = this.db.prepare(
       'SELECT * FROM uw_templates WHERE template_type = ? AND is_active = 1 ORDER BY version DESC LIMIT 1'
     ).get(templateType) as any;
@@ -568,6 +700,7 @@ class SqliteStore {
       uploadedBy: row.uploaded_by,
       uploadedAt: row.uploaded_at,
       isActive: !!row.is_active,
+      templateMetadata: getTemplateMetadata(row.template_type, row.version),
     };
   }
 
