@@ -33,6 +33,7 @@ export const SOURCE_DOCUMENT_KINDS = [
   'asr',
   'seller_uw',
   'loan_terms',
+  'property_metadata',
 ] as const;
 export type SourceDocumentKind = (typeof SOURCE_DOCUMENT_KINDS)[number];
 
