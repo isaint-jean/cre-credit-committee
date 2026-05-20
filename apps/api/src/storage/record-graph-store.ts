@@ -41,6 +41,8 @@ import type {
   LibrarySnapshotId,
   NarrativeFacts,
   NarrativeFactsId,
+  PropertyMetadata,
+  PropertyMetadataId,
   RenderedAnalysis,
   RenderedAnalysisId,
   RenderVersion,
@@ -208,6 +210,18 @@ export class RecordGraphStore {
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (root_id) REFERENCES doctrine_evaluations(id)
+      );
+
+      -- Leaf record. Carried sibling-style by buildExtractionResult (not owned
+      -- by any spine record); the composer-output propertyMetadata field
+      -- writes through here. No FKs. The 20 nullable descriptive fields stay
+      -- inside payload (JSON); only the source column is extracted, matching
+      -- the asset_profiles precedent of extracting classifier fields.
+      CREATE TABLE IF NOT EXISTS property_metadata (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_adjusted_inputs_lib       ON adjusted_inputs(library_snapshot_id);
@@ -543,6 +557,27 @@ export class RecordGraphStore {
       )
       .get(rootId, renderVersion) as RecordRow | undefined;
     return row ? this.parseRow<RenderedAnalysis>(row) : null;
+  }
+
+  /* ------------------------------ property_metadata ----------------------------- */
+
+  insertPropertyMetadata(record: PropertyMetadata): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'PropertyMetadata');
+    const result = this.db
+      .prepare(
+        `INSERT INTO property_metadata (id, source, payload, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(id, body.source, payload, new Date().toISOString());
+    return { inserted: result.changes > 0 };
+  }
+
+  getPropertyMetadata(id: PropertyMetadataId): PropertyMetadata | null {
+    const row = this.db
+      .prepare(`SELECT id, payload FROM property_metadata WHERE id = ?`)
+      .get(id) as RecordRow | undefined;
+    return row ? this.parseRow<PropertyMetadata>(row) : null;
   }
 
   /* --------------------------------- shutdown --------------------------------- */

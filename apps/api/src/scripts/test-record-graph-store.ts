@@ -31,6 +31,8 @@ import type {
   LibrarySnapshotId,
   NarrativeFacts,
   NarrativeFactsId,
+  PropertyMetadata,
+  PropertyMetadataId,
   StressOutputs,
   StressOutputsId,
   ValuationConclusion,
@@ -44,6 +46,7 @@ import {
   computeExtractionResultId,
   computeLibrarySnapshotId,
   computeNarrativeFactsId,
+  computePropertyMetadataId,
   computeStressOutputsId,
   computeValuationConclusionId,
 } from '../util/content-hash.js';
@@ -157,6 +160,33 @@ function makeNarrativeFacts(): NarrativeFacts {
     exitCapRateStressed: 0.075,
   };
   return { id: computeNarrativeFactsId(body), ...body } as NarrativeFacts;
+}
+
+function makePropertyMetadata(propertyName: string | null = 'Test Property'): PropertyMetadata {
+  const body = {
+    source: 'asr_extraction' as const,
+    propertyName,
+    propertySubtype: 'Suburban Office',
+    address: '123 Main St',
+    city: 'Testville',
+    state: 'CA',
+    zip: '90000',
+    county: null,
+    msa: null,
+    submarket: null,
+    yearBuilt: 2010,
+    yearRenovated: null,
+    buildingClass: 'B',
+    totalSquareFeet: 50_000,
+    totalUnits: null,
+    totalRooms: null,
+    totalPads: null,
+    occupancyPhysical: 0.92,
+    occupancyEconomic: null,
+    ownershipInterest: 'Fee Simple',
+    numberOfBuildings: 1,
+  };
+  return { id: computePropertyMetadataId(body), ...body };
 }
 
 function lineItem(value: number) {
@@ -523,6 +553,46 @@ console.log('\nAssetProfile nonexistent get:');
 {
   const fetched = store.getAssetProfile('z'.repeat(64) as never);
   assert(fetched === null, 'getAssetProfile returns null for unknown id');
+}
+
+console.log('\nPropertyMetadata round-trip:');
+{
+  const pm = makePropertyMetadata();
+  const r1 = store.insertPropertyMetadata(pm);
+  assert(r1.inserted, 'insertPropertyMetadata reports inserted=true on first call');
+  const fetched = store.getPropertyMetadata(pm.id);
+  assert(fetched !== null, 'getPropertyMetadata returns row for known id');
+  assert(fetched?.id === pm.id, 'retrieved id matches original');
+  if (fetched) {
+    const { id: _id, ...body } = fetched;
+    const recomputed = computePropertyMetadataId(body);
+    assert(recomputed === pm.id, 'retrieved body re-hashes to original id');
+  }
+}
+
+console.log('\nPropertyMetadata idempotency:');
+{
+  const pm = makePropertyMetadata();
+  store.insertPropertyMetadata(pm);
+  const r2 = store.insertPropertyMetadata(pm);
+  assert(!r2.inserted, 'second insert of same record reports inserted=false');
+}
+
+console.log('\nPropertyMetadata nonexistent get:');
+{
+  const fetched = store.getPropertyMetadata('00'.repeat(32) as PropertyMetadataId);
+  assert(fetched === null, 'getPropertyMetadata returns null for unknown id');
+}
+
+console.log('\nPropertyMetadata ID mismatch detection:');
+{
+  const pm = makePropertyMetadata();
+  const tampered = { ...pm, propertyName: 'Tampered Name' };
+  assertThrowsInstanceOf(
+    () => store.insertPropertyMetadata(tampered as PropertyMetadata),
+    RecordIdMismatchError,
+    'insert with tampered PropertyMetadata body throws RecordIdMismatchError',
+  );
 }
 
 store.close();
