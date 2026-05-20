@@ -41,6 +41,16 @@ export function computeContentHash<T>(value: T): ContentHash {
 }
 
 /**
+ * SHA-256 of raw bytes (no JSON canonicalization). For SourceDocumentRef.contentHash
+ * and any other byte-level provenance. Distinct from computeContentHash<T>, which
+ * canonicalizes its input as JSON first — pick this one when hashing an UPLOADED
+ * FILE (xlsx, pdf), pick computeContentHash<T> when hashing a record BODY.
+ */
+export function computeBufferContentHash(bytes: Buffer): ContentHash {
+  return createHash('sha256').update(bytes).digest('hex') as ContentHash;
+}
+
+/**
  * Single-pass canonical-form + hash. Returns both so callers persisting a record can store the
  * canonical payload string AND its hash without re-running canonicalize.
  *
