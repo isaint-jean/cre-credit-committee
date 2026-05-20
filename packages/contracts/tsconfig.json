@@ -5,12 +5,13 @@
     "moduleResolution": "bundler",
     "declaration": true,
     "strict": true,
+    "noImplicitAny": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
     "outDir": "./dist",
-    "rootDir": "./src",
-    "resolveJsonModule": true,
-    "skipLibCheck": true
+    "rootDir": "./src"
   },
-  "include": ["src/**/*"],
-  "exclude": ["**/__fixtures__/**"]
+  "include": ["src/**/*"]
 }

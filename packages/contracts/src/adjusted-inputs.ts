@@ -1,0 +1,160 @@
+/**
+ * AdjustedInputs — stage-4 producer output (judgment engine), immutable post-stage-4.
+ *
+ * Architecture contract §3: all final metrics derive ONLY from AdjustedInputs. No parallel
+ * computation paths. This is the single source of truth for downstream metrics, cross-check,
+ * stress, valuation, and doctrine.
+ *
+ * Architecture contract §8: missing inputs NEVER default to 0. Each `AdjustedLineItem` records
+ * a nullable `raw` (extracted) and a non-null `adjusted` (post-judgment value, where the judgment
+ * engine has substituted library-median + missing-data penalty for nulls). Penalty rules are
+ * traced through `adjustments[]`.
+ *
+ * Architecture contract §6: the conservatism gate (stage 5) verifies adjusted vacancy, expense
+ * ratio, and NOI against library-and-bank floors before metrics derive. AdjustedInputs is what
+ * the gate validates; if it fails, the pipeline aborts with `ConservatismViolationPayload`.
+ */
+
+import type {
+  AdjustedInputsId,
+  LibrarySnapshotId,
+} from './identity.js';
+import type {
+  JudgmentEngineVersion,
+  ISODateTime,
+} from './versioning.js';
+import type { SourceTier } from './source-tier.js';
+import type { JudgmentEngineRuleId } from './judgment-engine-rules.js';
+import type { CreditManifestoRuleId } from './manifesto.js';
+
+/**
+ * One adjustment ledger entry attached to an `AdjustedLineItem`. Records which rule changed the
+ * value and by how much. Doctrine §1 distrust penalties read from the aggregated ledger to score
+ * `data_confidence` — they MUST NOT independently re-walk documents.
+ *
+ * `ruleId` accepts both judgment-engine rules (frozen literal union) and manifesto rules
+ * (branded user-configurable string). Each fires under its own registry, but both route through
+ * the same ledger.
+ */
+export interface AdjustmentEntry {
+  readonly ruleId: JudgmentEngineRuleId | CreditManifestoRuleId;
+  readonly delta: number;            // signed; effect on `adjusted` relative to `raw`
+  readonly reason: string;           // bounded by per-registry reason catalogue
+}
+
+/**
+ * Four-field shape: raw extraction (nullable), adjusted post-judgment value (always a number;
+ * penalty replaces null), source tier the judgment engine selected, and the adjustments ledger.
+ *
+ * Invariant: if `raw === null`, then `adjustments` MUST contain at least one entry whose ruleId
+ * is the missing-data penalty rule. The judgment engine never silently substitutes for null.
+ */
+export interface AdjustedLineItem {
+  readonly raw: number | null;
+  readonly adjusted: number;
+  readonly source: SourceTier;
+  readonly adjustments: readonly AdjustmentEntry[];
+}
+
+export interface AdjustedIncome {
+  readonly grossRentalIncome: AdjustedLineItem;
+  readonly otherIncome: AdjustedLineItem;
+  readonly vacancyPct: AdjustedLineItem;            // 0..1; doctrine §6 reads .raw vs trailing
+  readonly concessionsPct: AdjustedLineItem;
+  readonly effectiveGrossIncome: AdjustedLineItem;
+}
+
+export interface AdjustedExpenses {
+  readonly realEstateTaxes: AdjustedLineItem;
+  readonly insurance: AdjustedLineItem;
+  readonly utilities: AdjustedLineItem;
+  readonly managementFee: AdjustedLineItem;
+  readonly payroll: AdjustedLineItem;
+  readonly maintenance: AdjustedLineItem;
+  readonly other: AdjustedLineItem;
+  readonly totalOperatingExpenses: AdjustedLineItem;
+}
+
+export interface AdjustedCapitalReserves {
+  readonly upfrontCapex: AdjustedLineItem;
+  readonly upfrontTiLc: AdjustedLineItem;
+  readonly monthlyCapex: AdjustedLineItem;
+  readonly monthlyTiLc: AdjustedLineItem;
+  readonly pcaImmediateRepairs: AdjustedLineItem;
+}
+
+export interface AdjustedLoan {
+  readonly loanAmount: AdjustedLineItem;
+  readonly interestRate: AdjustedLineItem;       // annualized, 0..1
+  readonly termMonths: AdjustedLineItem;
+  readonly amortizationMonths: AdjustedLineItem;
+  readonly ioPeriodMonths: AdjustedLineItem;
+  readonly maturityBalance: AdjustedLineItem;
+  readonly debtServiceAnnual: AdjustedLineItem;
+}
+
+export interface AdjustedAssumptions {
+  readonly capRate: AdjustedLineItem;            // entry/going-in
+  readonly terminalCapRate: AdjustedLineItem;
+  readonly rentGrowthPct: AdjustedLineItem;
+  readonly expenseGrowthPct: AdjustedLineItem;
+}
+
+/**
+ * Derived metrics. These are functions of the line items above, computed by stage 6
+ * (`recalculateFullModel`). They live on AdjustedInputs because every downstream stage reads them
+ * from a single source of truth.
+ *
+ * Numbers are nullable because the inputs can produce null (e.g., DSCR is null if debt service
+ * is zero). Doctrine routes nulls through the INSUFFICIENT_DATA reason code rather than coercing.
+ */
+export interface AdjustedMetrics {
+  readonly noi: number | null;
+  readonly value: number | null;                          // = noi / capRate.adjusted
+  readonly dscr: number | null;                           // = noi / debtServiceAnnual.adjusted
+  readonly ltvAppraisal: number | null;                   // = loanAmount / appraisalValue
+  readonly debtYield: number | null;                      // = noi / loanAmount
+  readonly expenseRatio: number | null;                   // = totalOpEx / EGI
+  readonly top1IncomeShare: number | null;                // 0..1; from rent roll
+  readonly pctIncomeExpiringWithinTerm: number | null;    // 0..1; from rent roll vs term
+}
+
+/**
+ * Stage-4 record. `id` is the SHA-256 of the JCS canonical serialization of every field below
+ * EXCEPT `id` itself. Producers compute the hash, brand it as `AdjustedInputsId`, and attach it.
+ *
+ * `topLevelAdjustments` (Batch 1.6 — 2026-05-08): cross-cutting AdjustmentEntries that don't
+ * pin to a specific line item. Currently used for `JE_NOI_CAPPED_TO_BANK` (architecture §6 NOI
+ * ceiling). Doctrine reads from here for cross-cutting rule attribution. Distinct from
+ * per-line-item `AdjustedLineItem.adjustments[]` which carries adjustments scoped to a single
+ * field.
+ */
+export interface AdjustedInputs {
+  readonly id: AdjustedInputsId;
+
+  readonly analysisAsOfDate: ISODateTime;
+  readonly judgmentEngineVersion: JudgmentEngineVersion;
+  readonly librarySnapshotId: LibrarySnapshotId;
+
+  readonly income: AdjustedIncome;
+  readonly expenses: AdjustedExpenses;
+  readonly capitalReserves: AdjustedCapitalReserves;
+  readonly loan: AdjustedLoan;
+  readonly assumptions: AdjustedAssumptions;
+  readonly metrics: AdjustedMetrics;
+
+  readonly confidenceReduction: number;          // 0..1
+  readonly topLevelAdjustments: readonly AdjustmentEntry[];
+
+  /**
+   * Data-quality ledger surface (Batch 1.10 — 2026-05-08): which judgment-engine missing-doc /
+   * distrust rules fired during Stage 4. Distinct from `confidenceReduction` (which is the
+   * normalized scalar penalty). Doctrine §1 (data-confidence component) reads these for
+   * per-doc scoring; doctrine §12 (False_negative_guard) checks
+   * `dataQualityFlags.includes('JE_T12_MISSING')` for presence/absence predicates.
+   *
+   * Order is firing order from the orchestrator: missing-doc first (5 possible), distrust
+   * second (2 possible). Each entry deduplicated.
+   */
+  readonly dataQualityFlags: readonly JudgmentEngineRuleId[];
+}

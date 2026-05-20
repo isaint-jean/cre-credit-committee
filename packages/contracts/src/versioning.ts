@@ -1,0 +1,35 @@
+/**
+ * Versioning spine.
+ *
+ * Five INDEPENDENT version axes. Each persisted record stamps every axis it depends on so the
+ * replay tuple is fully realized. Bumping any axis requires a coordinated migration step in the
+ * owning module — see render-migrations.ts for the existing pattern; analogous registries land in
+ * judgment / stress / valuation / doctrine over time.
+ *
+ * No inline "1.0" literals are permitted in pipeline code. Every producer reads from these
+ * constants. The corresponding `*Version` types are derived from the constants so that bumping
+ * the constant automatically updates the type.
+ */
+
+export const DOCTRINE_VERSION = '1.0' as const;
+export const JUDGMENT_ENGINE_VERSION = '1.0' as const;
+export const STRESS_ENGINE_VERSION = '1.0' as const;
+export const VALUATION_ENGINE_VERSION = '1.0' as const;
+export const RENDER_CONTRACT_VERSION = '1.0' as const;
+export const EXTRACTION_ENGINE_VERSION = '1.1' as const;
+export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
+
+export type DoctrineVersion = typeof DOCTRINE_VERSION;
+export type JudgmentEngineVersion = typeof JUDGMENT_ENGINE_VERSION;
+export type StressEngineVersion = typeof STRESS_ENGINE_VERSION;
+export type ValuationEngineVersion = typeof VALUATION_ENGINE_VERSION;
+export type RenderContractVersion = typeof RENDER_CONTRACT_VERSION;
+export type ExtractionEngineVersion = typeof EXTRACTION_ENGINE_VERSION;
+export type ManifestoContractVersion = typeof MANIFESTO_CONTRACT_VERSION;
+
+/**
+ * ISO 8601 UTC timestamp, frozen at extraction time. Used as `analysisAsOfDate` everywhere a
+ * timestamp would otherwise need `new Date()`. Must never be derived from wall-clock at any
+ * downstream stage — replay determinism depends on it.
+ */
+export type ISODateTime = string;
