@@ -7,6 +7,7 @@ import { manifestoRoutes } from './manifesto.routes.js';
 import { authRoutes } from './auth.routes.js';
 import { renderRoutes } from './render.routes.js';
 import { ingestRoutes } from './ingest.routes.js';
+import { buildAndIngestRoutes } from './build-and-ingest.routes.js';
 import { renderV2Routes } from './render-v2.routes.js';
 import { workflowRoutes } from './workflow.routes.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -31,6 +32,12 @@ apiRouter.use('/underwriting', requireAuth, renderRoutes);
 
 // Graph-backed ingestion (Batch 6.4 — POST /api/ingest)
 apiRouter.use('/ingest', requireAuth, ingestRoutes);
+
+// Build-and-ingest (extraction-pipeline Step 5b — POST /api/build-and-ingest).
+// Accepts raw multipart uploads, runs buildExtractionResult to compose the
+// canonical record, then delegates to ingestExtractionResult. Sibling
+// PropertyMetadata is persisted conditionally on best-effort terms.
+apiRouter.use('/build-and-ingest', requireAuth, buildAndIngestRoutes);
 
 // Graph-backed render (Batch 6.7 — POST /api/render)
 apiRouter.use('/render', requireAuth, renderV2Routes);
