@@ -1,0 +1,56 @@
+# Architectural-boundary enforcement (Batch 6 sub-batch 6.0).
+#
+# Runs the lint:boundaries policy + the negative-fixture test on every push
+# and PR. Failure here means a PR introduced a forbidden cross-module import
+# OR weakened the policy itself.
+#
+# Source of truth for the rules: docs/architecture/batch6-record-graph-and-resolution.md (rev 2).
+# Source for the implementation sequence: docs/batch6-implementation-plan.md.
+name: lint-boundaries
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Newer pushes to the same ref cancel in-flight runs to keep CI deterministic
+# and conserve runner minutes.
+concurrency:
+  group: lint-boundaries-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run boundary lint (dep-cruiser + ESLint)
+        run: npm run lint:boundaries
+
+      - name: Run negative-fixture test (verifies the policy actually fires)
+        run: npm --workspace=apps/api run test:extraction-isolation
+
+      - name: Run no-UI-thresholds regression test (6.1 / decision D6)
+        run: npm --workspace=apps/api run test:no-ui-thresholds
+
+      - name: Run credit-policy-bands unit tests (6.1)
+        run: npm --workspace=apps/api run test:credit-policy-bands
+
+      - name: Run null-fidelity regression tests (6.2)
+        run: npm --workspace=apps/api run test:null-fidelity
+
+      - name: Run revision-semantics tests (6.3)
+        run: npm --workspace=apps/api run test:revision-semantics

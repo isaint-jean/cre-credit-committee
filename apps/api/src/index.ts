@@ -3,6 +3,13 @@ import cors from 'cors';
 import { env } from './config/env.js';
 import { apiRouter } from './routes/index.js';
 import { registerCurrentModelVersion } from './services/consistency-engine.service.js';
+import { performDoctrineBootCheck } from './util/doctrine-boot-check.js';
+import { performJudgmentEngineBootCheck } from './util/judgment-engine-boot-check.js';
+
+// Boot-time invariants. Throws on weight-sum / rule-coverage / hash drift / penalty-key validity;
+// process exits non-zero before the HTTP listener starts.
+performDoctrineBootCheck();
+performJudgmentEngineBootCheck();
 
 const app = express();
 

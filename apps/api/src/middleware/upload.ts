@@ -38,6 +38,10 @@ export const uploadAnalysisFiles = upload.fields([
   { name: 'seller_uw', maxCount: 1 },
   { name: 'supporting_docs', maxCount: 20 },
   { name: 'template', maxCount: 1 },
+  // Batch 1A — dedicated rent-roll xlsx/xlsm slot. Source-of-truth precedence
+  // (rent_roll_file > ASR rent-roll tables > Seller UW rent-roll exhibits) is
+  // enforced at the producer level; this slot is the highest-priority input.
+  { name: 'rent_roll', maxCount: 1 },
 ]);
 
 export const uploadTripleFiles = upload.fields([

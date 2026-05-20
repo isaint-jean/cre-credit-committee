@@ -20,7 +20,28 @@ import { recordAnalysisAudit, compareAnalysisVersions } from '../services/versio
 import { recalculateFullModel } from '@cre/shared';
 import { Analysis, AssetType, Comment, ResearchResults } from '@cre/shared';
 import type { TemplateType } from '@cre/shared';
+import {
+  applyCreditPolicyBandsToAnalysis,
+  applyBandsToUwModel,
+  applyBandsToStressScenarios,
+} from '../services/doctrine/apply-credit-policy-bands.js';
+import { createRevision, type RevisionDelta } from '../services/revision-creator.service.js';
 import { v4 as uuid } from 'uuid';
+import {
+  dispatchByIdFormat,
+  MalformedAnalysisIdError,
+} from '../util/dispatch-by-id-format.js';
+import { HydrationError } from '../services/hydrate-record-graph.js';
+import { materializeRenderedAnalysisWithMeta } from '../services/materialize-rendered-analysis.js';
+import { recordGraphStore } from '../storage/record-graph-store.js';
+// Batch 1B — rent-roll resolver imports
+import { parseRentRollXlsx } from '../services/parse-rent-roll-xlsx.js';
+import { extractRentRollFromDocument } from '../services/extract-rent-roll-from-document.js';
+import type { RentRoll, PropertyMetadata } from '@cre/contracts';
+// Batch 1H — property-metadata extractor (AI-tier)
+import { extractPropertyMetadata } from '../services/extract-property-metadata.js';
+// Coverage / measurement tool — analyzer for the populated workbook's per-tab cell coverage.
+import { computeWorkbookCoverage } from '../services/compute-workbook-coverage.js';
 
 export const analysisRoutes = Router();
 
@@ -32,6 +53,7 @@ analysisRoutes.post('/', uploadAnalysisFiles as any, async (req: Request, res: R
     const sellerUwFile = files['seller_uw']?.[0] || files['uw']?.[0];
     const supportingDocFiles = files['supporting_docs'] || [];
     const templateFile = files['template']?.[0];
+    const rentRollFile = files['rent_roll']?.[0];
     const assetType = req.body.assetType as AssetType;
     const templateType = req.body.templateType as TemplateType | undefined;
     const name = req.body.name || asrFile?.originalname || 'Untitled Analysis';
@@ -133,6 +155,13 @@ analysisRoutes.post('/', uploadAnalysisFiles as any, async (req: Request, res: R
     if (sellerUwFile) {
       store.saveOriginalUpload(uuid(), id, 'seller_uw', sellerUwFile.originalname, sellerUwFile.mimetype, sellerUwFile.buffer);
     }
+    // Batch 1A — persist the rent-roll upload (if present). Parsing into a
+    // RentRoll record happens in the background pipeline; this just ensures
+    // the file is stored for download and re-parse. Pipeline wiring of the
+    // parsed RentRoll into uwModel is deferred to Batch 1B.
+    if (rentRollFile) {
+      store.saveOriginalUpload(uuid(), id, 'rent_roll', rentRollFile.originalname, rentRollFile.mimetype, rentRollFile.buffer);
+    }
 
     // Return immediately, process async
     res.status(201).json({
@@ -152,7 +181,10 @@ analysisRoutes.post('/', uploadAnalysisFiles as any, async (req: Request, res: R
       sellerUwFile?.buffer, sellerUwFile?.originalname, sellerUwFile?.mimetype,
       supportingDocFiles.map((f) => ({ buffer: f.buffer, name: f.originalname, mime: f.mimetype })),
       resolvedTemplateBuffer, resolvedTemplateName, resolvedTemplateMime,
-      { inputHash: cacheResult.inputHash, components: cacheResult.components }
+      { inputHash: cacheResult.inputHash, components: cacheResult.components },
+      // Batch 1B — pass the rent_roll buffer separately so the pipeline can
+      // resolve it via the precedence chain: file > ASR table > Seller UW exhibit.
+      rentRollFile?.buffer,
     );
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Upload failed' });
@@ -198,14 +230,84 @@ analysisRoutes.get('/model-versions', (_req: Request, res: Response) => {
   res.json({ versions });
 });
 
-// GET /api/analyses/:id — Full detail
+// GET /api/analyses/:id — Full detail.
+//
+// Per revision-lineage spec §7: resolves the LATEST revision in the lineage by default.
+// `?revisionId=...` query param overrides to a specific historical node (must be in the
+// same lineage as `:id`).
+//
+// Batch 6.8 strict-dispatch: classifies `:id` by format and routes to the appropriate spine.
+//   - UUID v4   -> legacy (existing revision-lineage lookup in sqlite-store)
+//   - Content-hash -> new spine (hydrate -> project -> render -> RenderedAnalysis)
+// Other id-bearing routes on this router fall through naturally: a content-hash id will
+// not be found by `store.getAnalysis(id)` and 404s with the legacy "not found" error.
 analysisRoutes.get('/:id', (req: Request, res: Response) => {
-  const analysis = store.getAnalysis(req.params.id);
+  let format: 'legacy' | 'graph';
+  try {
+    format = dispatchByIdFormat(req.params.id);
+  } catch (e) {
+    if (e instanceof MalformedAnalysisIdError) {
+      res.status(400).json({ error: 'MALFORMED_ANALYSIS_ID', message: e.message });
+      return;
+    }
+    throw e;
+  }
+
+  if (format === 'graph') {
+    try {
+      // Memoized read-pole pipeline (post-6.8 caching layer): cache hit returns the
+      // persisted RenderedAnalysis; cache miss runs hydrate -> project -> render and
+      // persists. Same observable behavior as the inline chain; faster on warm cache.
+      const meta = materializeRenderedAnalysisWithMeta(req.params.id as never, recordGraphStore);
+      // Side-channel observability: telemetry only, never used for routing.
+      res.locals.observability = {
+        cacheHit: meta.cacheHit,
+        renderVersion: meta.rendered.metadata.renderVersion,
+      };
+      res.status(200).json(meta.rendered);
+      return;
+    } catch (e) {
+      if (e instanceof HydrationError) {
+        res.status(404).json({ error: e.code, message: e.message, ...e.context });
+        return;
+      }
+      const err = e as Error;
+      res.status(400).json({ error: err?.name ?? 'GET_ANALYSIS_ERROR', message: err?.message });
+      return;
+    }
+  }
+
+  // Legacy path (uuid v4): existing revision-lineage lookup.
+  const anchor = store.getAnalysis(req.params.id);
+  if (!anchor) {
+    res.status(404).json({ error: 'Analysis not found' });
+    return;
+  }
+
+  const explicitRevisionId = req.query.revisionId;
+  let analysis: typeof anchor | null = null;
+
+  if (typeof explicitRevisionId === 'string') {
+    // §7: deterministic historical node. Verify cross-lineage isolation —
+    // `revisionId` MUST be in the same lineage as `:id`.
+    const target = store.getAnalysis(explicitRevisionId);
+    const anchorRoot = anchor.lineageRootId ?? anchor.id;
+    const targetRoot = target?.lineageRootId ?? target?.id;
+    if (!target || targetRoot !== anchorRoot) {
+      res.status(404).json({ error: 'Revision not found in this analysis lineage' });
+      return;
+    }
+    analysis = target;
+  } else {
+    // §7 default: latest revision in lineage.
+    analysis = store.getLatestRevisionInLineage(req.params.id);
+  }
+
   if (!analysis) {
     res.status(404).json({ error: 'Analysis not found' });
     return;
   }
-  res.json({ analysis });
+  res.json({ analysis: applyCreditPolicyBandsToAnalysis(analysis) });
 });
 
 // GET /api/analyses/:id/status — Polling endpoint
@@ -234,130 +336,67 @@ analysisRoutes.delete('/:id', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// PATCH /api/analyses/:id/uw-model — Update UW model cells
-analysisRoutes.patch('/:id/uw-model', (req: Request, res: Response) => {
-  const analysis = store.getAnalysis(req.params.id);
-  if (!analysis || !analysis.uwModel) {
-    res.status(404).json({ error: 'Analysis or UW model not found' });
+// Batch 6.3 — PATCH /:id/uw-model and PATCH /:id/loan-terms have been HARD-REMOVED per
+// architecture decision D4 (revisions, not patches) and the user's pre-6.3 directive.
+// In-place mutation semantics are forbidden on record-bearing endpoints. Edits now flow
+// through `POST /:id/revisions` which creates a new immutable analysis row pointing at
+// its parent via `parentAnalysisId`. The web client must use the revisions endpoint
+// (no PATCH compat shim — Option A per user approval).
+
+// POST /api/analyses/:id/revisions — Create a new revision of an analysis.
+//
+// Body: a tagged delta. Two shapes are accepted:
+//   { type: 'uw-model-cells', updates: [{ path, value }] }
+//   { type: 'loan-terms',     updates: { interestRate?, termMonths?, ... } }
+//
+// The route handler is a dumb constructor of lineage events. It loads the parent, hands
+// the delta to `createRevision`, persists the returned row, decorates with credit-policy
+// bands, and returns. It does NOT interpret the delta beyond dispatching by `type` — the
+// underwriting recalculation is owned by `recalculateFullModel`, doctrine bands by the
+// 6.1 decorator, and lineage stamping by `createRevision`.
+analysisRoutes.post('/:id/revisions', (req: Request, res: Response) => {
+  const parent = store.getAnalysis(req.params.id);
+  if (!parent || !parent.uwModel) {
+    res.status(404).json({ error: 'Parent analysis or UW model not found' });
     return;
   }
 
-  const { updates } = req.body as { updates: { path: string; value: number }[] };
-  if (!updates || !Array.isArray(updates)) {
-    res.status(400).json({ error: 'updates array required' });
+  const body = req.body as RevisionDelta | undefined;
+  if (!body || (body.type !== 'uw-model-cells' && body.type !== 'loan-terms')) {
+    res.status(400).json({
+      error:
+        "delta must be { type: 'uw-model-cells', updates: [{path, value}] } " +
+        "or { type: 'loan-terms', updates: {...} }",
+    });
     return;
   }
 
-  let model = JSON.parse(JSON.stringify(analysis.uwModel));
-  // Metric values are nullable — null = not computable for this version.
-  const changedMetrics: { metric: string; oldValue: number | null; newValue: number | null }[] = [];
-
-  for (const update of updates) {
-    const oldValue = getNestedValue(model, update.path);
-    setNestedValue(model, update.path, update.value);
-
-    // Mark as overridden if it's a line item
-    const parts = update.path.split('.');
-    if (parts.length >= 2) {
-      const overriddenPath = parts.slice(0, -1).join('.') + '.isOverridden';
-      try { setNestedValue(model, overriddenPath, true); } catch {}
-    }
-
-    if (!model.modifiedCells.includes(update.path)) {
-      model.modifiedCells.push(update.path);
-    }
+  let revision;
+  try {
+    revision = createRevision({ parent, delta: body });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? 'Failed to create revision' });
+    return;
   }
 
-  // Store old metrics
-  const oldNOI = analysis.uwModel.netOperatingIncome;
-  const oldDSCR = analysis.uwModel.dscr;
-  const oldLTV = analysis.uwModel.ltv;
-
-  model.asReported = false;
-  model = recalculateFullModel(model);
-
-  if (model.netOperatingIncome !== oldNOI) {
-    changedMetrics.push({ metric: 'NOI', oldValue: oldNOI, newValue: model.netOperatingIncome });
-  }
-  if (model.dscr !== oldDSCR) {
-    changedMetrics.push({ metric: 'DSCR', oldValue: oldDSCR, newValue: model.dscr });
-  }
-  if (model.ltv !== oldLTV) {
-    changedMetrics.push({ metric: 'LTV', oldValue: oldLTV, newValue: model.ltv });
-  }
-
-  store.updateAnalysis(req.params.id, { uwModel: model });
-  res.json({ uwModel: model, changedMetrics });
+  store.createAnalysis(revision);
+  const decorated = applyCreditPolicyBandsToAnalysis(revision);
+  res.status(201).json({ analysis: decorated });
 });
 
-// PATCH /api/analyses/:id/loan-terms — Update loan terms interactively
-analysisRoutes.patch('/:id/loan-terms', (req: Request, res: Response) => {
-  const analysis = store.getAnalysis(req.params.id);
-  if (!analysis || !analysis.uwModel) {
-    res.status(404).json({ error: 'Analysis or UW model not found' });
+// GET /api/analyses/:id/lineage — Return the full lineage chain for this analysis.
+//
+// Append-only view: every revision sharing the same `lineageRootId`, ordered by
+// `revisionOrdinal` ascending. Used by the web client to display revision history.
+analysisRoutes.get('/:id/lineage', (req: Request, res: Response) => {
+  // 404 if the analysis doesn't exist.
+  const head = store.getAnalysis(req.params.id);
+  if (!head) {
+    res.status(404).json({ error: 'Analysis not found' });
     return;
   }
-
-  const updates = req.body as {
-    interestRate?: number;
-    ioMonths?: number;
-    amortizationMonths?: number;
-    termMonths?: number;
-    rateType?: 'fixed' | 'floating';
-    paymentFrequency?: 'monthly' | 'quarterly';
-    prepaymentTerms?: string;
-    loanAmount?: number;
-  };
-
-  let model = JSON.parse(JSON.stringify(analysis.uwModel));
-  // Metric values are nullable — null = not computable for this version.
-  const changedMetrics: { metric: string; oldValue: number | null; newValue: number | null }[] = [];
-
-  const oldDSCR = model.dscr;
-  const oldADS = model.annualDebtService;
-
-  // Apply updates to loanDetails
-  if (updates.interestRate !== undefined) {
-    model.interestRate = updates.interestRate;
-    model.loanDetails.interestRate = updates.interestRate;
-  }
-  if (updates.loanAmount !== undefined) {
-    model.loanAmount = updates.loanAmount;
-    model.loanDetails.loanAmount = updates.loanAmount;
-  }
-  if (updates.ioMonths !== undefined) {
-    model.loanDetails.ioMonths = updates.ioMonths;
-  }
-  if (updates.amortizationMonths !== undefined) {
-    model.loanDetails.amortizationMonths = updates.amortizationMonths;
-    model.amortizationYears = updates.amortizationMonths / 12;
-  }
-  if (updates.termMonths !== undefined) {
-    model.loanDetails.termMonths = updates.termMonths;
-    model.termYears = updates.termMonths / 12;
-  }
-  if (updates.rateType !== undefined) {
-    model.loanDetails.rateType = updates.rateType;
-  }
-  if (updates.paymentFrequency !== undefined) {
-    model.loanDetails.paymentFrequency = updates.paymentFrequency;
-  }
-  if (updates.prepaymentTerms !== undefined) {
-    model.loanDetails.prepaymentTerms = updates.prepaymentTerms;
-  }
-
-  model.asReported = false;
-  model = recalculateFullModel(model);
-
-  if (model.annualDebtService !== oldADS) {
-    changedMetrics.push({ metric: 'Annual Debt Service', oldValue: oldADS, newValue: model.annualDebtService });
-  }
-  if (model.dscr !== oldDSCR) {
-    changedMetrics.push({ metric: 'DSCR', oldValue: oldDSCR, newValue: model.dscr });
-  }
-
-  store.updateAnalysis(req.params.id, { uwModel: model });
-  res.json({ uwModel: model, repaymentSchedule: model.repaymentSchedule, changedMetrics });
+  const lineage = store.listLineage(req.params.id);
+  res.json({ lineage });
 });
 
 // POST /api/analyses/:id/stress-test
@@ -373,7 +412,7 @@ analysisRoutes.post('/:id/stress-test', (req: Request, res: Response) => {
   const results = runStressTests(analysis.uwModel, inputs);
 
   store.updateAnalysis(req.params.id, { stressScenarios: results });
-  res.json({ results });
+  res.json({ results: applyBandsToStressScenarios(results) });
 });
 
 // Comment routes nested under analysis
@@ -447,11 +486,21 @@ analysisRoutes.get('/:id/populated-template', (req: Request, res: Response) => {
 });
 
 // GET /api/analyses/:id/populated-template/info — Get mapping info without downloading file
-analysisRoutes.get('/:id/populated-template/info', (req: Request, res: Response) => {
+analysisRoutes.get('/:id/populated-template/info', async (req: Request, res: Response) => {
   const populated = store.getPopulatedTemplate(req.params.id);
   if (!populated) {
     res.status(404).json({ available: false });
     return;
+  }
+
+  // Include a coverage report alongside the existing mappedFields/unmappedFields/
+  // tabsPopulated trio so a single call gives clients both the populator's
+  // ledger AND the workbook's actual cell-level coverage.
+  let coverage = null;
+  try {
+    coverage = await computeWorkbookCoverage(populated.fileData);
+  } catch (err) {
+    console.warn('[populated-template/info] coverage analysis failed:', err);
   }
 
   res.json({
@@ -460,71 +509,23 @@ analysisRoutes.get('/:id/populated-template/info', (req: Request, res: Response)
     mappedFields: JSON.parse(populated.mappedFields),
     unmappedFields: JSON.parse(populated.unmappedFields),
     tabsPopulated: JSON.parse(populated.tabsPopulated),
+    coverage,
   });
 });
 
-// GET /api/analyses/:id/bp-spiral-memo — Download BP Spiral Underwriting memo (PDF)
-analysisRoutes.get('/:id/bp-spiral-memo', async (req: Request, res: Response) => {
-  const analysis = store.getAnalysis(req.params.id);
-  if (!analysis) {
-    res.status(404).json({ error: 'Analysis not found' });
+// GET /api/analyses/:id/populated-template/coverage — Just the coverage report
+analysisRoutes.get('/:id/populated-template/coverage', async (req: Request, res: Response) => {
+  const populated = store.getPopulatedTemplate(req.params.id);
+  if (!populated) {
+    res.status(404).json({ available: false });
     return;
   }
-
-  if (analysis.status !== 'complete') {
-    res.status(400).json({ error: 'Analysis is not complete. Memo is only available after successful completion.' });
-    return;
-  }
-
-  if (!analysis.validationResult?.passed) {
-    res.status(400).json({ error: 'Validation did not pass. Memo cannot be generated for unvalidated analyses.' });
-    return;
-  }
-
   try {
-    const { generateBPSpiralMemo } = await import('../services/bp-spiral-memo.service.js');
-    const pdfBuffer = await generateBPSpiralMemo(analysis);
-    const safeName = analysis.name.replace(/[^a-zA-Z0-9_\- ]/g, '').substring(0, 60);
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="BP_Spiral_UW_${safeName}.pdf"`);
-    res.send(pdfBuffer);
-  } catch (error: any) {
-    console.error('BP Spiral memo generation error:', error);
-    res.status(500).json({ error: error.message || 'Memo generation failed' });
+    const coverage = await computeWorkbookCoverage(populated.fileData);
+    res.json({ available: true, fileName: populated.fileName, coverage });
+  } catch (err: unknown) {
+    res.status(500).json({ available: false, error: (err as Error).message });
   }
-});
-
-// GET /api/analyses/:id/bank-underwriting — Download original bank underwriting file
-analysisRoutes.get('/:id/bank-underwriting', (req: Request, res: Response) => {
-  // Prefer seller_uw (the bank's underwriting); fall back to ASR
-  let upload = store.getOriginalUpload(req.params.id, 'seller_uw');
-  if (!upload) {
-    upload = store.getOriginalUpload(req.params.id, 'asr');
-  }
-  if (!upload) {
-    res.status(404).json({ error: 'No original underwriting file available for this analysis.' });
-    return;
-  }
-
-  res.setHeader('Content-Type', upload.mimeType);
-  res.setHeader('Content-Disposition', `attachment; filename="${upload.fileName}"`);
-  res.send(upload.fileData);
-});
-
-// GET /api/analyses/:id/bank-underwriting/info — Check availability of original files
-analysisRoutes.get('/:id/bank-underwriting/info', (req: Request, res: Response) => {
-  const uploads = store.listOriginalUploads(req.params.id);
-  const sellerUw = uploads.find(u => u.fileType === 'seller_uw');
-  const asr = uploads.find(u => u.fileType === 'asr');
-  const bankUw = sellerUw || asr;
-
-  res.json({
-    available: !!bankUw,
-    fileName: bankUw?.fileName || null,
-    fileType: bankUw?.fileType || null,
-    uploads: uploads.map(u => ({ fileType: u.fileType, fileName: u.fileName })),
-  });
 });
 
 // GET /api/analyses/:id/audit — Get version audit log for this analysis
@@ -547,7 +548,10 @@ async function runAnalysisPipeline(
   templateBuffer?: Buffer,
   templateFileName?: string,
   templateMimeType?: string,
-  cacheContext?: { inputHash: string; components: HashComponents }
+  cacheContext?: { inputHash: string; components: HashComponents },
+  // Batch 1B — optional dedicated rent-roll xlsx upload. When present, takes
+  // precedence over ASR-table or Seller-UW-exhibit AI extraction.
+  rentRollBuffer?: Buffer,
 ) {
   try {
     // Step 1a: Parse ASR document
@@ -680,6 +684,65 @@ async function runAnalysisPipeline(
     const uwModel = pipeline.uwModel!;
     store.updateAnalysis(id, { uwModel, progress: 60, currentStep: 'Underwriting model built (pipeline)' });
 
+    // Batch 1B — Rent-roll resolution. Sibling step to the underwriting pipeline.
+    // Source-of-truth precedence: dedicated xlsx file > ASR table extraction >
+    // Seller UW exhibit extraction > null + missing-support flag. Each step is
+    // independent; failures in one fall through to the next.
+    const issues: string[] = [...(pipeline.derivationIssues ?? [])];
+    let rentRoll: RentRoll | null = null;
+    if (rentRollBuffer) {
+      try {
+        rentRoll = await parseRentRollXlsx(rentRollBuffer);
+      } catch (err) {
+        console.warn('[RentRoll] xlsx parse failed, will try AI fallback:', err);
+        issues.push('rent-roll: xlsx parser failed (' + (err as Error).message + ')');
+      }
+    }
+    if (rentRoll === null) {
+      try {
+        rentRoll = await extractRentRollFromDocument(document, 'asr_table');
+      } catch (err) {
+        console.warn('[RentRoll] ASR AI extraction failed:', err);
+      }
+    }
+    if (rentRoll === null && uwDocument !== null) {
+      try {
+        rentRoll = await extractRentRollFromDocument(uwDocument, 'seller_uw_exhibit');
+      } catch (err) {
+        console.warn('[RentRoll] Seller-UW AI extraction failed:', err);
+      }
+    }
+    if (rentRoll === null) {
+      issues.push('missing-support: rent-roll');
+    }
+    store.updateAnalysis(id, {
+      rentRoll,
+      derivationIssues: issues,
+      progress: 60,
+      currentStep: rentRoll ? 'Rent roll resolved (' + rentRoll.source + ', ' + rentRoll.lines.length + ' tenants)' : 'Rent roll unresolved',
+    });
+
+    // Batch 1H — Property metadata extraction. Sibling step to rent-roll
+    // resolution. ASR-only source today; AI extractor returns null when no
+    // property facts are found (logged via missing-support).
+    let propertyMetadata: PropertyMetadata | null = null;
+    try {
+      propertyMetadata = await extractPropertyMetadata(document, 'asr_extraction');
+    } catch (err) {
+      console.warn('[PropertyMetadata] extraction failed:', err);
+    }
+    if (propertyMetadata === null) {
+      issues.push('missing-support: property-metadata');
+    }
+    store.updateAnalysis(id, {
+      propertyMetadata,
+      derivationIssues: issues,
+      progress: 60,
+      currentStep: propertyMetadata
+        ? 'Property metadata extracted (' + (propertyMetadata.propertyName ?? 'unnamed') + ')'
+        : 'Property metadata unresolved',
+    });
+
     // Step 5a: Populate underwriting template (use default if none provided)
     if (uwModel) {
       try {
@@ -687,7 +750,18 @@ async function runAnalysisPipeline(
 
         // Fall back to a generated default template when the user didn't select one
         const effectiveTemplateBuffer = templateBuffer || await createDefaultTemplate();
-        const result = await populateTemplate(effectiveTemplateBuffer, uwModel);
+        // Batch 1A/1B/1H — pass per-source extractions, rent-roll, and
+        // property-metadata so the populator can fill multi-period columns,
+        // tenant rows, and the property header / detail tabs. All optional;
+        // absence falls back gracefully.
+        const result = await populateTemplate(effectiveTemplateBuffer, uwModel, {
+          periodSources: {
+            mostRecent: pipeline.uwModelFromAsr ?? null,
+            issuerUw:   pipeline.uwModelFromSeller ?? null,
+          },
+          rentRoll,
+          propertyMetadata,
+        });
 
         // Store the populated template for download
         const populatedFileName = templateBuffer && templateFileName
@@ -854,10 +928,29 @@ async function runAnalysisPipeline(
     store.updateAnalysis(id, { validationResult });
 
     if (!validationResult.passed) {
+      // Diagnostic dump: print the actual model state alongside the validation
+      // error so we can debug live failures. The same dump is appended to the
+      // thrown error so it surfaces in the failed-analysis response too.
+      const dump = uwModel === null ? '{ uwModel: null }' : JSON.stringify({
+        loanAmount: uwModel.loanAmount,
+        interestRate: uwModel.interestRate,
+        interestRate_loanDetails: uwModel.loanDetails?.interestRate,
+        amortizationYears: uwModel.amortizationYears,
+        amortizationMonths_loanDetails: uwModel.loanDetails?.amortizationMonths,
+        termYears: uwModel.termYears,
+        netOperatingIncome: uwModel.netOperatingIncome,
+        capRate: uwModel.capRate,
+        impliedValue: uwModel.impliedValue,
+        annualDebtService: uwModel.annualDebtService,
+        dscr: uwModel.dscr,
+        ltv: uwModel.ltv,
+        debtYield: uwModel.debtYield,
+      });
+      console.error('[Validation] FAILED. uwModel state:', dump);
       const errorSummary = validationResult.errors
         .map(e => `[${e.category}] ${e.name}: ${e.details}`)
         .join('; ');
-      throw new Error(`Validation failed: ${errorSummary}`);
+      throw new Error(`Validation failed: ${errorSummary} | model=${dump}`);
     }
 
     // Complete — only reached if all validation checks pass
@@ -887,17 +980,5 @@ async function runAnalysisPipeline(
   }
 }
 
-// Utility for nested property access
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((o, k) => o?.[k], obj);
-}
-
-function setNestedValue(obj: any, path: string, value: any): void {
-  const keys = path.split('.');
-  let current = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    current = current[keys[i]];
-    if (!current) return;
-  }
-  current[keys[keys.length - 1]] = value;
-}
+// Nested property access helpers extracted to apps/api/src/util/object-path.ts in Batch 6.3
+// (previously inline here). Used by the revision-creator service.

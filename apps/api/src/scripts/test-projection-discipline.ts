@@ -1,0 +1,98 @@
+// Projection discipline guard (Batch 6.6 - PJ2 enforcement).
+//
+//   npm run test:projection-discipline
+//
+// Greps the projection source for forbidden patterns. The projection is a strict
+// structural identity passthrough; any of the patterns below would convert it into
+// an interpretation layer that synthesizes meaning beyond the bundle. Comment lines
+// are stripped before scanning so the locked invariant block at the top can still
+// describe what is forbidden.
+
+import * as fs from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECTION_PATH = resolve(__dirname, '..', 'services', 'build-underwriting-context-projection.ts');
+
+let passed = 0;
+let failed = 0;
+function ok(m: string): void { passed++; console.log('  ok    ' + m); }
+function fail(m: string): void { failed++; console.error('  FAIL  ' + m); }
+
+interface ForbiddenPattern {
+  readonly label: string;
+  readonly regex: RegExp;
+}
+
+const FORBIDDEN: readonly ForbiddenPattern[] = [
+  { label: 'nullish coalescing (??)',               regex: new RegExp('\\?\\?') },
+  { label: 'logical-OR default ( || )',             regex: new RegExp(' \\|\\| ') },
+  { label: 'Math.max',                              regex: new RegExp('Math\\.max\\b') },
+  { label: 'Math.min',                              regex: new RegExp('Math\\.min\\b') },
+  { label: 'asset-class branching (propertyType)',  regex: new RegExp('if\\s*\\([^)]*\\bpropertyType\\b') },
+  { label: 'asset-class branching (assetClass)',    regex: new RegExp('if\\s*\\([^)]*\\bassetClass\\b') },
+  { label: 'Object.keys (iteration-order leak)',    regex: new RegExp('\\bObject\\.keys\\b') },
+  { label: 'Object.values (iteration-order leak)',  regex: new RegExp('\\bObject\\.values\\b') },
+  { label: 'new Date (wall-clock construction)',    regex: new RegExp('\\bnew Date\\b') },
+  { label: 'Date.now / Date.parse / Date.UTC',      regex: new RegExp('\\bDate\\.(now|parse|UTC)\\b') },
+  { label: 'Math.random',                           regex: new RegExp('\\bMath\\.random\\b') },
+  { label: 'process.env',                           regex: new RegExp('\\bprocess\\.env\\b') },
+  { label: 'readFileSync',                          regex: new RegExp('\\breadFileSync\\b') },
+  { label: 'writeFileSync',                         regex: new RegExp('\\bwriteFileSync\\b') },
+];
+
+// Strip comment lines so the discipline doc at the top can mention forbidden patterns
+// without tripping the guard. Same heuristics used by test-hydration-discipline.ts.
+function stripCommentLines(source: string): string {
+  const lines = source.split('\n');
+  const code: string[] = [];
+  let inBlock = false;
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+
+    if (inBlock) {
+      if (trimmed.indexOf('*/') >= 0) inBlock = false;
+      continue;
+    }
+    if (trimmed.indexOf('/**') === 0 || trimmed.indexOf('/*') === 0) {
+      if (trimmed.indexOf('*/') < 0) inBlock = true;
+      continue;
+    }
+    if (trimmed.indexOf('//') === 0) continue;
+    if (trimmed.indexOf('*') === 0) continue;
+
+    code.push(raw);
+  }
+  return code.join('\n');
+}
+
+const fileExists = fs.existsSync(PROJECTION_PATH);
+if (fileExists) {
+  ok('projection source found at ' + PROJECTION_PATH);
+} else {
+  fail('projection source MISSING at ' + PROJECTION_PATH);
+}
+
+if (fileExists) {
+  const source = fs.readFileSync(PROJECTION_PATH, 'utf8');
+  const codeOnly = stripCommentLines(source);
+
+  for (const pattern of FORBIDDEN) {
+    if (pattern.regex.test(codeOnly)) {
+      const codeLines = codeOnly.split('\n');
+      let lineIdx = -1;
+      for (let i = 0; i < codeLines.length; i++) {
+        const ln = codeLines[i];
+        if (ln !== undefined && pattern.regex.test(ln)) { lineIdx = i; break; }
+      }
+      const offendingLine = lineIdx >= 0 ? (codeLines[lineIdx] ?? '').trim() : '?';
+      fail('projection contains FORBIDDEN pattern: ' + pattern.label + ' - line: ' + offendingLine);
+    } else {
+      ok('projection code is free of: ' + pattern.label);
+    }
+  }
+}
+
+console.log('\n' + passed + ' passed, ' + failed + ' failed');
+if (failed > 0) process.exit(1);
