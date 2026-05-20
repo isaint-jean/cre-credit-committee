@@ -70,6 +70,7 @@ import type {
   ExtractionResult,
   ExtractionResultId,
   ISODateTime,
+  LoanTermsExtraction,
   PropertyMetadata,
   SourceDocumentRef,
 } from '@cre/contracts';
@@ -96,6 +97,22 @@ export interface BuildExtractionResultArgs {
    *  itself; future iteration may thread it into runAsrAdapter's deps when
    *  the AI rent-roll fallback's propertyHint becomes a first-class arg). */
   readonly propertyHint?: string | null;
+  /**
+   * Optional caller-provided loan terms. When present, projects directly
+   * into ExtractionResult.loanTerms. When absent (undefined or null), the
+   * composer sets loanTerms: null and downstream judgment throws on the
+   * null via JE_LOAN_AMOUNT_MISSING. This input mechanism closes the gap
+   * documented in Ticket K (#7): no v0.1.0 adapter produces loan terms,
+   * so callers must supply them via the route's `loanTerms` form field
+   * (JSON-stringified) until a future extractLoanTerms adapter ships.
+   *
+   * The other "always-null because no producer" sub-records (pca,
+   * appraisal, sellerUw, sellerUwOperatingStatement — wait, the last two
+   * have producers via CF; pca + appraisal don't) don't yet have analogous
+   * input mechanisms because they're not currently load-bearing for
+   * judgment-engine throws.
+   */
+  readonly loanTerms?: LoanTermsExtraction | null;
 }
 
 /* -------------------------------- output ---------------------------------- */
@@ -238,9 +255,19 @@ export async function buildExtractionResult(
   if (rrOutcome !== null) sourceDocuments.push(...rrOutcome.sourceRefs);
   if (asrOutcome !== null) sourceDocuments.push(...asrOutcome.sourceRefs);
 
+  /* loanTerms projection — caller-provided via args (Ticket K #7). Treat
+     undefined and null as "absent" (composer projects null). When present,
+     project the caller's value verbatim into extractionResult.loanTerms,
+     which downstream judgment then sees as populated and proceeds without
+     the JE_LOAN_AMOUNT_MISSING hard throw. */
+  const loanTerms: LoanTermsExtraction | null =
+    args.loanTerms === undefined || args.loanTerms === null
+      ? null
+      : args.loanTerms;
+
   /* Build the body (everything except id). Fields with no producer in the
-     current spine stay null — pca, appraisal, sellerUw (summary triplet),
-     loanTerms. Their producers land in later batches. */
+     current spine stay null — pca, appraisal, sellerUw (summary triplet).
+     Their producers land in later batches. */
   const body = {
     analysisAsOfDate: args.analysisAsOfDate,
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
@@ -252,7 +279,7 @@ export async function buildExtractionResult(
     sellerUw: null,
     sellerUwOperatingStatement,
     asr,
-    loanTerms: null,
+    loanTerms,
     sourceDocuments,
   };
 

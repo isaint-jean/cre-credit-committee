@@ -21,12 +21,15 @@
  *   - librarySnapshotId    (required, content hash of the pre-persisted library snapshot)
  *   - marketBenchmarks     (required, JSON-STRINGIFIED MarketBenchmarks object)
  *   - creditManifesto      (required, JSON-STRINGIFIED CreditManifesto object)
+ *   - loanTerms            (optional, JSON-STRINGIFIED LoanTermsExtraction; closes
+ *                           Ticket K #7 — see field-validation block below)
  *   - marketLiquidityHint  (optional, MarketLiquidity value)
  *   - propertyHint         (optional, free-form string passed to AI extractors)
  *
- * JSON-stringified fields: `marketBenchmarks` and `creditManifesto`. Multipart
- * form fields are flat strings; complex objects ride as JSON strings that this
- * route parses at the boundary. Malformed JSON returns 400.
+ * JSON-stringified fields: `marketBenchmarks`, `creditManifesto`, and (when
+ * provided) `loanTerms`. Multipart form fields are flat strings; complex
+ * objects ride as JSON strings that this route parses at the boundary.
+ * Malformed JSON in any of these returns 400 with a parse-error response.
  *
  * Response shape on 201:
  *   {
@@ -69,6 +72,7 @@ import type {
   ExtractionResultId,
   ISODateTime,
   LibrarySnapshotId,
+  LoanTermsExtraction,
   MarketBenchmarks,
   MarketLiquidity,
   PropertyMetadataId,
@@ -129,6 +133,7 @@ interface BuildAndIngestRequestBody {
   librarySnapshotId?: unknown;
   marketBenchmarks?: unknown;
   creditManifesto?: unknown;
+  loanTerms?: unknown;
   marketLiquidityHint?: unknown;
   propertyHint?: unknown;
 }
@@ -204,6 +209,26 @@ export function makeBuildAndIngestHandler(
       return;
     }
 
+    /* Optional loanTerms (Ticket K #7). When provided, parses as
+       JSON-stringified LoanTermsExtraction and threads into composer args.
+       When absent or empty string, treated as undefined (composer projects
+       loanTerms: null, judgment throws JE_LOAN_AMOUNT_MISSING). */
+    let loanTerms: LoanTermsExtraction | undefined;
+    if (body.loanTerms !== undefined && body.loanTerms !== null && body.loanTerms !== '') {
+      try {
+        loanTerms = JSON.parse(body.loanTerms as string) as LoanTermsExtraction;
+      } catch (e) {
+        const err = e as Error;
+        res.status(400).json({
+          error: 'BUILD_AND_INGEST_BAD_REQUEST',
+          message: 'loanTerms is not valid JSON',
+          field: 'loanTerms',
+          parseError: err.message,
+        });
+        return;
+      }
+    }
+
     /* Assemble slots from req.files (multer.fields populates this map). */
     const files = req.files as MulterFilesMap | undefined;
     const asr = takeFile(files, 'asr');
@@ -227,6 +252,7 @@ export function makeBuildAndIngestHandler(
         ...(body.propertyHint !== undefined && body.propertyHint !== null
           ? { propertyHint: body.propertyHint as string }
           : {}),
+        ...(loanTerms !== undefined ? { loanTerms } : {}),
       });
     } catch (e) {
       const err = e as Error;

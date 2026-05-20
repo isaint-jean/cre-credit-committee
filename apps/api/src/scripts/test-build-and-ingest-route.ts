@@ -379,6 +379,78 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
     assertEqual(b1.propertyMetadataId, b2.propertyMetadataId, '8.3 propertyMetadataId stable across calls');
   }
 
+  /* CASE 9 — loanTerms form field parses and threads through to composer
+   * (Ticket K #7). The handler parses the JSON-stringified loanTerms field
+   * and passes it as args.loanTerms to the composer. */
+  console.log('\n9. loanTerms form field threads to composer args (Ticket K #7)');
+  {
+    let observedLoanTerms: unknown = 'NOT_OBSERVED';
+    const deps = makeDeps();
+    const patched: BuildAndIngestDeps = {
+      ...deps,
+      buildExtractionResult: async (args) => {
+        observedLoanTerms = (args as { loanTerms?: unknown }).loanTerms;
+        return deps.buildExtractionResult(args);
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+    const loanTermsValue = {
+      loanAmount: 10_000_000,
+      interestRate: 0.065,
+      amortization: 360,
+      interestOnlyPeriod: 0,
+      maturityDate: '2031-05-08T00:00:00Z',
+    };
+    const req: MockReq = {
+      body: validBody({ loanTerms: JSON.stringify(loanTermsValue) }),
+      files: {},
+    };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 201, '9.1 status 201');
+    assert(observedLoanTerms !== 'NOT_OBSERVED', '9.2 composer received the loanTerms arg');
+    const observedObj = observedLoanTerms as { loanAmount?: number; interestRate?: number };
+    assertEqual(observedObj.loanAmount, 10_000_000, '9.3 loanAmount parsed from JSON and threaded through');
+    assertEqual(observedObj.interestRate, 0.065, '9.4 interestRate parsed and threaded through');
+  }
+
+  /* CASE 10 — malformed loanTerms JSON → 400 (parallel to case 5 for marketBenchmarks) */
+  console.log('\n10. malformed loanTerms JSON → 400 with parse error (Ticket K #7)');
+  {
+    const handler = makeBuildAndIngestHandler(makeDeps());
+    const req: MockReq = {
+      body: validBody({ loanTerms: '{ not valid json' }),
+      files: {},
+    };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 400, '10.1 status 400');
+    const body = res.body as { error: string; field: string; parseError: string };
+    assertEqual(body.error, 'BUILD_AND_INGEST_BAD_REQUEST', '10.2 error code');
+    assertEqual(body.field, 'loanTerms', '10.3 field is loanTerms');
+    assert(body.parseError.length > 0, '10.4 parseError populated');
+  }
+
+  /* CASE 11 — loanTerms field omitted → composer receives undefined (Ticket K #7) */
+  console.log('\n11. loanTerms omitted → composer.args.loanTerms === undefined');
+  {
+    let observedLoanTerms: unknown = 'NOT_OBSERVED';
+    const deps = makeDeps();
+    const patched: BuildAndIngestDeps = {
+      ...deps,
+      buildExtractionResult: async (args) => {
+        observedLoanTerms = (args as { loanTerms?: unknown }).loanTerms;
+        return deps.buildExtractionResult(args);
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+    const req: MockReq = { body: validBody(), files: {} };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 201, '11.1 status 201');
+    assertEqual(observedLoanTerms, undefined, '11.2 composer received undefined (legacy default)');
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 })().catch((e) => {

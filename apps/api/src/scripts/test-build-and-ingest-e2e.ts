@@ -43,6 +43,7 @@ import type {
   CreditManifesto,
   ISODateTime,
   LibrarySnapshot,
+  LoanTermsExtraction,
   MarketBenchmarks,
 } from '@cre/contracts';
 import {
@@ -68,6 +69,7 @@ function assertEqual<T>(a: T, b: T, m: string): void {
 }
 
 const AS_OF = '2026-05-20T00:00:00Z' as ISODateTime;
+const E2E_ENABLED = process.env.ASR_E2E === '1' || process.env.ASR_E2E === 'true';
 
 /* -------------- inline fixture builders (from test-ingest-pipeline.ts) ---- */
 
@@ -145,8 +147,18 @@ const TEST_TOKEN = jwt.sign(
 );
 const AUTH_HEADER = `Bearer ${TEST_TOKEN}`;
 
-function validForm(): Record<string, string> {
-  return {
+/** Synthesized loan terms — caller-provided per Ticket K (#7). Same shape
+ *  as test-ingest-pipeline.ts's makeFullExtraction body. */
+const LOAN_TERMS: LoanTermsExtraction = {
+  loanAmount: 11_000_000,
+  interestRate: 0.07,
+  amortization: 360,
+  interestOnlyPeriod: 0,
+  maturityDate: '2031-05-08T00:00:00Z' as ISODateTime,
+};
+
+function validForm(includeLoanTerms = true): Record<string, string> {
+  const base: Record<string, string> = {
     analysisAsOfDate: AS_OF as string,
     dealRef: 'E2E-TEST',
     propertyType: 'Office',
@@ -154,6 +166,10 @@ function validForm(): Record<string, string> {
     marketBenchmarks: JSON.stringify(benchmarks),
     creditManifesto: JSON.stringify(manifesto),
   };
+  if (includeLoanTerms) {
+    base.loanTerms = JSON.stringify(LOAN_TERMS);
+  }
+  return base;
 }
 
 function makeFormData(fields: Record<string, string>): FormData {
@@ -194,23 +210,16 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       '0.1 DEFAULT_BUILD_AND_INGEST_DEPS.recordGraphStore === singleton recordGraphStore',
     );
 
-    /* Case 1 — POST with seller_cf fixture → 400 with JE_LOAN_AMOUNT_MISSING.
+    /* Case 1 — POST with seller_cf + loanTerms form field → 201 (Ticket K #7
+     * resolved via form-field input).
      *
-     * Validates the full HTTP stack PLUS a downstream-error-shift assertion:
-     * uploading the CF fixture causes the composer to populate
-     * ExtractionResult.t12, which shifts the judgment engine's first hard
-     * failure from JE_GROSS_RENTAL_INCOME_MISSING (case 2's signature) to
-     * JE_LOAN_AMOUNT_MISSING. Proves the CF adapter parsed the workbook AND
-     * the projection reached judgment AND that judgment is short-circuiting
-     * on a different reason code than the no-files case.
-     *
-     * This case CANNOT currently return 201 because no v0.1.0 adapter
-     * populates ExtractionResult.loanTerms — see Ticket K (#7) for the
-     * resolution path. When K closes (either route accepts loanTerms input
-     * or judgment tolerates null with reason-code emission), this case
-     * flips to assert 201. Until then, this is the closest "happy path"
-     * the route can produce. */
-    console.log('1. POST with seller_cf → 400 JE_LOAN_AMOUNT_MISSING (Ticket #7; CF projection reached judgment)');
+     * Validates the full HTTP stack end-to-end producing a successful build:
+     * multer parses the file, composer's CF adapter extracts t12 + sellerUwOS,
+     * args.loanTerms threads into extractionResult.loanTerms (filling the
+     * gap that previously caused JE_LOAN_AMOUNT_MISSING), ingest succeeds,
+     * spine is persisted. Response carries the expected id shape and
+     * BuildReport. */
+    console.log('1. POST with seller_cf + loanTerms form field → 201 (happy path)');
     {
       const fd = makeFormData(validForm());
       appendFile(fd, 'seller_cf', CF_FIXTURE, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -219,16 +228,35 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
         body: fd,
         headers: { authorization: AUTH_HEADER },
       });
-      assertEqual(r.status, 400, '1.1 HTTP 400 (producer error from judgment)');
-      const body = await r.json() as { error: string; message: string };
-      assert(typeof body.message === 'string' && body.message.includes('JE_LOAN_AMOUNT_MISSING'),
-        '1.2 message includes JE_LOAN_AMOUNT_MISSING (CF parsed → judgment reached → loan terms missing)');
-      // The shift from JE_GROSS_RENTAL_INCOME_MISSING (case 2) to
-      // JE_LOAN_AMOUNT_MISSING here is the load-bearing observation: it
-      // proves the CF adapter extracted t12 (which carries rental income),
-      // which then unblocked judgment past its first hard requirement.
-      assert(!body.message.includes('JE_GROSS_RENTAL_INCOME_MISSING'),
-        '1.3 reason code SHIFTED (no longer JE_GROSS_RENTAL_INCOME_MISSING) → CF projection works');
+      if (r.status !== 201) {
+        const debugBody = await r.clone().text();
+        console.error(`  DEBUG: response status=${r.status}, body=${debugBody}`);
+      }
+      assertEqual(r.status, 201, '1.1 HTTP 201');
+      const body = await r.json() as {
+        rootId: string;
+        extractionResultId: string;
+        propertyMetadataId: string | null;
+        buildReport: { slots: Record<string, { status: string }> };
+        evaluation: { id: string };
+      };
+      assert(/^[0-9a-f]{64}$/.test(body.extractionResultId), '1.2 extractionResultId is 64-hex');
+      assert(/^[0-9a-f]{64}$/.test(body.rootId), '1.3 rootId is 64-hex');
+      assertEqual(body.rootId, body.evaluation.id, '1.4 rootId === evaluation.id');
+      assertEqual(body.buildReport.slots.sellerCfXlsx.status, 'ok', '1.5 cf slot ok');
+      assertEqual(body.buildReport.slots.rentRollXlsx.status, 'absent', '1.6 rr slot absent');
+      assertEqual(body.buildReport.slots.asrPdf.status, 'absent', '1.7 asr slot absent');
+      assertEqual(body.propertyMetadataId, null, '1.8 propertyMetadataId null (no asr slot)');
+
+      // Verify persistence: ExtractionResult and DoctrineEvaluation reachable
+      // via the injected store. ExtractionResult.loanTerms should now carry
+      // the caller-provided value (no longer null).
+      const fetched = testStore.getExtractionResult(body.extractionResultId as never);
+      assert(fetched !== null, '1.9 ExtractionResult persisted in store');
+      assert(fetched?.loanTerms !== null, '1.10 ExtractionResult.loanTerms populated from caller input');
+      assertEqual(fetched?.loanTerms?.loanAmount ?? null, 11_000_000, '1.11 loanAmount value matches input');
+      assert(testStore.getDoctrineEvaluation(body.rootId as never) !== null,
+        '1.12 DoctrineEvaluation persisted in store');
     }
 
     /* Case 2 — No files uploaded; only form fields.
@@ -281,23 +309,15 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       assert(body.missing?.includes('librarySnapshotId') === true, '3.4 librarySnapshotId in missing list');
     }
 
-    /* Case 4 — Idempotency under the producer-error path.
+    /* Case 4 — Idempotency under the 201 path.
      *
-     * Same body submitted twice → same 400 with the same error code and
-     * the same message. Validates that:
-     *   (i) multipart parsing is deterministic across calls (same files
-     *       produce the same buffer hashes)
-     *   (ii) the composer's hashing is deterministic (same inputs →
-     *        identical ExtractionResult body → identical id)
-     *   (iii) the judgment engine fails the same way deterministically
-     *
-     * Originally this case was about content-addressing surviving HTTP
-     * with two successful 201 responses sharing the same extractionResultId.
-     * Since 201 isn't currently achievable (Ticket #7), we assert the same
-     * determinism property at the 400-error path: same inputs → same
-     * 400 response shape. When K closes, this case flips back to assert
-     * matching extractionResultId across two 201 responses. */
-    console.log('\n4. idempotency — same body twice → same 400 + same error shape');
+     * Same body submitted twice → same extractionResultId, same rootId, AND
+     * only ONE record in the store (validates ON CONFLICT(id) DO NOTHING
+     * actually fires on the second insert — not just that hashes are stable
+     * but that the deduplication mechanism in record-graph-store works under
+     * HTTP). The third assertion is the unique-to-e2e idempotency property
+     * the unit-level handler test can't reach. */
+    console.log('\n4. idempotency — same body twice → same ids + ON CONFLICT dedupe in store');
     {
       const fd1 = makeFormData(validForm());
       appendFile(fd1, 'seller_cf', CF_FIXTURE, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -306,8 +326,8 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
         body: fd1,
         headers: { authorization: AUTH_HEADER },
       });
-      assertEqual(r1.status, 400, '4.1 first request HTTP 400');
-      const b1 = await r1.json() as { error: string; message: string };
+      assertEqual(r1.status, 201, '4.1 first request HTTP 201');
+      const b1 = await r1.json() as { extractionResultId: string; rootId: string };
 
       const fd2 = makeFormData(validForm());
       appendFile(fd2, 'seller_cf', CF_FIXTURE, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -316,11 +336,21 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
         body: fd2,
         headers: { authorization: AUTH_HEADER },
       });
-      assertEqual(r2.status, 400, '4.2 second request HTTP 400');
-      const b2 = await r2.json() as { error: string; message: string };
+      assertEqual(r2.status, 201, '4.2 second request HTTP 201');
+      const b2 = await r2.json() as { extractionResultId: string; rootId: string };
 
-      assertEqual(b1.error, b2.error, '4.3 error code identical across calls');
-      assertEqual(b1.message, b2.message, '4.4 error message identical across calls (deterministic failure)');
+      assertEqual(b1.extractionResultId, b2.extractionResultId, '4.3 extractionResultId stable across HTTP calls');
+      assertEqual(b1.rootId, b2.rootId, '4.4 rootId stable across HTTP calls');
+
+      // Store-level idempotency: only ONE record exists with this id, even
+      // though insertExtractionResult was called twice. The second insert
+      // hit ON CONFLICT(id) DO NOTHING. We verify this by fetching the
+      // record — if there were duplicate rows, sqlite's PRIMARY KEY would
+      // have rejected the second insert with an error rather than silently
+      // ON-CONFLICTing. Successful fetch + same id confirms dedupe.
+      const fetched = testStore.getExtractionResult(b1.extractionResultId as never);
+      assert(fetched !== null, '4.5 ExtractionResult fetchable from store');
+      assertEqual(fetched?.id, b1.extractionResultId, '4.6 stored record id matches response (single row, no duplicates)');
     }
 
     /* Case 5 — Auth failure: no Authorization header → 401.
@@ -341,19 +371,67 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       assert(typeof body.error === 'string' && body.error.length > 0, '5.2 401 response has error field');
     }
 
-    /* Case 6 (deferred) — full-stack ASR upload with ASR_E2E=1.
+    /* Case 6 — Full-stack ASR upload with ASR_E2E=1 (Ticket K #7 closed).
      *
-     * Deferred until Ticket K (#7) resolves and 201 becomes achievable. Once
-     * the route can produce 201, this case validates: upload asr-minimal.pdf
-     * + seller_cf together, real AI extractors run during composer, response
-     * carries buildReport.slots.asrPdf.status === 'ok' and propertyMetadataId
-     * is populated. Without 201, the response shape (just {error, message})
-     * carries no signal about whether the ASR adapter ran or what it produced
-     * — so this case is unwriteable today.
+     * When ASR_E2E=1: upload asr-minimal.pdf + seller_cf + loanTerms form
+     * field. Real AI extractors run during composer (extractPropertyMetadata
+     * + extractRentRollFromDocument); the asr placeholder still returns null
+     * pending Ticket I (#6). Response carries 201 with buildReport showing
+     * asrPdf slot 'ok', and propertyMetadataId populated when the AI
+     * extractor produced a non-null record.
      *
-     * AI integration at the adapter boundary is already covered by
-     * test-asr-adapter-integration.ts case 5 (also ASR_E2E=1 gated).
-     */
+     * Defense: also assert that the persisted PropertyMetadata carries at
+     * least one non-null descriptive field — guards against AI returning a
+     * structurally-valid but entirely-null record (which extractor returns
+     * null for, but in case the heuristic ever changes). */
+    console.log('\n6. ASR_E2E full-stack upload — real AI extractors run');
+    if (!E2E_ENABLED) {
+      console.log('  skip  6.* E2E disabled (set ASR_E2E=1 to enable; caller pays for AI calls)');
+    } else {
+      const fd = makeFormData(validForm());
+      appendFile(fd, 'seller_cf', CF_FIXTURE, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      appendFile(fd, 'asr', ASR_FIXTURE, 'application/pdf');
+      const r = await fetch(`${baseUrl}/api/build-and-ingest`, {
+        method: 'POST',
+        body: fd,
+        headers: { authorization: AUTH_HEADER },
+      });
+      if (r.status !== 201) {
+        const debugBody = await r.clone().text();
+        console.error(`  DEBUG: response status=${r.status}, body=${debugBody}`);
+      }
+      assertEqual(r.status, 201, '6.1 HTTP 201');
+      const body = await r.json() as {
+        rootId: string;
+        extractionResultId: string;
+        propertyMetadataId: string | null;
+        buildReport: { slots: Record<string, { status: string }> };
+      };
+      assertEqual(body.buildReport.slots.asrPdf.status, 'ok', '6.2 asr slot ok (parseDocument succeeded; AI ran)');
+      assertEqual(body.buildReport.slots.sellerCfXlsx.status, 'ok', '6.3 cf slot ok');
+
+      // PropertyMetadata may be null if the AI extractor returned null
+      // (e.g. minimal fixture text was insufficient). If it IS populated,
+      // assert that at least one descriptive field is non-null — guards
+      // against fully-empty PM somehow surviving the extractor's null gate.
+      if (body.propertyMetadataId !== null) {
+        assert(/^[0-9a-f]{64}$/.test(body.propertyMetadataId), '6.4 propertyMetadataId is 64-hex');
+        const pm = testStore.getPropertyMetadata(body.propertyMetadataId as never);
+        assert(pm !== null, '6.5 PropertyMetadata persisted in store');
+        if (pm !== null) {
+          const descriptiveFields = [
+            pm.propertyName, pm.propertySubtype, pm.address, pm.city, pm.state, pm.zip,
+            pm.county, pm.msa, pm.submarket, pm.yearBuilt, pm.yearRenovated, pm.buildingClass,
+            pm.totalSquareFeet, pm.totalUnits, pm.totalRooms, pm.totalPads,
+            pm.occupancyPhysical, pm.occupancyEconomic, pm.ownershipInterest, pm.numberOfBuildings,
+          ];
+          const anyNonNull = descriptiveFields.some((f) => f !== null);
+          assert(anyNonNull, '6.6 persisted PropertyMetadata has at least one non-null descriptive field');
+        }
+      } else {
+        console.log('  info  6.4-6.6 skipped (AI extractor returned null PropertyMetadata for this fixture)');
+      }
+    }
 
     console.log(`\n${passed} passed, ${failed} failed`);
   } finally {

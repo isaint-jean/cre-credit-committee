@@ -386,6 +386,42 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.propertyMetadata, null, '9.1 propertyMetadata null (no ASR slot)');
   }
 
+  /* CASE 10 — args.loanTerms threading (Ticket K #7).
+   *
+   * When the caller provides loanTerms via composer args, the composer
+   * projects it directly into extractionResult.loanTerms. When omitted
+   * (the legacy path), extractionResult.loanTerms stays null. Validates
+   * the form-field path through the composer layer; the route's parsing
+   * of the JSON-stringified field is tested in test-build-and-ingest-route.ts. */
+  console.log('\n10. args.loanTerms threads into extractionResult.loanTerms (Ticket K #7)');
+  {
+    const loanTerms = {
+      loanAmount: 10_000_000,
+      interestRate: 0.065,
+      amortization: 360,
+      interestOnlyPeriod: 0,
+      maturityDate: '2031-05-08T00:00:00Z' as ISODateTime,
+    };
+    const o = await buildExtractionResult(
+      { ...baseArgs({}), loanTerms },
+      makeDeps({}),
+    );
+    assert(o.extractionResult.loanTerms !== null, '10.1 extractionResult.loanTerms populated');
+    assertEqual(o.extractionResult.loanTerms?.loanAmount ?? null, 10_000_000, '10.2 loanAmount passes through unchanged');
+    assertEqual(o.extractionResult.loanTerms?.interestRate ?? null, 0.065, '10.3 interestRate passes through');
+
+    // Omitted args.loanTerms → null projection (legacy default)
+    const oLegacy = await buildExtractionResult(baseArgs({}), makeDeps({}));
+    assertEqual(oLegacy.extractionResult.loanTerms, null, '10.4 omitted args.loanTerms → null projection');
+
+    // Explicit null args.loanTerms → null projection (same as omitted)
+    const oExplicitNull = await buildExtractionResult(
+      { ...baseArgs({}), loanTerms: null },
+      makeDeps({}),
+    );
+    assertEqual(oExplicitNull.extractionResult.loanTerms, null, '10.5 args.loanTerms === null → null projection');
+  }
+
   /* ------------------------------- summary -------------------------------- */
 
   console.log(`\n${passed} passed, ${failed} failed`);
