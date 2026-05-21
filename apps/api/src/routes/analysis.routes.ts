@@ -245,13 +245,27 @@ analysisRoutes.get('/model-versions', (_req: Request, res: Response) => {
 //
 // Per revision-lineage spec §7: resolves the LATEST revision in the lineage by default.
 // `?revisionId=...` query param overrides to a specific historical node (must be in the
-// same lineage as `:id`).
+// same lineage as `:id`). v1 graph branch resolves latest only; historical lookups
+// (?revisionId) are deferred to issue #21.
 //
-// Batch 6.8 strict-dispatch: classifies `:id` by format and routes to the appropriate spine.
+// Strict-dispatch (Batch 6.8 + option C / #20): classifies `:id` by format.
 //   - UUID v4   -> legacy (existing revision-lineage lookup in sqlite-store)
-//   - Content-hash -> new spine (hydrate -> project -> render -> RenderedAnalysis)
-// Other id-bearing routes on this router fall through naturally: a content-hash id will
-// not be found by `store.getAnalysis(id)` and 404s with the legacy "not found" error.
+//   - 64-hex    -> graph branch. The `:id` is the `lineageRootId` (= AnalysisId per
+//                   spec §1 and the 8.3 contract migration). Resolved through
+//                   `getLatestRevisionByLineageRoot` to the latest envelope's
+//                   `doctrineEvaluationId`; then materialized via the same
+//                   `hydrate -> project -> render` pipeline as before.
+//
+// Graph branch response shape on 200:
+//   { ...RenderedAnalysis fields...,
+//     lineageRootId: RevisionId,    // NEW (8.7): public AnalysisId, echoes URL :id
+//     revisionOrdinal: number,      // NEW (8.7): 0 for root, monotonic per revision
+//   }
+//
+// Note: `rendered.rootId` remains a `DoctrineEvaluationId` (the internal anchor for
+// the workflow / audit / committee stores). Frontend consumers should use
+// `body.lineageRootId` for URL routing and `body.rootId` for those scoped lookups,
+// until issue #23 unifies them under a single lineage-scoped axis.
 analysisRoutes.get('/:id', (req: Request, res: Response) => {
   let format: 'legacy' | 'graph';
   try {
@@ -265,27 +279,8 @@ analysisRoutes.get('/:id', (req: Request, res: Response) => {
   }
 
   if (format === 'graph') {
-    try {
-      // Memoized read-pole pipeline (post-6.8 caching layer): cache hit returns the
-      // persisted RenderedAnalysis; cache miss runs hydrate -> project -> render and
-      // persists. Same observable behavior as the inline chain; faster on warm cache.
-      const meta = materializeRenderedAnalysisWithMeta(req.params.id as never, recordGraphStore);
-      // Side-channel observability: telemetry only, never used for routing.
-      res.locals.observability = {
-        cacheHit: meta.cacheHit,
-        renderVersion: meta.rendered.metadata.renderVersion,
-      };
-      res.status(200).json(meta.rendered);
-      return;
-    } catch (e) {
-      if (e instanceof HydrationError) {
-        res.status(404).json({ error: e.code, message: e.message, ...e.context });
-        return;
-      }
-      const err = e as Error;
-      res.status(400).json({ error: err?.name ?? 'GET_ANALYSIS_ERROR', message: err?.message });
-      return;
-    }
+    handleGraphRead(req, res, recordGraphStore);
+    return;
   }
 
   // Legacy path (uuid v4): existing revision-lineage lookup.
@@ -429,6 +424,53 @@ function handleLegacyRevision(req: Request, res: Response): void {
   store.createAnalysis(revision);
   const decorated = applyCreditPolicyBandsToAnalysis(revision);
   res.status(201).json({ analysis: decorated });
+}
+
+/**
+ * GET /:id graph branch handler. Exported for direct invocation by route tests
+ * with an in-memory store. The production route closure passes the `recordGraphStore`
+ * singleton.
+ *
+ * URL `:id` is the `lineageRootId`. Resolves the latest envelope in the lineage,
+ * materializes from its `doctrineEvaluationId`, and attaches `lineageRootId` +
+ * `revisionOrdinal` to the response so the client has both the public AnalysisId
+ * (for routing) and the internal evaluation anchor (for workflow / audit / committee
+ * lookups, until issue #23 unifies them).
+ */
+export function handleGraphRead(
+  req: Request,
+  res: Response,
+  graphStore: RecordGraphStore,
+): void {
+  const lineageRootId = req.params.id as RevisionId;
+  const envelope = graphStore.getLatestRevisionByLineageRoot(lineageRootId);
+  if (envelope === null) {
+    res.status(404).json({
+      error: 'ANALYSIS_NOT_FOUND',
+      message: `No revision lineage found with root ${req.params.id}`,
+      lineageRootId: req.params.id,
+    });
+    return;
+  }
+  try {
+    const meta = materializeRenderedAnalysisWithMeta(envelope.doctrineEvaluationId, graphStore);
+    res.locals.observability = {
+      cacheHit: meta.cacheHit,
+      renderVersion: meta.rendered.metadata.renderVersion,
+    };
+    res.status(200).json({
+      ...meta.rendered,
+      lineageRootId,
+      revisionOrdinal: envelope.revisionOrdinal,
+    });
+  } catch (e) {
+    if (e instanceof HydrationError) {
+      res.status(404).json({ error: e.code, message: e.message, ...e.context });
+      return;
+    }
+    const err = e as Error;
+    res.status(400).json({ error: err?.name ?? 'GET_ANALYSIS_ERROR', message: err?.message });
+  }
 }
 
 /** Exported for direct invocation by route tests with an in-memory store. The production
