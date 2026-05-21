@@ -153,6 +153,7 @@ export interface RevisionLineageEnvelope {
  * conditions are statically inspectable; new trigger sources require an explicit literal addition.
  */
 export const REVISION_TRIGGERS = [
+  'INITIAL_INGEST',
   'USER_EDIT',
   'STRESS_ENGINE',
   'DOCTRINE_ADJUSTMENT',

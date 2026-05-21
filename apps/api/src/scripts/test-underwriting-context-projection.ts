@@ -159,8 +159,10 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId; bu
     },
     store,
   );
-  const bundle = hydrateRecordGraph(result.rootId, store);
-  return { rootId: result.rootId, bundle };
+  // Post-#20: hydrate / projection anchor on the DoctrineEvaluationId, exposed
+  // as result.evaluationId. result.rootId is the public AnalysisId (RevisionId).
+  const bundle = hydrateRecordGraph(result.evaluationId, store);
+  return { rootId: result.evaluationId, bundle };
 }
 
 // --------------------------------- run ---------------------------------

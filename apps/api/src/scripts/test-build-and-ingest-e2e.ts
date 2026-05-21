@@ -254,6 +254,7 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       assertEqual(r.status, 201, '1.1 HTTP 201');
       const body = await r.json() as {
         rootId: string;
+        evaluationId: string;
         extractionResultId: string;
         propertyMetadataId: string | null;
         buildReport: { slots: Record<string, { status: string }> };
@@ -261,7 +262,9 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       };
       assert(/^[0-9a-f]{64}$/.test(body.extractionResultId), '1.2 extractionResultId is 64-hex');
       assert(/^[0-9a-f]{64}$/.test(body.rootId), '1.3 rootId is 64-hex');
-      assertEqual(body.rootId, body.evaluation.id, '1.4 rootId === evaluation.id');
+      assert(/^[0-9a-f]{64}$/.test(body.evaluationId), '1.3b evaluationId is 64-hex');
+      assertEqual(body.evaluationId, body.evaluation.id, '1.4 evaluationId === evaluation.id (DoctrineEvaluationId)');
+      assert(body.rootId !== body.evaluationId, '1.4b rootId (RevisionId) is distinct from evaluationId (post-#20 contract)');
       assertEqual(body.buildReport.slots.sellerCfXlsx.status, 'ok', '1.5 cf slot ok');
       assertEqual(body.buildReport.slots.rentRollXlsx.status, 'absent', '1.6 rr slot absent');
       assertEqual(body.buildReport.slots.asrPdf.status, 'absent', '1.7 asr slot absent');
@@ -274,8 +277,10 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       assert(fetched !== null, '1.9 ExtractionResult persisted in store');
       assert(fetched?.loanTerms !== null, '1.10 ExtractionResult.loanTerms populated from caller input');
       assertEqual(fetched?.loanTerms?.loanAmount ?? null, 11_000_000, '1.11 loanAmount value matches input');
-      assert(testStore.getDoctrineEvaluation(body.rootId as never) !== null,
-        '1.12 DoctrineEvaluation persisted in store');
+      assert(testStore.getDoctrineEvaluation(body.evaluationId as never) !== null,
+        '1.12 DoctrineEvaluation persisted in store (by evaluationId)');
+      assert(testStore.getRevisionEnvelope(body.rootId as never) !== null,
+        '1.13 root revision envelope persisted under rootId');
     }
 
     /* Case 2 — No files uploaded; only form fields.

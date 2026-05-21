@@ -33,7 +33,8 @@
  *
  * Response shape on 201:
  *   {
- *     rootId: DoctrineEvaluationId,           // == evaluation.id (mirrors /api/ingest)
+ *     rootId: RevisionId,                     // public AnalysisId — root revision envelope id (Option C / #20)
+ *     evaluationId: DoctrineEvaluationId,     // internal doctrine-eval anchor for hydration / workflow / audit
  *     extractionResultId: ExtractionResultId,
  *     propertyMetadataId: PropertyMetadataId | null,
  *     buildReport: BuildReport,
@@ -79,6 +80,7 @@ import type {
   MarketBenchmarksId,
   MarketLiquidity,
   PropertyMetadataId,
+  RevisionId,
 } from '@cre/contracts';
 import { EXTRACTION_ENGINE_VERSION } from '@cre/contracts';
 import {
@@ -475,7 +477,8 @@ export function makeBuildAndIngestHandler(
     }
 
     const responseBody: {
-      rootId: DoctrineEvaluationId;
+      rootId: RevisionId;
+      evaluationId: DoctrineEvaluationId;
       extractionResultId: ExtractionResultId;
       propertyMetadataId: PropertyMetadataId | null;
       buildReport: BuildReport;
@@ -483,6 +486,7 @@ export function makeBuildAndIngestHandler(
       propertyMetadataError?: { name: string; message: string };
     } = {
       rootId: ingested.rootId,
+      evaluationId: ingested.evaluationId,
       extractionResultId: composed.extractionResult.id,
       propertyMetadataId,
       buildReport: composed.report,

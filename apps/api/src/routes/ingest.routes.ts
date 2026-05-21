@@ -22,7 +22,9 @@
  *     analysisAsOfDate: ISODateTime,
  *   }
  *
- * On success: 201 with { rootId, evaluation }.
+ * On success: 201 with { rootId, evaluationId, evaluation }.
+ *   - rootId: RevisionId — public AnalysisId (root revision envelope id, Option C / #20)
+ *   - evaluationId: DoctrineEvaluationId — internal anchor for hydration / workflow / audit
  *
  * Errors surface as 400 with the underlying error name and message. Producer errors
  * (JudgmentEngineError, RecordIdMismatchError, etc.) propagate through unchanged — the handler
@@ -119,6 +121,7 @@ ingestRoutes.post('/', (req: Request, res: Response) => {
     );
     return res.status(201).json({
       rootId: result.rootId,
+      evaluationId: result.evaluationId,
       evaluation: result.evaluation,
     });
   } catch (e) {

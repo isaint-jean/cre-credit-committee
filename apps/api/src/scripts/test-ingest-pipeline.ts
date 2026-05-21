@@ -190,7 +190,10 @@ console.log('Happy path — full ingestion produces all 9 records:');
   );
 
   assert(/^[0-9a-f]{64}$/.test(result.rootId), 'rootId is 64-char hex content hash');
-  assertEqual(result.evaluation.id, result.rootId, 'returned evaluation.id matches rootId');
+  assert(/^[0-9a-f]{64}$/.test(result.evaluationId), 'evaluationId is 64-char hex content hash');
+  assertEqual(result.evaluation.id, result.evaluationId, 'returned evaluation.id matches evaluationId');
+  // Disjoint at the brand level (RevisionId vs DoctrineEvaluationId); cast to string for value-level comparison.
+  assert((result.rootId as string) !== (result.evaluationId as string), 'rootId (RevisionId) is distinct from evaluationId (post-#20 contract)');
 
   // Verify each of the 9 records is persisted
   assert(store.getExtractionResult(extractionResult.id) !== null, 'ExtractionResult persisted');
@@ -202,7 +205,35 @@ console.log('Happy path — full ingestion produces all 9 records:');
   assert(store.getCrossCheckResult(result.evaluation.crossCheckResultId) !== null, 'CrossCheckResult persisted');
   assert(store.getStressOutputs(result.evaluation.stressOutputsId) !== null, 'StressOutputs persisted');
   assert(store.getValuationConclusion(result.evaluation.valuationConclusionId) !== null, 'ValuationConclusion persisted');
-  assert(store.getDoctrineEvaluation(result.rootId) !== null, 'DoctrineEvaluation persisted as root');
+  assert(store.getDoctrineEvaluation(result.evaluationId) !== null, 'DoctrineEvaluation persisted under evaluationId');
+
+  // Option C / #20 — root revision envelope + provenance exist for this lineage.
+  const envelope = store.getRevisionEnvelope(result.rootId);
+  assert(envelope !== null, 'root envelope persisted under rootId');
+  assertEqual(envelope!.parentRevisionId, null, 'root envelope has parentRevisionId=null');
+  assertEqual(envelope!.revisionOrdinal, 0, 'root envelope has revisionOrdinal=0');
+  assertEqual(envelope!.lineageRootId, result.rootId, 'root envelope lineageRootId is self-referential');
+  assertEqual(envelope!.doctrineEvaluationId, result.evaluationId, 'envelope.doctrineEvaluationId points at the persisted evaluation');
+  assertEqual(envelope!.adjustedInputsId, result.evaluation.adjustedInputsId, 'envelope.adjustedInputsId matches evaluation');
+  assertEqual(envelope!.doctrineVersion, result.evaluation.doctrineVersion, 'envelope.doctrineVersion stamped from evaluation');
+  assertEqual(envelope!.judgmentEngineVersion, result.evaluation.judgmentEngineVersion, 'envelope.judgmentEngineVersion stamped');
+  assertEqual(envelope!.stressEngineVersion, result.evaluation.stressEngineVersion, 'envelope.stressEngineVersion stamped');
+  assertEqual(envelope!.valuationEngineVersion, result.evaluation.valuationEngineVersion, 'envelope.valuationEngineVersion stamped');
+
+  // Exactly one envelope in the lineage (root only).
+  const chain = store.walkLineageChain(result.rootId);
+  assertEqual(chain.length, 1, 'lineage has exactly one envelope at ingest time');
+
+  // Provenance row exists with INITIAL_INGEST semantics.
+  const provenance = store.getRevisionProvenance(result.rootId);
+  assert(provenance !== null, 'root provenance persisted');
+  assertEqual(provenance!.triggerSource, 'INITIAL_INGEST', 'root triggerSource = INITIAL_INGEST');
+  assertEqual(provenance!.inputDiff.changedFields.length, 0, 'root provenance has empty changedFields');
+  assertEqual(provenance!.beforeHash, result.evaluation.adjustedInputsId, 'root beforeHash === adjustedInputsId');
+  assertEqual(provenance!.afterHash, result.evaluation.adjustedInputsId, 'root afterHash === adjustedInputsId (no transformation)');
+  assertEqual(provenance!.beforeHash, provenance!.afterHash, 'root beforeHash === afterHash (identity at root)');
+  assertEqual(provenance!.appliedRuleIds.length, 0, 'root appliedRuleIds empty');
+  assertEqual(provenance!.adjustmentOrigin.length, 0, 'root adjustmentOrigin empty');
 
   store.close();
 }
@@ -221,11 +252,16 @@ console.log('\nIdempotency — same inputs produce same rootId; second ingestion
   const r2 = ingestExtractionResult(args, store);
 
   assertEqual(r1.rootId, r2.rootId, 'identical inputs produce identical rootId (H4/B5)');
+  assertEqual(r1.evaluationId, r2.evaluationId, 'identical inputs produce identical evaluationId');
   assertEqual(r1.evaluation.adjustedInputsId, r2.evaluation.adjustedInputsId, 'AdjustedInputsId is deterministic');
   assertEqual(r1.evaluation.narrativeFactsId, r2.evaluation.narrativeFactsId, 'NarrativeFactsId is deterministic');
   assertEqual(r1.evaluation.valuationConclusionId, r2.evaluation.valuationConclusionId, 'ValuationConclusionId is deterministic');
   assertEqual(r1.evaluation.stressOutputsId, r2.evaluation.stressOutputsId, 'StressOutputsId is deterministic');
   assertEqual(r1.evaluation.crossCheckResultId, r2.evaluation.crossCheckResultId, 'CrossCheckResultId is deterministic');
+
+  // Envelope idempotency — second ingest is a no-op at the envelope/provenance level.
+  const chain = store.walkLineageChain(r1.rootId);
+  assertEqual(chain.length, 1, 'second ingestion does NOT append a new envelope (ON CONFLICT DO NOTHING)');
 
   store.close();
 }
@@ -352,8 +388,8 @@ console.log('\nID integrity round-trip — every persisted record re-hashes to i
   // The store's verifyAndSerialize already enforces this on every insert. If any record
   // had a body-hash mismatch, ingestion would have thrown above. Confirm by reading back
   // and checking the id property is preserved.
-  const fetched = store.getDoctrineEvaluation(result.rootId);
-  assertEqual(fetched?.id, result.rootId, 'persisted root id round-trips');
+  const fetched = store.getDoctrineEvaluation(result.evaluationId);
+  assertEqual(fetched?.id, result.evaluationId, 'persisted evaluation id round-trips');
   assertEqual(fetched?.adjustedInputsId, result.evaluation.adjustedInputsId, 'FK adjustedInputsId round-trips');
   assertEqual(fetched?.valuationConclusionId, result.evaluation.valuationConclusionId, 'FK valuationConclusionId round-trips');
 

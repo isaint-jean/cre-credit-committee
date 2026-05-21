@@ -170,10 +170,12 @@ function ingestRender(store: RecordGraphStore): { rootId: DoctrineEvaluationId; 
     },
     store,
   );
-  const bundle = hydrateRecordGraph(result.rootId, store);
-  const ctx = buildUnderwritingContextProjection({ rootId: result.rootId, graph: bundle });
+  // Post-#20: hydrate/projection anchor on the DoctrineEvaluationId; result.rootId is the
+  // public AnalysisId (RevisionId). Internal pipeline uses result.evaluationId.
+  const bundle = hydrateRecordGraph(result.evaluationId, store);
+  const ctx = buildUnderwritingContextProjection({ rootId: result.evaluationId, graph: bundle });
   const rendered = renderUnderwritingContext(ctx);
-  return { rootId: result.rootId, rendered };
+  return { rootId: result.evaluationId, rendered };
 }
 
 /* --------------------------- overlay fixtures ----------------------------- */

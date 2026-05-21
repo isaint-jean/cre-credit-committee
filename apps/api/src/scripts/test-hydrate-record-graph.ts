@@ -172,7 +172,9 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId } {
     },
     store,
   );
-  return { rootId: result.rootId };
+  // Post-#20: hydration anchors on the DoctrineEvaluationId, exposed as result.evaluationId.
+  // result.rootId is the public AnalysisId (RevisionId), not consumable by hydrateRecordGraph.
+  return { rootId: result.evaluationId };
 }
 
 /* ----------------------------------- run ---------------------------------- */

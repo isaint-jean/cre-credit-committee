@@ -181,7 +181,9 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId } {
     },
     store,
   );
-  return { rootId: result.rootId };
+  // Post-#20: materialization anchors on the DoctrineEvaluationId (cache key axis).
+  // result.rootId is the public AnalysisId (RevisionId) and is not consumable here.
+  return { rootId: result.evaluationId };
 }
 
 // Helper: count rows in rendered_analyses. Used to verify cache hit/miss behavior.

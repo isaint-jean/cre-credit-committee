@@ -53,6 +53,9 @@ import type {
   MarketBenchmarks,
   MarketBenchmarksId,
   MarketLiquidity,
+  RevisionId,
+  RevisionLineageEnvelope,
+  RevisionProvenance,
 } from '@cre/contracts';
 import { applyJudgmentAdjustments } from './judgment/apply-judgment-adjustments.js';
 import { buildNarrativeFacts } from './narrative-facts.service.js';
@@ -60,7 +63,7 @@ import { classifyAssetProfile } from './asset-profiler.service.js';
 import { buildStressOutputs } from './stress-test-contracts.service.js';
 import { buildValuationConclusion } from './valuation.service.js';
 import { buildDoctrineEvaluation } from './doctrine/build-doctrine-evaluation.js';
-import { computeCrossCheckResultId } from '../util/content-hash.js';
+import { computeCrossCheckResultId, computeRevisionId } from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 /* ------------------------------- error type -------------------------------- */
@@ -108,7 +111,19 @@ export interface IngestExtractionResultArgs {
 }
 
 export interface IngestionResult {
-  readonly rootId: DoctrineEvaluationId;
+  /**
+   * Public AnalysisId — the root revision envelope's id. Equal to the lineage's
+   * `lineageRootId` (Option C / spec §1: `AnalysisId === LineageRootId`). NOT the
+   * doctrine-evaluation id (see `evaluationId` below); two records with different
+   * roles, same 64-hex shape.
+   */
+  readonly rootId: RevisionId;
+  /**
+   * Internal anchor for hydration / rendering / committee/audit/workflow stores.
+   * Stays addressable for callers that need to reach the doctrine-evaluation
+   * directly (e.g., `materializeRenderedAnalysis(rootId=DoctrineEvaluationId)`).
+   */
+  readonly evaluationId: DoctrineEvaluationId;
   readonly evaluation: DoctrineEvaluation;
 }
 
@@ -251,5 +266,46 @@ export function ingestExtractionResult(
   });
   store.insertDoctrineEvaluation(evaluation);
 
-  return { rootId: evaluation.id, evaluation };
+  /* Stage 9 — Root revision envelope + provenance (Option C / issue #20).
+     Every graph-backed analysis gets a lineage root envelope at ingest. Identity
+     (revisionId) is deterministic over the §5 hash-input subset: parent=null,
+     adjustedInputsId, doctrineVersion. lineageRootId is self-referential for
+     root (= revisionId). Engine versions are stamped from the evaluation for
+     replay completeness; they do NOT participate in the id hash. */
+  const rootRevisionId = computeRevisionId({
+    parentRevisionId: null,
+    adjustedInputsId: adjustedInputs.id,
+    doctrineVersion: evaluation.doctrineVersion,
+  });
+  const rootEnvelope: RevisionLineageEnvelope = {
+    revisionId: rootRevisionId,
+    lineageRootId: rootRevisionId,
+    parentRevisionId: null,
+    revisionOrdinal: 0,
+    doctrineEvaluationId: evaluation.id,
+    adjustedInputsId: adjustedInputs.id,
+    doctrineVersion: evaluation.doctrineVersion,
+    judgmentEngineVersion: evaluation.judgmentEngineVersion,
+    stressEngineVersion: evaluation.stressEngineVersion,
+    valuationEngineVersion: evaluation.valuationEngineVersion,
+  };
+  store.insertRevisionLineageEnvelope(rootEnvelope);
+
+  /* Root provenance — observable-only (§4). triggerSource='INITIAL_INGEST'
+     distinguishes the lineage-creation event from downstream USER_EDIT /
+     SYSTEM_RECALC revisions. The "diff" is empty because there is no parent;
+     beforeHash === afterHash === adjustedInputs.id (no transformation: the
+     root's AdjustedInputs IS the state). */
+  const rootProvenance: RevisionProvenance = {
+    revisionId: rootRevisionId,
+    inputDiff: { changedFields: [] },
+    triggerSource: 'INITIAL_INGEST',
+    appliedRuleIds: [],
+    adjustmentOrigin: [],
+    beforeHash: adjustedInputs.id,
+    afterHash: adjustedInputs.id,
+  };
+  store.insertRevisionProvenance(rootProvenance);
+
+  return { rootId: rootRevisionId, evaluationId: evaluation.id, evaluation };
 }

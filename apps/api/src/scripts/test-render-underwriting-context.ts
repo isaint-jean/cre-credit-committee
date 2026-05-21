@@ -164,10 +164,13 @@ function endToEnd(store: RecordGraphStore): { rootId: DoctrineEvaluationId; rend
     },
     store,
   );
-  const bundle = hydrateRecordGraph(ingest.rootId, store);
-  const ctx = buildUnderwritingContextProjection({ rootId: ingest.rootId, graph: bundle });
+  // hydrate / projection anchor on DoctrineEvaluationId (rendering cache key).
+  // After Option C / #20, ingest.rootId is the public AnalysisId (a RevisionId);
+  // the internal hydration anchor is ingest.evaluationId.
+  const bundle = hydrateRecordGraph(ingest.evaluationId, store);
+  const ctx = buildUnderwritingContextProjection({ rootId: ingest.evaluationId, graph: bundle });
   const rendered = renderUnderwritingContext(ctx);
-  return { rootId: ingest.rootId, rendered };
+  return { rootId: ingest.evaluationId, rendered };
 }
 
 // --------------------------------- run ---------------------------------

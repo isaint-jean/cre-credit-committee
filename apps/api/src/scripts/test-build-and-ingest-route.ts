@@ -34,6 +34,7 @@ import type {
   CreditManifesto,
   PropertyMetadata,
   PropertyMetadataId,
+  RevisionId,
 } from '@cre/contracts';
 import type { BuildReport } from '../services/extraction/build-report.js';
 import type { BuildExtractionResultOutput } from '../services/extraction/build-extraction-result.js';
@@ -89,7 +90,10 @@ function makeRes(): MockRes {
 
 const CONTRACT_HASH = 'a'.repeat(64) as ContentHash;
 const EXT_ID = ('e'.repeat(64)) as ExtractionResultId;
-const ROOT_ID = ('d'.repeat(64)) as DoctrineEvaluationId;
+// ROOT_ID = the public AnalysisId (RevisionId). EVAL_ID = the internal DoctrineEvaluationId.
+// Post-#20 they are categorically distinct ids (both 64-hex; different roles).
+const ROOT_ID = ('d'.repeat(64)) as RevisionId;
+const EVAL_ID = ('7'.repeat(64)) as DoctrineEvaluationId;
 const PM_ID = ('p'.repeat(64)) as PropertyMetadataId;
 const LIB_ID = ('1'.repeat(64)) as LibrarySnapshotId;
 
@@ -147,8 +151,8 @@ function makeIngestionResult(): IngestionResult {
     overallAdjustmentBias: 'neutral',
   };
   void crossCheck;
-  const evaluation = { id: ROOT_ID } as DoctrineEvaluation;
-  return { rootId: ROOT_ID, evaluation };
+  const evaluation = { id: EVAL_ID } as DoctrineEvaluation;
+  return { rootId: ROOT_ID, evaluationId: EVAL_ID, evaluation };
 }
 
 /* ----------------------------- form body helper -------------------------- */
@@ -260,8 +264,9 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
     const res = makeRes();
     await handler(req as never, res as never);
     assertEqual(res.statusCode, 201, '1.1 status 201');
-    const body = res.body as { rootId: string; extractionResultId: string; propertyMetadataId: string | null };
-    assertEqual(body.rootId, ROOT_ID, '1.2 rootId == ingest result');
+    const body = res.body as { rootId: string; evaluationId: string; extractionResultId: string; propertyMetadataId: string | null };
+    assertEqual(body.rootId, ROOT_ID, '1.2 rootId == ingest result (RevisionId)');
+    assertEqual(body.evaluationId, EVAL_ID, '1.2b evaluationId == ingest result (DoctrineEvaluationId)');
     assertEqual(body.extractionResultId, EXT_ID, '1.3 extractionResultId == composer output');
     assertEqual(body.propertyMetadataId, PM_ID, '1.4 propertyMetadataId == PM.id');
   }
