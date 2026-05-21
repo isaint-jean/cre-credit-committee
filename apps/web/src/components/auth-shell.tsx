@@ -51,6 +51,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
           <a href="/admin/criteria" className="hover:text-text-primary transition-colors">Criteria</a>
           <a href="/admin/underwriting-library" className="hover:text-text-primary transition-colors">UW Library</a>
           <a href="/admin/underwriting-insights" className="hover:text-text-primary transition-colors">UW Insights</a>
+          <a href="/admin/registry" className="hover:text-text-primary transition-colors">Registry</a>
           <span className="text-text-muted">|</span>
           <span className="text-text-muted">{user.email}</span>
           <button
