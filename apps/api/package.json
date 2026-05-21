@@ -32,6 +32,7 @@
     "test:revision-id": "tsx src/scripts/test-revision-id.ts",
     "test:revision-storage": "tsx src/scripts/test-revision-storage.ts",
     "test:evaluate-from-adjusted-inputs": "tsx src/scripts/test-evaluate-from-adjusted-inputs.ts",
+    "test:apply-revision-delta": "tsx src/scripts/test-apply-revision-delta.ts",
     "test:record-graph": "tsx src/scripts/test-record-graph-store.ts",
     "test:cross-check-contracts": "tsx src/scripts/test-cross-check-contracts.ts",
     "test:stress-contracts": "tsx src/scripts/test-stress-contracts.ts",
