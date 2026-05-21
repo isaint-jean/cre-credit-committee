@@ -6,15 +6,19 @@
  * data-quality reasoning, and asset-class branching is the producers' job. This handler only
  * checks that required body fields are present.
  *
- * Body shape (locked sub-batch 6.4):
+ * Body shape:
  *
  *   {
  *     extractionResult: ExtractionResult,
  *     propertyType: AssetType,
  *     marketLiquidityHint?: MarketLiquidity,
  *     librarySnapshotId: LibrarySnapshotId,    // pre-persisted via seed:approved-deals
- *     marketBenchmarks: MarketBenchmarks,
- *     creditManifesto: CreditManifesto,
+ *     // exactly one of:
+ *     marketBenchmarks?: MarketBenchmarks,
+ *     marketBenchmarksId?: MarketBenchmarksId, // reference into the registry
+ *     // exactly one of:
+ *     creditManifesto?: CreditManifesto,
+ *     creditManifestoId?: CreditManifestoId,   // reference into the registry
  *     analysisAsOfDate: ISODateTime,
  *   }
  *
@@ -44,27 +48,53 @@ interface IngestRequestBody {
   marketLiquidityHint?: unknown;
   librarySnapshotId?: unknown;
   marketBenchmarks?: unknown;
+  marketBenchmarksId?: unknown;
   creditManifesto?: unknown;
+  creditManifestoId?: unknown;
   analysisAsOfDate?: unknown;
+}
+
+function isPresent(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== '';
 }
 
 ingestRoutes.post('/', (req: Request, res: Response) => {
   const body = (req.body ?? {}) as IngestRequestBody;
 
   /* Shape-only validation. Producers own semantic validation. */
-  const required: ReadonlyArray<keyof IngestRequestBody> = [
+  const requiredFlat: ReadonlyArray<keyof IngestRequestBody> = [
     'extractionResult',
     'propertyType',
     'librarySnapshotId',
-    'marketBenchmarks',
-    'creditManifesto',
     'analysisAsOfDate',
   ];
-  const missing = required.filter((k) => body[k] === undefined || body[k] === null);
+  const missing = requiredFlat.filter((k) => !isPresent(body[k]));
   if (missing.length > 0) {
     return res.status(400).json({
       error: 'INGEST_BAD_REQUEST',
       message: `Required fields missing: ${missing.join(', ')}`,
+    });
+  }
+
+  /* Dual-mode pairs: exactly one of inline-or-reference per pair. */
+  const bmInline = isPresent(body.marketBenchmarks);
+  const bmRef = isPresent(body.marketBenchmarksId);
+  if (bmInline === bmRef) {
+    return res.status(400).json({
+      error: 'INGEST_BAD_REQUEST',
+      message: bmInline
+        ? 'Provide exactly one of marketBenchmarks (inline) or marketBenchmarksId (reference) — both supplied'
+        : 'Provide exactly one of marketBenchmarks (inline) or marketBenchmarksId (reference) — neither supplied',
+    });
+  }
+  const cmInline = isPresent(body.creditManifesto);
+  const cmRef = isPresent(body.creditManifestoId);
+  if (cmInline === cmRef) {
+    return res.status(400).json({
+      error: 'INGEST_BAD_REQUEST',
+      message: cmInline
+        ? 'Provide exactly one of creditManifesto (inline) or creditManifestoId (reference) — both supplied'
+        : 'Provide exactly one of creditManifesto (inline) or creditManifestoId (reference) — neither supplied',
     });
   }
 
@@ -77,8 +107,12 @@ ingestRoutes.post('/', (req: Request, res: Response) => {
           ? { marketLiquidityHint: body.marketLiquidityHint as never }
           : {}),
         librarySnapshotId: body.librarySnapshotId as never,
-        marketBenchmarks: body.marketBenchmarks as never,
-        creditManifesto: body.creditManifesto as never,
+        ...(bmInline
+          ? { marketBenchmarks: body.marketBenchmarks as never }
+          : { marketBenchmarksId: body.marketBenchmarksId as never }),
+        ...(cmInline
+          ? { creditManifesto: body.creditManifesto as never }
+          : { creditManifestoId: body.creditManifestoId as never }),
         analysisAsOfDate: body.analysisAsOfDate as never,
       },
       recordGraphStore,

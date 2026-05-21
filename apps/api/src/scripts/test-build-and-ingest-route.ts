@@ -452,6 +452,84 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
     assertEqual(observedLoanTerms, undefined, '11.2 composer received undefined (legacy default)');
   }
 
+  /* CASE 12 — registry id-mode for marketBenchmarks (Tier-A registry). */
+  console.log('\n12. marketBenchmarksId reference accepted; inline marketBenchmarks omitted');
+  {
+    let observedArgs: { marketBenchmarksId?: string; marketBenchmarks?: unknown } | null = null;
+    const deps = makeDeps();
+    const patched: BuildAndIngestDeps = {
+      ...deps,
+      ingestExtractionResult: (args, store) => {
+        observedArgs = args as { marketBenchmarksId?: string; marketBenchmarks?: unknown };
+        return deps.ingestExtractionResult(args, store);
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+    const body = validBody();
+    delete (body as { marketBenchmarks?: unknown }).marketBenchmarks;
+    body.marketBenchmarksId = 'b'.repeat(64);
+    const req: MockReq = { body, files: {} };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 201, '12.1 status 201');
+    const captured12 = observedArgs as { marketBenchmarksId?: string; marketBenchmarks?: unknown } | null;
+    assertEqual(captured12?.marketBenchmarksId ?? null, 'b'.repeat(64), '12.2 ingest received marketBenchmarksId');
+    assertEqual(captured12?.marketBenchmarks ?? null, null, '12.3 ingest did NOT receive inline marketBenchmarks');
+  }
+
+  /* CASE 13 — both inline and id supplied for marketBenchmarks → 400 */
+  console.log('\n13. marketBenchmarks AND marketBenchmarksId supplied → 400');
+  {
+    const handler = makeBuildAndIngestHandler(makeDeps());
+    const body = validBody({ marketBenchmarksId: 'b'.repeat(64) });
+    const req: MockReq = { body, files: {} };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 400, '13.1 status 400');
+    const responseBody = res.body as { error: string; message: string };
+    assertEqual(responseBody.error, 'BUILD_AND_INGEST_BAD_REQUEST', '13.2 error code');
+    assert(responseBody.message.includes('both supplied'), '13.3 message indicates both supplied');
+  }
+
+  /* CASE 14 — neither inline nor id supplied for marketBenchmarks → 400 */
+  console.log('\n14. neither marketBenchmarks nor marketBenchmarksId supplied → 400');
+  {
+    const handler = makeBuildAndIngestHandler(makeDeps());
+    const body = validBody();
+    delete (body as { marketBenchmarks?: unknown }).marketBenchmarks;
+    const req: MockReq = { body, files: {} };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 400, '14.1 status 400');
+    const responseBody = res.body as { error: string; message: string };
+    assertEqual(responseBody.error, 'BUILD_AND_INGEST_BAD_REQUEST', '14.2 error code');
+    assert(responseBody.message.includes('neither supplied'), '14.3 message indicates neither supplied');
+  }
+
+  /* CASE 15 — creditManifestoId reference accepted; inline omitted */
+  console.log('\n15. creditManifestoId reference accepted');
+  {
+    let observedArgs: { creditManifestoId?: string; creditManifesto?: unknown } | null = null;
+    const deps = makeDeps();
+    const patched: BuildAndIngestDeps = {
+      ...deps,
+      ingestExtractionResult: (args, store) => {
+        observedArgs = args as { creditManifestoId?: string; creditManifesto?: unknown };
+        return deps.ingestExtractionResult(args, store);
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+    const body = validBody();
+    delete (body as { creditManifesto?: unknown }).creditManifesto;
+    body.creditManifestoId = 'm'.repeat(64);
+    const req: MockReq = { body, files: {} };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 201, '15.1 status 201');
+    const captured15 = observedArgs as { creditManifestoId?: string; creditManifesto?: unknown } | null;
+    assertEqual(captured15?.creditManifestoId ?? null, 'm'.repeat(64), '15.2 ingest received creditManifestoId');
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 })().catch((e) => {

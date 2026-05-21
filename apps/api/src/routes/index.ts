@@ -10,6 +10,7 @@ import { ingestRoutes } from './ingest.routes.js';
 import { buildAndIngestRoutes } from './build-and-ingest.routes.js';
 import { renderV2Routes } from './render-v2.routes.js';
 import { workflowRoutes } from './workflow.routes.js';
+import { registryRoutes } from './registry.routes.js';
 import { requireAuth } from '../middleware/auth.js';
 import { observabilityMiddleware } from '../middleware/observability.middleware.js';
 
@@ -41,6 +42,11 @@ apiRouter.use('/build-and-ingest', requireAuth, buildAndIngestRoutes);
 
 // Graph-backed render (Batch 6.7 — POST /api/render)
 apiRouter.use('/render', requireAuth, renderV2Routes);
+
+// Registry — GET/POST CRUD for LibrarySnapshot, MarketBenchmarks, CreditManifesto.
+// Reads gated by requireAuth; writes additionally gated by requirePermission('registry:write')
+// inside the router. See routes/registry.routes.ts for the per-record sub-routers.
+apiRouter.use('/registry', requireAuth, registryRoutes);
 
 // Phase 4 — committee workflow API (POST /api/committee-actions, GET /api/workflow-state,
 // GET /api/committee-timeline, GET /api/audit-replay). Auth + permission enforced

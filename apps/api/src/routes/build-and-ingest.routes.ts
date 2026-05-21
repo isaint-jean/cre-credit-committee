@@ -67,6 +67,7 @@ import multer from 'multer';
 import type {
   AssetType,
   CreditManifesto,
+  CreditManifestoId,
   DoctrineEvaluation,
   DoctrineEvaluationId,
   ExtractionResultId,
@@ -74,6 +75,7 @@ import type {
   LibrarySnapshotId,
   LoanTermsExtraction,
   MarketBenchmarks,
+  MarketBenchmarksId,
   MarketLiquidity,
   PropertyMetadataId,
 } from '@cre/contracts';
@@ -131,8 +133,14 @@ interface BuildAndIngestRequestBody {
   dealRef?: unknown;
   propertyType?: unknown;
   librarySnapshotId?: unknown;
+  /** Inline JSON-stringified MarketBenchmarks. Mutually exclusive with
+   *  marketBenchmarksId — exactly one MUST be supplied. */
   marketBenchmarks?: unknown;
+  /** Plain string reference into /api/registry/market-benchmarks. */
+  marketBenchmarksId?: unknown;
+  /** Same dual-mode shape for credit manifesto. */
   creditManifesto?: unknown;
+  creditManifestoId?: unknown;
   loanTerms?: unknown;
   marketLiquidityHint?: unknown;
   propertyHint?: unknown;
@@ -143,9 +151,11 @@ const REQUIRED_FORM_FIELDS: ReadonlyArray<keyof BuildAndIngestRequestBody> = [
   'dealRef',
   'propertyType',
   'librarySnapshotId',
-  'marketBenchmarks',
-  'creditManifesto',
 ];
+
+function isFormPresent(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== '';
+}
 
 /** Pull a file's first entry from req.files, if present. */
 function takeFile(
@@ -180,33 +190,63 @@ export function makeBuildAndIngestHandler(
       return;
     }
 
-    /* Parse the two JSON-stringified fields. */
-    let marketBenchmarks: MarketBenchmarks;
-    try {
-      marketBenchmarks = JSON.parse(body.marketBenchmarks as string) as MarketBenchmarks;
-    } catch (e) {
-      const err = e as Error;
+    /* Dual-mode: exactly one of (marketBenchmarks, marketBenchmarksId), same
+       for credit manifesto. Inline arrives JSON-stringified; reference arrives
+       as a plain string. */
+    const bmInlinePresent = isFormPresent(body.marketBenchmarks);
+    const bmRefPresent = isFormPresent(body.marketBenchmarksId);
+    if (bmInlinePresent === bmRefPresent) {
       res.status(400).json({
         error: 'BUILD_AND_INGEST_BAD_REQUEST',
-        message: 'marketBenchmarks is not valid JSON',
-        field: 'marketBenchmarks',
-        parseError: err.message,
+        message: bmInlinePresent
+          ? 'Provide exactly one of marketBenchmarks (inline JSON) or marketBenchmarksId (reference) — both supplied'
+          : 'Provide exactly one of marketBenchmarks (inline JSON) or marketBenchmarksId (reference) — neither supplied',
+      });
+      return;
+    }
+    const cmInlinePresent = isFormPresent(body.creditManifesto);
+    const cmRefPresent = isFormPresent(body.creditManifestoId);
+    if (cmInlinePresent === cmRefPresent) {
+      res.status(400).json({
+        error: 'BUILD_AND_INGEST_BAD_REQUEST',
+        message: cmInlinePresent
+          ? 'Provide exactly one of creditManifesto (inline JSON) or creditManifestoId (reference) — both supplied'
+          : 'Provide exactly one of creditManifesto (inline JSON) or creditManifestoId (reference) — neither supplied',
       });
       return;
     }
 
-    let creditManifesto: CreditManifesto;
-    try {
-      creditManifesto = JSON.parse(body.creditManifesto as string) as CreditManifesto;
-    } catch (e) {
-      const err = e as Error;
-      res.status(400).json({
-        error: 'BUILD_AND_INGEST_BAD_REQUEST',
-        message: 'creditManifesto is not valid JSON',
-        field: 'creditManifesto',
-        parseError: err.message,
-      });
-      return;
+    /* When inline, parse JSON-stringified payloads. */
+    let marketBenchmarks: MarketBenchmarks | undefined;
+    if (bmInlinePresent) {
+      try {
+        marketBenchmarks = JSON.parse(body.marketBenchmarks as string) as MarketBenchmarks;
+      } catch (e) {
+        const err = e as Error;
+        res.status(400).json({
+          error: 'BUILD_AND_INGEST_BAD_REQUEST',
+          message: 'marketBenchmarks is not valid JSON',
+          field: 'marketBenchmarks',
+          parseError: err.message,
+        });
+        return;
+      }
+    }
+
+    let creditManifesto: CreditManifesto | undefined;
+    if (cmInlinePresent) {
+      try {
+        creditManifesto = JSON.parse(body.creditManifesto as string) as CreditManifesto;
+      } catch (e) {
+        const err = e as Error;
+        res.status(400).json({
+          error: 'BUILD_AND_INGEST_BAD_REQUEST',
+          message: 'creditManifesto is not valid JSON',
+          field: 'creditManifesto',
+          parseError: err.message,
+        });
+        return;
+      }
     }
 
     /* Optional loanTerms (Ticket K #7). When provided, parses as
@@ -274,8 +314,12 @@ export function makeBuildAndIngestHandler(
             ? { marketLiquidityHint: body.marketLiquidityHint as MarketLiquidity }
             : {}),
           librarySnapshotId: body.librarySnapshotId as LibrarySnapshotId,
-          marketBenchmarks,
-          creditManifesto,
+          ...(bmInlinePresent
+            ? { marketBenchmarks: marketBenchmarks as MarketBenchmarks }
+            : { marketBenchmarksId: body.marketBenchmarksId as MarketBenchmarksId }),
+          ...(cmInlinePresent
+            ? { creditManifesto: creditManifesto as CreditManifesto }
+            : { creditManifestoId: body.creditManifestoId as CreditManifestoId }),
           analysisAsOfDate: body.analysisAsOfDate as ISODateTime,
         },
         deps.recordGraphStore,

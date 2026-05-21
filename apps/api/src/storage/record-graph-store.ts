@@ -31,6 +31,8 @@ import type {
   AdjustedInputsId,
   AssetProfile,
   AssetProfileId,
+  CreditManifesto,
+  CreditManifestoId,
   CrossCheckResult,
   CrossCheckResultId,
   DoctrineEvaluation,
@@ -39,6 +41,8 @@ import type {
   ExtractionResultId,
   LibrarySnapshot,
   LibrarySnapshotId,
+  MarketBenchmarks,
+  MarketBenchmarksId,
   NarrativeFacts,
   NarrativeFactsId,
   PropertyMetadata,
@@ -114,6 +118,30 @@ export class RecordGraphStore {
         id TEXT PRIMARY KEY,
         as_of TEXT NOT NULL,
         approved_deals_table_hash TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      -- MarketBenchmarks registry. Point-value market context (current rates,
+      -- prevailing norms). Pinned upstream input to the judgment engine; can be
+      -- passed inline at ingest time OR referenced by id from this table.
+      CREATE TABLE IF NOT EXISTS market_benchmarks (
+        id TEXT PRIMARY KEY,
+        as_of_date TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      -- CreditManifesto registry. Named manifesto_registry (NOT
+      -- credit_manifestos) to avoid coexisting in the same physical sqlite
+      -- file as the legacy credit_manifesto (singular) table owned by
+      -- sqlite-store.ts -- that legacy table is a different model (PDF-upload-
+      -- and-AI-extract) and remains untouched by this registry. Once the
+      -- legacy /api/manifesto/* routes retire, this table can be renamed.
+      CREATE TABLE IF NOT EXISTS manifesto_registry (
+        id TEXT PRIMARY KEY,
+        analysis_as_of_date TEXT NOT NULL,
+        manifesto_contract_version TEXT NOT NULL,
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -334,6 +362,77 @@ export class RecordGraphStore {
       .prepare(`SELECT id, payload FROM library_snapshots WHERE id = ?`)
       .get(id) as RecordRow | undefined;
     return row ? this.parseRow<LibrarySnapshot>(row) : null;
+  }
+
+  /** Most-recent-first by created_at. No pagination — registry volume is low. */
+  listLibrarySnapshots(): LibrarySnapshot[] {
+    const rows = this.db
+      .prepare(`SELECT id, payload FROM library_snapshots ORDER BY created_at DESC, id DESC`)
+      .all() as RecordRow[];
+    return rows.map((r) => this.parseRow<LibrarySnapshot>(r));
+  }
+
+  /* ----------------------------- market_benchmarks ----------------------------- */
+
+  insertMarketBenchmarks(record: MarketBenchmarks): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'MarketBenchmarks');
+    const result = this.db
+      .prepare(
+        `INSERT INTO market_benchmarks (id, as_of_date, payload, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(id, body.asOfDate, payload, new Date().toISOString());
+    return { inserted: result.changes > 0 };
+  }
+
+  getMarketBenchmarks(id: MarketBenchmarksId): MarketBenchmarks | null {
+    const row = this.db
+      .prepare(`SELECT id, payload FROM market_benchmarks WHERE id = ?`)
+      .get(id) as RecordRow | undefined;
+    return row ? this.parseRow<MarketBenchmarks>(row) : null;
+  }
+
+  listMarketBenchmarks(): MarketBenchmarks[] {
+    const rows = this.db
+      .prepare(`SELECT id, payload FROM market_benchmarks ORDER BY created_at DESC, id DESC`)
+      .all() as RecordRow[];
+    return rows.map((r) => this.parseRow<MarketBenchmarks>(r));
+  }
+
+  /* ---------------------------- manifesto_registry ----------------------------- */
+
+  insertCreditManifesto(record: CreditManifesto): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'CreditManifesto');
+    const result = this.db
+      .prepare(
+        `INSERT INTO manifesto_registry
+         (id, analysis_as_of_date, manifesto_contract_version, payload, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(
+        id,
+        body.analysisAsOfDate,
+        body.manifestoContractVersion,
+        payload,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  getCreditManifesto(id: CreditManifestoId): CreditManifesto | null {
+    const row = this.db
+      .prepare(`SELECT id, payload FROM manifesto_registry WHERE id = ?`)
+      .get(id) as RecordRow | undefined;
+    return row ? this.parseRow<CreditManifesto>(row) : null;
+  }
+
+  listCreditManifestos(): CreditManifesto[] {
+    const rows = this.db
+      .prepare(`SELECT id, payload FROM manifesto_registry ORDER BY created_at DESC, id DESC`)
+      .all() as RecordRow[];
+    return rows.map((r) => this.parseRow<CreditManifesto>(r));
   }
 
   /* ------------------------------ narrative_facts ------------------------------ */

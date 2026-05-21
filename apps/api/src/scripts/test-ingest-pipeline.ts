@@ -360,6 +360,102 @@ console.log('\nID integrity round-trip — every persisted record re-hashes to i
   store.close();
 }
 
+console.log('\nDual-mode: id-based marketBenchmarks resolves from store:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const lib = makeSnapshot();
+  store.insertLibrarySnapshot(lib);
+  const bm = makeBenchmarks();
+  store.insertMarketBenchmarks(bm);
+
+  const { marketBenchmarks: _bm, ...rest } = defaultArgs();
+  void _bm;
+  const result = ingestExtractionResult(
+    {
+      ...rest,
+      librarySnapshotId: lib.id,
+      marketBenchmarksId: bm.id,
+    },
+    store,
+  );
+  assert(/^[0-9a-f]{64}$/.test(result.rootId), 'pipeline completes when marketBenchmarks supplied by id');
+
+  store.close();
+}
+
+console.log('\nDual-mode: id-based creditManifesto resolves from store:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const lib = makeSnapshot();
+  store.insertLibrarySnapshot(lib);
+  const m = makeManifesto();
+  store.insertCreditManifesto(m);
+
+  const { creditManifesto: _cm, ...rest } = defaultArgs();
+  void _cm;
+  const result = ingestExtractionResult(
+    {
+      ...rest,
+      librarySnapshotId: lib.id,
+      creditManifestoId: m.id,
+    },
+    store,
+  );
+  assert(/^[0-9a-f]{64}$/.test(result.rootId), 'pipeline completes when creditManifesto supplied by id');
+
+  store.close();
+}
+
+console.log('\nDual-mode: unknown marketBenchmarksId throws MARKET_BENCHMARKS_NOT_FOUND:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const lib = makeSnapshot();
+  store.insertLibrarySnapshot(lib);
+
+  const { marketBenchmarks: _bm, ...rest } = defaultArgs();
+  void _bm;
+  let threw: Error | null = null;
+  try {
+    ingestExtractionResult(
+      {
+        ...rest,
+        librarySnapshotId: lib.id,
+        marketBenchmarksId: ('0'.repeat(64)) as never,
+      },
+      store,
+    );
+  } catch (e) { threw = e as Error; }
+  assert(threw instanceof IngestionError, 'throws IngestionError');
+  assertEqual((threw as IngestionError)?.code ?? null, 'MARKET_BENCHMARKS_NOT_FOUND', 'error code is MARKET_BENCHMARKS_NOT_FOUND');
+
+  store.close();
+}
+
+console.log('\nDual-mode: unknown creditManifestoId throws CREDIT_MANIFESTO_NOT_FOUND:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const lib = makeSnapshot();
+  store.insertLibrarySnapshot(lib);
+
+  const { creditManifesto: _cm, ...rest } = defaultArgs();
+  void _cm;
+  let threw: Error | null = null;
+  try {
+    ingestExtractionResult(
+      {
+        ...rest,
+        librarySnapshotId: lib.id,
+        creditManifestoId: ('0'.repeat(64)) as never,
+      },
+      store,
+    );
+  } catch (e) { threw = e as Error; }
+  assert(threw instanceof IngestionError, 'throws IngestionError');
+  assertEqual((threw as IngestionError)?.code ?? null, 'CREDIT_MANIFESTO_NOT_FOUND', 'error code is CREDIT_MANIFESTO_NOT_FOUND');
+
+  store.close();
+}
+
 /* ---------------------------------- summary -------------------------------- */
 
 console.log(`\n${passed} passed, ${failed} failed`);

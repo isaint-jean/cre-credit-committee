@@ -32,6 +32,9 @@ export const PERMISSIONS = [
   // Snapshots.
   'snapshot:read',
   'snapshot:create',
+  // Registry (LibrarySnapshot / MarketBenchmarks / CreditManifesto admin write).
+  // Read-side is just authenticated; only POST goes through this permission.
+  'registry:write',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -76,6 +79,7 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'audit:read',
     'snapshot:read',
     'snapshot:create',
+    'registry:write',
   ],
 } as const;
 

@@ -433,6 +433,61 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       }
     }
 
+    /* Case 7 — Tier-A registry id-mode end-to-end.
+     *
+     * Pre-persist the same marketBenchmarks + creditManifesto into the test
+     * store (their ids are content-hash deterministic), then submit a form
+     * that references them by id instead of inlining the JSON. The route's
+     * dual-mode validator + the orchestrator's lookup branch must resolve
+     * the references correctly and produce a 201 with the same shape as the
+     * inline path. */
+    console.log('\n7. Tier-A registry id-mode end-to-end');
+    {
+      testStore.insertMarketBenchmarks(benchmarks);
+      testStore.insertCreditManifesto(manifesto);
+
+      const form = validForm(/*includeLoanTerms=*/ true);
+      delete (form as { marketBenchmarks?: string }).marketBenchmarks;
+      delete (form as { creditManifesto?: string }).creditManifesto;
+      form.marketBenchmarksId = benchmarks.id;
+      form.creditManifestoId = manifesto.id;
+
+      const fd = makeFormData(form);
+      appendFile(fd, 'seller_cf', CF_FIXTURE, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      const r = await fetch(`${baseUrl}/api/build-and-ingest`, {
+        method: 'POST',
+        body: fd,
+        headers: { authorization: AUTH_HEADER },
+      });
+      if (r.status !== 201) {
+        const debugBody = await r.clone().text();
+        console.error(`  DEBUG: response status=${r.status}, body=${debugBody}`);
+      }
+      assertEqual(r.status, 201, '7.1 HTTP 201 with id-mode references');
+      const body = await r.json() as { rootId: string; extractionResultId: string };
+      assert(/^[0-9a-f]{64}$/.test(body.rootId), '7.2 rootId is 64-hex');
+    }
+
+    /* Case 8 — id-mode with unknown marketBenchmarksId surfaces
+     * MARKET_BENCHMARKS_NOT_FOUND from the orchestrator through the route. */
+    console.log('\n8. unknown marketBenchmarksId → 400 MARKET_BENCHMARKS_NOT_FOUND');
+    {
+      const form = validForm(true);
+      delete (form as { marketBenchmarks?: string }).marketBenchmarks;
+      form.marketBenchmarksId = '0'.repeat(64);
+
+      const fd = makeFormData(form);
+      appendFile(fd, 'seller_cf', CF_FIXTURE, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      const r = await fetch(`${baseUrl}/api/build-and-ingest`, {
+        method: 'POST',
+        body: fd,
+        headers: { authorization: AUTH_HEADER },
+      });
+      assertEqual(r.status, 400, '8.1 HTTP 400 on unknown marketBenchmarksId');
+      const body = await r.json() as { error: string };
+      assertEqual(body.error, 'MARKET_BENCHMARKS_NOT_FOUND', '8.2 error code surfaced through route');
+    }
+
     console.log(`\n${passed} passed, ${failed} failed`);
   } finally {
     if (server !== null) await new Promise<void>((resolve) => server!.close(() => resolve()));

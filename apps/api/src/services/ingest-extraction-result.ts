@@ -27,8 +27,9 @@
  * Pinned upstream inputs:
  *
  *   - LibrarySnapshot — pre-persisted (via `seed:approved-deals`); ingestion looks up by id.
- *   - MarketBenchmarks, CreditManifesto — passed inline as full records (registry storage
- *     deferred to a later sub-batch).
+ *   - MarketBenchmarks, CreditManifesto — dual-mode: either passed inline as full records
+ *     OR referenced by id from the registry (apps/api/src/routes/registry.routes.ts).
+ *     Exactly one of inline-or-reference per pair; the route handler enforces shape.
  *
  * v1 known gap (deferred):
  *
@@ -42,6 +43,7 @@
 import type {
   AssetType,
   CreditManifesto,
+  CreditManifestoId,
   CrossCheckResult,
   DoctrineEvaluation,
   DoctrineEvaluationId,
@@ -49,6 +51,7 @@ import type {
   ISODateTime,
   LibrarySnapshotId,
   MarketBenchmarks,
+  MarketBenchmarksId,
   MarketLiquidity,
 } from '@cre/contracts';
 import { applyJudgmentAdjustments } from './judgment/apply-judgment-adjustments.js';
@@ -63,11 +66,15 @@ import type { RecordGraphStore } from '../storage/record-graph-store.js';
 /* ------------------------------- error type -------------------------------- */
 
 export type IngestionErrorCode =
-  | 'LIBRARY_SNAPSHOT_NOT_FOUND';
+  | 'LIBRARY_SNAPSHOT_NOT_FOUND'
+  | 'MARKET_BENCHMARKS_NOT_FOUND'
+  | 'CREDIT_MANIFESTO_NOT_FOUND';
 
 export interface IngestionErrorContext {
   readonly code: IngestionErrorCode;
   readonly librarySnapshotId?: string;
+  readonly marketBenchmarksId?: string;
+  readonly creditManifestoId?: string;
 }
 
 export class IngestionError extends Error {
@@ -89,8 +96,14 @@ export interface IngestExtractionResultArgs {
   readonly propertyType: AssetType;
   readonly marketLiquidityHint?: MarketLiquidity;
   readonly librarySnapshotId: LibrarySnapshotId;
-  readonly marketBenchmarks: MarketBenchmarks;
-  readonly creditManifesto: CreditManifesto;
+  /** Inline `marketBenchmarks` and reference `marketBenchmarksId` are mutually
+   *  exclusive: exactly one MUST be supplied. The route handler enforces this;
+   *  the orchestrator below resolves whichever is present. Same convention for
+   *  the credit-manifesto pair. */
+  readonly marketBenchmarks?: MarketBenchmarks;
+  readonly marketBenchmarksId?: MarketBenchmarksId;
+  readonly creditManifesto?: CreditManifesto;
+  readonly creditManifestoId?: CreditManifestoId;
   readonly analysisAsOfDate: ISODateTime;
 }
 
@@ -110,10 +123,50 @@ export function ingestExtractionResult(
     propertyType,
     marketLiquidityHint,
     librarySnapshotId,
-    marketBenchmarks,
-    creditManifesto,
     analysisAsOfDate,
   } = args;
+
+  /* Resolve marketBenchmarks: prefer inline; otherwise look up by id. The
+     caller MUST supply exactly one — the route handler validates. */
+  let marketBenchmarks: MarketBenchmarks;
+  if (args.marketBenchmarks !== undefined) {
+    marketBenchmarks = args.marketBenchmarks;
+  } else if (args.marketBenchmarksId !== undefined) {
+    const found = store.getMarketBenchmarks(args.marketBenchmarksId);
+    if (found === null) {
+      throw new IngestionError({
+        code: 'MARKET_BENCHMARKS_NOT_FOUND',
+        marketBenchmarksId: args.marketBenchmarksId,
+      });
+    }
+    marketBenchmarks = found;
+  } else {
+    // Route handler should have caught this; defensive fallthrough.
+    throw new IngestionError({
+      code: 'MARKET_BENCHMARKS_NOT_FOUND',
+      marketBenchmarksId: '(neither inline nor reference supplied)',
+    });
+  }
+
+  /* Resolve creditManifesto: same pattern. */
+  let creditManifesto: CreditManifesto;
+  if (args.creditManifesto !== undefined) {
+    creditManifesto = args.creditManifesto;
+  } else if (args.creditManifestoId !== undefined) {
+    const found = store.getCreditManifesto(args.creditManifestoId);
+    if (found === null) {
+      throw new IngestionError({
+        code: 'CREDIT_MANIFESTO_NOT_FOUND',
+        creditManifestoId: args.creditManifestoId,
+      });
+    }
+    creditManifesto = found;
+  } else {
+    throw new IngestionError({
+      code: 'CREDIT_MANIFESTO_NOT_FOUND',
+      creditManifestoId: '(neither inline nor reference supplied)',
+    });
+  }
 
   /* Stage 1 — persist extraction. */
   store.insertExtractionResult(extractionResult);
