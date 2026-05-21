@@ -52,12 +52,22 @@ import {
   computeMarketBenchmarksId,
 } from '../util/content-hash.js';
 import { RecordGraphStore, recordGraphStore } from '../storage/record-graph-store.js';
+import { MemoryBlobStore } from '../storage/blob-store.js';
 import {
   createBuildAndIngestRoutes,
   DEFAULT_BUILD_AND_INGEST_DEPS,
 } from '../routes/build-and-ingest.routes.js';
+import type {
+  BuildExtractionResultArgs,
+  BuildExtractionResultOutput,
+} from '../services/extraction/build-extraction-result.js';
 import { requireAuth } from '../middleware/auth.js';
 import { env } from '../config/env.js';
+
+/** Composer call counter. Incremented inside the wrapped buildExtractionResult
+ *  dep below. Case 9 captures the count before its two uploads and asserts
+ *  the second upload short-circuits (count grows by only 1, not 2). */
+let composerCallCount = 0;
 
 let passed = 0;
 let failed = 0;
@@ -135,9 +145,18 @@ app.use(
   '/api/build-and-ingest',
   requireAuth,
   createBuildAndIngestRoutes({
-    buildExtractionResult: DEFAULT_BUILD_AND_INGEST_DEPS.buildExtractionResult,
+    // Wrap the real composer with a call counter so case 9 can assert the
+    // Tier B short-circuit (re-upload skips composer).
+    buildExtractionResult: async (args: BuildExtractionResultArgs): Promise<BuildExtractionResultOutput> => {
+      composerCallCount += 1;
+      return DEFAULT_BUILD_AND_INGEST_DEPS.buildExtractionResult(args);
+    },
     ingestExtractionResult: DEFAULT_BUILD_AND_INGEST_DEPS.ingestExtractionResult,
     recordGraphStore: testStore,
+    // MemoryBlobStore: avoids polluting .data/blobs/ on every test run.
+    // Still exercises the put/get/has contract through the route.
+    blobStore: new MemoryBlobStore(),
+    extractorVersions: DEFAULT_BUILD_AND_INGEST_DEPS.extractorVersions,
   }),
 );
 
@@ -486,6 +505,75 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       assertEqual(r.status, 400, '8.1 HTTP 400 on unknown marketBenchmarksId');
       const body = await r.json() as { error: string };
       assertEqual(body.error, 'MARKET_BENCHMARKS_NOT_FOUND', '8.2 error code surfaced through route');
+    }
+
+    /* Case 9 — Tier B re-upload short-circuit end-to-end.
+     *
+     * Upload the same form + same file bytes twice. The composer-call
+     * counter (incremented inside the wrapped dep at the top of this file)
+     * should grow by exactly 1 across the two uploads — the first call runs
+     * the composer, the second hits the extraction_input_cache and skips.
+     *
+     * Uses a CASE-9-UNIQUE buffer for seller_cf (not CF_FIXTURE) so that
+     * earlier cases in this test file haven't already cached the same
+     * (slotHashes, extractorVersions) combination — we need to control the
+     * cache state from a known-empty starting point. The bytes are not
+     * valid xlsx, so the seller_cf adapter will report 'failed' in the
+     * BuildReport; that's fine — the composer still completes, the
+     * ExtractionResult still gets a content-hashed id, and the cache
+     * entry still gets written.
+     *
+     * Bonus: both responses should carry the same extractionResultId. */
+    console.log('\n9. Tier B short-circuit — re-upload skips composer (end-to-end)');
+    {
+      const beforeCount = composerCallCount;
+      // Use CF_FIXTURE (proven valid xlsx — case 1 returns 201 with it)
+      // PLUS a case-9-unique ASR buffer. The asr-adapter's parser will fail
+      // on garbage bytes, but that produces a 'failed' SlotReport, not a
+      // request error — the composer still completes and ingest still gets
+      // valid CF-derived data (the same data case 1 used). The unique ASR
+      // bytes make the (slotHashes, extractorVersions) cache key distinct
+      // from anything case 1 cached, so case 9's first upload is a true
+      // cache miss.
+      const uniqueAsrBuf = Buffer.from(`CASE-9-UNIQUE-${Date.now()}-${Math.random()}`);
+
+      const buildForm = (): FormData => {
+        const fd = new FormData();
+        for (const [k, v] of Object.entries(validForm())) fd.append(k, v);
+        // CF_FIXTURE on disk — already a valid xlsx used by case 1.
+        const fs = require('node:fs') as typeof import('node:fs');
+        fd.append('seller_cf', new Blob([fs.readFileSync(CF_FIXTURE)]), 'cf.xlsx');
+        fd.append('asr', new Blob([uniqueAsrBuf]), 'case9-asr.pdf');
+        return fd;
+      };
+
+      // First upload — cache miss, composer runs.
+      const r1 = await fetch(`${baseUrl}/api/build-and-ingest`, {
+        method: 'POST',
+        body: buildForm(),
+        headers: { authorization: AUTH_HEADER },
+      });
+      if (r1.status !== 201) {
+        console.error(`  DEBUG case 9 upload 1: status=${r1.status}, body=${await r1.clone().text()}`);
+      }
+      assertEqual(r1.status, 201, '9.1 first upload returns 201');
+      const body1 = await r1.json() as { extractionResultId: string };
+
+      // Second upload — same form, same file bytes → cache hit, composer NOT run.
+      const r2 = await fetch(`${baseUrl}/api/build-and-ingest`, {
+        method: 'POST',
+        body: buildForm(),
+        headers: { authorization: AUTH_HEADER },
+      });
+      if (r2.status !== 201) {
+        console.error(`  DEBUG case 9 upload 2: status=${r2.status}, body=${await r2.clone().text()}`);
+      }
+      assertEqual(r2.status, 201, '9.2 second upload returns 201');
+      const body2 = await r2.json() as { extractionResultId: string };
+
+      const afterCount = composerCallCount;
+      assertEqual(afterCount - beforeCount, 1, '9.3 composer called exactly once across two identical uploads (cache hit on 2nd)');
+      assertEqual(body1.extractionResultId, body2.extractionResultId, '9.4 same extractionResultId returned from both uploads');
     }
 
     console.log(`\n${passed} passed, ${failed} failed`);

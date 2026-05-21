@@ -70,6 +70,7 @@ import type {
   CreditManifestoId,
   DoctrineEvaluation,
   DoctrineEvaluationId,
+  ExtractionEngineVersion,
   ExtractionResultId,
   ISODateTime,
   LibrarySnapshotId,
@@ -79,13 +80,14 @@ import type {
   MarketLiquidity,
   PropertyMetadataId,
 } from '@cre/contracts';
+import { EXTRACTION_ENGINE_VERSION } from '@cre/contracts';
 import {
   buildExtractionResult,
   type BuildExtractionResultOutput,
   type BuildExtractionResultArgs,
 } from '../services/extraction/build-extraction-result.js';
 import type { InputSlots } from '../services/extraction/extractor-outcome.js';
-import type { BuildReport } from '../services/extraction/build-report.js';
+import type { BuildReport, SlotReport } from '../services/extraction/build-report.js';
 import {
   ingestExtractionResult,
   IngestionError,
@@ -94,6 +96,13 @@ import {
 } from '../services/ingest-extraction-result.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
+import { blobStore, BlobStoreError } from '../storage/blob-store.js';
+import type { BlobStore } from '../storage/blob-store.js';
+import { computeBufferContentHash } from '../util/content-hash.js';
+import { computeExtractionInputKey } from '../util/extraction-cache-key.js';
+import { CF_ADAPTER_VERSION } from '../services/extraction/adapters/cf.adapter.js';
+import { RENT_ROLL_ADAPTER_VERSION } from '../services/extraction/adapters/rent-roll.adapter.js';
+import { ASR_ADAPTER_VERSION } from '../services/extraction/adapters/asr.adapter.js';
 import { upload } from '../middleware/upload.js';
 
 /* ------------------------------ multer config ----------------------------- */
@@ -116,12 +125,33 @@ export interface BuildAndIngestDeps {
   readonly ingestExtractionResult:
     (args: IngestExtractionResultArgs, store: RecordGraphStore) => IngestionResult;
   readonly recordGraphStore: RecordGraphStore;
+  /** Tier B of issue #10. Bytes are persisted before the composer runs so
+   *  the SourceDocumentRef.contentHash refs in the resulting ExtractionResult
+   *  point at bytes actually on disk. Tests inject a MemoryBlobStore. */
+  readonly blobStore: BlobStore;
+  /** Tier B of issue #10. The set of versions stamped on the
+   *  ExtractionResult by the composer. Used to build the
+   *  extraction_input_cache key together with the slot-byte hashes. Built
+   *  from per-adapter version constants + EXTRACTION_ENGINE_VERSION at
+   *  module load — same values the composer stamps on its output. */
+  readonly extractorVersions: Record<string, string>;
 }
 
+/** Production defaults. Tests pass mocked deps. The extractorVersions map
+ *  here MUST match what the composer stamps on the ExtractionResult — if
+ *  these drift, the cache key is wrong and re-uploads cache-miss
+ *  spuriously (a correctness-preserving but performance-eroding bug). */
 export const DEFAULT_BUILD_AND_INGEST_DEPS: BuildAndIngestDeps = {
   buildExtractionResult,
   ingestExtractionResult,
   recordGraphStore,
+  blobStore,
+  extractorVersions: {
+    cf: CF_ADAPTER_VERSION,
+    rentRoll: RENT_ROLL_ADAPTER_VERSION,
+    asr: ASR_ADAPTER_VERSION,
+    engine: EXTRACTION_ENGINE_VERSION,
+  },
 };
 
 /* ------------------------------ shape types ------------------------------ */
@@ -280,27 +310,113 @@ export function makeBuildAndIngestHandler(
       ...(cf !== undefined ? { sellerCfXlsx: cf } : {}),
     };
 
-    /* Run the composer. Adapter throws are absorbed inside the composer's
-       Promise.allSettled defense; composer itself shouldn't throw in normal
-       operation. If it does, the catch below surfaces it as 500-ish 400. */
-    let composed: BuildExtractionResultOutput;
-    try {
-      composed = await deps.buildExtractionResult({
-        slots,
-        analysisAsOfDate: body.analysisAsOfDate as ISODateTime,
-        dealRef: body.dealRef as string,
-        ...(body.propertyHint !== undefined && body.propertyHint !== null
-          ? { propertyHint: body.propertyHint as string }
-          : {}),
-        ...(loanTerms !== undefined ? { loanTerms } : {}),
-      });
-    } catch (e) {
-      const err = e as Error;
-      res.status(400).json({
-        error: err.name === undefined ? 'BUILD_FAILED' : err.name,
-        message: err.message === undefined ? 'composer failed' : err.message,
-      });
-      return;
+    /* Tier B short-circuit (issue #10 / ADR §6). Before invoking the composer:
+     *   1. Compute slot hashes from in-memory buffers (cheap, deterministic)
+     *   2. Compute composite cache key from (slotHashes + extractorVersions)
+     *   3. Lookup the cache; on hit, fetch the cached ExtractionResult +
+     *      optional PropertyMetadata; on hit-with-missing-records (orphan),
+     *      fall through to the cache-miss path.
+     *   4. On cache miss: persist each slot's bytes via blobStore FIRST
+     *      (fail-fast before any AI calls), then run the composer, then
+     *      write the cache entry. */
+    const slotHashes = {
+      cf: cf ? computeBufferContentHash(cf.buffer) : null,
+      rentRoll: rr ? computeBufferContentHash(rr.buffer) : null,
+      asr: asr ? computeBufferContentHash(asr.buffer) : null,
+    };
+    const cacheKey = computeExtractionInputKey({
+      slotHashes,
+      extractorVersions: deps.extractorVersions,
+    });
+    const cached = deps.recordGraphStore.getExtractionInputCacheByKey(cacheKey);
+
+    let composed: BuildExtractionResultOutput | null = null;
+    if (cached !== null) {
+      const cachedExtraction =
+        deps.recordGraphStore.getExtractionResult(cached.extractionResultId);
+      if (cachedExtraction !== null) {
+        const cachedPM = cached.propertyMetadataId !== null
+          ? deps.recordGraphStore.getPropertyMetadata(cached.propertyMetadataId)
+          : null;
+        composed = {
+          extractionResult: cachedExtraction,
+          propertyMetadata: cachedPM,
+          report: synthesizeBuildReport({
+            extractionEngineVersion: cachedExtraction.extractionEngineVersion,
+            slotPresent: { cf: cf !== undefined, rentRoll: rr !== undefined, asr: asr !== undefined },
+            extractorVersions: deps.extractorVersions,
+          }),
+        };
+      }
+      // else: cached entry references a deleted ExtractionResult (manual
+      // record deletion edge case per ADR §6). Fall through.
+    }
+
+    if (composed === null) {
+      /* Cache miss (or orphan-cache-entry fall-through). Persist blobs FIRST
+       * so SourceDocumentRef.contentHash references bytes actually on disk
+       * (B5). Failures here fail-fast before any AI adapter call burns
+       * tokens. */
+      try {
+        if (cf)  await deps.blobStore.putBlob(cf.buffer);
+        if (rr)  await deps.blobStore.putBlob(rr.buffer);
+        if (asr) await deps.blobStore.putBlob(asr.buffer);
+      } catch (e) {
+        if (e instanceof BlobStoreError) {
+          res.status(500).json({
+            error: e.code,
+            message: e.message,
+            hash: e.hash,
+          });
+          return;
+        }
+        const err = e as Error;
+        res.status(500).json({
+          error: err?.name ?? 'BLOB_STORE_ERROR',
+          message: err?.message ?? 'blob persistence failed',
+        });
+        return;
+      }
+
+      /* Run the composer. Adapter throws are absorbed inside the composer's
+         Promise.allSettled defense; composer itself shouldn't throw in normal
+         operation. If it does, the catch below surfaces it as 500-ish 400. */
+      try {
+        composed = await deps.buildExtractionResult({
+          slots,
+          analysisAsOfDate: body.analysisAsOfDate as ISODateTime,
+          dealRef: body.dealRef as string,
+          ...(body.propertyHint !== undefined && body.propertyHint !== null
+            ? { propertyHint: body.propertyHint as string }
+            : {}),
+          ...(loanTerms !== undefined ? { loanTerms } : {}),
+        });
+      } catch (e) {
+        const err = e as Error;
+        res.status(400).json({
+          error: err.name === undefined ? 'BUILD_FAILED' : err.name,
+          message: err.message === undefined ? 'composer failed' : err.message,
+        });
+        return;
+      }
+
+      /* Write the cache entry after a successful compose. Best-effort: a
+       * cache-write failure does not fail the request — the spine + PM are
+       * already persisted, the next re-upload just won't dedupe. */
+      try {
+        deps.recordGraphStore.insertExtractionInputCache({
+          cacheKey,
+          extractionResultId: composed.extractionResult.id,
+          propertyMetadataId: composed.propertyMetadata?.id ?? null,
+          cfHash: slotHashes.cf,
+          rentRollHash: slotHashes.rentRoll,
+          asrHash: slotHashes.asr,
+          extractorVersions: deps.extractorVersions,
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console -- TODO(observability): typed log event
+        console.warn('[build-and-ingest] extraction_input_cache insert failed:', e);
+      }
     }
 
     /* Run ingest against the composed ExtractionResult. Synchronous. */
@@ -391,3 +507,41 @@ export function createBuildAndIngestRoutes(deps?: BuildAndIngestDeps): Router {
  *  createBuildAndIngestRoutes(mockDeps) or makeBuildAndIngestHandler(mockDeps)
  *  directly. */
 export const buildAndIngestRoutes: Router = createBuildAndIngestRoutes();
+
+/** Synthesize a BuildReport on cache-hit. The cache table doesn't store the
+ *  original BuildReport bodies (just the resulting ExtractionResult.id), so
+ *  this is a best-effort reconstruction. Honest reporting: per-slot status
+ *  is 'ok' for slots whose bytes were provided in this re-upload (we know
+ *  the prior run succeeded on those bytes, otherwise no cache entry would
+ *  exist) and 'absent' for slots not supplied. durationMs is 0 because no
+ *  actual work was done; consumers reading durationMs as "how long did
+ *  extraction take" will see 0 on cache hits and should interpret
+ *  accordingly. */
+function synthesizeBuildReport(args: {
+  readonly extractionEngineVersion: ExtractionEngineVersion;
+  readonly slotPresent: { cf: boolean; rentRoll: boolean; asr: boolean };
+  readonly extractorVersions: Record<string, string>;
+}): BuildReport {
+  const nowISO = new Date().toISOString() as ISODateTime;
+  const cfVersion = args.extractorVersions.cf ?? '?';
+  const rrVersion = args.extractorVersions.rentRoll ?? '?';
+  const asrVersion = args.extractorVersions.asr ?? '?';
+
+  const okSlot = (adapterVersion: string): SlotReport => ({
+    status: 'ok',
+    durationMs: 0,
+    adapterVersion,
+  });
+  const absent: SlotReport = { status: 'absent' };
+
+  return {
+    startedAt: nowISO,
+    finishedAt: nowISO,
+    engineVersion: args.extractionEngineVersion,
+    slots: {
+      sellerCfXlsx: args.slotPresent.cf ? okSlot(cfVersion) : absent,
+      rentRollXlsx: args.slotPresent.rentRoll ? okSlot(rrVersion) : absent,
+      asrPdf: args.slotPresent.asr ? okSlot(asrVersion) : absent,
+    },
+  };
+}

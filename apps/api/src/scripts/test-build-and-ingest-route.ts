@@ -41,11 +41,16 @@ import {
   IngestionError,
   type IngestionResult,
 } from '../services/ingest-extraction-result.js';
-import type { RecordGraphStore } from '../storage/record-graph-store.js';
+import { RecordGraphStore } from '../storage/record-graph-store.js';
+import { MemoryBlobStore, BlobStoreError, type BlobStore } from '../storage/blob-store.js';
+import { computeExtractionResultId, computePropertyMetadataId } from '../util/content-hash.js';
+import { EXTRACTION_ENGINE_VERSION } from '@cre/contracts';
 import {
   makeBuildAndIngestHandler,
   type BuildAndIngestDeps,
 } from '../routes/build-and-ingest.routes.js';
+
+type MulterFilesMap = { [fieldname: string]: Array<{ buffer: Buffer; originalname: string }> };
 
 let passed = 0;
 let failed = 0;
@@ -171,6 +176,11 @@ interface DepsOverrides {
   ingestReturn?: IngestionResult;
   ingestThrow?: Error;
   pmInsertThrow?: Error;
+  /** For Tier B short-circuit tests: override the entire RecordGraphStore.
+   *  Lets a test simulate cache hits / orphan-cache entries. */
+  storeOverride?: RecordGraphStore;
+  /** For Tier B putBlob-failure tests: substitute a misbehaving BlobStore. */
+  blobStoreOverride?: BlobStore;
 }
 
 function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
@@ -185,6 +195,13 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       if (o.pmInsertThrow !== undefined) throw o.pmInsertThrow;
       return { inserted: true };
     },
+    /* Tier B short-circuit hooks. Default mocks: empty cache (miss),
+     * no-op cache write. Tests that need to exercise hit/orphan paths
+     * provide their own RecordGraphStore via DepsOverrides.storeOverride. */
+    getExtractionInputCacheByKey: (_key: string) => null,
+    getExtractionResult: (_id: string) => null,
+    getPropertyMetadata: (_id: string) => null,
+    insertExtractionInputCache: () => ({ inserted: true }),
   } as unknown as RecordGraphStore;
 
   return {
@@ -201,7 +218,14 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       if (o.ingestThrow !== undefined) throw o.ingestThrow;
       return o.ingestReturn !== undefined ? o.ingestReturn : makeIngestionResult();
     },
-    recordGraphStore: storeMock,
+    recordGraphStore: o.storeOverride ?? storeMock,
+    blobStore: o.blobStoreOverride ?? new MemoryBlobStore(),
+    extractorVersions: {
+      cf: '0.1.0',
+      rentRoll: '0.1.0',
+      asr: '0.2.0',
+      engine: EXTRACTION_ENGINE_VERSION,
+    },
   };
 }
 
@@ -528,6 +552,318 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
     assertEqual(res.statusCode, 201, '15.1 status 201');
     const captured15 = observedArgs as { creditManifestoId?: string; creditManifesto?: unknown } | null;
     assertEqual(captured15?.creditManifestoId ?? null, 'm'.repeat(64), '15.2 ingest received creditManifestoId');
+  }
+
+  /* Helper: build an ExtractionResult with a content-hashed id (rather than
+   * the hardcoded EXT_ID stub used by makeExtractionResult). Required for
+   * Tier B tests that insert into a real RecordGraphStore — the store's
+   * verifyAndSerialize step rejects any record whose claimed id doesn't
+   * match the body hash.
+   *
+   * dealRefSuffix lets each test produce a distinct ExtractionResult to
+   * avoid cross-test ON-CONFLICT-DO-NOTHING aliasing within the same
+   * :memory: DB. */
+  function makeProperExtractionResult(dealRefSuffix: string): ExtractionResult {
+    const body = {
+      analysisAsOfDate: '2026-05-20T00:00:00Z' as ISODateTime,
+      extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
+      dealRef: `TIER-B-${dealRefSuffix}`,
+      rentRoll: null,
+      t12: null,
+      pca: null,
+      appraisal: null,
+      sellerUw: null,
+      sellerUwOperatingStatement: null,
+      asr: null,
+      loanTerms: null,
+      sourceDocuments: [],
+      extractorVersions: {} as Record<string, string>,
+    };
+    return { id: computeExtractionResultId(body), ...body } as ExtractionResult;
+  }
+
+  /* CASE 16 — Tier B short-circuit: re-upload skips composer.
+   *
+   * Wire a real in-memory record-graph store + memory blob store. First call
+   * runs the composer (count = 1) and populates the cache. Second call with
+   * the same body + the same file content hits the cache and SKIPS the
+   * composer (count stays at 1). */
+  console.log('\n16. Tier B short-circuit — re-upload same bytes skips composer');
+  {
+    const realStore = new RecordGraphStore(':memory:');
+    const memBlob = new MemoryBlobStore();
+    let composerCalls = 0;
+
+    const baseDeps = makeDeps({ storeOverride: realStore, blobStoreOverride: memBlob });
+    const composedExtraction = makeProperExtractionResult('case-16');
+    // Real ExtractionResult must actually be persisted by the test ingest so
+    // the cache hit's getExtractionResult succeeds.
+    realStore.insertExtractionResult(composedExtraction);
+    const patched: BuildAndIngestDeps = {
+      ...baseDeps,
+      buildExtractionResult: async () => {
+        composerCalls += 1;
+        return {
+          extractionResult: composedExtraction,
+          propertyMetadata: null,
+          report: makeBuildReport(),
+        };
+      },
+    };
+
+    const handler = makeBuildAndIngestHandler(patched);
+    const asrBuf = Buffer.from('asr fixture content for cache test');
+    const fileBody: MulterFilesMap = {
+      asr: [{ buffer: asrBuf, originalname: 'asr.pdf' }] as never,
+    };
+
+    // First call — cache miss, composer runs
+    {
+      const req: MockReq = { body: validBody(), files: fileBody };
+      const res = makeRes();
+      await handler(req as never, res as never);
+      assertEqual(res.statusCode, 201, '16.1 first call 201');
+      assertEqual(composerCalls, 1, '16.2 composer called once on first request');
+    }
+    // Second call — same bytes, cache hit, composer NOT called again
+    {
+      const req: MockReq = { body: validBody(), files: fileBody };
+      const res = makeRes();
+      await handler(req as never, res as never);
+      assertEqual(res.statusCode, 201, '16.3 second call 201');
+      assertEqual(composerCalls, 1, '16.4 composer NOT called second time (cache hit)');
+      const body = res.body as { extractionResultId: string };
+      assertEqual(body.extractionResultId, composedExtraction.id, '16.5 same extractionResultId returned on cache hit');
+    }
+
+    realStore.close();
+  }
+
+  /* CASE 17 — Tier B short-circuit: PropertyMetadata preserved across cache hit.
+   *
+   * First call produces a non-null PropertyMetadata; cache stores its id.
+   * Second call (cache hit) returns the same propertyMetadataId. */
+  console.log('\n17. Tier B short-circuit — PropertyMetadata preserved across cache hit');
+  {
+    const realStore = new RecordGraphStore(':memory:');
+    const memBlob = new MemoryBlobStore();
+    const composedExtraction = makeProperExtractionResult('case-17');
+    realStore.insertExtractionResult(composedExtraction);
+
+    // Build a real PropertyMetadata record so getPropertyMetadata returns it
+    // on cache hit. Use the contract's compute helper for the id.
+    const pmBody = {
+      source: 'asr_extraction' as const,
+      propertyName: 'Test Property',
+      propertySubtype: 'Suburban Office',
+      address: '123 Main St',
+      city: 'Testville', state: 'CA', zip: '90000',
+      county: null, msa: null, submarket: null,
+      yearBuilt: 2010, yearRenovated: null, buildingClass: 'B',
+      totalSquareFeet: 50000, totalUnits: null, totalRooms: null, totalPads: null,
+      occupancyPhysical: 0.92, occupancyEconomic: null,
+      ownershipInterest: 'Fee Simple', numberOfBuildings: 1,
+    };
+    const pm: PropertyMetadata = { id: computePropertyMetadataId(pmBody), ...pmBody } as PropertyMetadata;
+    realStore.insertPropertyMetadata(pm);
+
+    let composerCalls = 0;
+    const baseDeps = makeDeps({ storeOverride: realStore, blobStoreOverride: memBlob });
+    const patched: BuildAndIngestDeps = {
+      ...baseDeps,
+      buildExtractionResult: async () => {
+        composerCalls += 1;
+        return {
+          extractionResult: composedExtraction,
+          propertyMetadata: pm,
+          report: makeBuildReport(),
+        };
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+    const asrBuf = Buffer.from('content for PM-preservation test');
+    const fileBody: MulterFilesMap = {
+      asr: [{ buffer: asrBuf, originalname: 'asr.pdf' }] as never,
+    };
+
+    // First call
+    {
+      const req: MockReq = { body: validBody(), files: fileBody };
+      const res = makeRes();
+      await handler(req as never, res as never);
+      const body = res.body as { propertyMetadataId: string };
+      assertEqual(res.statusCode, 201, '17.1 first call 201');
+      assertEqual(body.propertyMetadataId, pm.id, '17.2 first call returned pm.id');
+    }
+    // Second call — cache hit, same pm.id reused
+    {
+      const req: MockReq = { body: validBody(), files: fileBody };
+      const res = makeRes();
+      await handler(req as never, res as never);
+      const body = res.body as { propertyMetadataId: string };
+      assertEqual(res.statusCode, 201, '17.3 second call 201');
+      assertEqual(composerCalls, 1, '17.4 composer NOT re-called');
+      assertEqual(body.propertyMetadataId, pm.id, '17.5 same propertyMetadataId on cache hit');
+    }
+
+    realStore.close();
+  }
+
+  /* CASE 18 — Tier B: putBlob failure fails fast BEFORE composer runs.
+   *
+   * A misbehaving BlobStore throws on putBlob. The request must fail before
+   * the composer is invoked — no wasted AI calls. */
+  console.log('\n18. Tier B — putBlob failure fails fast before composer');
+  {
+    const failingBlob: BlobStore = {
+      putBlob: async () => { throw new BlobStoreError('WRITE_FAILED', 'x'.repeat(64), 'disk full simulated'); },
+      getBlob: async () => null,
+      hasBlob: async () => false,
+    };
+    let composerCalls = 0;
+    const baseDeps = makeDeps({ blobStoreOverride: failingBlob });
+    const patched: BuildAndIngestDeps = {
+      ...baseDeps,
+      buildExtractionResult: async () => {
+        composerCalls += 1;
+        return {
+          extractionResult: makeExtractionResult(),
+          propertyMetadata: null,
+          report: makeBuildReport(),
+        };
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+    const fileBody: MulterFilesMap = {
+      asr: [{ buffer: Buffer.from('whatever'), originalname: 'asr.pdf' }] as never,
+    };
+    const req: MockReq = { body: validBody(), files: fileBody };
+    const res = makeRes();
+    await handler(req as never, res as never);
+
+    assertEqual(res.statusCode, 500, '18.1 status 500');
+    const body = res.body as { error: string; hash?: string };
+    assertEqual(body.error, 'WRITE_FAILED', '18.2 error code surfaces BlobStoreError.code');
+    assertEqual(composerCalls, 0, '18.3 composer NOT called (fail fast)');
+  }
+
+  /* CASE 19 — Tier B: orphan cache entry falls through to re-extract.
+   *
+   * Plant a cache entry that references a non-existent ExtractionResultId.
+   * Route should detect the missing record on cache hit and fall through to
+   * the cache-miss path: putBlob + run composer. */
+  console.log('\n19. Tier B — orphan cache entry falls through to re-extract');
+  {
+    const realStore = new RecordGraphStore(':memory:');
+    const memBlob = new MemoryBlobStore();
+    let composerCalls = 0;
+
+    // For the orphan cache entry to install successfully (FK constraint),
+    // we need a temporary ExtractionResult row to point at. We'll insert
+    // one, then delete it directly via sql to simulate manual deletion. But
+    // simpler: insert a real record, then plant a cache entry pointing at
+    // a DIFFERENT id (one that doesn't exist). The FK is satisfied via the
+    // initial id, and getExtractionResult on the non-existent id returns
+    // null — same effective behavior as a true orphan.
+    //
+    // Even simpler: directly plant a cache entry where the cache lookup
+    // would hit but the extraction_result row doesn't exist. FK prevents
+    // that. So: insert a placeholder ExtractionResult, write a cache row
+    // pointing at IT, then DELETE the row from extraction_results
+    // (bypassing FK via PRAGMA). Trickier than worth it.
+    //
+    // Cleanest: stub the store so getExtractionInputCacheByKey returns a
+    // non-null { extractionResultId }, but getExtractionResult returns null
+    // for that id. This is the exact post-condition of a manual record
+    // deletion in production.
+    const orphanCacheStore = {
+      ...realStore,
+      getExtractionInputCacheByKey: () => ({
+        extractionResultId: ('o'.repeat(64)) as never,
+        propertyMetadataId: null,
+      }),
+      getExtractionResult: () => null, // orphan
+      getPropertyMetadata: () => null,
+      insertExtractionResult: realStore.insertExtractionResult.bind(realStore),
+      insertExtractionInputCache: realStore.insertExtractionInputCache.bind(realStore),
+      insertPropertyMetadata: realStore.insertPropertyMetadata.bind(realStore),
+    } as unknown as RecordGraphStore;
+
+    const composedExtraction = makeProperExtractionResult('case-19');
+    const baseDeps = makeDeps({ storeOverride: orphanCacheStore, blobStoreOverride: memBlob });
+    const patched: BuildAndIngestDeps = {
+      ...baseDeps,
+      buildExtractionResult: async () => {
+        composerCalls += 1;
+        return {
+          extractionResult: composedExtraction,
+          propertyMetadata: null,
+          report: makeBuildReport(),
+        };
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+    const fileBody: MulterFilesMap = {
+      asr: [{ buffer: Buffer.from('orphan-cache test content'), originalname: 'asr.pdf' }] as never,
+    };
+    const req: MockReq = { body: validBody(), files: fileBody };
+    const res = makeRes();
+    await handler(req as never, res as never);
+    assertEqual(res.statusCode, 201, '19.1 status 201 (fall through succeeded)');
+    assertEqual(composerCalls, 1, '19.2 composer ran (orphan cache entry triggered fall-through)');
+
+    realStore.close();
+  }
+
+  /* CASE 20 — Tier B: cache miss writes a cache entry that subsequent
+   * uploads can use.
+   *
+   * Issue the same request twice via different handler instances with the
+   * same real store. The cache row written by the first run should be
+   * visible to the second run (which uses a different handler closure but
+   * the same store). This verifies the cache-write step actually fires on
+   * cache miss. */
+  console.log('\n20. Tier B — cache write after compose makes second call short-circuit');
+  {
+    const realStore = new RecordGraphStore(':memory:');
+    const memBlob = new MemoryBlobStore();
+    const composedExtraction = makeProperExtractionResult('case-20');
+    realStore.insertExtractionResult(composedExtraction);
+    let composerCalls = 0;
+
+    const baseDeps = makeDeps({ storeOverride: realStore, blobStoreOverride: memBlob });
+    const patched: BuildAndIngestDeps = {
+      ...baseDeps,
+      buildExtractionResult: async () => {
+        composerCalls += 1;
+        return {
+          extractionResult: composedExtraction,
+          propertyMetadata: null,
+          report: makeBuildReport(),
+        };
+      },
+    };
+    const handler1 = makeBuildAndIngestHandler(patched);
+    const handler2 = makeBuildAndIngestHandler(patched);
+    const fileBody: MulterFilesMap = {
+      asr: [{ buffer: Buffer.from('cache-write verification test'), originalname: 'asr.pdf' }] as never,
+    };
+
+    {
+      const req: MockReq = { body: validBody(), files: fileBody };
+      const res = makeRes();
+      await handler1(req as never, res as never);
+      assertEqual(res.statusCode, 201, '20.1 first handler 201');
+    }
+    {
+      const req: MockReq = { body: validBody(), files: fileBody };
+      const res = makeRes();
+      await handler2(req as never, res as never);
+      assertEqual(res.statusCode, 201, '20.2 second handler 201');
+      assertEqual(composerCalls, 1, '20.3 cache hit via persisted cache entry (composer only ran once)');
+    }
+
+    realStore.close();
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

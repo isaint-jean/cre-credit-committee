@@ -31,6 +31,7 @@ import type {
   AdjustedInputsId,
   AssetProfile,
   AssetProfileId,
+  ContentHash,
   CreditManifesto,
   CreditManifestoId,
   CrossCheckResult,
@@ -251,6 +252,41 @@ export class RecordGraphStore {
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+
+      -- Tier B of issue #10 / ADR §6: re-upload short-circuit cache.
+      -- Maps a composite content-derived key (slot hashes + extractor versions)
+      -- to the ExtractionResult.id produced from those exact bytes under those
+      -- exact versions. On re-upload with identical bytes + versions, the
+      -- route hits this table, skips the composer, and reuses the cached
+      -- ExtractionResult -- O(1) re-upload, no re-extraction (no AI calls).
+      --
+      -- FK to extraction_results.id but NO ON DELETE CASCADE: if a record is
+      -- manually deleted, the cache entry becomes orphan; the route's
+      -- cache-hit-with-missing-record edge case (ADR §6) falls through to
+      -- re-extract. Keeps the cache append-only.
+      --
+      -- cf_hash / rent_roll_hash / asr_hash are nullable per-slot hashes,
+      -- stored for audit / debugging visibility. The cache_key column is
+      -- what the lookup is keyed on; per-slot columns are not in the unique
+      -- constraint.
+      CREATE TABLE IF NOT EXISTS extraction_input_cache (
+        cache_key TEXT PRIMARY KEY,
+        extraction_result_id TEXT NOT NULL,
+        -- Nullable: PropertyMetadata is sibling-style and best-effort; the
+        -- first composer run may have produced null PM. On cache hit, the
+        -- route re-fetches by this id (NO FK because property_metadata can
+        -- be deleted independently; the route's defensive null check handles
+        -- the missing-PM case).
+        property_metadata_id TEXT,
+        cf_hash TEXT,
+        rent_roll_hash TEXT,
+        asr_hash TEXT,
+        extractor_versions TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (extraction_result_id) REFERENCES extraction_results(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_extraction_input_cache_result ON extraction_input_cache(extraction_result_id);
 
       CREATE INDEX IF NOT EXISTS idx_adjusted_inputs_lib       ON adjusted_inputs(library_snapshot_id);
       CREATE INDEX IF NOT EXISTS idx_cross_check_ai            ON cross_check_results(adjusted_inputs_id);
@@ -677,6 +713,64 @@ export class RecordGraphStore {
       .prepare(`SELECT id, payload FROM property_metadata WHERE id = ?`)
       .get(id) as RecordRow | undefined;
     return row ? this.parseRow<PropertyMetadata>(row) : null;
+  }
+
+  /* -------------------------- extraction_input_cache --------------------------- */
+
+  /** Cache entry: composite slot-hash + extractor-version key → resulting
+   *  ExtractionResult.id (+ optional PropertyMetadataId). Inserted after a
+   *  successful composer run; consulted before the next compose to
+   *  short-circuit re-uploads. */
+  insertExtractionInputCache(args: {
+    readonly cacheKey: ContentHash;
+    readonly extractionResultId: ExtractionResultId;
+    readonly propertyMetadataId: PropertyMetadataId | null;
+    readonly cfHash: ContentHash | null;
+    readonly rentRollHash: ContentHash | null;
+    readonly asrHash: ContentHash | null;
+    readonly extractorVersions: Record<string, string>;
+  }): { inserted: boolean } {
+    const result = this.db
+      .prepare(
+        `INSERT INTO extraction_input_cache
+         (cache_key, extraction_result_id, property_metadata_id, cf_hash, rent_roll_hash, asr_hash, extractor_versions, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(cache_key) DO NOTHING`,
+      )
+      .run(
+        args.cacheKey,
+        args.extractionResultId,
+        args.propertyMetadataId,
+        args.cfHash,
+        args.rentRollHash,
+        args.asrHash,
+        JSON.stringify(args.extractorVersions),
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  /** Lookup by composite cache key. Returns the cached id pair (or null).
+   *  Caller must then fetch the records (and verify they still exist — if
+   *  deleted, the cache entry is orphan and the route falls through to
+   *  re-extract). */
+  getExtractionInputCacheByKey(cacheKey: ContentHash): {
+    extractionResultId: ExtractionResultId;
+    propertyMetadataId: PropertyMetadataId | null;
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT extraction_result_id, property_metadata_id
+         FROM extraction_input_cache WHERE cache_key = ?`,
+      )
+      .get(cacheKey) as
+      | { extraction_result_id: string; property_metadata_id: string | null }
+      | undefined;
+    if (row === undefined) return null;
+    return {
+      extractionResultId: row.extraction_result_id as ExtractionResultId,
+      propertyMetadataId: (row.property_metadata_id ?? null) as PropertyMetadataId | null,
+    };
   }
 
   /* --------------------------------- shutdown --------------------------------- */
