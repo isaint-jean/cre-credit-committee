@@ -8,6 +8,7 @@
 // The middleware that enforces these checks lives in apps/api/src/middleware/.
 
 export const ROLES = [
+  'VIEWER',
   'ANALYST',
   'CREDIT_OFFICER',
   'COMMITTEE_MEMBER',
@@ -42,6 +43,11 @@ export type Permission = (typeof PERMISSIONS)[number];
 // inheritance hierarchy in v1. Derived roles can be added by listing all the
 // underlying permissions explicitly.
 export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } = {
+  // Read-only legacy/observer role. Reads (which are only requireAuth-gated)
+  // remain accessible; every permission-gated endpoint fails uniformly with
+  // PERMISSION_DENIED for VIEWER users. Maps from the legacy 'viewer' role in
+  // sqlite-store (see auth.routes.ts boundary translation).
+  VIEWER: [],
   ANALYST: [
     'workflow:read',
     'workflow:submit',

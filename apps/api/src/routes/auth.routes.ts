@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { store } from '../storage/sqlite-store.js';
 import { env } from '../config/env.js';
-import { requireAuth } from '../middleware/auth.js';
+import { normalizeRoleAtBoundary, requireAuth } from '../middleware/auth.js';
 
 export const authRoutes = Router();
 
@@ -19,8 +19,15 @@ authRoutes.post('/login', (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
+  // Translate the legacy lowercase role from sqlite-store into the new-spine
+  // uppercase enum BEFORE signing the JWT. Downstream requirePermission(...)
+  // expects the new-spine enum; carrying legacy lowercase through would
+  // produce 403 UNKNOWN_ROLE for every permission-gated endpoint.
+  // See middleware/auth.ts for the translation table + decode-time fallback.
+  const normalizedRole = normalizeRoleAtBoundary(user.role);
+
   const token = jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
+    { userId: user.id, email: user.email, role: normalizedRole },
     env.jwtSecret,
     { expiresIn: '7d' }
   );
@@ -33,8 +40,10 @@ authRoutes.post('/login', (req: Request, res: Response) => {
 
 // POST /api/auth/register
 authRoutes.post('/register', requireAuth, (req: Request, res: Response) => {
-  // Only admins can create new users
-  if (req.user?.role !== 'admin') {
+  // Only admins can create new users. req.user.role is the new-spine
+  // uppercase value (translated at JWT sign time + at middleware decode
+  // for old tokens) — see middleware/auth.ts for the boundary translation.
+  if (req.user?.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Only admins can create users' });
   }
 

@@ -42,16 +42,30 @@ import {
   recordGraphStore,
 } from '../storage/record-graph-store.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
+import {
+  ApprovedDealsStore,
+  approvedDealsStore,
+} from '../storage/approved-deals-store.js';
 import { requirePermission } from '../middleware/require-permission.js';
+import {
+  computeCreditManifestoId,
+  computeLibrarySnapshotId,
+  computeMarketBenchmarksId,
+} from '../util/content-hash.js';
+import { buildLibrarySnapshot } from '../services/library-snapshot-producer.service.js';
+import type { ISODateTime } from '@cre/contracts';
 
 /* ---------------------------------- deps ---------------------------------- */
 
 export interface RegistryDeps {
   readonly recordGraphStore: RecordGraphStore;
+  /** Used by the build-from-approved-deals action on library snapshots. */
+  readonly approvedDealsStore: ApprovedDealsStore;
 }
 
 export const DEFAULT_REGISTRY_DEPS: RegistryDeps = {
   recordGraphStore,
+  approvedDealsStore,
 };
 
 /* ------------------------------ handler factories ------------------------- */
@@ -90,6 +104,7 @@ interface InsertResult { inserted: boolean }
 function makePostHandler<T extends { readonly id: string }>(
   write: (record: T) => InsertResult,
   recordKind: 'LibrarySnapshot' | 'MarketBenchmarks' | 'CreditManifesto',
+  computeId: (body: unknown) => string,
 ): (req: Request, res: Response) => void {
   return (req: Request, res: Response): void => {
     const body = req.body as unknown;
@@ -100,13 +115,22 @@ function makePostHandler<T extends { readonly id: string }>(
       });
       return;
     }
-    const record = body as T;
-    if (typeof record.id !== 'string' || record.id.length === 0) {
-      res.status(400).json({
-        error: 'REGISTRY_BAD_REQUEST',
-        message: `${recordKind} body must include a string id`,
-      });
-      return;
+    /* Dual-mode body:
+     *   - id present  → existing behavior; store.verifyAndSerialize() validates
+     *     the claimed id matches the computed id, throws RecordIdMismatchError
+     *     on mismatch (409 path below).
+     *   - id absent   → compute it server-side from the body's content, attach
+     *     to the record, and proceed. Lets admin-UI callers paste raw JSON
+     *     without manually computing SHA-256. */
+    const claimed = (body as { id?: unknown }).id;
+    let record: T;
+    if (typeof claimed === 'string' && claimed.length > 0) {
+      record = body as T;
+    } else {
+      const { id: _omit, ...bodyWithoutId } = body as { id?: unknown };
+      void _omit;
+      const computedId = computeId(bodyWithoutId);
+      record = { ...bodyWithoutId, id: computedId } as unknown as T;
     }
     try {
       const { inserted } = write(record);
@@ -141,6 +165,10 @@ export interface RegistryHandlers {
   readonly listLibrarySnapshots:   (req: Request, res: Response) => void;
   readonly getLibrarySnapshot:     (req: Request, res: Response) => void;
   readonly postLibrarySnapshot:    (req: Request, res: Response) => void;
+  /** Build (NOT insert) a LibrarySnapshot from the current approved_deals
+   *  table state at the given asOfDate. Returns the computed snapshot body
+   *  for admin review; admin then submits via postLibrarySnapshot to persist. */
+  readonly buildLibrarySnapshot:   (req: Request, res: Response) => void;
   readonly listMarketBenchmarks:   (req: Request, res: Response) => void;
   readonly getMarketBenchmarks:    (req: Request, res: Response) => void;
   readonly postMarketBenchmarks:   (req: Request, res: Response) => void;
@@ -163,7 +191,32 @@ export function makeRegistryHandlers(
     postLibrarySnapshot: makePostHandler<LibrarySnapshot>(
       (r) => deps.recordGraphStore.insertLibrarySnapshot(r),
       'LibrarySnapshot',
+      computeLibrarySnapshotId,
     ),
+    buildLibrarySnapshot: (req: Request, res: Response): void => {
+      const body = req.body as { asOfDate?: unknown } | null | undefined;
+      const asOfDate = body?.asOfDate;
+      if (typeof asOfDate !== 'string' || asOfDate.length === 0) {
+        res.status(400).json({
+          error: 'REGISTRY_BAD_REQUEST',
+          message: 'buildLibrarySnapshot body must include a non-empty string asOfDate',
+        });
+        return;
+      }
+      try {
+        const snapshot = buildLibrarySnapshot({
+          asOfDate: asOfDate as ISODateTime,
+          store: deps.approvedDealsStore,
+        });
+        res.status(200).json({ snapshot });
+      } catch (e) {
+        const err = e as Error;
+        res.status(400).json({
+          error: err?.name ?? 'BUILD_LIBRARY_SNAPSHOT_ERROR',
+          message: err?.message ?? 'buildLibrarySnapshot failed',
+        });
+      }
+    },
     listMarketBenchmarks: makeListHandler<MarketBenchmarks>(
       () => deps.recordGraphStore.listMarketBenchmarks(),
     ),
@@ -174,6 +227,7 @@ export function makeRegistryHandlers(
     postMarketBenchmarks: makePostHandler<MarketBenchmarks>(
       (r) => deps.recordGraphStore.insertMarketBenchmarks(r),
       'MarketBenchmarks',
+      computeMarketBenchmarksId,
     ),
     listCreditManifestos: makeListHandler<CreditManifesto>(
       () => deps.recordGraphStore.listCreditManifestos(),
@@ -185,6 +239,7 @@ export function makeRegistryHandlers(
     postCreditManifesto: makePostHandler<CreditManifesto>(
       (r) => deps.recordGraphStore.insertCreditManifesto(r),
       'CreditManifesto',
+      computeCreditManifestoId,
     ),
   };
 }
@@ -198,6 +253,11 @@ export function makeRegistryRouter(deps: RegistryDeps = DEFAULT_REGISTRY_DEPS): 
 
   const libSub = Router();
   libSub.get('/', h.listLibrarySnapshots);
+  // POST /build must be registered before POST /:id-less routes so express
+  // doesn't accidentally try to parse 'build' as a path param. (Not an issue
+  // here since GET /:id and POST / are separate verbs from POST /build, but
+  // the convention is to register specific paths first.)
+  libSub.post('/build', writeGate, h.buildLibrarySnapshot);
   libSub.get('/:id', h.getLibrarySnapshot);
   libSub.post('/', writeGate, h.postLibrarySnapshot);
   router.use('/library-snapshots', libSub);

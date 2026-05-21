@@ -29,6 +29,7 @@ import {
   computeMarketBenchmarksId,
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
+import { ApprovedDealsStore } from '../storage/approved-deals-store.js';
 import { makeRegistryHandlers } from '../routes/registry.routes.js';
 
 const AS_OF = '2026-05-21T00:00:00Z';
@@ -104,7 +105,7 @@ function makeSnapshot(): LibrarySnapshot {
 console.log('POST /market-benchmarks shape validation:');
 {
   const store = new RecordGraphStore(':memory:');
-  const h = makeRegistryHandlers({ recordGraphStore: store });
+  const h = makeRegistryHandlers({ recordGraphStore: store, approvedDealsStore: new ApprovedDealsStore(':memory:') });
 
   /* 1. POST non-object body → 400 REGISTRY_BAD_REQUEST */
   {
@@ -124,14 +125,41 @@ console.log('POST /market-benchmarks shape validation:');
     assertEqual(res.statusCode, 400, '2.1 array body rejected with 400');
   }
 
-  /* 3. POST object missing id → 400 */
+  /* 3. POST object WITHOUT id → server computes it, returns 201.
+       The previous version of this test asserted 400; loosening the route to
+       allow id-absent body is the design choice tracked in ticket #12 — admin
+       UI users paste raw JSON without manually computing SHA-256. */
   {
-    const req: MockReq = { body: { asOfDate: AS_OF, capRates: {} } };
+    const bm = makeBenchmarks();
+    const { id: _omit, ...bodyNoId } = bm;
+    void _omit;
+    const req: MockReq = { body: bodyNoId };
     const res = makeRes();
     h.postMarketBenchmarks(req as Request, res as unknown as Response);
-    assertEqual(res.statusCode, 400, '3.1 missing id rejected with 400');
-    const body = res.body as { message?: string };
-    assert((body.message ?? '').includes('id'), '3.2 message mentions id');
+    assertEqual(res.statusCode, 201, '3.1 id-absent body returns 201 (server computed id)');
+    const body = res.body as { id?: string; inserted?: boolean };
+    assertEqual(body.id ?? null, bm.id, '3.2 server-computed id matches client-side compute*Id');
+    assertEqual(body.inserted ?? null, true, '3.3 inserted=true on first insert');
+  }
+
+  /* 3b. POST id-absent twice with identical body → second is 200 inserted=false
+        (idempotency works the same way as the id-present path; the server-side
+        compute means both submissions resolve to the same id). */
+  {
+    const bm = makeBenchmarks(0.080);
+    const { id: _omit, ...bodyNoId } = bm;
+    void _omit;
+    const req1: MockReq = { body: bodyNoId };
+    const res1 = makeRes();
+    h.postMarketBenchmarks(req1 as Request, res1 as unknown as Response);
+    assertEqual(res1.statusCode, 201, '3b.1 first insert returns 201');
+    const req2: MockReq = { body: bodyNoId };
+    const res2 = makeRes();
+    h.postMarketBenchmarks(req2 as Request, res2 as unknown as Response);
+    assertEqual(res2.statusCode, 200, '3b.2 second insert (same body, no id) returns 200');
+    const body2 = res2.body as { id?: string; inserted?: boolean };
+    assertEqual(body2.inserted ?? null, false, '3b.3 inserted=false on idempotent re-insert');
+    assertEqual(body2.id ?? null, bm.id, '3b.4 returned id matches the first insert');
   }
 
   /* 4. POST with tampered id → 409 REGISTRY_ID_MISMATCH */
@@ -155,7 +183,7 @@ console.log('POST /market-benchmarks shape validation:');
 console.log('\nPOST /market-benchmarks happy paths:');
 {
   const store = new RecordGraphStore(':memory:');
-  const h = makeRegistryHandlers({ recordGraphStore: store });
+  const h = makeRegistryHandlers({ recordGraphStore: store, approvedDealsStore: new ApprovedDealsStore(':memory:') });
   const bm = makeBenchmarks();
 
   /* 5. POST valid body → 201 inserted */
@@ -186,7 +214,7 @@ console.log('\nPOST /market-benchmarks happy paths:');
 console.log('\nGET /market-benchmarks/:id:');
 {
   const store = new RecordGraphStore(':memory:');
-  const h = makeRegistryHandlers({ recordGraphStore: store });
+  const h = makeRegistryHandlers({ recordGraphStore: store, approvedDealsStore: new ApprovedDealsStore(':memory:') });
   const bm = makeBenchmarks();
   store.insertMarketBenchmarks(bm);
 
@@ -217,7 +245,7 @@ console.log('\nGET /market-benchmarks/:id:');
 console.log('\nGET /market-benchmarks (list):');
 {
   const store = new RecordGraphStore(':memory:');
-  const h = makeRegistryHandlers({ recordGraphStore: store });
+  const h = makeRegistryHandlers({ recordGraphStore: store, approvedDealsStore: new ApprovedDealsStore(':memory:') });
 
   /* 9. empty list */
   {
@@ -247,7 +275,7 @@ console.log('\nGET /market-benchmarks (list):');
 console.log('\nCreditManifesto handlers (smoke + error path):');
 {
   const store = new RecordGraphStore(':memory:');
-  const h = makeRegistryHandlers({ recordGraphStore: store });
+  const h = makeRegistryHandlers({ recordGraphStore: store, approvedDealsStore: new ApprovedDealsStore(':memory:') });
   const m = makeManifesto();
 
   /* 11. POST valid → 201 */
@@ -297,7 +325,7 @@ console.log('\nCreditManifesto handlers (smoke + error path):');
 console.log('\nLibrarySnapshot handlers (smoke):');
 {
   const store = new RecordGraphStore(':memory:');
-  const h = makeRegistryHandlers({ recordGraphStore: store });
+  const h = makeRegistryHandlers({ recordGraphStore: store, approvedDealsStore: new ApprovedDealsStore(':memory:') });
   const s = makeSnapshot();
 
   /* 15. POST → 201 */
@@ -338,6 +366,62 @@ console.log('\nLibrarySnapshot handlers (smoke):');
   }
 
   store.close();
+}
+
+console.log('\nbuildLibrarySnapshot handler (build from approved_deals):');
+{
+  const store = new RecordGraphStore(':memory:');
+  const dealsStore = new ApprovedDealsStore(':memory:');
+  const h = makeRegistryHandlers({ recordGraphStore: store, approvedDealsStore: dealsStore });
+
+  /* 19. body without asOfDate → 400 REGISTRY_BAD_REQUEST */
+  {
+    const req: MockReq = { body: {} };
+    const res = makeRes();
+    h.buildLibrarySnapshot(req as Request, res as unknown as Response);
+    assertEqual(res.statusCode, 400, '19.1 missing asOfDate → 400');
+    const body = res.body as { error?: string; message?: string };
+    assertEqual(body.error ?? null, 'REGISTRY_BAD_REQUEST', '19.2 error code');
+    assert((body.message ?? '').includes('asOfDate'), '19.3 message mentions asOfDate');
+  }
+
+  /* 20. valid body with empty approved_deals → 200 with degraded snapshot
+        (every byAssetType entry is null since n<20 for every type). */
+  {
+    const req: MockReq = { body: { asOfDate: AS_OF } };
+    const res = makeRes();
+    h.buildLibrarySnapshot(req as Request, res as unknown as Response);
+    assertEqual(res.statusCode, 200, '20.1 valid body → 200');
+    const body = res.body as { snapshot?: LibrarySnapshot };
+    assert(body.snapshot !== undefined, '20.2 response carries snapshot');
+    assert(/^[0-9a-f]{64}$/.test(body.snapshot?.id ?? ''), '20.3 snapshot.id is 64-char hex');
+    assertEqual(body.snapshot?.asOf ?? null, AS_OF, '20.4 snapshot.asOf echoes asOfDate');
+    // With empty approved_deals, every byAssetType entry must be null (degraded).
+    const allNullDegraded = ASSET_TYPES.every((t) => body.snapshot?.byAssetType[t] === null);
+    assertEqual(allNullDegraded, true, '20.5 every asset-type entry is null (n<20 → degraded)');
+  }
+
+  /* 21. build returns id matching computeLibrarySnapshotId of the body — i.e.
+        the same id we would get if we POSTed this snapshot to the registry. */
+  {
+    const req: MockReq = { body: { asOfDate: AS_OF } };
+    const res = makeRes();
+    h.buildLibrarySnapshot(req as Request, res as unknown as Response);
+    const body = res.body as { snapshot: LibrarySnapshot };
+    const { id: _omit, ...bodyWithoutId } = body.snapshot;
+    void _omit;
+    const recomputed = computeLibrarySnapshotId(bodyWithoutId);
+    assertEqual(body.snapshot.id, recomputed, '21.1 build id matches client-side recompute');
+  }
+
+  /* 22. build does NOT insert (idempotent in the sense that no record-graph
+        side effect happens). */
+  {
+    assertEqual(store.listLibrarySnapshots().length, 0, '22.1 build did NOT auto-insert; admin must POST separately');
+  }
+
+  store.close();
+  dealsStore.close();
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -3,8 +3,11 @@ import type {
   CommitteeActionPayload,
   CommitteeSnapshotId,
   CommitteeTimeline,
+  CreditManifesto,
   DealWorkflowState,
   DoctrineEvaluationId,
+  LibrarySnapshot,
+  MarketBenchmarks,
   OverlayId,
   RenderedAnalysis,
   RenderedAnalysisId,
@@ -528,4 +531,42 @@ export const api = {
     const qs = params.toString();
     return request<any>(`/uw-intelligence/market-intelligence${qs ? `?${qs}` : ''}`);
   },
+
+  // Registry — content-addressed admin CRUD for the three pinned upstream inputs.
+  // Reads gated by requireAuth; writes additionally gated by registry:write
+  // permission on the server side (admin role only).
+  listLibrarySnapshots: () =>
+    request<{ items: LibrarySnapshot[] }>('/registry/library-snapshots'),
+  getLibrarySnapshot: (id: string) =>
+    request<{ record: LibrarySnapshot }>(`/registry/library-snapshots/${id}`),
+  postLibrarySnapshot: (body: unknown) =>
+    request<{ id: string; inserted: boolean }>('/registry/library-snapshots', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  buildLibrarySnapshot: (args: { asOfDate: string }) =>
+    request<{ snapshot: LibrarySnapshot }>('/registry/library-snapshots/build', {
+      method: 'POST',
+      body: JSON.stringify(args),
+    }),
+
+  listMarketBenchmarks: () =>
+    request<{ items: MarketBenchmarks[] }>('/registry/market-benchmarks'),
+  getMarketBenchmarks: (id: string) =>
+    request<{ record: MarketBenchmarks }>(`/registry/market-benchmarks/${id}`),
+  postMarketBenchmarks: (body: unknown) =>
+    request<{ id: string; inserted: boolean }>('/registry/market-benchmarks', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  listCreditManifestos: () =>
+    request<{ items: CreditManifesto[] }>('/registry/credit-manifestos'),
+  getCreditManifesto: (id: string) =>
+    request<{ record: CreditManifesto }>(`/registry/credit-manifestos/${id}`),
+  postCreditManifesto: (body: unknown) =>
+    request<{ id: string; inserted: boolean }>('/registry/credit-manifestos', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
