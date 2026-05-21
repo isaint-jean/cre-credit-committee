@@ -18,10 +18,10 @@
  *     (the only failure mode unique to runAsrAdapter; the inner function
  *     never re-parses bytes)
  *   - all three sub-extractors rejected                         → 'failed'
- *     (UNREACHABLE in v0.1.0; DEFAULT_ASR_DEPS.extractAsr is a placeholder
- *     that always resolves to null. Becomes reachable when Ticket I
- *     (https://github.com/isaint-jean/cre-credit-committee/issues/6)
- *     replaces the placeholder with extractASR(doc).)
+ *     (reachable as of v0.2.0 / Ticket I (#6); DEFAULT_ASR_DEPS.extractAsr
+ *     is now extractASR(doc), which can throw on AI/network failure. The
+ *     prior v0.1.0 placeholder always resolved to null, which made this
+ *     branch dead-but-correct.)
  *   - mix of throws/nulls with no non-null value               → 'empty'
  *     (rejections collapse to null via unwrapOrWarn; the slot did its job,
  *     the document simply didn't carry the thing)
@@ -59,10 +59,16 @@ import { extractPropertyMetadata } from '../../extract-property-metadata.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 import { projectToRentRollExtraction } from './rent-roll.adapter.js';
 
-/** Bump when this adapter's contract with downstream changes. Post-Ticket-D
- *  this becomes the per-extractor version stamped into
- *  ExtractionResult.extractorVersions['asr']. */
-export const ASR_ADAPTER_VERSION = '0.1.0';
+/** Bump when this adapter's contract with downstream changes. Stamped into
+ *  ExtractionResult.extractorVersions['asr'] by the composer's version
+ *  harvester (Ticket D).
+ *
+ *  History:
+ *    0.1.0 — initial. DEFAULT_ASR_DEPS.extractAsr was a null-returning
+ *            placeholder; the `asr` field was always null in production.
+ *    0.2.0 — Ticket I (#6). DEFAULT_ASR_DEPS.extractAsr is now extractASR
+ *            (AI-driven). Adapter coordination/contract unchanged. */
+export const ASR_ADAPTER_VERSION = '0.2.0';
 
 /**
  * One outcome value covers three ExtractionResult-relevant fields PLUS one
@@ -70,8 +76,8 @@ export const ASR_ADAPTER_VERSION = '0.1.0';
  * composer's output widens to carry it sibling-style per Finding 2 decision 2a.
  * rentRollFallback feeds pickRentRoll() in the composer's projection step.
  *
- * In v0.1.0, `asr` is always null — the third Promise.allSettled position
- * holds a placeholder until Ticket I (issue #6) lands extractASR(doc).
+ * As of v0.2.0, `asr` carries the AI-extracted broker headline numbers
+ * (implied value / cap rate / underwritten NOI) when present, else null.
  */
 export interface AsrAdapterValue {
   readonly asr: ASRExtraction | null;
@@ -85,9 +91,9 @@ export interface AsrAdapterValue {
  * code calls the adapter without supplying deps; tests pass mocked deps
  * to control sub-extractor behavior without making AI calls.
  *
- * When Ticket I (issue #6) ships extractASR, the only change is to
- * DEFAULT_ASR_DEPS.extractAsr — the adapter body and the array order
- * stay untouched.
+ * Ticket I (#6) shipped extractASR; only DEFAULT_ASR_DEPS.extractAsr
+ * changed at that point — the adapter body and the array order stayed
+ * untouched, validating this dep-injection seam end-to-end.
  */
 export interface AsrAdapterDeps {
   readonly extractRentRoll:
@@ -98,16 +104,56 @@ export interface AsrAdapterDeps {
     (doc: ParsedDocument) => Promise<ASRExtraction | null>;
 }
 
+/**
+ * Lazy loader for extract-asr.ts. Diagnostic context (verified empirically):
+ *
+ *   pdf-parse@1.1.x ships a 2018-vintage webpack-bundled pdfjs (v1.10.100).
+ *   That bundle has a memory/heap-layout sensitivity: when ANY additional
+ *   sibling module is statically imported into asr.adapter.ts with a
+ *   referenced binding (which preserves the import past esbuild's
+ *   dead-code-elimination), pdfjs's FIRST getDocument() call on the
+ *   byte-pinned asr-minimal.pdf fixture non-deterministically throws
+ *   FormatError variants ("bad XRef entry" / "Illegal character: 41" /
+ *   "Command token too long: 128") even though the input bytes are
+ *   byte-stable and identical to passing builds.
+ *
+ *   Reproduces with a 5-LOC zero-import stub for extract-asr.ts; trigger
+ *   is content-independent. Reproduces with type-only imports (which are
+ *   erased at runtime). Reproduces with or without ai-analysis value
+ *   imports. Reordering the static import does not reliably fix it for
+ *   non-trivial modules. The placeholder `() => Promise.resolve(null)`
+ *   masked the bug because esbuild eliminated the unused named import,
+ *   so extract-asr.ts never loaded.
+ *
+ *   By the time the FIRST ASR call resolves this dynamic import, the
+ *   integration test's case 1 has already invoked parseDocument once, so
+ *   pdfjs's bundle has been initialized for the process lifetime and is
+ *   reused by subsequent calls without flake. In production, the slot's
+ *   parseDocument runs at runAsrAdapter entry (line 173) before the inner
+ *   function dispatches sub-extractors, so the same ordering holds.
+ *
+ *   TODO: track replacing pdf-parse (unmaintained since 2018). Once gone,
+ *   this lazy seam collapses back to a static `import { extractASR }` and
+ *   `extractAsr: extractASR`.
+ */
+let _cachedExtractAsr: ((doc: ParsedDocument) => Promise<ASRExtraction | null>) | null = null;
+async function lazyExtractAsr(doc: ParsedDocument): Promise<ASRExtraction | null> {
+  if (_cachedExtractAsr === null) {
+    const mod = await import('../../extract-asr.js');
+    _cachedExtractAsr = mod.extractASR;
+  }
+  return _cachedExtractAsr(doc);
+}
+
 export const DEFAULT_ASR_DEPS: AsrAdapterDeps = {
   extractRentRoll: extractRentRollFromDocument,
   extractPropertyMetadata: extractPropertyMetadata,
   /**
-   * Replace with extractASR(doc) when Ticket I (#6) lands. No other adapter
-   * changes required. The placeholder resolves to null without throwing, so
-   * the dead 'allSubExtractorsThrew' branch in runAsrAdapterOnDocument stays
-   * unreachable in v0.1.0.
+   * Wired in v0.2.0 (Ticket I #6). Loaded via lazyExtractAsr (see above)
+   * rather than a static import to dodge a pdf-parse/tsx interaction;
+   * semantics are identical to a direct `extractAsr: extractASR`.
    */
-  extractAsr: () => Promise.resolve(null),
+  extractAsr: lazyExtractAsr,
 };
 
 /**
@@ -120,8 +166,7 @@ export const DEFAULT_ASR_DEPS: AsrAdapterDeps = {
  *   [asr.adapter] sub-extractor rejected: <diagnosticTag>: <message> TODO(observability)
  *
  * TODO(observability): promote each call site to a typed log event when
- * observability infrastructure lands. The console.warn is a stopgap for
- * v0.1.0.
+ * observability infrastructure lands. The console.warn is a stopgap.
  *
  * Private to this file. If a second multi-extractor adapter materializes,
  * lift to extractor-outcome.ts then — not before.
@@ -209,9 +254,9 @@ export async function runAsrAdapterOnDocument(
   //   Index 1 — property metadata        → PropertyMetadata | null
   //               (deps.extractPropertyMetadata with source='asr_extraction')
   //   Index 2 — ASR extraction           → ASRExtraction | null
-  //               (deps.extractAsr; default in DEFAULT_ASR_DEPS is the v0.1.0
-  //                placeholder that resolves to null. Ticket I (issue #6)
-  //                swaps at DEFAULT_ASR_DEPS.extractAsr — not here.)
+  //               (deps.extractAsr; default in DEFAULT_ASR_DEPS is extractASR
+  //                as of v0.2.0 / Ticket I (#6). Tests inject mocks here to
+  //                avoid live AI calls.)
   const results = await Promise.allSettled<
     [Promise<RentRoll | null>, Promise<PropertyMetadata | null>, Promise<ASRExtraction | null>]
   >([
@@ -231,11 +276,10 @@ export async function runAsrAdapterOnDocument(
     ? null
     : projectToRentRollExtraction(rentRollLegacy);
 
-  // Dead-but-correct branch: 'failed' if all three sub-extractors rejected.
-  // UNREACHABLE in v0.1.0 because DEFAULT_ASR_DEPS.extractAsr always resolves
-  // (placeholder). Becomes reachable when Ticket I (issue #6) replaces the
-  // placeholder with extractASR(doc). Tests for this branch land with
-  // Ticket I's implementation, not now.
+  // 'failed' if all three sub-extractors rejected. Reachable as of v0.2.0
+  // (Ticket I #6): extractASR is now an AI call that can throw on
+  // network/API failure. Test-asr-adapter.ts case 8 exercises this branch
+  // (all three deps reject → status 'failed' / error 'allSubExtractorsThrew').
   const allRejected = results.every((r) => r.status === 'rejected');
   if (allRejected) {
     const causes = results.map((r) => {

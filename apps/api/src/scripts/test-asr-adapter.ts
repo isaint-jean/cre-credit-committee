@@ -313,23 +313,46 @@ function makeDeps(o: DepsOverrides = {}): AsrAdapterDeps {
     } finally { cap.restore(); }
   }
 
-  /* CASE 8 — dead-branch placeholder (no execution; spec-as-code).
+  /* CASE 8 — all three sub-extractors reject → 'failed' / 'allSubExtractorsThrew'.
    *
-   * TODO(Ticket I, issue #6): when extractASR(doc) replaces the placeholder in
-   * DEFAULT_ASR_DEPS.extractAsr and can throw, enable this test.
-   *
-   *   Setup:    all three deps reject
-   *   Expected:
-   *     - status === 'failed'
-   *     - error.name === 'allSubExtractorsThrew'
-   *     - error.message includes all three cause strings joined by ' | '
-   *     - sourceRefs.length === 0
-   *     - three console.warn calls captured
-   *
-   * This branch in runAsrAdapterOnDocument is dead-but-correct in v0.1.0
-   * because DEFAULT_ASR_DEPS.extractAsr always resolves to null (never
-   * rejects). The branch becomes reachable when Ticket I (issue #6) lands.
-   */
+   * Reachable as of v0.2.0 (Ticket I #6): DEFAULT_ASR_DEPS.extractAsr is now
+   * extractASR, an AI call that can throw on network/API failure. This case
+   * exercises the previously dead branch in runAsrAdapterOnDocument that
+   * collapses three concurrent throws into one 'failed' outcome. */
+  console.log('\n8. all three sub-extractors reject → failed / allSubExtractorsThrew');
+  {
+    const cap = captureWarns();
+    try {
+      const o = await runAsrAdapterOnDocument(makeDoc(), A_HASH, makeDeps({
+        rentRoll: 'throw',
+        propertyMetadata: 'throw',
+        asr: 'throw',
+      }));
+      assertEqual(o.status, 'failed', '8.1 status failed');
+      if (o.status === 'failed') {
+        assertEqual(o.error.name, 'allSubExtractorsThrew', '8.2 error.name = allSubExtractorsThrew');
+        assert(
+          o.error.message.includes('AI service unavailable'),
+          '8.3 error.message carries rentRoll cause',
+        );
+        assert(
+          o.error.message.includes('PM AI failed'),
+          '8.4 error.message carries propertyMetadata cause',
+        );
+        assert(
+          o.error.message.includes('ASR call failed'),
+          '8.5 error.message carries asr cause',
+        );
+        assert(
+          o.error.message.includes(' | '),
+          '8.6 error.message joins causes with " | "',
+        );
+        assertEqual(o.sourceRefs.length, 0, '8.7 sourceRefs empty on all-rejected');
+      }
+      assertEqual(cap.warns.length, 3, '8.8 three console.warn calls (one per throw)');
+      assertEqual(o.adapterVersion, ASR_ADAPTER_VERSION, '8.9 adapterVersion stamped on failed');
+    } finally { cap.restore(); }
+  }
 
   /* CASE 9 — rent-roll projection delegation */
   console.log('\n9. rent-roll projection delegates to projectToRentRollExtraction');
