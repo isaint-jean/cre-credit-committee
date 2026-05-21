@@ -420,7 +420,18 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
           rootId: {data.rootId} . renderVersion: {data.metadata.renderVersion}
         </div>
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-bold text-gray-900">Analysis</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Analysis</h1>
+            {/* 8.9 — revision-ordinal chip. Shown only when ordinal > 0; the root
+                revision (ordinal=0) is the unmodified initial state and warrants no
+                chip (chip's appearance itself signals "this has been revised").
+                "Revision N of M" is deferred to issue #21 (needs GET /:id/lineage). */}
+            {dataWithLineage.revisionOrdinal !== undefined && dataWithLineage.revisionOrdinal > 0 ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-300">
+                Revision {dataWithLineage.revisionOrdinal}
+              </span>
+            ) : null}
+          </div>
           {editAvailable ? (
             <div className="flex items-center gap-2">
               {editMode ? (
