@@ -1,4 +1,22 @@
-import pdfParse from 'pdf-parse';
+/**
+ * PDF text extraction + ASR section detection.
+ *
+ * Backed by `unpdf` (a thin wrapper over Mozilla pdf.js v5.x as a serverless
+ * build). Was `pdf-parse@1.1.x` through commit 48560a9 — see issue #9 for
+ * the migration rationale; in short, pdf-parse 1.1.x shipped a 2018-vintage
+ * webpack-bundled pdfjs (v1.10.100) with a heap-layout sensitivity that
+ * forced a lazy-import workaround in asr.adapter.ts. The unpdf migration
+ * (this commit) removes both that workaround and the brittle form-feed-based
+ * page-splitting heuristic — unpdf returns per-page text directly.
+ *
+ * Two responsibilities:
+ *   1. parsePdf: bytes → { rawText, sections, totalPages }. The text layer
+ *      is library-coupled (delegated to unpdf); the rest is pure.
+ *   2. detectSections / classifySectionType: regex-based ASR section
+ *      detection, library-agnostic. Untouched by the migration.
+ */
+
+import { extractText, getDocumentProxy } from 'unpdf';
 import { DocumentSection } from '@cre/shared';
 import { v4 as uuid } from 'uuid';
 
@@ -9,33 +27,11 @@ interface ParseResult {
 }
 
 export async function parsePdf(buffer: Buffer): Promise<ParseResult> {
-  const data = await pdfParse(buffer);
-  const totalPages = data.numpages;
-  const rawText = data.text;
-
-  // Split text by page (pdf-parse separates pages with form feeds or we estimate)
-  const pages = splitIntoPages(rawText, totalPages);
-
-  // Detect sections by looking for common ASR section headers
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const { totalPages, text: pages } = await extractText(pdf, { mergePages: false });
+  const rawText = pages.join('\n');
   const sections = detectSections(pages);
-
   return { rawText, sections, totalPages };
-}
-
-function splitIntoPages(text: string, totalPages: number): string[] {
-  // pdf-parse often uses form feed characters between pages
-  const ffSplit = text.split('\f');
-  if (ffSplit.length >= totalPages) {
-    return ffSplit.slice(0, totalPages);
-  }
-
-  // Fallback: split by approximate character count per page
-  const charsPerPage = Math.ceil(text.length / totalPages);
-  const pages: string[] = [];
-  for (let i = 0; i < totalPages; i++) {
-    pages.push(text.slice(i * charsPerPage, (i + 1) * charsPerPage));
-  }
-  return pages;
 }
 
 function detectSections(pages: string[]): DocumentSection[] {

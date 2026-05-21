@@ -56,6 +56,7 @@ import { computeBufferContentHash } from '../../../util/content-hash.js';
 import { parseDocument } from '../../document-parser.service.js';
 import { extractRentRollFromDocument } from '../../extract-rent-roll-from-document.js';
 import { extractPropertyMetadata } from '../../extract-property-metadata.js';
+import { extractASR } from '../../extract-asr.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 import { projectToRentRollExtraction } from './rent-roll.adapter.js';
 
@@ -104,56 +105,10 @@ export interface AsrAdapterDeps {
     (doc: ParsedDocument) => Promise<ASRExtraction | null>;
 }
 
-/**
- * Lazy loader for extract-asr.ts. Diagnostic context (verified empirically):
- *
- *   pdf-parse@1.1.x ships a 2018-vintage webpack-bundled pdfjs (v1.10.100).
- *   That bundle has a memory/heap-layout sensitivity: when ANY additional
- *   sibling module is statically imported into asr.adapter.ts with a
- *   referenced binding (which preserves the import past esbuild's
- *   dead-code-elimination), pdfjs's FIRST getDocument() call on the
- *   byte-pinned asr-minimal.pdf fixture non-deterministically throws
- *   FormatError variants ("bad XRef entry" / "Illegal character: 41" /
- *   "Command token too long: 128") even though the input bytes are
- *   byte-stable and identical to passing builds.
- *
- *   Reproduces with a 5-LOC zero-import stub for extract-asr.ts; trigger
- *   is content-independent. Reproduces with type-only imports (which are
- *   erased at runtime). Reproduces with or without ai-analysis value
- *   imports. Reordering the static import does not reliably fix it for
- *   non-trivial modules. The placeholder `() => Promise.resolve(null)`
- *   masked the bug because esbuild eliminated the unused named import,
- *   so extract-asr.ts never loaded.
- *
- *   By the time the FIRST ASR call resolves this dynamic import, the
- *   integration test's case 1 has already invoked parseDocument once, so
- *   pdfjs's bundle has been initialized for the process lifetime and is
- *   reused by subsequent calls without flake. In production, the slot's
- *   parseDocument runs at runAsrAdapter entry (line 173) before the inner
- *   function dispatches sub-extractors, so the same ordering holds.
- *
- *   TODO: track replacing pdf-parse (unmaintained since 2018). Once gone,
- *   this lazy seam collapses back to a static `import { extractASR }` and
- *   `extractAsr: extractASR`.
- */
-let _cachedExtractAsr: ((doc: ParsedDocument) => Promise<ASRExtraction | null>) | null = null;
-async function lazyExtractAsr(doc: ParsedDocument): Promise<ASRExtraction | null> {
-  if (_cachedExtractAsr === null) {
-    const mod = await import('../../extract-asr.js');
-    _cachedExtractAsr = mod.extractASR;
-  }
-  return _cachedExtractAsr(doc);
-}
-
 export const DEFAULT_ASR_DEPS: AsrAdapterDeps = {
   extractRentRoll: extractRentRollFromDocument,
   extractPropertyMetadata: extractPropertyMetadata,
-  /**
-   * Wired in v0.2.0 (Ticket I #6). Loaded via lazyExtractAsr (see above)
-   * rather than a static import to dodge a pdf-parse/tsx interaction;
-   * semantics are identical to a direct `extractAsr: extractASR`.
-   */
-  extractAsr: lazyExtractAsr,
+  extractAsr: extractASR,
 };
 
 /**
