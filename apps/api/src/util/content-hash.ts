@@ -29,6 +29,8 @@ import type {
   PropertyMetadataId,
   RenderedAnalysisId,
   RentRollId,
+  RevisionId,
+  RevisionIdHashInput,
   StressOutputsId,
   ValuationConclusionId,
 } from '@cre/contracts';
@@ -89,3 +91,16 @@ export const computeCommitteeActionId     = (content: unknown): CommitteeActionI
 export const computeRentRollId            = (content: unknown): RentRollId            => computeContentHash(content) as RentRollId;
 // Batch 1H - property-metadata extraction. Same scheme.
 export const computePropertyMetadataId    = (content: unknown): PropertyMetadataId    => computeContentHash(content) as PropertyMetadataId;
+
+/**
+ * Option C - new-spine revision lineage. RevisionId is SHA-256(JCS(RevisionIdHashInput));
+ * the hash boundary is locked in `revision-lineage-spec.md` §5 — exactly three fields:
+ * parentRevisionId, adjustedInputsId, doctrineVersion. Two independent implementations
+ * MUST produce byte-identical output for byte-identical input (§5 hard requirement).
+ *
+ * Pass the RevisionIdHashInput as-is — do NOT widen the field set, do NOT include
+ * provenance / timestamps / engine versions other than doctrine. Adding a field here
+ * without a hash-rotation plan violates CI policy 2 of the lineage spec.
+ */
+export const computeRevisionId = (input: RevisionIdHashInput): RevisionId =>
+  computeContentHash(input) as RevisionId;

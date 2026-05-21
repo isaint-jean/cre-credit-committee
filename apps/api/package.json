@@ -29,6 +29,8 @@
     "test:doctrine-evaluation": "tsx src/scripts/test-doctrine-evaluation.ts",
     "seed:approved-deals": "tsx src/scripts/seed-approved-deals.ts",
     "test:content-hash": "tsx src/scripts/test-content-hash.ts",
+    "test:revision-id": "tsx src/scripts/test-revision-id.ts",
+    "test:revision-storage": "tsx src/scripts/test-revision-storage.ts",
     "test:record-graph": "tsx src/scripts/test-record-graph-store.ts",
     "test:cross-check-contracts": "tsx src/scripts/test-cross-check-contracts.ts",
     "test:stress-contracts": "tsx src/scripts/test-stress-contracts.ts",

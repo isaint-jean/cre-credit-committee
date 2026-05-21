@@ -51,12 +51,15 @@ import type {
   RenderedAnalysis,
   RenderedAnalysisId,
   RenderVersion,
+  RevisionId,
+  RevisionLineageEnvelope,
+  RevisionProvenance,
   StressOutputs,
   StressOutputsId,
   ValuationConclusion,
   ValuationConclusionId,
 } from '@cre/contracts';
-import { serializeRecordBody } from '../util/content-hash.js';
+import { computeRevisionId, serializeRecordBody } from '../util/content-hash.js';
 
 const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'cre.db');
 
@@ -287,6 +290,46 @@ export class RecordGraphStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_extraction_input_cache_result ON extraction_input_cache(extraction_result_id);
+
+      -- Option C / spec §4 — revision lineage. Two sibling tables:
+      --   - envelopes: content-addressed (id = SHA-256 of RevisionIdHashInput,
+      --     i.e. {parentRevisionId, adjustedInputsId, doctrineVersion}).
+      --     Append-only (L1). parent_revision_id NULL only for the root (L1 + §6).
+      --     Engine versions stamped for replay completeness but NOT in hash (§5).
+      --   - provenance: keyed by revision_id (FK), observability-only. NEVER
+      --     participates in identity hash (§4 hard rule).
+      CREATE TABLE IF NOT EXISTS revision_lineage_envelopes (
+        revision_id              TEXT PRIMARY KEY,
+        lineage_root_id          TEXT NOT NULL,
+        parent_revision_id       TEXT,
+        revision_ordinal         INTEGER NOT NULL,
+        doctrine_evaluation_id   TEXT NOT NULL,
+        adjusted_inputs_id       TEXT NOT NULL,
+        doctrine_version         TEXT NOT NULL,
+        judgment_engine_version  TEXT NOT NULL,
+        stress_engine_version    TEXT NOT NULL,
+        valuation_engine_version TEXT NOT NULL,
+        created_at               TEXT NOT NULL,
+        FOREIGN KEY (parent_revision_id)     REFERENCES revision_lineage_envelopes(revision_id),
+        FOREIGN KEY (doctrine_evaluation_id) REFERENCES doctrine_evaluations(id),
+        FOREIGN KEY (adjusted_inputs_id)     REFERENCES adjusted_inputs(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_envelope_lineage_ordinal
+        ON revision_lineage_envelopes(lineage_root_id, revision_ordinal DESC);
+      CREATE INDEX IF NOT EXISTS idx_envelope_parent
+        ON revision_lineage_envelopes(parent_revision_id);
+
+      CREATE TABLE IF NOT EXISTS revision_provenance (
+        revision_id        TEXT PRIMARY KEY,
+        input_diff         TEXT NOT NULL,
+        trigger_source     TEXT NOT NULL,
+        applied_rule_ids   TEXT NOT NULL,
+        adjustment_origin  TEXT NOT NULL,
+        before_hash        TEXT NOT NULL,
+        after_hash         TEXT NOT NULL,
+        created_at         TEXT NOT NULL,
+        FOREIGN KEY (revision_id) REFERENCES revision_lineage_envelopes(revision_id)
+      );
 
       CREATE INDEX IF NOT EXISTS idx_adjusted_inputs_lib       ON adjusted_inputs(library_snapshot_id);
       CREATE INDEX IF NOT EXISTS idx_cross_check_ai            ON cross_check_results(adjusted_inputs_id);
@@ -773,11 +816,193 @@ export class RecordGraphStore {
     };
   }
 
+  /* ------------------------- revision_lineage_envelopes ------------------------ */
+
+  /**
+   * Insert a revision envelope. Verifies envelope.revisionId === computeRevisionId of the
+   * §5 hash-input subset (parentRevisionId, adjustedInputsId, doctrineVersion). Other
+   * envelope fields (lineageRootId, ordinal, engine versions, FK ids) are stamped, not hashed.
+   * Append-only (L1) — ON CONFLICT(revision_id) DO NOTHING gives idempotent re-insert.
+   */
+  insertRevisionLineageEnvelope(envelope: RevisionLineageEnvelope): { inserted: boolean } {
+    const computedId = computeRevisionId({
+      parentRevisionId: envelope.parentRevisionId,
+      adjustedInputsId: envelope.adjustedInputsId,
+      doctrineVersion: envelope.doctrineVersion,
+    });
+    if (envelope.revisionId !== computedId) {
+      throw new RecordIdMismatchError(
+        'RevisionLineageEnvelope',
+        envelope.revisionId,
+        computedId,
+      );
+    }
+    const result = this.db
+      .prepare(
+        `INSERT INTO revision_lineage_envelopes
+         (revision_id, lineage_root_id, parent_revision_id, revision_ordinal,
+          doctrine_evaluation_id, adjusted_inputs_id,
+          doctrine_version, judgment_engine_version, stress_engine_version, valuation_engine_version,
+          created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(revision_id) DO NOTHING`,
+      )
+      .run(
+        envelope.revisionId,
+        envelope.lineageRootId,
+        envelope.parentRevisionId,
+        envelope.revisionOrdinal,
+        envelope.doctrineEvaluationId,
+        envelope.adjustedInputsId,
+        envelope.doctrineVersion,
+        envelope.judgmentEngineVersion,
+        envelope.stressEngineVersion,
+        envelope.valuationEngineVersion,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  getRevisionEnvelope(revisionId: RevisionId): RevisionLineageEnvelope | null {
+    const row = this.db
+      .prepare(
+        `SELECT revision_id, lineage_root_id, parent_revision_id, revision_ordinal,
+                doctrine_evaluation_id, adjusted_inputs_id,
+                doctrine_version, judgment_engine_version, stress_engine_version, valuation_engine_version
+         FROM revision_lineage_envelopes WHERE revision_id = ?`,
+      )
+      .get(revisionId) as RevisionEnvelopeRow | undefined;
+    return row ? parseEnvelopeRow(row) : null;
+  }
+
+  /** Highest-ordinal envelope in the given lineage (latest revision). NULL if no envelopes. */
+  getLatestRevisionByLineageRoot(lineageRootId: RevisionId): RevisionLineageEnvelope | null {
+    const row = this.db
+      .prepare(
+        `SELECT revision_id, lineage_root_id, parent_revision_id, revision_ordinal,
+                doctrine_evaluation_id, adjusted_inputs_id,
+                doctrine_version, judgment_engine_version, stress_engine_version, valuation_engine_version
+         FROM revision_lineage_envelopes
+         WHERE lineage_root_id = ?
+         ORDER BY revision_ordinal DESC
+         LIMIT 1`,
+      )
+      .get(lineageRootId) as RevisionEnvelopeRow | undefined;
+    return row ? parseEnvelopeRow(row) : null;
+  }
+
+  /** Full chain for a lineage, ordered by ordinal ASC (root → leaf). */
+  walkLineageChain(lineageRootId: RevisionId): RevisionLineageEnvelope[] {
+    const rows = this.db
+      .prepare(
+        `SELECT revision_id, lineage_root_id, parent_revision_id, revision_ordinal,
+                doctrine_evaluation_id, adjusted_inputs_id,
+                doctrine_version, judgment_engine_version, stress_engine_version, valuation_engine_version
+         FROM revision_lineage_envelopes
+         WHERE lineage_root_id = ?
+         ORDER BY revision_ordinal ASC`,
+      )
+      .all(lineageRootId) as RevisionEnvelopeRow[];
+    return rows.map(parseEnvelopeRow);
+  }
+
+  /* ------------------------------ revision_provenance --------------------------- */
+
+  /**
+   * Insert provenance. FK to revision_lineage_envelopes is enforced by sqlite; insert
+   * fails if the envelope is missing. NOT content-hashed — provenance is observable
+   * only (§4) and keyed by revision_id alone.
+   */
+  insertRevisionProvenance(provenance: RevisionProvenance): { inserted: boolean } {
+    const result = this.db
+      .prepare(
+        `INSERT INTO revision_provenance
+         (revision_id, input_diff, trigger_source, applied_rule_ids, adjustment_origin,
+          before_hash, after_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(revision_id) DO NOTHING`,
+      )
+      .run(
+        provenance.revisionId,
+        JSON.stringify(provenance.inputDiff),
+        provenance.triggerSource,
+        JSON.stringify(provenance.appliedRuleIds),
+        JSON.stringify(provenance.adjustmentOrigin),
+        provenance.beforeHash,
+        provenance.afterHash,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  getRevisionProvenance(revisionId: RevisionId): RevisionProvenance | null {
+    const row = this.db
+      .prepare(
+        `SELECT revision_id, input_diff, trigger_source, applied_rule_ids, adjustment_origin,
+                before_hash, after_hash
+         FROM revision_provenance WHERE revision_id = ?`,
+      )
+      .get(revisionId) as RevisionProvenanceRow | undefined;
+    return row ? parseProvenanceRow(row) : null;
+  }
+
   /* --------------------------------- shutdown --------------------------------- */
 
   close(): void {
     this.db.close();
   }
+}
+
+/* ----------------- revision lineage row → record helpers ---------------------- */
+
+interface RevisionEnvelopeRow {
+  readonly revision_id: string;
+  readonly lineage_root_id: string;
+  readonly parent_revision_id: string | null;
+  readonly revision_ordinal: number;
+  readonly doctrine_evaluation_id: string;
+  readonly adjusted_inputs_id: string;
+  readonly doctrine_version: string;
+  readonly judgment_engine_version: string;
+  readonly stress_engine_version: string;
+  readonly valuation_engine_version: string;
+}
+
+function parseEnvelopeRow(row: RevisionEnvelopeRow): RevisionLineageEnvelope {
+  return {
+    revisionId: row.revision_id as RevisionLineageEnvelope['revisionId'],
+    lineageRootId: row.lineage_root_id as RevisionLineageEnvelope['lineageRootId'],
+    parentRevisionId: row.parent_revision_id as RevisionLineageEnvelope['parentRevisionId'],
+    revisionOrdinal: row.revision_ordinal,
+    doctrineEvaluationId: row.doctrine_evaluation_id as RevisionLineageEnvelope['doctrineEvaluationId'],
+    adjustedInputsId: row.adjusted_inputs_id as RevisionLineageEnvelope['adjustedInputsId'],
+    doctrineVersion: row.doctrine_version as RevisionLineageEnvelope['doctrineVersion'],
+    judgmentEngineVersion: row.judgment_engine_version as RevisionLineageEnvelope['judgmentEngineVersion'],
+    stressEngineVersion: row.stress_engine_version as RevisionLineageEnvelope['stressEngineVersion'],
+    valuationEngineVersion: row.valuation_engine_version as RevisionLineageEnvelope['valuationEngineVersion'],
+  };
+}
+
+interface RevisionProvenanceRow {
+  readonly revision_id: string;
+  readonly input_diff: string;
+  readonly trigger_source: string;
+  readonly applied_rule_ids: string;
+  readonly adjustment_origin: string;
+  readonly before_hash: string;
+  readonly after_hash: string;
+}
+
+function parseProvenanceRow(row: RevisionProvenanceRow): RevisionProvenance {
+  return {
+    revisionId: row.revision_id as RevisionProvenance['revisionId'],
+    inputDiff: JSON.parse(row.input_diff) as RevisionProvenance['inputDiff'],
+    triggerSource: row.trigger_source as RevisionProvenance['triggerSource'],
+    appliedRuleIds: JSON.parse(row.applied_rule_ids) as RevisionProvenance['appliedRuleIds'],
+    adjustmentOrigin: JSON.parse(row.adjustment_origin) as RevisionProvenance['adjustmentOrigin'],
+    beforeHash: row.before_hash as RevisionProvenance['beforeHash'],
+    afterHash: row.after_hash as RevisionProvenance['afterHash'],
+  };
 }
 
 export const recordGraphStore = new RecordGraphStore();
