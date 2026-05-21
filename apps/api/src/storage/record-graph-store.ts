@@ -96,6 +96,7 @@ export class RecordGraphStore {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
+    this.migrateAddColumns();
   }
 
   private migrate(): void {
@@ -343,6 +344,17 @@ export class RecordGraphStore {
       CREATE INDEX IF NOT EXISTS idx_doctrine_extraction       ON doctrine_evaluations(extraction_result_id);
       CREATE INDEX IF NOT EXISTS idx_rendered_root_version     ON rendered_analyses(root_id, render_version);
     `);
+  }
+
+  /** ALTER TABLE migrations for columns added after a table was first created.
+   *  Idempotent — checks PRAGMA table_info and only ALTERs if missing. */
+  private migrateAddColumns(): void {
+    try {
+      const cols = this.db.prepare("PRAGMA table_info('extraction_input_cache')").all() as Array<{ name: string }>;
+      if (cols.length > 0 && !cols.find((c) => c.name === 'property_metadata_id')) {
+        this.db.exec('ALTER TABLE extraction_input_cache ADD COLUMN property_metadata_id TEXT');
+      }
+    } catch { /* table might not exist yet — that's OK, migrate() just created it */ }
   }
 
   /* ---------------------------------- helpers ---------------------------------- */
