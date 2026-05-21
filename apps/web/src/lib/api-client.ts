@@ -1,4 +1,5 @@
 import type {
+  AdjustedInputsDiff,
   CommitteeActionEvent,
   CommitteeActionPayload,
   CommitteeSnapshotId,
@@ -170,6 +171,53 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ type: 'uw-model-cells', updates }),
     }),
+
+  // Option C / issue #20 step 8.6 — graph-backed revision via the new spine.
+  // `lineageRootId` is the AnalysisId (= rootId from the GET response); the server
+  // resolves the current latest revision internally and creates a child.
+  // `overrides[].value` is in BACKEND units (caller converts via uw-edit-utils).
+  // Response includes the structured inputDiff so the UI can render "what changed"
+  // immediately without a follow-up lookup.
+  //
+  // Custom error flow (not the generic `request()`): server returns 400 INVALID_DELTA
+  // with structured `code` + `path` fields the UI needs for analyst-readable messages.
+  // The generic helper would collapse those into a plain Error.message. This thin
+  // wrapper preserves them by parsing the error JSON and attaching the fields to the
+  // thrown Error as own properties (`err.code`, `err.path`).
+  createGraphRevision: async (
+    lineageRootId: string,
+    overrides: ReadonlyArray<{ path: string; value: number }>,
+  ): Promise<{
+    rootId: string;
+    revisionId: string;
+    evaluationId: string;
+    revisionOrdinal: number;
+    inputDiff: AdjustedInputsDiff;
+  }> => {
+    const res = await fetch(`${API_BASE}/analyses/${lineageRootId}/revisions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({
+        delta: { kind: 'adjusted-input-overrides', overrides },
+        triggerSource: 'USER_EDIT',
+      }),
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText, message: res.statusText }));
+      const err = new Error(body.message ?? body.error ?? `Request failed: ${res.status}`) as
+        Error & { code?: string; path?: string; status?: number };
+      if (typeof body.code === 'string') err.code = body.code;
+      if (typeof body.path === 'string') err.path = body.path;
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  },
 
   // Batch 6.3 — Loan-terms edits also create a new revision.
   createLoanTermsRevision: (id: string, updates: {

@@ -154,6 +154,21 @@ export default function AnalysisDashboard() {
         workflow={workflow ?? undefined}
         timeline={timeline ?? undefined}
         onWorkflowChanged={() => { void refetchWorkflow(); }}
+        onRevisionSaved={async () => {
+          // 8.8 — after a successful revision write, the latest in the lineage moved.
+          // Re-run getAnalysis to fetch the new RenderedAnalysis (the server resolves
+          // latest-by-lineage internally) and re-render. Workflow projections are
+          // refreshed alongside because they may shift as part of the same edit.
+          try {
+            const response = await api.getAnalysis(id);
+            if (response.kind === 'rendered') {
+              setRendered(response.body);
+              const rootId = response.body.rootId;
+              try { setWorkflow(await api.getWorkflowState(rootId)); } catch {}
+              try { setTimeline(await api.getCommitteeTimeline(rootId)); } catch {}
+            }
+          } catch {}
+        }}
       />
     );
   }
