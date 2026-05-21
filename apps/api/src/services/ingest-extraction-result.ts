@@ -44,7 +44,6 @@ import type {
   AssetType,
   CreditManifesto,
   CreditManifestoId,
-  CrossCheckResult,
   DoctrineEvaluation,
   DoctrineEvaluationId,
   ExtractionResult,
@@ -60,10 +59,8 @@ import type {
 import { applyJudgmentAdjustments } from './judgment/apply-judgment-adjustments.js';
 import { buildNarrativeFacts } from './narrative-facts.service.js';
 import { classifyAssetProfile } from './asset-profiler.service.js';
-import { buildStressOutputs } from './stress-test-contracts.service.js';
-import { buildValuationConclusion } from './valuation.service.js';
-import { buildDoctrineEvaluation } from './doctrine/build-doctrine-evaluation.js';
-import { computeCrossCheckResultId, computeRevisionId } from '../util/content-hash.js';
+import { evaluateFromAdjustedInputs } from './evaluate-from-adjusted-inputs.js';
+import { computeRevisionId } from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 /* ------------------------------- error type -------------------------------- */
@@ -222,49 +219,21 @@ export function ingestExtractionResult(
     marketBenchmarks,
     analysisAsOfDate,
   });
-  store.insertAdjustedInputs(adjustedInputs);
 
-  /* Stage 5 — CrossCheckResult (v1: empty; producer refactor deferred — see header). */
-  const crossCheckResult: CrossCheckResult = (() => {
-    const body = {
+  /* Stages 4-8 (AI insert through DoctrineEvaluation insert) delegated to the
+     shared pipeline tail. The same tail is used by applyRevisionDelta (issue #20,
+     step 8.5) so root and non-root paths share one evaluation flow. */
+  const { evaluation } = evaluateFromAdjustedInputs(
+    {
+      adjustedInputs,
+      assetProfile,
+      librarySnapshot,
+      narrativeFacts,
+      extractionResultId: extractionResult.id,
       analysisAsOfDate,
-      adjustedInputsId: adjustedInputs.id,
-      findings: [],
-      overallAdjustmentBias: 'neutral' as const,
-    };
-    return { id: computeCrossCheckResultId(body), ...body } as CrossCheckResult;
-  })();
-  store.insertCrossCheckResult(crossCheckResult);
-
-  /* Stage 6 — StressOutputs. */
-  const stressOutputs = buildStressOutputs({
-    adjustedInputs,
-    assetProfile,
-    analysisAsOfDate,
-  });
-  store.insertStressOutputs(stressOutputs);
-
-  /* Stage 7 — ValuationConclusion. */
-  const valuationConclusion = buildValuationConclusion({
-    adjustedInputs,
-    stressOutputs,
-    narrativeFacts,
-  });
-  store.insertValuationConclusion(valuationConclusion);
-
-  /* Stage 8 — DoctrineEvaluation. Also stamps extractionResultId so the bundle is
-     reachable from the root in single-hop FK lookups (Batch 6.5 hydration invariant HY1). */
-  const evaluation = buildDoctrineEvaluation({
-    adjustedInputs,
-    assetProfile,
-    librarySnapshot,
-    narrativeFacts,
-    crossCheckResult,
-    stressOutputs,
-    valuationConclusion,
-    extractionResultId: extractionResult.id,
-  });
-  store.insertDoctrineEvaluation(evaluation);
+    },
+    store,
+  );
 
   /* Stage 9 — Root revision envelope + provenance (Option C / issue #20).
      Every graph-backed analysis gets a lineage root envelope at ingest. Identity
