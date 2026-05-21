@@ -26,6 +26,17 @@ import {
   applyBandsToStressScenarios,
 } from '../services/doctrine/apply-credit-policy-bands.js';
 import { createRevision, type RevisionDelta } from '../services/revision-creator.service.js';
+import {
+  applyRevisionDelta,
+  InvalidDeltaError,
+  LineageCorruptionError,
+  NotLatestRevisionError,
+  ParentRevisionNotFoundError,
+  type RevisionDelta as GraphRevisionDelta,
+} from '../services/apply-revision-delta.js';
+import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger } from '@cre/contracts';
+import { requirePermission } from '../middleware/require-permission.js';
+import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { v4 as uuid } from 'uuid';
 import {
   dispatchByIdFormat,
@@ -33,7 +44,7 @@ import {
 } from '../util/dispatch-by-id-format.js';
 import { HydrationError } from '../services/hydrate-record-graph.js';
 import { materializeRenderedAnalysisWithMeta } from '../services/materialize-rendered-analysis.js';
-import { recordGraphStore } from '../storage/record-graph-store.js';
+import { recordGraphStore, RecordGraphStore } from '../storage/record-graph-store.js';
 // Batch 1B — rent-roll resolver imports
 import { parseRentRollXlsx } from '../services/parse-rent-roll-xlsx.js';
 import { extractRentRollFromDocument } from '../services/extract-rent-roll-from-document.js';
@@ -345,16 +356,52 @@ analysisRoutes.delete('/:id', (req: Request, res: Response) => {
 
 // POST /api/analyses/:id/revisions — Create a new revision of an analysis.
 //
-// Body: a tagged delta. Two shapes are accepted:
-//   { type: 'uw-model-cells', updates: [{ path, value }] }
-//   { type: 'loan-terms',     updates: { interestRate?, termMonths?, ... } }
+// Strict-dispatch entry per option C / issue #20 (step 8.6). Classifies the `:id` format and
+// routes to the appropriate spine:
+//   - UUID v4    → legacy branch (createRevision on legacy Analysis row, sqlite-store).
+//   - 64-hex     → graph branch (applyRevisionDelta on new-spine lineage).
 //
-// The route handler is a dumb constructor of lineage events. It loads the parent, hands
-// the delta to `createRevision`, persists the returned row, decorates with credit-policy
-// bands, and returns. It does NOT interpret the delta beyond dispatching by `type` — the
-// underwriting recalculation is owned by `recalculateFullModel`, doctrine bands by the
-// 6.1 decorator, and lineage stamping by `createRevision`.
-analysisRoutes.post('/:id/revisions', (req: Request, res: Response) => {
+// `requirePermission('analysis:revise')` gates BOTH branches. Held by ANALYST, CREDIT_OFFICER,
+// ADMIN — not COMMITTEE_MEMBER (separation of duties). VIEWER and unauthenticated callers
+// are rejected by the middleware (403 / 401).
+//
+// Body shape depends on the branch:
+//   - Legacy: { type: 'uw-model-cells', updates: [{ path, value }] }
+//             { type: 'loan-terms',     updates: { ... } }
+//   - Graph:  { delta: { kind: 'adjusted-input-overrides', overrides: [{ path, value }] },
+//               triggerSource?: RevisionTrigger,
+//               adjustmentOrigin?: string[] }
+//
+// Response shape on 201 (graph branch):
+//   { rootId: RevisionId,           // lineageRootId — echoes URL :id
+//     revisionId: RevisionId,       // the new child revisionId
+//     evaluationId: DoctrineEvaluationId,
+//     revisionOrdinal: number,      // for "Revision N of M" UI
+//     inputDiff: AdjustedInputsDiff // already computed by the service; surfaced for the UI
+//   }
+analysisRoutes.post(
+  '/:id/revisions',
+  requirePermission('analysis:revise'),
+  (req: Request, res: Response) => {
+    let format: 'legacy' | 'graph';
+    try {
+      format = dispatchByIdFormat(req.params.id);
+    } catch (e) {
+      if (e instanceof MalformedAnalysisIdError) {
+        res.status(400).json({ error: 'MALFORMED_ANALYSIS_ID', message: e.message });
+        return;
+      }
+      throw e;
+    }
+    if (format === 'graph') {
+      handleGraphRevision(req, res, recordGraphStore);
+      return;
+    }
+    handleLegacyRevision(req, res);
+  },
+);
+
+function handleLegacyRevision(req: Request, res: Response): void {
   const parent = store.getAnalysis(req.params.id);
   if (!parent || !parent.uwModel) {
     res.status(404).json({ error: 'Parent analysis or UW model not found' });
@@ -382,7 +429,123 @@ analysisRoutes.post('/:id/revisions', (req: Request, res: Response) => {
   store.createAnalysis(revision);
   const decorated = applyCreditPolicyBandsToAnalysis(revision);
   res.status(201).json({ analysis: decorated });
-});
+}
+
+/** Exported for direct invocation by route tests with an in-memory store. The production
+ *  route closure passes the `recordGraphStore` singleton. */
+export function handleGraphRevision(
+  req: Request,
+  res: Response,
+  graphStore: RecordGraphStore,
+): void {
+  // Thin top-level body shape validation. Per-override validation (path whitelist, value type,
+  // engine-mirrored vacancy+concessions) is the service's job; surfaces as InvalidDeltaError.
+  const body = req.body as
+    | {
+        delta?: { kind?: string; overrides?: unknown };
+        triggerSource?: string;
+        adjustmentOrigin?: unknown;
+      }
+    | undefined;
+  if (!body || typeof body !== 'object') {
+    res.status(400).json({ error: 'INVALID_BODY', message: 'request body must be a JSON object' });
+    return;
+  }
+  if (!body.delta || typeof body.delta !== 'object') {
+    res.status(400).json({ error: 'INVALID_BODY', message: 'body.delta is required' });
+    return;
+  }
+  if (body.delta.kind !== 'adjusted-input-overrides' || !Array.isArray(body.delta.overrides)) {
+    res.status(400).json({
+      error: 'INVALID_BODY',
+      message: "body.delta must be { kind: 'adjusted-input-overrides', overrides: [...] }",
+    });
+    return;
+  }
+  const triggerSource: RevisionTrigger =
+    body.triggerSource !== undefined && (REVISION_TRIGGERS as readonly string[]).indexOf(body.triggerSource) >= 0
+      ? (body.triggerSource as RevisionTrigger)
+      : 'USER_EDIT';
+  const adjustmentOrigin: readonly string[] = Array.isArray(body.adjustmentOrigin)
+    ? (body.adjustmentOrigin.filter((s) => typeof s === 'string') as string[])
+    : [];
+
+  // URL :id is the lineageRootId (AnalysisId per spec §1 + 8.3 contract migration).
+  // Resolve the current latest revision in this lineage and pass it as parentRevisionId.
+  // Linear-chain v1 rule means this is the only valid parent; the client never specifies
+  // it explicitly (and the service's linear-chain guard cannot fire from this entry point
+  // since we always pass the latest).
+  const rootId = req.params.id as RevisionId;
+  const latest = graphStore.getLatestRevisionByLineageRoot(rootId);
+  if (latest === null) {
+    res.status(404).json({
+      error: 'PARENT_REVISION_NOT_FOUND',
+      message: `No revision lineage found with root ${req.params.id}`,
+      parentRevisionId: req.params.id,
+    });
+    return;
+  }
+
+  const delta: GraphRevisionDelta = {
+    kind: 'adjusted-input-overrides',
+    overrides: body.delta.overrides as ReadonlyArray<{ path: string; value: number }>,
+  };
+
+  try {
+    const result = applyRevisionDelta(
+      {
+        parentRevisionId: latest.revisionId,
+        delta,
+        triggerSource,
+        adjustmentOrigin,
+      },
+      graphStore,
+    );
+    res.status(201).json({
+      rootId,
+      revisionId: result.envelope.revisionId,
+      evaluationId: result.evaluation.id,
+      revisionOrdinal: result.envelope.revisionOrdinal,
+      inputDiff: result.provenance.inputDiff,
+    });
+  } catch (e) {
+    if (e instanceof ParentRevisionNotFoundError) {
+      res.status(404).json({
+        error: 'PARENT_REVISION_NOT_FOUND',
+        message: e.message,
+        parentRevisionId: e.parentRevisionId,
+      });
+      return;
+    }
+    if (e instanceof NotLatestRevisionError) {
+      res.status(409).json({
+        error: 'NOT_LATEST_REVISION',
+        message: e.message,
+        currentLatestRevisionId: e.currentLatestRevisionId,
+      });
+      return;
+    }
+    if (e instanceof InvalidDeltaError) {
+      res.status(400).json({
+        error: 'INVALID_DELTA',
+        code: e.code,
+        path: e.path,
+        message: e.message,
+        ...(e.detail ? { detail: e.detail } : {}),
+      });
+      return;
+    }
+    if (e instanceof LineageCorruptionError) {
+      res.status(500).json({ error: 'LINEAGE_CORRUPTION', message: e.message });
+      return;
+    }
+    if (e instanceof RecordIdMismatchError) {
+      res.status(500).json({ error: 'RECORD_ID_MISMATCH', message: e.message });
+      return;
+    }
+    throw e;
+  }
+}
 
 // GET /api/analyses/:id/lineage — Return the full lineage chain for this analysis.
 //

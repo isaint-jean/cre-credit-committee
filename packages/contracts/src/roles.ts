@@ -36,6 +36,11 @@ export const PERMISSIONS = [
   // Registry (LibrarySnapshot / MarketBenchmarks / CreditManifesto admin write).
   // Read-side is just authenticated; only POST goes through this permission.
   'registry:write',
+  // Revision creation on an analysis lineage (POST /api/analyses/:id/revisions).
+  // Gates both the legacy and the new-spine branches (option C / issue #20, step 8.6).
+  // Held by ANALYST / CREDIT_OFFICER / ADMIN — not COMMITTEE_MEMBER (separation of
+  // duties: committee reviews and approves/rejects; editing assumptions is upstream).
+  'analysis:revise',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -55,6 +60,7 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'audit:read',
     'snapshot:read',
     'snapshot:create',
+    'analysis:revise',
   ],
   CREDIT_OFFICER: [
     'workflow:read',
@@ -64,6 +70,7 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'audit:read',
     'snapshot:read',
     'snapshot:create',
+    'analysis:revise',
   ],
   COMMITTEE_MEMBER: [
     'workflow:read',
@@ -86,6 +93,7 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'snapshot:read',
     'snapshot:create',
     'registry:write',
+    'analysis:revise',
   ],
 } as const;
 

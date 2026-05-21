@@ -385,6 +385,23 @@ export function applyRevisionDelta(
   //    to using the evaluation's stamped version. This lets us check for an existing identical
   //    revision BEFORE running the heavy pipeline tail.
   const childAdjustedInputsId = computeAdjustedInputsId(childBody) as AdjustedInputsId;
+
+  // e.1 No-semantic-change short-circuit. If the post-override+recompute body is byte-identical
+  //     to parent's body (childAdjustedInputsId === parent's AdjustedInputsId), the delta was a
+  //     no-op — every override value equaled the parent's current value, and rollup recompute
+  //     produced the same numbers. Returning the parent revision avoids creating phantom
+  //     "tombstone" revisions when an analyst hits Save without actually changing anything.
+  //     This is the route-level idempotency case: same body POSTed twice resolves latest=child1
+  //     on the second call, applies override values that already match child1, and short-circuits
+  //     here. Cf. test-revision-route.ts idempotency block.
+  if (childAdjustedInputsId === parentEnvelope.adjustedInputsId) {
+    const parentProvenance = store.getRevisionProvenance(args.parentRevisionId);
+    if (parentProvenance === null) {
+      throw new LineageCorruptionError(args.parentRevisionId, 'provenance');
+    }
+    return { envelope: parentEnvelope, provenance: parentProvenance, evaluation: parentDoctrine };
+  }
+
   const childRevisionId = computeRevisionId({
     parentRevisionId: args.parentRevisionId,
     adjustedInputsId: childAdjustedInputsId,
