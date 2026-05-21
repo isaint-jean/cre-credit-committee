@@ -194,7 +194,7 @@ console.log('ExtractionResult — full fixture:');
   assertEqual(record.t12?.noi ?? null, 982_000, 't12 NOI preserved');
   assertEqual(record.rentRoll?.units.length ?? 0, 3, 'rent roll has 3 units');
   assertEqual(record.sourceDocuments.length, 7, 'all 7 source documents listed');
-  assertEqual(record.extractionEngineVersion, '1.0', 'engine version stamped');
+  assertEqual(record.extractionEngineVersion, EXTRACTION_ENGINE_VERSION, 'engine version stamped');
 }
 
 console.log('\nExtractionResult — sparse fixture (everything null):');
@@ -346,14 +346,15 @@ console.log('\nBranded id types are distinct:');
 
 console.log('\nSourceDocumentKind enumeration:');
 {
-  assertEqual(SOURCE_DOCUMENT_KINDS.length, 7, '7 source-document kinds');
-  assert(SOURCE_DOCUMENT_KINDS.includes('rent_roll'), 'rent_roll listed');
-  assert(SOURCE_DOCUMENT_KINDS.includes('t12'),       't12 listed');
-  assert(SOURCE_DOCUMENT_KINDS.includes('pca'),       'pca listed');
-  assert(SOURCE_DOCUMENT_KINDS.includes('appraisal'), 'appraisal listed');
-  assert(SOURCE_DOCUMENT_KINDS.includes('asr'),       'asr listed');
-  assert(SOURCE_DOCUMENT_KINDS.includes('seller_uw'), 'seller_uw listed');
-  assert(SOURCE_DOCUMENT_KINDS.includes('loan_terms'),'loan_terms listed');
+  assertEqual(SOURCE_DOCUMENT_KINDS.length, 8, '8 source-document kinds');
+  assert(SOURCE_DOCUMENT_KINDS.includes('rent_roll'),         'rent_roll listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('t12'),               't12 listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('pca'),               'pca listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('appraisal'),         'appraisal listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('asr'),               'asr listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('seller_uw'),         'seller_uw listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('loan_terms'),        'loan_terms listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('property_metadata'), 'property_metadata listed');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
