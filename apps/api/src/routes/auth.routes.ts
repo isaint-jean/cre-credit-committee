@@ -34,7 +34,7 @@ authRoutes.post('/login', (req: Request, res: Response) => {
 
   res.json({
     token,
-    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    user: { id: user.id, email: user.email, name: user.name, role: normalizedRole },
   });
 });
 
@@ -71,6 +71,11 @@ authRoutes.get('/me', requireAuth, (req: Request, res: Response) => {
     return res.status(404).json({ error: 'User not found' });
   }
   res.json({
-    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: normalizeRoleAtBoundary(user.role),
+    },
   });
 });
