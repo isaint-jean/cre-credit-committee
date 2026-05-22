@@ -1,0 +1,20 @@
+{
+  "name": "@cre/handbook-engine",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "test": "tsx tests/end-to-end.ts"
+  },
+  "dependencies": {
+    "@cre/contracts": "*",
+    "@cre/handbook-data": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
