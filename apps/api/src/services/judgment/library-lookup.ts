@@ -42,20 +42,25 @@ export function getLibraryMedian(
   metric: LibraryMetric,
 ): number | null {
   const dist = getLibraryDistribution(snapshot, assetType);
-  if (dist === null) return null;
+  // Defense-in-depth: the TS signature claims null on missing keys, but runtime
+  // JS returns undefined when a key isn't present on the byAssetType record. A
+  // caller passing an AssetType-violating string (e.g., the form sent lowercase
+  // 'office' instead of canonical 'Office' before issue #28) would crash here
+  // without the undefined check. Guard both null and undefined.
+  if (dist === null || dist === undefined) return null;
   const stat = dist[metric];
   if (stat === null) return null;
   return stat.median;
 }
 
 /** Returns the full {median, p25, p75} stats for a metric, or `null` if unavailable.
- *  Null paths: see getLibraryMedian's docstring. */
+ *  Null paths: see getLibraryMedian's docstring (incl. null vs undefined defense). */
 export function getLibraryStats(
   snapshot: LibrarySnapshot,
   assetType: AssetType,
   metric: LibraryMetric,
 ): DistributionStats | null {
   const dist = getLibraryDistribution(snapshot, assetType);
-  if (dist === null) return null;
+  if (dist === null || dist === undefined) return null;
   return dist[metric] ?? null;
 }

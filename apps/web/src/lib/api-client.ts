@@ -617,4 +617,75 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  // Build-and-Ingest — new-spine upload entry point. Multipart body with text
+  // form fields + optional file slots. Returns the rendered-analysis root id
+  // for navigation to /analysis/[rootId] (which then dispatches through the
+  // unified-read endpoint to the RenderedAnalysisView component).
+  //
+  // Form fields per build-and-ingest.routes.ts header: required dealRef,
+  // analysisAsOfDate, propertyType, librarySnapshotId; XOR (marketBenchmarks
+  // inline | marketBenchmarksId reference); XOR (creditManifesto inline |
+  // creditManifestoId reference); optional loanTerms (JSON-stringified),
+  // marketLiquidityHint, propertyHint. Files: optional asr/rent_roll/seller_cf.
+  buildAndIngest: async (args: {
+    files: {
+      asr?: File;
+      rentRoll?: File;
+      sellerCf?: File;
+    };
+    formFields: {
+      analysisAsOfDate: string;
+      dealRef: string;
+      propertyType: string;
+      librarySnapshotId: string;
+      marketBenchmarksId?: string;
+      marketBenchmarks?: unknown;
+      creditManifestoId?: string;
+      creditManifesto?: unknown;
+      loanTerms?: unknown;
+      marketLiquidityHint?: string;
+      propertyHint?: string;
+    };
+  }): Promise<{
+    rootId: string;
+    extractionResultId: string;
+    propertyMetadataId: string | null;
+    buildReport: unknown;
+    evaluation: unknown;
+    propertyMetadataError?: { name: string; message: string };
+  }> => {
+    const fd = new FormData();
+    const f = args.formFields;
+    fd.append('analysisAsOfDate', f.analysisAsOfDate);
+    fd.append('dealRef', f.dealRef);
+    fd.append('propertyType', f.propertyType);
+    fd.append('librarySnapshotId', f.librarySnapshotId);
+    if (f.marketBenchmarksId !== undefined) fd.append('marketBenchmarksId', f.marketBenchmarksId);
+    if (f.marketBenchmarks !== undefined) fd.append('marketBenchmarks', JSON.stringify(f.marketBenchmarks));
+    if (f.creditManifestoId !== undefined) fd.append('creditManifestoId', f.creditManifestoId);
+    if (f.creditManifesto !== undefined) fd.append('creditManifesto', JSON.stringify(f.creditManifesto));
+    if (f.loanTerms !== undefined) fd.append('loanTerms', JSON.stringify(f.loanTerms));
+    if (f.marketLiquidityHint !== undefined) fd.append('marketLiquidityHint', f.marketLiquidityHint);
+    if (f.propertyHint !== undefined) fd.append('propertyHint', f.propertyHint);
+    if (args.files.asr) fd.append('asr', args.files.asr);
+    if (args.files.rentRoll) fd.append('rent_roll', args.files.rentRoll);
+    if (args.files.sellerCf) fd.append('seller_cf', args.files.sellerCf);
+
+    const res = await fetch(`${API_BASE}/build-and-ingest`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+      body: fd,
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(error.error || error.message || 'Upload failed');
+    }
+    return res.json();
+  },
 };
