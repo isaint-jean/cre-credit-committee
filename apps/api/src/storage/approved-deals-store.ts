@@ -177,6 +177,17 @@ export class ApprovedDealsStore {
     return rows.map(rowToDeal);
   }
 
+  /**
+   * Deletes every row in approved_deals. Used by the HistoricalUW connector to
+   * provide replace-all semantics: re-running the import after the projection
+   * criteria tighten (#29 sanity bounds) must purge rows that no longer pass
+   * projection. INSERT OR REPLACE alone only updates rows with matching ids;
+   * orphaned rows from a previous looser projection would otherwise persist.
+   */
+  deleteAll(): void {
+    this.db.exec('DELETE FROM approved_deals');
+  }
+
   insertMany(deals: readonly ApprovedDeal[]): void {
     const stmt = this.db.prepare(
       `INSERT OR REPLACE INTO approved_deals

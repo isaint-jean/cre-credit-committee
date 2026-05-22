@@ -21,6 +21,7 @@ import type { HistoricalUnderwriting } from '@cre/shared';
 import {
   importHistoricalUWsToApprovedDeals,
   projectHistoricalUWToApprovedDeal,
+  SANITY_BOUNDS,
 } from '../services/import-historical-uws-to-approved.js';
 
 let passed = 0;
@@ -186,6 +187,58 @@ console.log('\nDate normalization:');
   assertEqual(dFull.closedAt, '2025-08-30T14:23:11Z', 'full ISO passes through unchanged');
 }
 
+console.log('\nSanity bounds — vacancy:');
+{
+  const rNeg = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { vacancy: -0.01 } }));
+  assertEqual(rNeg.kind === 'skip' ? rNeg.reason : 'NO_SKIP', 'vacancy_out_of_bounds', 'vacancy = -0.01 → skip vacancy_out_of_bounds');
+  const rHigh = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { vacancy: 0.51 } }));
+  assertEqual(rHigh.kind === 'skip' ? rHigh.reason : 'NO_SKIP', 'vacancy_out_of_bounds', 'vacancy = 0.51 → skip vacancy_out_of_bounds');
+  // Boundary inclusive both sides
+  const r0 = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { vacancy: SANITY_BOUNDS.vacancyMin } }));
+  assertEqual(r0.kind, 'ok', `vacancy = ${SANITY_BOUNDS.vacancyMin} (lower bound) → ok`);
+  const rMax = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { vacancy: SANITY_BOUNDS.vacancyMax } }));
+  assertEqual(rMax.kind, 'ok', `vacancy = ${SANITY_BOUNDS.vacancyMax} (upper bound) → ok`);
+}
+
+console.log('\nSanity bounds — expenseRatio:');
+{
+  // er = 1.5 (expenses exceed revenue) → skip
+  const rHigh = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { rents: 1_000_000, expenses: 1_500_000 } }));
+  assertEqual(rHigh.kind === 'skip' ? rHigh.reason : 'NO_SKIP', 'expense_ratio_out_of_bounds', 'er = 1.5 → skip expense_ratio_out_of_bounds');
+  // er = 1.0 boundary → ok (inclusive upper)
+  const rEq = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { rents: 1_000_000, expenses: 1_000_000 } }));
+  assertEqual(rEq.kind, 'ok', `er = ${SANITY_BOUNDS.expenseRatioMax} (upper bound) → ok`);
+  // er = 0.01 (legitimate NNN) → ok (no lower bound)
+  const rLow = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { rents: 1_000_000, expenses: 10_000 } }));
+  assertEqual(rLow.kind, 'ok', 'er = 0.01 (NNN structure) → ok (no lower bound)');
+}
+
+console.log('\nSanity bounds — capRate:');
+{
+  const rLow = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { capRate: 0.01 } }));
+  assertEqual(rLow.kind === 'skip' ? rLow.reason : 'NO_SKIP', 'cap_rate_out_of_bounds', 'capRate = 0.01 → skip cap_rate_out_of_bounds');
+  const rHigh = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { capRate: 0.26 } }));
+  assertEqual(rHigh.kind === 'skip' ? rHigh.reason : 'NO_SKIP', 'cap_rate_out_of_bounds', 'capRate = 0.26 → skip cap_rate_out_of_bounds');
+  const rMin = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { capRate: SANITY_BOUNDS.capRateMin } }));
+  assertEqual(rMin.kind, 'ok', `capRate = ${SANITY_BOUNDS.capRateMin} (lower bound) → ok`);
+  const rMax = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { capRate: SANITY_BOUNDS.capRateMax } }));
+  assertEqual(rMax.kind, 'ok', `capRate = ${SANITY_BOUNDS.capRateMax} (upper bound) → ok`);
+}
+
+console.log('\nSanity bounds — dscr:');
+{
+  // dscr = 0 boundary → skip (exclusive lower)
+  const rZero = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { dscr: 0 } }));
+  assertEqual(rZero.kind === 'skip' ? rZero.reason : 'NO_SKIP', 'dscr_out_of_bounds', 'dscr = 0 → skip dscr_out_of_bounds (exclusive lower)');
+  const rHigh = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { dscr: 10.01 } }));
+  assertEqual(rHigh.kind === 'skip' ? rHigh.reason : 'NO_SKIP', 'dscr_out_of_bounds', 'dscr = 10.01 → skip dscr_out_of_bounds');
+  // dscr = 10.0 boundary → ok (inclusive upper)
+  const rMax = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { dscr: SANITY_BOUNDS.dscrMax } }));
+  assertEqual(rMax.kind, 'ok', `dscr = ${SANITY_BOUNDS.dscrMax} (upper bound, inclusive) → ok`);
+  const rLow = projectHistoricalUWToApprovedDeal(makeUW({ inputs: { dscr: 0.01 } }));
+  assertEqual(rLow.kind, 'ok', 'dscr = 0.01 (just above exclusive lower) → ok');
+}
+
 console.log('\nIdempotency — running importer twice produces same state:');
 {
   const store = new ApprovedDealsStore(':memory:');
@@ -200,6 +253,28 @@ console.log('\nIdempotency — running importer twice produces same state:');
   const r2 = importHistoricalUWsToApprovedDeals(uws, store);
   assertEqual(r2.imported, 3, 'second import: same 3 survivors');
   assertEqual(store.countByStatus('approved'), 3, 'second import: store still has 3 rows (INSERT OR REPLACE)');
+  store.close();
+}
+
+console.log('\nReplace-all semantics — shrinking input purges stale rows:');
+{
+  const store = new ApprovedDealsStore(':memory:');
+  // First import: 3 survivors land in the store.
+  importHistoricalUWsToApprovedDeals([
+    makeUW({ id: 'id-1', assetType: 'office' }),
+    makeUW({ id: 'id-2', assetType: 'retail' }),
+    makeUW({ id: 'id-3', assetType: 'multifamily' }),
+  ], store);
+  assertEqual(store.countByStatus('approved'), 3, 'first import: 3 rows');
+  // Second import: subset (2 of the 3). With replace-all semantics, id-3 must
+  // be purged — INSERT OR REPLACE alone would have left it behind. This locks
+  // in the fix for the latent idempotency bug surfaced by #29.
+  const r = importHistoricalUWsToApprovedDeals([
+    makeUW({ id: 'id-1', assetType: 'office' }),
+    makeUW({ id: 'id-2', assetType: 'retail' }),
+  ], store);
+  assertEqual(r.imported, 2, 'shrinking re-import: 2 survivors');
+  assertEqual(store.countByStatus('approved'), 2, 'store reflects shrunk survivor set (id-3 purged)');
   store.close();
 }
 
@@ -219,7 +294,9 @@ console.log('\nImportReport shape — totals + skip sum:');
   const skipSum =
     r.skipped.outcome_not_approved + r.skipped.unknown_asset_type +
     r.skipped.null_vacancy + r.skipped.null_capRate + r.skipped.null_dscr +
-    r.skipped.expense_ratio_undefined;
+    r.skipped.expense_ratio_undefined +
+    r.skipped.vacancy_out_of_bounds + r.skipped.expense_ratio_out_of_bounds +
+    r.skipped.cap_rate_out_of_bounds + r.skipped.dscr_out_of_bounds;
   assertEqual(skipSum, 3, 'skip-reason counts sum to (totalSeen - imported)');
   assertEqual(r.skipped.outcome_not_approved, 1, 'outcome_not_approved = 1');
   assertEqual(r.skipped.unknown_asset_type, 1, 'unknown_asset_type = 1');

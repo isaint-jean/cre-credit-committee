@@ -46,7 +46,41 @@ export type SkipReason =
   | 'null_vacancy'
   | 'null_capRate'
   | 'null_dscr'
-  | 'expense_ratio_undefined';
+  | 'expense_ratio_undefined'
+  | 'vacancy_out_of_bounds'
+  | 'expense_ratio_out_of_bounds'
+  | 'cap_rate_out_of_bounds'
+  | 'dscr_out_of_bounds';
+
+/**
+ * Sanity bounds for the projection. These filter pathologically-valued records
+ * that pass the null check but contain extraction errors (unit-of-measure
+ * mismatches, negative artifacts, etc.). Bounds calibrated against the
+ * historical-uws.json dataset and CRE-domain reality:
+ *
+ *   vacancy:      [0, 0.5]        inclusive both sides. Negative is artifact;
+ *                                 >50% is extreme.
+ *   expenseRatio: (-inf, 1.0]     no lower bound — NNN structures legitimately
+ *                                 produce er<0.05 (Tesla, CVS, etc.). >100%
+ *                                 means expenses exceed revenue.
+ *   capRate:      [0.02, 0.25]    defensive; current data is 3.6-11.75%.
+ *   dscr:         (0, 10]         exclusive lower / inclusive upper. >10
+ *                                 catches NYC co-op outliers (economically
+ *                                 real but statistical aberrations).
+ *
+ * See #29 for the data analysis. The bounds correctly surface (and filter) a
+ * systematic upstream extraction unit-of-measure bug — see #33 for the root-
+ * cause work. Until #33 lands, Multifamily drops below the n>=20 threshold.
+ */
+export const SANITY_BOUNDS = {
+  vacancyMin: 0,
+  vacancyMax: 0.5,
+  expenseRatioMax: 1.0,
+  capRateMin: 0.02,
+  capRateMax: 0.25,
+  dscrMin: 0,        // exclusive (dscr > 0)
+  dscrMax: 10,       // inclusive (dscr <= 10)
+} as const;
 
 export interface ImportReport {
   readonly totalSeen: number;
@@ -101,13 +135,29 @@ export function projectHistoricalUWToApprovedDeal(
   if (inp.expenses === null || inp.rents === null || inp.rents <= 0) {
     return { kind: 'skip', reason: 'expense_ratio_undefined' };
   }
+
+  // Sanity bounds — see SANITY_BOUNDS rationale + #29 / #33.
+  const expenseRatio = inp.expenses / inp.rents;
+  if (inp.vacancy < SANITY_BOUNDS.vacancyMin || inp.vacancy > SANITY_BOUNDS.vacancyMax) {
+    return { kind: 'skip', reason: 'vacancy_out_of_bounds' };
+  }
+  if (expenseRatio > SANITY_BOUNDS.expenseRatioMax) {
+    return { kind: 'skip', reason: 'expense_ratio_out_of_bounds' };
+  }
+  if (inp.capRate < SANITY_BOUNDS.capRateMin || inp.capRate > SANITY_BOUNDS.capRateMax) {
+    return { kind: 'skip', reason: 'cap_rate_out_of_bounds' };
+  }
+  if (inp.dscr <= SANITY_BOUNDS.dscrMin || inp.dscr > SANITY_BOUNDS.dscrMax) {
+    return { kind: 'skip', reason: 'dscr_out_of_bounds' };
+  }
+
   return {
     kind: 'ok',
     deal: {
       id: uw.id,
       assetType,
       vacancyPct: inp.vacancy,
-      expenseRatio: inp.expenses / inp.rents,
+      expenseRatio,
       capRate: inp.capRate,
       treasury10YAtClose: null,    // Decision 2: source has no treasury data
       dscr: inp.dscr,
@@ -122,9 +172,11 @@ export function projectHistoricalUWToApprovedDeal(
  * and writes survivors via ApprovedDealsStore.insertMany. Returns a structured
  * report for the CLI wrapper to log.
  *
- * Idempotent end-to-end: the underlying insertMany is INSERT OR REPLACE keyed
- * on PK `id`. Re-running on the same source produces the same approved_deals
- * state.
+ * Replace-all semantics: the importer purges the existing approved_deals rows
+ * before inserting survivors. INSERT OR REPLACE alone is only idempotent under
+ * non-shrinking inputs; the #29 sanity bounds can shrink the survivor set, so
+ * stale rows from a previous looser projection must be cleared. Re-running on
+ * the same source still produces the same final state.
  */
 export function importHistoricalUWsToApprovedDeals(
   uws: Iterable<HistoricalUnderwriting>,
@@ -138,6 +190,10 @@ export function importHistoricalUWsToApprovedDeals(
     null_capRate: 0,
     null_dscr: 0,
     expense_ratio_undefined: 0,
+    vacancy_out_of_bounds: 0,
+    expense_ratio_out_of_bounds: 0,
+    cap_rate_out_of_bounds: 0,
+    dscr_out_of_bounds: 0,
   };
   const byAt: { [K in AssetType]: number } = {
     Office: 0, Retail: 0, Multifamily: 0, Hotel: 0, Industrial: 0,
@@ -151,6 +207,7 @@ export function importHistoricalUWsToApprovedDeals(
     survivors.push(r.deal);
     byAt[r.deal.assetType] += 1;
   }
+  store.deleteAll();
   store.insertMany(survivors);
   return { totalSeen, imported: survivors.length, skipped, importedByAssetType: byAt };
 }

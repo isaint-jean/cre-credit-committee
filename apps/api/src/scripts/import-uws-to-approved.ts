@@ -27,6 +27,10 @@ const SKIP_REASON_ORDER: readonly SkipReason[] = [
   'null_capRate',
   'null_dscr',
   'expense_ratio_undefined',
+  'vacancy_out_of_bounds',
+  'expense_ratio_out_of_bounds',
+  'cap_rate_out_of_bounds',
+  'dscr_out_of_bounds',
 ];
 
 function main(): void {
