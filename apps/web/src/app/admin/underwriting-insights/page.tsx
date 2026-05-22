@@ -2,8 +2,35 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-client';
-import { ASSET_TYPES } from '@cre/shared';
-import type { AssetType } from '@cre/shared';
+import { ASSET_TYPES, type AssetType } from '@cre/contracts';
+
+const ASSET_TYPE_LABELS: Record<AssetType, string> = {
+  Office: 'Office',
+  Retail: 'Retail',
+  Multifamily: 'Multifamily',
+  Hotel: 'Hotel',
+  Industrial: 'Industrial',
+  SelfStorage: 'Self Storage',
+  MHC: 'Manufactured Housing',
+  MixedUse: 'Mixed Use',
+  Other: 'Other',
+};
+
+// Wire-boundary adapter. Backend admin routes still type assetType against
+// @cre/shared's lowercase AssetType (see ticket #28 diagnosis). Frontend state
+// stays PascalCase (canonical @cre/contracts.AssetType); convert at the API
+// call site, not in state.
+const ASSET_TYPE_WIRE: Record<AssetType, string> = {
+  Office: 'office',
+  Retail: 'retail',
+  Multifamily: 'multifamily',
+  Hotel: 'hotel',
+  Industrial: 'industrial',
+  SelfStorage: 'self_storage',
+  MHC: 'manufactured_housing',
+  MixedUse: 'mixed_use',
+  Other: 'other',
+};
 
 interface AdjustmentStats {
   mean: number;
@@ -157,10 +184,11 @@ export default function UnderwritingInsightsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      const wireType = assetType ? ASSET_TYPE_WIRE[assetType] : undefined;
       const [insightsData, rulesData, suffData, metaData] = await Promise.all([
-        api.getInsights(assetType),
-        api.listLearnedRules(assetType),
-        api.getDataSufficiency(assetType),
+        api.getInsights(wireType),
+        api.listLearnedRules(wireType),
+        api.getDataSufficiency(wireType),
         api.getRuleMetadata(),
       ]);
       setInsights(insightsData.insights);
@@ -200,7 +228,7 @@ export default function UnderwritingInsightsPage() {
   const handleRecalculateRules = async () => {
     setGenerating(true);
     try {
-      await api.generateRules(assetType);
+      await api.generateRules(assetType ? ASSET_TYPE_WIRE[assetType] : undefined);
       await loadData();
     } catch {}
     setGenerating(false);
@@ -467,15 +495,15 @@ export default function UnderwritingInsightsPage() {
         </button>
         {ASSET_TYPES.map((type) => (
           <button
-            key={type.value}
-            onClick={() => setAssetType(type.value)}
+            key={type}
+            onClick={() => setAssetType(type)}
             className={`px-4 py-2 rounded text-sm transition-colors ${
-              assetType === type.value
+              assetType === type
                 ? 'bg-accent text-bg-primary font-semibold'
                 : 'bg-bg-secondary text-text-secondary hover:text-text-primary border border-border-primary'
             }`}
           >
-            {type.label}
+            {ASSET_TYPE_LABELS[type]}
           </button>
         ))}
       </div>

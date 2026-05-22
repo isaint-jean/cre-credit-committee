@@ -2,9 +2,38 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api-client';
-import { ASSET_TYPES, SEVERITY_LABELS } from '@cre/shared';
-import type { AssetType, FindingCategory, Severity } from '@cre/shared';
+import { ASSET_TYPES, type AssetType } from '@cre/contracts';
+import { SEVERITY_LABELS } from '@cre/shared';
+import type { FindingCategory, Severity } from '@cre/shared';
 import type { CriteriaRule } from '@cre/shared';
+
+const ASSET_TYPE_LABELS: Record<AssetType, string> = {
+  Office: 'Office',
+  Retail: 'Retail',
+  Multifamily: 'Multifamily',
+  Hotel: 'Hotel',
+  Industrial: 'Industrial',
+  SelfStorage: 'Self Storage',
+  MHC: 'Manufactured Housing',
+  MixedUse: 'Mixed Use',
+  Other: 'Other',
+};
+
+// Wire-boundary adapter. Backend admin routes still type assetType against
+// @cre/shared's lowercase AssetType (see ticket #28 diagnosis). Frontend state
+// stays PascalCase (canonical @cre/contracts.AssetType); convert at the API
+// call site, not in state.
+const ASSET_TYPE_WIRE: Record<AssetType, string> = {
+  Office: 'office',
+  Retail: 'retail',
+  Multifamily: 'multifamily',
+  Hotel: 'hotel',
+  Industrial: 'industrial',
+  SelfStorage: 'self_storage',
+  MHC: 'manufactured_housing',
+  MixedUse: 'mixed_use',
+  Other: 'other',
+};
 
 const CATEGORIES: { value: FindingCategory; label: string }[] = [
   { value: 'leasing', label: 'Leasing Risk' },
@@ -18,7 +47,7 @@ const CATEGORIES: { value: FindingCategory; label: string }[] = [
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low'];
 
 export default function CriteriaAdminPage() {
-  const [assetType, setAssetType] = useState<AssetType>('office');
+  const [assetType, setAssetType] = useState<AssetType>('Office');
   const [rules, setRules] = useState<CriteriaRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingRule, setEditingRule] = useState<CriteriaRule | null>(null);
@@ -31,7 +60,7 @@ export default function CriteriaAdminPage() {
   const loadCriteria = async (type: AssetType) => {
     setLoading(true);
     try {
-      const data = await api.getCriteria(type);
+      const data = await api.getCriteria(ASSET_TYPE_WIRE[type]);
       setRules(data.criteria.rules);
     } catch {}
     setLoading(false);
@@ -39,10 +68,11 @@ export default function CriteriaAdminPage() {
 
   const handleSave = async (rule: Partial<CriteriaRule>) => {
     try {
+      const wireType = ASSET_TYPE_WIRE[assetType];
       if (editingRule) {
-        await api.updateCriteriaRule(assetType, editingRule.id, rule);
+        await api.updateCriteriaRule(wireType, editingRule.id, rule);
       } else {
-        await api.addCriteriaRule(assetType, rule);
+        await api.addCriteriaRule(wireType, rule);
       }
       await loadCriteria(assetType);
       setShowForm(false);
@@ -52,13 +82,13 @@ export default function CriteriaAdminPage() {
 
   const handleDelete = async (ruleId: string) => {
     try {
-      await api.deleteCriteriaRule(assetType, ruleId);
+      await api.deleteCriteriaRule(ASSET_TYPE_WIRE[assetType], ruleId);
       await loadCriteria(assetType);
     } catch {}
   };
 
   const handleToggle = async (rule: CriteriaRule) => {
-    await api.updateCriteriaRule(assetType, rule.id, { enabled: !rule.enabled });
+    await api.updateCriteriaRule(ASSET_TYPE_WIRE[assetType], rule.id, { enabled: !rule.enabled });
     await loadCriteria(assetType);
   };
 
@@ -81,15 +111,15 @@ export default function CriteriaAdminPage() {
       <div className="flex gap-2 mb-6">
         {ASSET_TYPES.map((type) => (
           <button
-            key={type.value}
-            onClick={() => setAssetType(type.value)}
+            key={type}
+            onClick={() => setAssetType(type)}
             className={`px-4 py-2 rounded text-sm transition-colors ${
-              assetType === type.value
+              assetType === type
                 ? 'bg-accent text-bg-primary font-semibold'
                 : 'bg-bg-secondary text-text-secondary hover:text-text-primary border border-border-primary'
             }`}
           >
-            {type.label}
+            {ASSET_TYPE_LABELS[type]}
           </button>
         ))}
       </div>

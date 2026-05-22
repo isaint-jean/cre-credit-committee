@@ -2,10 +2,40 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '@/lib/api-client';
-import { ASSET_TYPES } from '@cre/shared';
-import type { AssetType, DealOutcome, MarketIntelligence } from '@cre/shared';
+import { ASSET_TYPES, type AssetType } from '@cre/contracts';
+// Legacy lowercase AssetType from @cre/shared still types the records this page
+// reads/edits (HistoricalUnderwriting.assetType is lowercase end-to-end through
+// the legacy admin API). Aliased to make the two universes explicit. See #28
+// diagnosis for why the broader type-level consolidation is out of scope.
+import type { AssetType as LegacyAssetType, DealOutcome, MarketIntelligence } from '@cre/shared';
 import dynamic from 'next/dynamic';
 import type { MarketCluster } from './broker-map';
+
+const ASSET_TYPE_LABELS: Record<AssetType, string> = {
+  Office: 'Office',
+  Retail: 'Retail',
+  Multifamily: 'Multifamily',
+  Hotel: 'Hotel',
+  Industrial: 'Industrial',
+  SelfStorage: 'Self Storage',
+  MHC: 'Manufactured Housing',
+  MixedUse: 'Mixed Use',
+  Other: 'Other',
+};
+
+// Wire-boundary adapter: canonical PascalCase → legacy lowercase the backend
+// admin route expects.
+const ASSET_TYPE_WIRE: Record<AssetType, string> = {
+  Office: 'office',
+  Retail: 'retail',
+  Multifamily: 'multifamily',
+  Hotel: 'hotel',
+  Industrial: 'industrial',
+  SelfStorage: 'self_storage',
+  MHC: 'manufactured_housing',
+  MixedUse: 'mixed_use',
+  Other: 'other',
+};
 
 const BrokerMap = dynamic(() => import('./broker-map'), { ssr: false, loading: () => <div className="w-full h-full flex items-center justify-center text-text-muted text-sm">Loading map...</div> });
 
@@ -15,7 +45,7 @@ const BrokerMap = dynamic(() => import('./broker-map'), { ssr: false, loading: (
 
 interface UWRecord {
   id: string;
-  assetType: AssetType;
+  assetType: LegacyAssetType;
   dealName: string;
   outcome: DealOutcome;
   date: string;
@@ -43,7 +73,7 @@ const OUTCOMES: { value: DealOutcome; label: string }[] = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-const LIBRARY_ASSET_CLASSES: { value: AssetType | 'all'; label: string }[] = [
+const LIBRARY_ASSET_CLASSES: { value: LegacyAssetType | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'office', label: 'Office' },
   { value: 'multifamily', label: 'Multifamily' },
@@ -141,7 +171,7 @@ export default function UnderwritingLibraryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Library filters
-  const [filterAssetClass, setFilterAssetClass] = useState<AssetType | 'all'>('all');
+  const [filterAssetClass, setFilterAssetClass] = useState<LegacyAssetType | 'all'>('all');
   const [filterLoanType, setFilterLoanType] = useState<'all' | 'single_asset' | 'portfolio'>('all');
   const [filterYears, setFilterYears] = useState<Set<string>>(new Set());
   const [filterStates, setFilterStates] = useState<Set<string>>(new Set());
@@ -703,8 +733,10 @@ export default function UnderwritingLibraryPage() {
                         <>
                           <td className="table-cell"><span className="text-sm text-text-primary font-medium">{uw.dealName}</span></td>
                           <td className="table-cell">
-                            <select className="input-field text-xs w-full" value={editForm.assetType || uw.assetType} onChange={(e) => setEditForm({ ...editForm, assetType: e.target.value as AssetType })}>
-                              {ASSET_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                            <select className="input-field text-xs w-full" value={editForm.assetType || uw.assetType} onChange={(e) => setEditForm({ ...editForm, assetType: e.target.value as LegacyAssetType })}>
+                              {ASSET_TYPES.filter((t) => t !== 'Other').map((t) => (
+                                <option key={t} value={ASSET_TYPE_WIRE[t]}>{ASSET_TYPE_LABELS[t]}</option>
+                              ))}
                             </select>
                           </td>
                           <td className="table-cell text-center text-xs text-text-muted">{(uw.loanType || 'single_asset') === 'portfolio' ? 'Portfolio' : 'Single'}</td>
