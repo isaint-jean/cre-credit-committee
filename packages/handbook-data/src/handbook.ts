@@ -1,0 +1,3906 @@
+/**
+ * Eightfold CRE Credit Handbook — structured data
+ *
+ * This file is the source-of-truth typed TS literal. The build process
+ * generates `handbook.json` from this file (via `JSON.stringify(handbook, null, 2)`).
+ *
+ * Editing the handbook: edit the TS literal, run the typecheck, regenerate JSON.
+ * The contract type guarantees structural conformance.
+ */
+
+import type {
+  Handbook,
+  PrincipleCluster,
+  Principle,
+  ReviewStep,
+} from '@cre/contracts';
+
+// =============================================================================
+// Section II — Core Philosophy (8 principles)
+// =============================================================================
+
+const sectionII_principles: Principle[] = [
+  {
+    id: 'P-II-1',
+    cluster: 'core_philosophy',
+    title: 'Downside protection over upside capture',
+    principleText:
+      'Downside protection takes precedence over upside capture',
+    sourceCitation: 'Handbook §II, bullet 1',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: [
+      'executive_summary',
+      'mitigation_suggestions',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-II-2',
+    cluster: 'core_philosophy',
+    title: 'Size loans against historical, not peak',
+    principleText:
+      'Loan sizing must be supported by historical performance and cost basis, not peak underwriting',
+    sourceCitation: 'Handbook §II, bullet 2',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'uw_vs_historical_noi_comparison',
+        verification_required: true,
+        target_data: 'UW NOI vs T12 NOI; surface variance %',
+        summary_prompt_hint:
+          'Compare underwritten NOI to trailing-12 actuals. Flag if UW exceeds T12 by a material margin without clear justification.',
+      },
+      {
+        action_type: 'cost_basis_comparison',
+        verification_required: true,
+        target_data:
+          "sponsor's acquisition cost + invested capital vs current appraised value; identify cash-out vs cash-in",
+        summary_prompt_hint:
+          "Surface when sponsor bought, what they paid, and how much they've invested. If refinance, identify cash-in vs cash-out and proceeds vs cost basis.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1'],
+      upstreamDependencies: [],
+      overlapsWith: ['P-III-2'],
+    },
+  },
+
+  {
+    id: 'P-II-3',
+    cluster: 'core_philosophy',
+    title: 'Cash-out refinances elevated scrutiny',
+    principleText:
+      'Cashout refinances materially increase risk and warrant heightened scrutiny',
+    sourceCitation: 'Handbook §II, bullet 3',
+    trigger: { kind: 'field_equals', field: 'loan_purpose', value: 'Refinance' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'mitigation_suggestions',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'cash_out_amount' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'gt',
+              threshold: { kind: 'literal', value: 0 },
+              severity: 'high',
+              flag_message:
+                'Cash-out refinance detected: sponsor takes $X equity at closing. Per handbook, heightened scrutiny required.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1'],
+      upstreamDependencies: ['P-III-11'],
+      overlapsWith: [],
+    },
+    notes: [
+      'Cash-out detection depends on engine surfacing sources & uses as structured data (P-III-11 research action). Until that infrastructure exists, this check is inert and LLM_CONTEXT carries the principle.',
+    ],
+  },
+
+  {
+    id: 'P-II-4',
+    cluster: 'core_philosophy',
+    title: 'Stable, durable cash flow preferred',
+    principleText:
+      'Stable, durable cash flow is preferred over recently ramped NOI or assets that face significant rollover over the term that could affect the NOI dramatically.',
+    sourceCitation: 'Handbook §II, bullet 4',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'noi_trajectory_surface',
+        verification_required: true,
+        target_data:
+          'historical NOI trend (T36/T24/T12 or available periods) — let analyst assess durability vs recent ramp',
+        summary_prompt_hint:
+          'Surface the NOI trajectory over available historical periods. Identify whether current NOI is steady-state or reflects recent ramp (renovation, lease-up, new operator).',
+      },
+      {
+        action_type: 'term_rollover_exposure',
+        verification_required: true,
+        target_data:
+          '% of NOI from tenants whose leases expire before loan maturity; identify the specific expiring tenants',
+        summary_prompt_hint:
+          'Identify tenants whose leases expire during the loan term. Compute % of NOI those tenants represent. Flag if material to debt service coverage.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1', 'V-2'],
+      upstreamDependencies: [],
+      overlapsWith: ['P-IV-SS-1'],
+    },
+  },
+
+  {
+    id: 'P-II-5',
+    cluster: 'core_philosophy',
+    title: 'Fungible assets in liquid markets preferred',
+    principleText:
+      'Fungible assets in liquid, dynamic markets are preferred. The real estate should work for other tenants if there is future vacancy, and the building should be attractive to a buyer if something happens with our borrower. Illiquid assets in tertiary markets tend to cause high severity losses when things go wrong.',
+    sourceCitation: 'Handbook §II, bullet 5',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'submarket_sales_velocity',
+        verification_required: true,
+        target_data:
+          'count + $ volume of recent property sales in submarket × asset type',
+        summary_prompt_hint:
+          'Surface recent sales comp activity in the submarket for this asset type. Sparse data indicates thin market and elevated illiquidity risk.',
+      },
+      {
+        action_type: 'building_fungibility_assessment',
+        verification_required: true,
+        target_data:
+          'building characteristics (specialty use, unique config, single-tenant build-to-suit, generic vs specialty)',
+        summary_prompt_hint:
+          'Assess whether the building could realistically serve other tenants if current occupier vacates. Flag specialty uses, unique configurations, or build-to-suit characteristics.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1', 'V-4'],
+      upstreamDependencies: [],
+      overlapsWith: [
+        'P-IV-IND-1',
+        'P-IV-IND-4',
+        'P-IV-IND-5',
+        'P-IV-MHC-7',
+      ],
+    },
+    notes: [
+      'No deterministic check in v1. "Tertiary market" is qualitative — the handbook expresses a philosophical preference, not a numeric threshold. Forcing a deterministic substring-match against MSA strings would be brittle and overpromise certainty. The LLM_CONTEXT philosophy + the two research actions carry the principle.',
+      'FUTURE ENHANCEMENT: introduce an upstream `market_tier` derived field (primary / secondary / tertiary / non-metro) classified at deal ingestion time. Once that field exists, P-II-5 can grow a real deterministic check using `field_in` against the tertiary/non-metro tiers. File ticket when ready.',
+    ],
+  },
+
+  {
+    id: 'P-II-6',
+    cluster: 'core_philosophy',
+    title: 'Information gaps are credit negatives',
+    principleText:
+      'Lack of information or transparency is itself a credit negative',
+    sourceCitation: 'Handbook §II, bullet 6',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-II-7',
+    cluster: 'core_philosophy',
+    title: 'Early and severe losses kill B-piece',
+    principleText:
+      'Early losses and high severity losses will kill a B-piece investment',
+    sourceCitation: 'Handbook §II, bullet 7',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: ['executive_summary', 'committee_recommendation'],
+    severity: 'critical',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1', 'V-6'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-II-8',
+    cluster: 'core_philosophy',
+    title: 'Specialized assets are higher risk',
+    principleText:
+      "Know what you don't know – specialized assets are inherently higher risk (data centers, cold-storage, student housing, etc.) and lead to high severity losses.",
+    sourceCitation: 'Handbook §II, bullet 8',
+    trigger: { kind: 'always' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'property_sub_type' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'in',
+              threshold: {
+                kind: 'set',
+                values: [
+                  'Data Center',
+                  'Cold Storage',
+                  'Student Housing',
+                  'Senior Housing',
+                  'Medical Office',
+                  'Life Sciences',
+                  'Parking Structure',
+                  'Marina',
+                  'Golf Course',
+                  'Religious Property',
+                  'Movie Theater',
+                ],
+              },
+              severity: 'high',
+              flag_message:
+                'Specialty asset detected ({property_sub_type}). Per handbook, specialty assets carry elevated severity risk in distress; underwrite with extra conservatism.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-1'],
+      upstreamDependencies: [],
+      overlapsWith: ['P-IV-IND-1'],
+    },
+    notes: [
+      'Specialty list is curated based on handbook spirit + CRE common knowledge. Literal handbook examples are Data Center, Cold Storage, Student Housing. Future ticket may make the specialty list editable as a separate registry artifact rather than baked into the principle.',
+    ],
+  },
+];
+
+// =============================================================================
+// Section III — Universal Framework (13 principles)
+// =============================================================================
+
+const sectionIII_principles: Principle[] = [
+  {
+    id: 'P-III-1',
+    cluster: 'universal_framework',
+    title: 'Reconcile historical NOI to UW NOI',
+    principleText:
+      'Reconcile historical NOI to underwritten NOI; explain any variance',
+    sourceCitation: 'Handbook §III, bullet 1',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'noi_reconciliation_table',
+        verification_required: true,
+        target_data:
+          'line-item comparison of UW NOI vs historical NOI (T12, T24 if available); identify which line items drive variances',
+        summary_prompt_hint:
+          'Produce a reconciliation table comparing UW NOI line items to historical periods. Identify material variances (e.g., >10% in any major line) and present the rationale provided by issuer; assess plausibility.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-III-2',
+    cluster: 'universal_framework',
+    title: 'Normalize UW to market with comps',
+    principleText:
+      'Normalize underwriting assumptions to market through rent, vacancy, concession, and expense comparables',
+    sourceCitation: 'Handbook §III, bullet 2',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'market_normalization_check',
+        verification_required: true,
+        target_data:
+          "compare issuer's UW rent/vacancy/concession/expense assumptions to market comps; surface variances",
+        summary_prompt_hint:
+          "Identify whether issuer has provided rent and lease comps. If not, flag the gap. If yes, assess whether issuer's UW assumptions are consistent with the comps.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-II-2'],
+    },
+  },
+
+  {
+    id: 'P-III-3',
+    cluster: 'universal_framework',
+    title: 'Subtract recurring capex/TI/LC/FF&E/reserves from NOI',
+    principleText:
+      'Recurring capital expenditures, tenant improvements, leasing commissions, FF&E, and replacement reserves must be deducted from NOI to arrive at a realistic NCF',
+    sourceCitation: 'Handbook §III, bullet 3',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'ncf_adjustment_check',
+        verification_required: true,
+        target_data:
+          "identify whether issuer's NOI is gross (excludes these) or net (includes these); compute NCF using market-standard reserve assumptions if missing",
+        summary_prompt_hint:
+          "Determine whether the issuer's stated NOI already incorporates recurring capex, TI/LC, FF&E, and replacement reserves. If not, deduct market-standard reserves to compute a realistic NCF. Surface the gap if material.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-III-4',
+    cluster: 'universal_framework',
+    title: 'Cash on hand reserves preferred over springing',
+    principleText:
+      'Cash on hand for capital needs is irreplaceable; springing structures are credit-negative',
+    sourceCitation: 'Handbook §III, bullet 4',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'reserve_structure_classification',
+        verification_required: true,
+        target_data:
+          'identify reserve structure type for each reserve category (TI/LC, capex, FF&E, replacement, debt service) — cash upfront, fixed ongoing deposits, springing, hybrid',
+        summary_prompt_hint:
+          'Classify each reserve and escrow in the loan documents as (1) cash on hand at close, (2) fixed ongoing deposits, (3) springing (triggered only by performance events), or (4) hybrid. Per handbook, springing structures are credit-negative. Flag if material reserves are springing-only.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-3'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-III-5',
+    cluster: 'universal_framework',
+    title: 'Cost basis + borrower cash position on refinancings',
+    principleText:
+      'On refinancings, evaluate the sponsor cost basis as well as the borrower cash position outside the deal',
+    sourceCitation: 'Handbook §III, bullet 5',
+    trigger: { kind: 'field_equals', field: 'loan_purpose', value: 'Refinance' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'sponsor_liquidity_evidence',
+        verification_required: true,
+        target_data:
+          "evidence of sponsor's liquidity / cash position outside the subject deal",
+        summary_prompt_hint:
+          "Identify whether the issuer has provided evidence of the sponsor's liquidity / cash position outside the subject deal. Flag if missing — material to refinance risk assessment.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-II-2'],
+    },
+    notes: [
+      "Overlaps with P-II-2's cost_basis_comparison research action. Captured separately because (a) Section III restated this as a required check, (b) adds the 'borrower cash position' dimension P-II-2 doesn't have, (c) atomization preserves handbook structure. Engine may consolidate executions at runtime if firing both is redundant for a given deal.",
+    ],
+  },
+
+  {
+    id: 'P-III-6',
+    cluster: 'universal_framework',
+    title: 'Evaluate leverage via DSCR + Debt Yield + LTV combination',
+    principleText:
+      'Evaluate leverage using DSCR, Debt Yield, and LTV in combination',
+    sourceCitation: 'Handbook §III, bullet 6',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: ['executive_summary', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Methodology principle, not a threshold. Asset-type-specific thresholds for these metrics live in Section IV principles. This one ensures LLM considers all three metrics together when summarizing leverage.',
+    ],
+  },
+
+  {
+    id: 'P-III-7',
+    cluster: 'universal_framework',
+    title: 'Sales comps from submarket with comparability assessment',
+    principleText:
+      'Sales comparables should come from the property submarket and asset type, with explicit comparability assessment',
+    sourceCitation: 'Handbook §III, bullet 7',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'sales_comps_evaluation',
+        verification_required: true,
+        target_data:
+          "sales comps from the property's submarket × asset type; metadata for comparability (size, vintage, tenancy, sale date, condition)",
+        summary_prompt_hint:
+          "Identify whether issuer provided sales comparables. If yes, assess each comp's relevance to subject (submarket match, size, vintage, tenancy profile, condition, sale recency). If no, flag the gap and surface what comps are available externally.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-III-8',
+    cluster: 'universal_framework',
+    title: 'Stress DSCR per asset-level volatility',
+    principleText:
+      'Stress DSCR under scenarios consistent with asset-level volatility; for office, retail and industrial this means removing specific tenants from the NOI to see coverage if they vacate.',
+    sourceCitation: 'Handbook §III, bullet 8',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-9'],
+      relatedReviewStepIds: ['V-2'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Methodology specifics live in Section V Step 2 (Asset-Specific Stress Testing). This principle ensures the philosophy ("stress per asset volatility") is injected as context when the engine processes stress test outputs.',
+    ],
+  },
+
+  {
+    id: 'P-III-9',
+    cluster: 'universal_framework',
+    title: 'Value via stabilized and stressed cap rates',
+    principleText:
+      'Assess value using both stabilized and stressed cap rate assumptions',
+    sourceCitation: 'Handbook §III, bullet 9',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-8'],
+      relatedReviewStepIds: ['V-2'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Paired with stress testing (P-III-8 and Section V Step 2) but addresses VALUE rather than NOI. Engine should produce value scenarios under both cap rate assumptions. No deterministic threshold — handbook does not give one, and inventing one is out of scope.',
+    ],
+  },
+
+  {
+    id: 'P-III-10',
+    cluster: 'universal_framework',
+    title: 'Distinguish term risk from maturity risk',
+    principleText: 'Explicitly distinguish term risk from maturity risk',
+    sourceCitation: 'Handbook §III, bullet 10',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: ['executive_summary', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-III-11',
+    cluster: 'universal_framework',
+    title: 'Present sources & uses with cash-in/cash-out designation',
+    principleText:
+      'Sources and uses must be presented with explicit cash-in/cash-out designation for proceeds',
+    sourceCitation: 'Handbook §III, bullet 11',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['executive_summary', 'red_flag_assessment'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'sources_and_uses_extraction',
+        verification_required: true,
+        target_data:
+          'structured sources & uses table from ASR; classification of proceeds direction (cash-in / cash-out / neutral / acquisition)',
+        summary_prompt_hint:
+          'Extract the sources and uses table from the deal documents. Identify the net direction of proceeds: cash-in (sponsor adds equity), cash-out (sponsor takes equity out), neutral (refinance at par), or acquisition (purchase money).',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-II-3'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      "P-II-3's deterministic cash-out detection check depends on this principle's research action output. Engine cannot run P-II-3's arithmetic check until P-III-11's structured S&U data is available. This is the canonical upstream-producer for S&U structured data in the system.",
+    ],
+  },
+
+  {
+    id: 'P-III-12',
+    cluster: 'universal_framework',
+    title:
+      'Sponsor review (litigation, bankruptcies, foreclosures, press, portfolio correlation)',
+    principleText:
+      'Sponsor review must cover litigation, bankruptcies, foreclosures, adverse press, and portfolio correlation across the sponsor\'s broader CRE exposure',
+    sourceCitation: 'Handbook §III, bullet 12',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'sponsor_litigation_search',
+        verification_required: true,
+        target_data:
+          'public court records, regulatory filings, bankruptcy filings, foreclosure history for sponsor and its principals',
+        summary_prompt_hint:
+          "Search public records for any litigation, bankruptcies, or foreclosures involving the sponsor entity or its known principals. Surface findings with dates, parties, outcomes where available.",
+      },
+      {
+        action_type: 'sponsor_adverse_press',
+        verification_required: true,
+        target_data:
+          "news search results for sponsor name + 'fraud' / 'lawsuit' / 'default' / 'foreclosure' / 'investigation' / 'SEC' keywords",
+        summary_prompt_hint:
+          "Search news sources for adverse coverage of the sponsor. Focus on patterns: prior defaults, regulatory actions, allegations of fraud or mismanagement, distressed assets in portfolio.",
+      },
+      {
+        action_type: 'sponsor_portfolio_correlation',
+        verification_required: true,
+        target_data:
+          "other deals in Eightfold's UW corpus involving this sponsor (approved_deals + kicks_registry); outcomes",
+        summary_prompt_hint:
+          "Query Eightfold's UW Library and kicks_registry for prior deals involving this sponsor. Surface count, outcomes (approved/rejected), and any patterns.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-RET-12', 'P-IV-MF-8'],
+      relatedReviewStepIds: ['V-4'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-III-13',
+    cluster: 'universal_framework',
+    title: 'Eightfold Portfolio Exposure Study (cross-portfolio corpus query)',
+    principleText:
+      'Cross-reference the new deal against Eightfold\'s broader UW corpus for similar properties, markets, sponsors, and prior rejected deals',
+    sourceCitation: 'Handbook §III, bullet 13',
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'cross_portfolio_corpus_query',
+        verification_required: true,
+        target_data:
+          'approved_deals corpus query by submarket, asset type, sponsor; library_snapshot prior UWs',
+        summary_prompt_hint:
+          "Query Eightfold's approved_deals and library_snapshot for comparable properties, markets, and sponsors. Surface patterns: how has Eightfold underwritten similar deals before? Has this submarket or sponsor appeared in prior deals?",
+      },
+      {
+        action_type: 'kicks_registry_query',
+        verification_required: true,
+        target_data:
+          'kicks_registry query by submarket × asset type; analyst Comments field on prior rejections',
+        summary_prompt_hint:
+          'Query the kicks_registry for prior rejections in the same submarket and asset type. Surface the Comments field — analyst rationale for those prior kicks. Identify whether issues that caused prior kicks may apply to the current deal.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-5', 'V-6', 'V-7'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      "This principle is the universal-framework formalization of the institutional-memory consultation doctrine. P-III-13's research actions are the primary handles for institutional-memory queries at analysis time. Engine implementation should treat this as the canonical entry point for 'consult prior UWs + prior kicks' rather than re-implementing the queries inside each Section V step.",
+    ],
+  },
+];
+
+// =============================================================================
+// Section IV — Single-Tenant Risk (4 principles)
+// =============================================================================
+
+const sectionIV_singleTenant_principles: Principle[] = [
+  {
+    id: 'P-IV-ST-1',
+    cluster: 'single_tenant_risk',
+    title: 'Single-tenant deals require elevated skepticism',
+    principleText:
+      'All single-tenant loans should be underwritten with elevated skepticism, regardless of reported in-place cash flow strength.',
+    sourceCitation: 'Handbook §IV, Single-Tenant Risk, paragraph 1',
+    trigger: {
+      kind: 'field_equals',
+      field: 'tenancy_type',
+      value: 'Single-Tenant',
+    },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-ST-2',
+    cluster: 'single_tenant_risk',
+    title: 'Credit-driven tenancy higher risk than market-driven',
+    principleText:
+      'Credit-driven tenant relationships (build-to-suit, sale-leaseback, bespoke deal economics) carry materially higher risk than market-driven tenancy, because backfill at the same rent is unlikely if tenant vacates',
+    sourceCitation: 'Handbook §IV, Single-Tenant Risk, paragraph 2',
+    trigger: {
+      kind: 'field_equals',
+      field: 'tenancy_type',
+      value: 'Single-Tenant',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'tenancy_nature_classification',
+        verification_required: true,
+        target_data:
+          'lease economics (rent vs market), deal history (build-to-suit, sale-leaseback, ground-up development), tenant role in property origination',
+        summary_prompt_hint:
+          'Classify the tenant relationship as credit-driven (build-to-suit, sale-leaseback, bespoke deal economics, rent above market) vs market-driven (location/market-supported tenancy at market terms). Credit-driven tenancy presents elevated risk because backfill at the same rent is unlikely if tenant vacates.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-IND-2', 'P-IV-IND-3'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-ST-3',
+    cluster: 'single_tenant_risk',
+    title: 'Appraiser dark value methodology overstates realizable value',
+    principleText:
+      "Appraisal dark value methodologies materially overstate realizable value in distress due to flawed assumptions around re-leasing velocity, achievable rents, downtime, and capital costs. Even if we agree on the re-stabilized value, the appraisers overestimate what that means for dark value today and how much an investor would need to get paid to take that execution risk.",
+    sourceCitation: 'Handbook §IV, Single-Tenant Risk, paragraph 3',
+    trigger: {
+      kind: 'field_equals',
+      field: 'tenancy_type',
+      value: 'Single-Tenant',
+    },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-ST-4'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-ST-4',
+    cluster: 'single_tenant_risk',
+    title: 'Haircut appraised dark value by ~50%',
+    principleText:
+      'As a baseline heuristic, haircut appraised dark value by approximately 50% to arrive at a more realistic distress recovery scenario. This adjustment is not a substitute for asset-specific analysis.',
+    sourceCitation: 'Handbook §IV, Single-Tenant Risk, paragraph 4',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        {
+          kind: 'field_equals',
+          field: 'tenancy_type',
+          value: 'Single-Tenant',
+        },
+        { kind: 'field_exists', field: 'appraised_dark_value' },
+      ],
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: {
+        kind: 'computed',
+        formula: {
+          kind: 'op',
+          op: 'multiply',
+          operands: [
+            { kind: 'field', path: 'appraised_dark_value' },
+            { kind: 'literal', value: 0.5 },
+          ],
+        },
+      },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: {
+                kind: 'field_reference',
+                path: 'loan_amount',
+              },
+              severity: 'high',
+              flag_message:
+                'Stressed dark value (appraised × 0.50) is below loan amount. Per handbook, this haircut is a baseline heuristic — surface asset-specific analysis where available.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-ST-3'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'The 50% haircut is a baseline heuristic, not a hard rule. The handbook explicitly states this adjustment is not a substitute for asset-specific analysis. The deterministic flag should be paired with LLM context so the analyst sees both the computation result AND the handbook caveat. Engine should also surface asset-specific dark value analysis from issuer if available.',
+      'DEPENDENCY: Requires `appraised_dark_value` field in the deal data. If form/extraction does not capture this today, the check is inert until added. File ticket if needed.',
+    ],
+  },
+];
+
+// =============================================================================
+// Section IV — Industrial (5 principles)
+// =============================================================================
+
+const sectionIV_industrial_principles: Principle[] = [
+  {
+    id: 'P-IV-IND-1',
+    cluster: 'industrial',
+    title: 'Older specialized industrial with manufacturing use elevated risk',
+    principleText:
+      'Older, specialized industrial assets configured for manufacturing carry elevated re-leasing risk because the building configuration limits the universe of potential replacement tenants',
+    sourceCitation: 'Handbook §IV, Industrial, bullet 1',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Industrial',
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'categorical' },
+      evaluationGroups: [
+        {
+          condition: {
+            kind: 'all_of',
+            conditions: [
+              { kind: 'field_gte', field: 'building_age', value: 30 },
+              {
+                kind: 'field_in',
+                field: 'property_sub_type',
+                values: [
+                  'Manufacturing',
+                  'Heavy Manufacturing',
+                  'Flex/R&D',
+                  'Specialty Industrial',
+                ],
+              },
+            ],
+          },
+          bands: [
+            {
+              operator: 'matches',
+              threshold: { kind: 'none' },
+              severity: 'high',
+              flag_message:
+                'Older specialized industrial asset ({building_age} years, {property_sub_type}). Per handbook, this combination carries elevated re-leasing risk — the building configuration limits the replacement-tenant universe.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-II-5', 'P-II-8'],
+    },
+    notes: [
+      'Overlaps with P-II-5 (fungibility) and P-II-8 (specialty assets). Captured separately because the handbook restated this with industrial-specific framing (the "older + specialized + manufacturing" combination is more specific than the universal specialty list). Engine may consolidate firings at runtime.',
+    ],
+  },
+
+  {
+    id: 'P-IV-IND-2',
+    cluster: 'industrial',
+    title: 'Sale-leasebacks with PE-owned non-credit tenants are negative',
+    principleText:
+      'Sale-leasebacks where the lessee is PE-owned and lacks investment-grade credit are credit-negative — the lease economics typically reflect the seller financing structure rather than market terms, and the tenant has limited durability if PE owner exits or restructures',
+    sourceCitation: 'Handbook §IV, Industrial, bullet 2',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Industrial',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'sale_leaseback_pe_credit_classification',
+        verification_required: true,
+        target_data:
+          'transaction history (is this a sale-leaseback? when?); tenant ownership (PE-backed? sponsor identity); tenant credit (rated? investment-grade?)',
+        summary_prompt_hint:
+          "Determine whether the deal is a sale-leaseback. Classify tenant ownership (PE-backed vs strategic operator vs investment-grade corporate). Assess tenant credit quality. The handbook flags the combination: sale-leaseback AND PE-owned AND non-credit tenant. Surface each component explicitly so the analyst can assess.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-ST-2'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Three conditions must combine for the negative signal (sale-leaseback AND PE-owned AND non-credit). Captured as one principle rather than three separate principles to preserve the conjunctive structure the handbook articulated. Cross-references P-IV-ST-2 (credit-driven vs market-driven tenancy in single-tenant cluster) — these are related but distinct framings.',
+    ],
+  },
+
+  {
+    id: 'P-IV-IND-3',
+    cluster: 'industrial',
+    title: 'Tenant credit quality critical when lease term is primary support',
+    principleText:
+      'When the lease term is the primary support for the loan (i.e., long lease, fixed escalators, single-tenant or anchor structure), tenant credit quality is critical. Weak tenant credit converts a "lease-supported" deal into a "real estate fundamentals" deal at the worst possible moment (when the tenant defaults).',
+    sourceCitation: 'Handbook §IV, Industrial, bullet 3',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Industrial',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'tenant_credit_assessment',
+        verification_required: true,
+        target_data:
+          'tenant credit rating (Moodys/S&P/Fitch if rated); private credit indicators (financial statements, parent guaranty, recent ratings actions); industry-level distress indicators',
+        summary_prompt_hint:
+          "Assess the primary tenant's credit quality. If rated, surface the rating and recent rating actions. If unrated, surface financial statements or other credit indicators. Flag if lease term is primary support AND tenant credit is weak.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-IV-ST-2'],
+    },
+    notes: [
+      'Overlaps with P-IV-ST-2 (credit-driven tenancy in single-tenant cluster) but adds the "lease term as primary support" condition. Captured separately because the framing is meaningfully different — P-IV-ST-2 is about the NATURE of the relationship (credit-driven vs market-driven); this is about the ROLE of the lease in deal support.',
+    ],
+  },
+
+  {
+    id: 'P-IV-IND-4',
+    cluster: 'industrial',
+    title: 'Fungible newer-build industrial with modern specs preferred',
+    principleText:
+      'Newer-vintage industrial buildings (≤15 years) with modern specs (32\'+ clear height, ample loading docks, ESFR sprinklers, adequate power, generous truck courts) are preferred for fungibility — they serve a wide replacement-tenant universe',
+    sourceCitation: 'Handbook §IV, Industrial, bullet 4',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Industrial',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['executive_summary'],
+    severity: 'advisory',
+    researchActions: [
+      {
+        action_type: 'industrial_specs_assessment',
+        verification_required: true,
+        target_data:
+          'building age, clear height (ft), dock door count, sprinkler type (ESFR/non-ESFR), power capacity, truck court depth, modern truck/trailer parking, column spacing',
+        summary_prompt_hint:
+          "Surface the building's age and key industrial specs. Modern specs include: 32'+ clear height, ample loading (1 dock per 5K-10K SF typical), ESFR sprinklers, sufficient power for tenant operations, 130'+ truck court depth, modern column spacing. Newer-vintage modern-spec buildings serve a broader replacement-tenant universe and are preferred.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-II-5'],
+    },
+    notes: [
+      'Positive-attribute principle (describes what is "favored"). Severity is advisory because this is positive framing, not a credit negative. Injection point is executive_summary only — the LLM uses this to characterize the deal holistically when the preferred profile is present. Overlaps with P-II-5 (fungibility) but adds industrial-specific concrete specs. Handbook bullet "Evaluate clear height, loading, power, and configuration" was atomization-folded into this principle\'s research action (it specifies the methodology for the preferred-profile assessment rather than introducing a new principle).',
+    ],
+  },
+
+  {
+    id: 'P-IV-IND-5',
+    cluster: 'industrial',
+    title: 'Dynamic markets with diversified industrial demand preferred',
+    principleText:
+      'Industrial markets with diversified demand drivers (logistics, e-commerce, light manufacturing, distribution to multiple population centers) are preferred over markets concentrated in a single industry (e.g., one major employer, single-industry submarket)',
+    sourceCitation: 'Handbook §IV, Industrial, bullet 5',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Industrial',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'industrial_market_demand_diversification',
+        verification_required: true,
+        target_data:
+          'submarket employer/industry composition, top tenants in market by sector, key demand drivers (logistics, e-commerce fulfillment, manufacturing, distribution, port/airport adjacency)',
+        summary_prompt_hint:
+          'Assess the industrial submarket demand profile. Surface: top tenant industries in the submarket, key demand drivers, evidence of diversification vs concentration (e.g., one major employer dominating absorption). Diversified markets are preferred; single-industry concentration is a structural risk.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-II-5'],
+    },
+    notes: [
+      'Bi-directional principle — fires as positive context (summary) when preferred condition holds, fires as red flag when condition is absent (concentrated single-industry demand). Overlaps with P-II-5 (fungible assets in liquid markets) but adds industrial-specific framing about demand diversification.',
+    ],
+  },
+];
+
+// =============================================================================
+// Section IV — Self-Storage (4 principles)
+// =============================================================================
+
+const sectionIV_selfStorage_principles: Principle[] = [
+  {
+    id: 'P-IV-SS-1',
+    cluster: 'self_storage',
+    title: 'Stable historical performance essential',
+    principleText:
+      'Self-storage assets require stable historical operating performance as a credit foundation; the asset class is management-intensive and performance volatility signals operational or market issues',
+    sourceCitation: 'Handbook §IV, Self-Storage, bullet 1',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'SelfStorage',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'self_storage_operating_history',
+        verification_required: true,
+        target_data:
+          'historical NOI, occupancy, and rental rate trends; identification of any operational disruptions or market events',
+        summary_prompt_hint:
+          'Surface the property\'s historical operating performance. Self-storage assets should show stable occupancy (typically 85%+ for stabilized), steady rate growth, and consistent NOI. Surface any volatility or declining trends with the underlying causes.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-II-4'],
+    },
+    notes: [
+      'Overlaps with P-II-4 (stable durable cash flow) but is asset-type-specific. Self-storage is particularly sensitive to operating stability because the asset class is more management-intensive than other property types.',
+    ],
+  },
+
+  {
+    id: 'P-IV-SS-2',
+    cluster: 'self_storage',
+    title: 'SF per capita supply check (~7 SF benchmark)',
+    principleText:
+      'Self-storage trade area should have approximately 7 SF per capita; materially higher supply warrants caution',
+    sourceCitation: 'Handbook §IV, Self-Storage, bullet 2',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'SelfStorage',
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'trade_area_sf_per_capita' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'gt',
+              threshold: { kind: 'literal', value: 9 },
+              severity: 'high',
+              flag_message:
+                'Self-storage trade area supply is {trade_area_sf_per_capita} SF per capita, materially above the ~7 SF/capita handbook benchmark. Per handbook, this warrants caution.',
+            },
+            {
+              operator: 'in_range',
+              threshold: {
+                kind: 'range',
+                min: 7,
+                max: 9,
+                minInclusive: true,
+                maxInclusive: true,
+              },
+              severity: 'medium',
+              flag_message:
+                'Self-storage trade area supply is {trade_area_sf_per_capita} SF per capita, approaching saturation relative to the ~7 SF/capita handbook benchmark.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'self_storage_trade_area_supply',
+        verification_required: true,
+        target_data:
+          'rentable SF per capita in trade area (typically 3-5 mile radius); count and SF of competing facilities; any new supply under construction or in planning',
+        summary_prompt_hint:
+          'Quantify self-storage supply in the trade area on an SF-per-capita basis. Surface competing facilities, recently delivered supply, and pipeline. Compare to the ~7 SF/capita handbook benchmark.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook explicitly says "Approximately 7 SF per capita" and "materially higher warrants caution." The 9 threshold for the high-severity flag and the 7-9 advisory band are calibration choices made during atomization, not directly from handbook text. The 7-9 advisory tier surfaces "approaching saturation" before the materially-oversupplied flag fires. Open to recalibration.',
+    ],
+  },
+
+  {
+    id: 'P-IV-SS-3',
+    cluster: 'self_storage',
+    title: 'Debt yield floor 8% with market quality condition',
+    principleText:
+      'Self-storage debt yields should not fall below 8%; deals approaching the floor require good markets with operating history',
+    sourceCitation: 'Handbook §IV, Self-Storage, bullet 3',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'SelfStorage',
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'debt_yield' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 0.08 },
+              severity: 'critical',
+              flag_message:
+                'Self-storage debt yield is {debt_yield}%, below the 8% handbook floor. Per handbook, sub-8% debt yields are not supportable for self-storage.',
+            },
+            {
+              operator: 'in_range',
+              threshold: {
+                kind: 'range',
+                min: 0.08,
+                max: 0.09,
+                minInclusive: true,
+                maxInclusive: false,
+              },
+              severity: 'high',
+              flag_message:
+                'Self-storage debt yield is {debt_yield}%, near the 8% handbook floor. Per handbook, deals near the floor require good markets with operating history — verify both conditions hold.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Two deterministic bands mirror the handbook\'s two conditions: (1) hard 8% floor for any deal, (2) conditional "good market with history" requirement when approaching the floor. The 9% upper bound for "near the floor" is a calibration choice; handbook does not quantify "good markets with history" so the conditional is qualitative.',
+    ],
+  },
+
+  {
+    id: 'P-IV-SS-4',
+    cluster: 'self_storage',
+    title: 'Minimum DSCR ~1.30x',
+    principleText:
+      'Self-storage minimum DSCR is approximately 1.30x',
+    sourceCitation: 'Handbook §IV, Self-Storage, bullet 4',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'SelfStorage',
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'dscr' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 1.3 },
+              severity: 'high',
+              flag_message:
+                'Self-storage DSCR is {dscr}x, below the ~1.30x handbook minimum.',
+            },
+            {
+              operator: 'in_range',
+              threshold: {
+                kind: 'range',
+                min: 1.3,
+                max: 1.35,
+                minInclusive: true,
+                maxInclusive: false,
+              },
+              severity: 'medium',
+              flag_message:
+                'Self-storage DSCR is {dscr}x, at or near the 1.30x handbook minimum. Cushion against operating downside is thin.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook says "approximately 1.30x" — captured at the 1.30 floor. Advisory band 1.30-1.35 (medium severity) added to surface deals at-or-near the floor where cushion is thin. Open to recalibration.',
+    ],
+  },
+];
+
+// =============================================================================
+// Section IV — MHC (Manufactured Housing Communities) (8 principles)
+// =============================================================================
+
+const sectionIV_mhc_principles: Principle[] = [
+  {
+    id: 'P-IV-MHC-1',
+    cluster: 'mhc',
+    title: 'Property age and condition critical',
+    principleText:
+      'MHC park age and infrastructure condition are critical credit considerations; many parks are decades old with materially aged infrastructure',
+    sourceCitation: 'Handbook §IV, MHC, bullet 1',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mhc_age_condition_assessment',
+        verification_required: true,
+        target_data:
+          'park age (year built or first developed), property condition rating, deferred maintenance indicators, capex history',
+        summary_prompt_hint:
+          'Assess the age and physical condition of the park. Many MHC parks are decades old with deferred infrastructure. Surface park age, condition rating, and any indicators of substantial deferred maintenance or capex requirements.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MHC-2',
+    cluster: 'mhc',
+    title: 'Understand utility structure (municipal vs private)',
+    principleText:
+      'Understanding the utility structure (municipal vs private infrastructure for water and sewer) is foundational for assessing MHC capex risk and environmental exposure',
+    sourceCitation: 'Handbook §IV, MHC, bullet 2',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mhc_utility_infrastructure_classification',
+        verification_required: true,
+        target_data:
+          'water source (municipal/private/well), sewer/wastewater treatment (municipal/private/septic/lift station/treatment plant), electric distribution (master metered vs sub-metered), gas distribution',
+        summary_prompt_hint:
+          "Classify the park's water and sewer infrastructure: (1) municipal (connected to city utilities), (2) private (wells, septic systems, on-site treatment), or (3) hybrid. Private systems represent material capex exposure and environmental compliance risk. Surface the structure type and any private infrastructure capex/compliance risks explicitly.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-MHC-3', 'P-IV-MHC-6'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      "P-IV-MHC-3 and P-IV-MHC-6 both depend on this principle's research action output (utility structure classification) for their deterministic triggers to fire.",
+    ],
+  },
+
+  {
+    id: 'P-IV-MHC-3',
+    cluster: 'mhc',
+    title: 'Private wastewater treatment / lift stations — significant capex risk',
+    principleText:
+      'Private wastewater treatment plants and lift stations represent significant capex exposure (replacement costs typically $500K-$2M+ per system; useful life 20-30 years)',
+    sourceCitation: 'Handbook §IV, MHC, bullet 3',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'utility_infrastructure_type' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'contains_any',
+              threshold: {
+                kind: 'set',
+                values: [
+                  'private wastewater treatment',
+                  'lift station',
+                  'on-site treatment plant',
+                ],
+              },
+              severity: 'high',
+              flag_message:
+                'MHC has private wastewater infrastructure ({utility_infrastructure_type}). Per handbook, this represents significant capex exposure — verify system age, condition, and reserve adequacy.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'mhc_wastewater_capex_assessment',
+        verification_required: true,
+        target_data:
+          'wastewater system age, recent capex history, compliance status with state environmental regulators, estimated replacement cost, current reserve allocations for this category',
+        summary_prompt_hint:
+          'If park has private wastewater infrastructure, assess: age of the system (treatment plants typically have 20-30 year useful lives), recent capex history, any pending regulatory issues or compliance gaps, estimated replacement cost. Surface as material credit consideration.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-MHC-6'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: ['P-IV-MHC-2'],
+      overlapsWith: [],
+    },
+    notes: [
+      'First principle with explicit research-action dependency for its deterministic check to fire (similar pattern to P-II-3 depending on P-III-11\'s sources & uses extraction). Schema accommodates this — it\'s a runtime ordering issue: engine implementation must run P-IV-MHC-2\'s research first, then evaluate P-IV-MHC-3\'s deterministic check against the output. Both fire together when the upstream returns private wastewater infrastructure.',
+    ],
+  },
+
+  {
+    id: 'P-IV-MHC-4',
+    cluster: 'mhc',
+    title: 'Park-owned home (POH) concentration is a risk factor',
+    principleText:
+      'Park-owned home (POH) concentration above ~25% materially elevates the risk profile — POH revenue is rent + home payment, requires active resident financing oversight, and concentrates landlord exposure to home depreciation and resident default',
+    sourceCitation: 'Handbook §IV, MHC, bullet 4',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'park_owned_home_pct' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'gt',
+              threshold: { kind: 'literal', value: 0.25 },
+              severity: 'high',
+              flag_message:
+                'Park-owned home concentration is {park_owned_home_pct}, above the ~25% threshold. Per handbook, POH share above 25% materially elevates risk profile.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'mhc_poh_share_assessment',
+        verification_required: true,
+        target_data:
+          'POH unit count vs total unit count; POH revenue contribution; POH resident financing structures; home portfolio depreciation status',
+        summary_prompt_hint:
+          'Surface the park-owned home share by count and revenue contribution. Higher POH share = more operational complexity (home portfolio management, resident financing) and concentrated risk if resident defaults accumulate. Flag if material.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook does not specify a POH concentration threshold. The 25% threshold is calibration based on industry context — POH share below 25% is generally manageable; above 25% materially elevates risk profile. Open to recalibration.',
+    ],
+  },
+
+  {
+    id: 'P-IV-MHC-5',
+    cluster: 'mhc',
+    title: 'Regulatory and eviction dynamics',
+    principleText:
+      'MHC operations are subject to significant state and local regulation — lot rent increase notice requirements, eviction procedures, park closure restrictions, and rent control where applicable — all of which affect operating economics and exit liquidity',
+    sourceCitation: 'Handbook §IV, MHC, bullet 5',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mhc_regulatory_environment',
+        verification_required: true,
+        target_data:
+          'state and local regulations: lot rent notice requirements, eviction procedures, park closure restrictions, rent control coverage; recent regulatory changes or pending legislation',
+        summary_prompt_hint:
+          "Identify state and local regulations affecting the park's economic flexibility. Surface notice requirements for lot rent increases, eviction procedures (often slower than typical multifamily), park closure restrictions, and any local rent control. States with strong MHC tenant protections (e.g., California, Oregon) materially affect both operations and exit liquidity.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MHC-6',
+    cluster: 'mhc',
+    title: 'Environmental risk from older plumbing/sewage',
+    principleText:
+      'Older plumbing and private sewage systems carry environmental contamination risk — failed septic or treatment systems can result in soil/groundwater contamination, EPA exposure, and substantial remediation costs that are typically not indemnified by sellers',
+    sourceCitation: 'Handbook §IV, MHC, bullet 6',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'utility_infrastructure_type' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'contains_any',
+              threshold: {
+                kind: 'set',
+                values: [
+                  'private wastewater treatment',
+                  'septic',
+                  'lift station',
+                  'on-site treatment plant',
+                ],
+              },
+              severity: 'high',
+              flag_message:
+                'MHC has private/older wastewater infrastructure ({utility_infrastructure_type}). Per handbook, this carries environmental contamination risk — verify Phase I/II ESA status and any historical issues.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'mhc_environmental_assessment',
+        verification_required: true,
+        target_data:
+          'Phase I ESA findings, Phase II ESA if applicable, historical regulatory enforcement actions, current compliance status, sponsor indemnification provisions',
+        summary_prompt_hint:
+          'Surface environmental due diligence findings. Older or private sewage systems carry contamination risk. Identify any historical environmental issues, current compliance status, and the strength of sponsor indemnification provisions.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-MHC-3'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: ['P-IV-MHC-2'],
+      overlapsWith: [],
+    },
+    notes: [
+      'Distinct from P-IV-MHC-3 despite both firing on private wastewater infrastructure. P-IV-MHC-3 is about CAPEX (replacement/upgrade cost). P-IV-MHC-6 is about ENVIRONMENTAL LIABILITY (contamination, EPA, indemnification). Different domains, different mitigations, captured separately.',
+    ],
+  },
+
+  {
+    id: 'P-IV-MHC-7',
+    cluster: 'mhc',
+    title: 'Exit liquidity and buyer universe under stress',
+    principleText:
+      'MHC exit liquidity is constrained by a narrow buyer universe — primarily institutional MHC operators (Sun Communities, ELS, Inspire/Yes!, etc.) and a smaller universe of independent operators. In distress scenarios, this concentration of demand can materially compress exit pricing.',
+    sourceCitation: 'Handbook §IV, MHC, bullet 7',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mhc_exit_liquidity_assessment',
+        verification_required: true,
+        target_data:
+          'recent MHC sales velocity nationally and in this market segment; identify institutional buyers active in segment; sponsor identity vs institutional consolidators',
+        summary_prompt_hint:
+          'Assess MHC exit liquidity. Surface: (a) recent MHC sales activity in similar park quality tier, (b) which institutional operators are active in this segment, (c) whether the subject park profile fits institutional buyer appetite. Narrower buyer universe = more compressed exit pricing in distress.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: ['P-II-5'],
+    },
+    notes: [
+      'Overlaps with P-II-5 (fungible assets in liquid markets) but adds MHC-specific framing about the narrow institutional buyer universe.',
+    ],
+  },
+
+  {
+    id: 'P-IV-MHC-8',
+    cluster: 'mhc',
+    title: 'Tenant reviews mandate (1-2 star focus)',
+    principleText:
+      'Always review tenant reviews from third-party websites and summarize the 1 and 2 star reviews. These provide important insight into operational issues, deferred maintenance, and resident satisfaction not visible in operating financials.',
+    sourceCitation: 'Handbook §IV, MHC, closing bullet',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'MHC' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'tenant_reviews_third_party',
+        verification_required: true,
+        target_data:
+          '1-star and 2-star reviews from Google Maps, Yelp, MobileHomeUniversity, MHVillage, Facebook reviews; focus on operational issues, deferred maintenance, management responsiveness',
+        summary_prompt_hint:
+          'Search third-party review sites for the subject MHC park. Focus on 1-star and 2-star reviews. Identify recurring themes: operational issues, deferred maintenance, management responsiveness, safety/crime concerns. These are first-order operational signals. Analyst MUST independently verify before relying on this summary.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-MF-6', 'P-IV-HOT-2'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'This principle also appears in the Multifamily and Hotel sections of the handbook with asset-type-specific triggers and slightly different review-site targets (TripAdvisor for hotels; ApartmentRatings for multifamily; this set for MHC). The handbook stated the principle three times in three different asset-type contexts — atomization preserves that structure rather than hoisting it to a universal principle, because the relevant review sites differ by asset type.',
+    ],
+  },
+];
+
+// =============================================================================
+// Section IV — Office (9 principles)
+// =============================================================================
+
+const sectionIV_office_principles: Principle[] = [
+  {
+    id: 'P-IV-OFF-1',
+    cluster: 'office',
+    title: 'Flight-to-quality favors top-tier well-located modern buildings',
+    principleText:
+      'Flight-to-quality dynamics favor top-tier, well-located buildings with modern amenities',
+    sourceCitation: 'Handbook §IV, Office, bullet 1',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['executive_summary', 'red_flag_assessment'],
+    severity: 'advisory',
+    researchActions: [
+      {
+        action_type: 'office_quality_tier_assessment',
+        verification_required: true,
+        target_data:
+          'building class (A/B/C), age, amenities, location quality, building condition, recent renovations',
+        summary_prompt_hint:
+          "Assess the building's quality tier. Class A trophy assets in prime locations with modern amenities benefit from flight-to-quality demand. Class B/C assets face demand pressure. Surface the asset's positioning on this spectrum.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-OFF-2',
+    cluster: 'office',
+    title: 'Class B/C office assets — leasing costs, liquidity, value deterioration risk',
+    principleText:
+      'Class B and C assets face materially higher leasing costs, face liquidity challenges, and are at high risk of suffering value deterioration',
+    sourceCitation: 'Handbook §IV, Office, bullet 2',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'building_class' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'in',
+              threshold: {
+                kind: 'set',
+                values: ['B', 'C', 'B-', 'C+', 'C-'],
+              },
+              severity: 'high',
+              flag_message:
+                'Office property is Class {building_class}. Per handbook, Class B/C assets face materially higher leasing costs, liquidity challenges, and elevated value deterioration risk in the post-2020 office market.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'office_class_validation',
+        verification_required: true,
+        target_data:
+          'stated class designation, building condition relative to class peers, recent renovations that may have effectively upgraded the building, broker / market perception of the asset',
+        summary_prompt_hint:
+          "Validate the stated building class against the asset's actual characteristics. A 'Class B' designation may understate quality if the building has been recently renovated to A-tier standards; conversely 'Class A' may overstate quality for an older asset that's been poorly maintained. Surface the realistic market positioning.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-OFF-3',
+    cluster: 'office',
+    title: 'Capital reserves essential — appraisal TI estimates typically too low',
+    principleText:
+      "Capital is key – even the best performing office buildings will need to invest capital to defend occupancy and handle tenant rollover. Being properly reserved is crucial, and appraisal Tenant Improvement (TI) allowance estimates are almost always too low.",
+    sourceCitation: 'Handbook §IV, Office, bullet 3',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'office_capital_reserve_adequacy',
+        verification_required: true,
+        target_data:
+          "issuer's reserve structure for TI/LC, the underlying TI assumptions (PSF), reserve $ vs market-comparable TI requirements (typically $80-150 PSF for second-generation office in major markets, higher for new tenants), free rent assumptions, AND the subject property's own recent lease economics (TI/LC PSF, free rent months, effective rent net of concessions on leases signed at this property in last 2-3 years)",
+        summary_prompt_hint:
+          "Assess whether the proposed reserve structure adequately funds TI/LC needs. Compare the appraisal's TI assumptions against TWO benchmarks: (1) recent market-standard TI deals in the submarket (typically $80-150+ PSF for office second-gen, higher for new tenants in newer buildings), AND (2) the subject property's own recent lease economics. Appraisal-derived TI numbers are systematically low per handbook. Flag if reserves appear insufficient against either market reality or the property's own leasing history.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-4'],
+      relatedReviewStepIds: ['V-3'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook bullet "Analyze TI/LC and free rent on recent leases" was atomization-folded into this principle\'s research action — same purpose (validate TI/LC/free rent assumptions) but adds the subject property\'s own historical leasing economics as a second data source alongside general market benchmarks.',
+    ],
+  },
+
+  {
+    id: 'P-IV-OFF-4',
+    cluster: 'office',
+    title: 'Assess actual utilization vs WFH and space contraction risk',
+    principleText: 'Assess actual utilization to evaluate work-from-home and space contraction risk',
+    sourceCitation: 'Handbook §IV, Office, bullet 4',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'office_actual_utilization_assessment',
+        verification_required: true,
+        target_data:
+          'tenant utilization data if available (badge swipes, desk reservations, cell-phone-derived occupancy proxies like Placer.ai), tenant stated WFH policy, recent tenant downsizings at renewal in this submarket',
+        summary_prompt_hint:
+          'Assess actual office utilization vs leased footprint. Low utilization (high contractual occupancy but low physical presence) signals contraction risk at renewal — even AAA tenants may right-size by 20-50% when their lease expires. Surface any utilization data, tenant WFH policies, and submarket precedents for contraction at renewal.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Best-effort research action. The data sources (utilization metrics, Placer.ai, badge swipes) are typically not in standard ASR fields. If available, surface; if not available, the absence of utilization data is itself a credit concern that should be surfaced.',
+    ],
+  },
+
+  {
+    id: 'P-IV-OFF-5',
+    cluster: 'office',
+    title: 'Identify sublease offerings and shadow vacancy',
+    principleText: 'Identify active sublease offerings and shadow vacancy',
+    sourceCitation: 'Handbook §IV, Office, bullet 5',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'office_sublease_shadow_vacancy',
+        verification_required: true,
+        target_data:
+          'active sublease listings in the submarket, sublease space within the subject property itself, shadow vacancy estimates (tenants underutilizing leased space)',
+        summary_prompt_hint:
+          'Surface sublease activity in the submarket and within the subject property. Published office vacancy understates real availability when sublease and shadow vacancy are added. Quantify effective vacancy (direct + sublease + shadow) and compare to published vacancy. Material gap = elevated supply pressure.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-OFF-6',
+    cluster: 'office',
+    title: 'Tenant-level DSCR stress with conditions on top 2-3 tenants',
+    principleText:
+      'Run tenant-level DSCR stresses removing the top two to three tenants, especially if those tenants lease expirations within the term or 1-2 years past maturity or if those tenants are of weak credit quality',
+    sourceCitation: 'Handbook §IV, Office, bullet 6',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'stressed_dscr_top_3_removed' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 1.0 },
+              severity: 'critical',
+              flag_message:
+                'Stressed DSCR after removing top tenants is {stressed_dscr_top_3_removed}x, below 1.0x. Building cannot cover debt service without top tenants. Per handbook, this is especially material if their leases expire within term or 1-2 years past maturity.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'office_top_tenant_exposure_analysis',
+        verification_required: true,
+        target_data:
+          'top 3 tenants by revenue, their lease expiration dates relative to loan maturity, their credit quality (rated/unrated, financial strength), the resulting NOI/DSCR under various removal scenarios',
+        summary_prompt_hint:
+          "Surface top 3 tenants by revenue with: (a) lease expiration vs loan maturity (within term? 1-2 years past? long beyond?), (b) credit quality. Compute DSCR under removal scenarios. Flag tenants meeting ANY of: lease expires within loan term, lease expires within 1-2 years past maturity, weak/unrated credit. These are the cases the handbook flags as 'especially' concerning.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: ['V-2'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Section V Step 2 already lists P-IV-OFF-6 in its relatedPrincipleIds (office-specific tenant-stress methodology). The engine already implements TENANT_REMOVAL stress methodology per the reconnaissance report.',
+    ],
+  },
+
+  {
+    id: 'P-IV-OFF-7',
+    cluster: 'office',
+    title: 'Emphasize leasing velocity since 2023 as competitiveness indicator',
+    principleText:
+      'Emphasize leasing velocity since 2023 as an indicator of competitiveness',
+    sourceCitation: 'Handbook §IV, Office, bullet 7',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'office_leasing_velocity_post_2023',
+        verification_required: true,
+        target_data:
+          'leases signed at the subject property since 2023 (count, SF, rents, free rent, tenant types); submarket leasing velocity benchmarks for the same period',
+        summary_prompt_hint:
+          'Surface leasing activity at the subject property since 2023 (the post-COVID market reset period). Compare to submarket benchmark velocity. Strong recent leasing = competitive asset. Weak or absent leasing since 2023 in a building with rollover = elevated re-leasing risk. Flag accordingly.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook hardcodes "since 2023" as the relevant post-COVID market reset period. Preserved verbatim. When/if handbook updates the reference year, this principle should update too.',
+    ],
+  },
+
+  {
+    id: 'P-IV-OFF-8',
+    cluster: 'office',
+    title: 'Office liquidity challenged even for quality assets — rely on market-clearing sales comps',
+    principleText:
+      'Liquidity is challenged even for higher-quality assets; rely on market-clearing sales comps',
+    sourceCitation: 'Handbook §IV, Office, bullet 8',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'office_sales_comps_market_clearing',
+        verification_required: true,
+        target_data:
+          'recent office sales in submarket × similar quality tier; identify which sales were market-clearing (actual closed transactions) vs appraisal-derived; days on market for recent listings',
+        summary_prompt_hint:
+          'Identify recent ACTUAL closed office sales in the submarket at similar quality tier. Distinguish from appraisal-derived value estimates — only actual transactions reflect market-clearing prices. Note days on market for any recent listings (long DOM signals illiquidity). Office liquidity is materially impaired across all quality tiers; appraisal-derived values likely overstate realizable value in distress.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-7'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-OFF-9',
+    cluster: 'office',
+    title: 'Evaluate broader submarket distress',
+    principleText: 'Evaluate broader submarket distress (e.g., DC, Philadelphia)',
+    sourceCitation: 'Handbook §IV, Office, bullet 9',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'msa' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'contains_any',
+              threshold: {
+                kind: 'set',
+                values: [
+                  'Washington DC',
+                  'District of Columbia',
+                  'Philadelphia',
+                  'San Francisco',
+                  'Chicago',
+                  'Houston',
+                  'Portland',
+                  'Minneapolis',
+                  'St. Louis',
+                  'Cleveland',
+                  'Pittsburgh',
+                ],
+              },
+              severity: 'high',
+              flag_message:
+                'Office property is in {msa}, a submarket identified as facing structural distress. Per handbook, evaluate broader submarket dynamics beyond property-level fundamentals.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'office_submarket_distress_assessment',
+        verification_required: true,
+        target_data:
+          'submarket-level office vacancy trends, net absorption trends (positive/negative), tenant migration patterns, employment trends in office-using sectors, public sector / employer footprint changes',
+        summary_prompt_hint:
+          'Assess broader office submarket health. Surface vacancy trends, net absorption (positive/negative over recent periods), employer migration patterns, sector composition. The submarket distress list is non-exhaustive — flag any submarket showing sustained negative absorption, rising vacancy, or material employer departures.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Distressed submarket list is curated based on handbook examples (DC, Philadelphia) + broadly-recognized post-COVID distressed office markets. List is non-exhaustive; the research action is required to catch markets not on the static list. Future ticket may make the submarket list an editable registry artifact (similar to P-II-8\'s specialty list).',
+    ],
+  },
+];
+
+// =============================================================================
+// Section IV — Retail (12 principles)
+// =============================================================================
+
+const sectionIV_retail_principles: Principle[] = [
+  {
+    id: 'P-IV-RET-1',
+    cluster: 'retail',
+    title: 'Tenant sales and occupancy costs — health indicators',
+    principleText:
+      'Tenant sales and occupancy costs best indicator of the health of a center',
+    sourceCitation: 'Handbook §IV, Retail, bullet 1',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: [
+      'executive_summary',
+      'red_flag_assessment',
+      'committee_recommendation',
+    ],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'retail_sales_and_occ_cost_analysis',
+        verification_required: true,
+        target_data:
+          'in-line tenant sales (PSF, $), occupancy cost ratio (rent + CAM / tenant sales), trends in both over recent reporting periods, tenant-level breakdowns where available',
+        summary_prompt_hint:
+          'Surface tenant sales PSF and occupancy cost ratios for the subject center. Healthy centers show stable/growing sales and occupancy costs that tenants can support. Declining sales or rising occupancy costs signal stress. Surface tenant-level data where available — material weakness in anchor or key tenants is particularly meaningful.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-RET-2',
+    cluster: 'retail',
+    title: 'Retail format bifurcation — necessity vs discretionary',
+    principleText:
+      'Retail format bifurcation: power centers and grocery-anchored neighborhood centers are inherently different from regional malls, lifestyle centers and outlet centers',
+    sourceCitation: 'Handbook §IV, Retail, bullet 2',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['executive_summary', 'red_flag_assessment'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'retail_format_classification',
+        verification_required: true,
+        target_data:
+          'property sub-type (Power Center, Grocery-Anchored, Strip, Mall, Lifestyle Center, Outlet Center, Neighborhood Shopping Center, etc.), anchor tenant identity, tenant mix breakdown by category',
+        summary_prompt_hint:
+          'Classify the retail asset into one of two broad categories: (1) necessity retail — power centers, grocery-anchored neighborhood centers, certain strip centers; or (2) discretionary retail — regional malls, lifestyle centers, outlet centers. The two categories have fundamentally different demand drivers, cyclicality, and structural outlook. Surface the classification and tailor the rest of the analysis accordingly.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-RET-3',
+    cluster: 'retail',
+    title: 'B-quality malls difficult to finance absent dominant market positioning',
+    principleText:
+      'B-quality malls are difficult to finance absent dominant market positioning',
+    sourceCitation: 'Handbook §IV, Retail (Mall sub-cluster), bullet 1',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+        {
+          kind: 'field_in',
+          field: 'property_sub_type',
+          values: ['Mall', 'Regional Mall', 'Super-Regional Mall'],
+        },
+      ],
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'mall_class' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'in',
+              threshold: {
+                kind: 'set',
+                values: ['B', 'B+', 'B-'],
+              },
+              severity: 'high',
+              flag_message:
+                'Property is a Class {mall_class} mall. Per handbook, B-quality malls are difficult to finance absent dominant market positioning. Verify whether the mall has dominant market positioning (e.g., only viable mall in trade area, anchor of regional shopping pattern) before proceeding.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'mall_market_positioning_assessment',
+        verification_required: true,
+        target_data:
+          'competing malls within drive-time (typically 30-60 minutes), trade-area population, anchor tenant uniqueness in the trade area, recent re-tenanting history, sales productivity vs nearby competing malls',
+        summary_prompt_hint:
+          "Assess whether the mall has 'dominant market positioning' per handbook. Dominant = clear market leader with no comparable competing mall in trade area, or strong-anchor uniqueness (e.g., only Apple Store, only luxury anchors in 50-mile radius). Surface competing malls, their relative sales productivity, and whether the subject mall's position is defensible.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-RET-5'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Requires mall_class as structured data field. If not available today, deterministic check is inert and research action carries the principle. Future ticket may add mall_class extraction.',
+    ],
+  },
+
+  {
+    id: 'P-IV-RET-4',
+    cluster: 'retail',
+    title: 'Mall inline sales and occupancy cost benchmarks',
+    principleText:
+      'Inline sales above ~$500 PSF and occupancy costs in the low-teens are key benchmarks',
+    sourceCitation: 'Handbook §IV, Retail (Mall sub-cluster), bullet 2',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+        {
+          kind: 'field_in',
+          field: 'property_sub_type',
+          values: ['Mall', 'Regional Mall', 'Super-Regional Mall'],
+        },
+      ],
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'mall_occupancy_cost_ratio' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'gt',
+              threshold: { kind: 'literal', value: 0.15 },
+              severity: 'high',
+              flag_message:
+                'Mall occupancy cost ratio is {mall_occupancy_cost_ratio}, above the low-teens benchmark. Tenants are under economic stress; expect rising vacancy and rent compression.',
+            },
+            {
+              operator: 'in_range',
+              threshold: {
+                kind: 'range',
+                min: 0.13,
+                max: 0.15,
+                minInclusive: true,
+                maxInclusive: true,
+              },
+              severity: 'medium',
+              flag_message:
+                'Mall occupancy cost ratio is {mall_occupancy_cost_ratio}, at the upper end of the low-teens range. Tenants are operating with thin margin; surface tenant-level stress indicators.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'mall_inline_sales_and_occcost',
+        verification_required: true,
+        target_data:
+          'in-line tenant sales PSF (current period + 2-3 prior periods for trend), occupancy cost ratio (rent + CAM as % of tenant sales), tenant-level breakdowns',
+        summary_prompt_hint:
+          'Surface mall inline sales PSF and occupancy cost ratios. Compare to handbook benchmarks: $500 PSF inline sales floor, low-teens (~10-15%) occupancy cost. Surface trends — declining sales or rising occupancy costs are leading indicators of mall decline.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook says "above ~$500 PSF" (clear, used as 500 floor) and "low-teens" (interpreted as 10-15% range). The 15% high-severity ceiling and 13-15% advisory band are calibration choices. Open to recalibration.',
+      'The inline_sales_psf < 500 floor check is omitted from the deterministic structure because it would require a second metric in the same deterministic check (handbook contract is single-metric per check). Captured via the research action which surfaces both sales and occ-cost. Future contract revision could add multi-metric checks.',
+    ],
+  },
+
+  {
+    id: 'P-IV-RET-5',
+    cluster: 'retail',
+    title: 'Mall debt yield mid-teens minimum (fortress Class A exception)',
+    principleText:
+      'Mall debt yields should generally be in the mid-teens at minimum; fortress Class A malls may support ~10–11%',
+    sourceCitation: 'Handbook §IV, Retail (Mall sub-cluster), bullet 3',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+        {
+          kind: 'field_in',
+          field: 'property_sub_type',
+          values: ['Mall', 'Regional Mall', 'Super-Regional Mall'],
+        },
+      ],
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'debt_yield' },
+      evaluationGroups: [
+        {
+          condition: {
+            kind: 'field_equals',
+            field: 'mall_class',
+            value: 'Fortress Class A',
+          },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 0.1 },
+              severity: 'critical',
+              flag_message:
+                'Fortress Class A mall debt yield is {debt_yield}, below the 10% floor that applies even to fortress malls. Per handbook, sub-10% debt yields are not supportable for any mall.',
+            },
+            {
+              operator: 'in_range',
+              threshold: {
+                kind: 'range',
+                min: 0.1,
+                max: 0.11,
+                minInclusive: true,
+                maxInclusive: false,
+              },
+              severity: 'high',
+              flag_message:
+                'Fortress Class A mall debt yield is {debt_yield}, at the low end of the ~10-11% acceptable range. Per handbook, this level is only supportable in confirmed fortress assets. Verify market dominance and tenant productivity.',
+            },
+          ],
+        },
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 0.15 },
+              severity: 'critical',
+              flag_message:
+                'Mall debt yield is {debt_yield}, below the mid-teens (15%) handbook minimum. Mall finance market does not support sub-15% debt yields outside of fortress Class A malls.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'mall_class_validation',
+        verification_required: true,
+        target_data:
+          "mall_class designation (A, A+, B, etc.), sales productivity, anchor strength, dominant market positioning, comparison to industry 'fortress Class A' definition",
+        summary_prompt_hint:
+          "Validate the mall_class designation, particularly any claim of 'Fortress Class A.' Fortress Class A is a high bar — typically requires sales > $700-1,000 PSF, top luxury anchors, dominant market position with no comparable competing mall in trade area, and strong long-term occupancy. Surface evidence for/against the designation. The exception to the mid-teens debt yield rule applies ONLY to confirmed fortress Class A.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-RET-3'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'SCHEMA-VALIDATING PRINCIPLE — uses nested exception structure (fortress group with two bands first, then catch-all group). This is the case the schema was designed to express during the schema-design conversation. Cross-references P-IV-RET-3 (B-mall positioning) — mall_class data feeds both principles.',
+    ],
+  },
+
+  {
+    id: 'P-IV-RET-6',
+    cluster: 'retail',
+    title: 'Calculate cumulative owner cash flow after debt service over loan term',
+    principleText:
+      'Cumulative owner cash flow after debt service over the loan term should always be calculated',
+    sourceCitation: 'Handbook §IV, Retail (Mall sub-cluster), bullet 4',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+        {
+          kind: 'field_in',
+          field: 'property_sub_type',
+          values: ['Mall', 'Regional Mall', 'Super-Regional Mall'],
+        },
+      ],
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: {
+        kind: 'computed',
+        formula: {
+          kind: 'op',
+          op: 'sum_over_term',
+          operands: [
+            {
+              kind: 'op',
+              op: 'subtract',
+              operands: [
+                { kind: 'field', path: 'noi_projection' },
+                {
+                  kind: 'op',
+                  op: 'add',
+                  operands: [
+                    { kind: 'field', path: 'debt_service' },
+                    { kind: 'field', path: 'reserves' },
+                    { kind: 'field', path: 'capex_projection' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 0 },
+              severity: 'high',
+              flag_message:
+                'Cumulative owner cash flow after debt service over loan term is negative. Per handbook, this metric must always be calculated for malls. Negative cumulative CF means sponsor must inject capital to service debt; refi risk is elevated.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'This is the methodology principle — the metric should ALWAYS be computed, regardless of whether it triggers a flag. The deterministic check fires only when cumulative CF is negative. Engine implementation must compute and surface the value in all cases, even when not flagging.',
+    ],
+  },
+
+  {
+    id: 'P-IV-RET-7',
+    cluster: 'retail',
+    title: 'Tenant bankruptcy risk evaluation',
+    principleText: 'Evaluate tenant bankruptcy risk (e.g., movie theaters)',
+    sourceCitation: 'Handbook §IV, Retail, Tenant risk bullet 1',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'tenant_categories' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'contains_any',
+              threshold: {
+                kind: 'set',
+                values: [
+                  'Movie Theater',
+                  'Department Store',
+                  'Big-Box Apparel',
+                  'Family Entertainment',
+                  'Discount Apparel',
+                ],
+              },
+              severity: 'high',
+              flag_message:
+                'Tenant in elevated-bankruptcy-risk category detected. Per handbook, evaluate tenant default risk explicitly. Surface recent financial performance, restructuring history, industry distress indicators.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'tenant_bankruptcy_risk_assessment',
+        verification_required: true,
+        target_data:
+          'tenant rent roll with tenant names and industry categories, public bankruptcy filings by tenant entities, industry-level distress indicators, tenant credit ratings if available',
+        summary_prompt_hint:
+          'Identify tenants in industries with elevated bankruptcy risk. Surface specific tenants on the rent roll matching the watchlist (movie theaters, department stores, struggling specialty retail, etc.). Check public records for any pending or recent bankruptcy filings by the tenant entities. Surface industry-wide stress patterns.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Watchlist categories curated based on handbook example + broadly-recognized retail bankruptcy patterns. Non-exhaustive. Future ticket may make the watchlist an editable registry artifact (same pattern as P-II-8 specialty assets, P-IV-OFF-9 distressed submarkets).',
+    ],
+  },
+
+  {
+    id: 'P-IV-RET-8',
+    cluster: 'retail',
+    title: 'Alternative tenancy with limited re-tenanting depth',
+    principleText:
+      'Be wary of alternative tenancy with limited re-tenanting depth (trampoline parks, etc.)',
+    sourceCitation: 'Handbook §IV, Retail, Tenant risk bullet 2',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'tenant_categories' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'contains_any',
+              threshold: {
+                kind: 'set',
+                values: [
+                  'Trampoline Park',
+                  'Escape Room',
+                  'Axe Throwing',
+                  'Virtual Reality Arcade',
+                  'Indoor Karting',
+                  'Indoor Mini Golf',
+                  "Children's Play Café",
+                  "Children's Edutainment",
+                  'Karaoke Room',
+                  'Boutique Fitness',
+                ],
+              },
+              severity: 'high',
+              flag_message:
+                'Tenant in limited-re-tenanting-depth category detected. Per handbook, alternative tenancy of this type carries elevated risk if the tenant vacates — backfill universe is narrow and build-out is concept-specific. Surface lease term, tenant strength, and backfill plan.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'alternative_tenancy_backfill_assessment',
+        verification_required: true,
+        target_data:
+          'tenant rent roll with category identification, build-out specifics, lease term remaining, the realistic re-tenanting universe (count of operators in the broader market for similar concepts)',
+        summary_prompt_hint:
+          'Identify tenants representing alternative/specialty concepts with limited re-tenanting depth. Surface the universe of potential replacement tenants if the space vacates — for many of these categories (trampoline parks, escape rooms, VR arcades) the replacement pool is shallow nationally. Build-out costs to convert to a different use can be substantial. Flag where lease has limited term or weak tenant.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Watchlist categories curated based on handbook example (trampoline parks) + broadly-recognized "experiential retail with limited backfill" categories. Non-exhaustive. Distinct from P-IV-RET-7 (bankruptcy risk) — this principle is about RE-TENANTING risk even if current tenant performs.',
+    ],
+  },
+
+  {
+    id: 'P-IV-RET-9',
+    cluster: 'retail',
+    title: 'Co-tenancy provisions and sales kick-out rights analysis',
+    principleText:
+      'Analyze co-tenancy provisions and sales kick-out rights in detail',
+    sourceCitation: 'Handbook §IV, Retail, Tenant risk bullet 3',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'retail_lease_provision_analysis',
+        verification_required: true,
+        target_data:
+          'lease abstracts for tenants with co-tenancy provisions or kick-out rights, the specific trigger conditions for each, percentage of NOI at risk if those provisions activate, anchor lease tie-ins',
+        summary_prompt_hint:
+          'Identify tenants with co-tenancy provisions (rent reduction or termination if anchor or occupancy thresholds aren\'t met) and sales kick-out rights (tenant termination right if sales fall below threshold). Quantify the percentage of NOI exposed to these provisions. Identify what specific conditions would trigger them (e.g., anchor X vacating, occupancy dropping below 80%, individual tenant sales below threshold). This is rent-at-risk exposure not visible in the rent roll.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'This data is typically buried in lease documents and not in structured ASR fields. Engine work to extract this would require document parsing capabilities or analyst manual entry. Research action surfaces what issuer provided plus flags absence if analyst review is needed.',
+    ],
+  },
+
+  {
+    id: 'P-IV-RET-10',
+    cluster: 'retail',
+    title: 'Shrinking prototype store sizes and big-box re-tenanting risk',
+    principleText:
+      'Understand shrinking prototype store sizes and big-box re-tenanting risk',
+    sourceCitation: 'Handbook §IV, Retail, Physical fundamentals bullet 1',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'retail_box_size_retenanting_assessment',
+        verification_required: true,
+        target_data:
+          'anchor and big-box tenant footprints (SF), tenant category typical prototype size (current vs historical), recent comparable big-box vacancies and re-tenanting outcomes (was box divided? rent lost?)',
+        summary_prompt_hint:
+          "Identify big-box tenants (typically > 20,000 SF) at the subject. Compare their actual footprint to their tenant category's CURRENT prototype size (most categories have shrunk meaningfully over 10-15 years). If material gap, the box may be larger than what replacement tenants want — re-tenanting risk includes division costs (build-out for multiple smaller tenants) and rent compression (smaller boxes typically pay lower total $).",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-RET-11',
+    cluster: 'retail',
+    title: 'Demographics and population growth foundational',
+    principleText: 'Demographics and population growth are foundational',
+    sourceCitation: 'Handbook §IV, Retail, Physical fundamentals bullet 2',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['executive_summary', 'red_flag_assessment'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'retail_trade_area_demographics',
+        verification_required: true,
+        target_data:
+          'trade-area population (1-mile, 3-mile, 5-mile typical for retail), household income, household density, 5-10 year population growth trend, age distribution, employment trends in the trade area',
+        summary_prompt_hint:
+          'Surface trade-area demographics for the retail subject. Standard radii: 1-mile, 3-mile, 5-mile (or 10-15 minute drive times for larger formats like malls). Key metrics: population, household income, household density, 5-10 year growth trend. Declining or stagnant demographics is a structural negative for retail; strong growth is a structural positive. Flag declining population or income trends; recognize strong-demographic markets in summary.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-RET-12',
+    cluster: 'retail',
+    title: 'Sponsor quality and giveback history (particularly malls)',
+    principleText:
+      'Sponsor quality and historical behavior, including asset givebacks to lenders, are critical (particularly on malls)',
+    sourceCitation: 'Handbook §IV, Retail, Sponsorship bullet 1',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Retail' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'sponsor_giveback_history',
+        verification_required: true,
+        target_data:
+          "sponsor's history of deeds-in-lieu, foreclosures where sponsor was borrower, abandoned malls or retail properties, special servicing actions on sponsor's other deals",
+        summary_prompt_hint:
+          "Research the sponsor's history with asset givebacks. Has this sponsor walked away from properties (deed-in-lieu, abandoned malls, foreclosure as borrower) previously? Particularly relevant for malls — sponsors with prior mall givebacks have demonstrated willingness to use this strategy. Surface specific giveback events with dates, properties, and circumstances. Cross-reference with kicks_registry and approved_deals if same sponsor appears there.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-12'],
+      relatedReviewStepIds: ['V-4'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+];
+
+// =============================================================================
+// Section IV — Multifamily (14 principles)
+// =============================================================================
+
+const sectionIV_multifamily_principles: Principle[] = [
+  {
+    id: 'P-IV-MF-1',
+    cluster: 'multifamily',
+    title: 'Assets 5+ years old should demonstrate ~3 years stable operations',
+    principleText:
+      'Assets five years or older should demonstrate approximately three years of stable operations',
+    sourceCitation: 'Handbook §IV, Multifamily, bullet 1',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        {
+          kind: 'field_equals',
+          field: 'asset_type',
+          value: 'Multifamily',
+        },
+        { kind: 'field_gte', field: 'building_age', value: 5 },
+      ],
+    },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'years_of_stable_operating_history' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 3 },
+              severity: 'high',
+              flag_message:
+                'Building is {building_age} years old but issuer has provided less than 3 years of stable operating history. Per handbook, 5+ year multifamily assets should demonstrate ~3 years of stable operations. Limited history raises concerns about NOI durability.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'mf_operating_history_assessment',
+        verification_required: true,
+        target_data:
+          'building age, available historical operating periods (T36/T24/T12), NOI and occupancy trends over those periods, identification of any disruption events (renovation, ownership change, repositioning)',
+        summary_prompt_hint:
+          "Surface the building's age vs available operating history. For 5+ year buildings, the handbook expects ~3 years of stable operations. Assess what 'stable' means in context — consistent NOI, occupancy, and rent trends without major disruptions. If recent ownership change or repositioning means stable history is shorter, surface that explicitly as a concern.",
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-2',
+    cluster: 'multifamily',
+    title: 'Older vintage with renovation-driven NOI growth — skepticism warranted',
+    principleText:
+      'Older vintage properties are viewed skeptically where NOI growth is renovation-driven; incomplete renovation of units should be flagged as a first-order underwriting concern',
+    sourceCitation: 'Handbook §IV, Multifamily, bullet 2',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Multifamily' },
+        { kind: 'field_gte', field: 'building_age', value: 20 },
+      ],
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_renovation_driven_growth_assessment',
+        verification_required: true,
+        target_data:
+          'building age, recent NOI growth and its components (rent growth on renovated vs un-renovated units), renovation completion status (% of units renovated), planned renovation pipeline, classic-to-renovated rent gap',
+        summary_prompt_hint:
+          'Assess whether recent NOI growth is renovation-driven (i.e., classic units being upgraded and re-leased at premium rents) vs market-driven. Renovation-driven growth is non-recurring — once all units are renovated, growth stops. Surface: % of units renovated, renovation pipeline status, premium captured per unit, organic market rent growth absent renovation. Incomplete renovations create both capex risk and leasing risk on remaining classic units.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      '"Older vintage" threshold of 20 years is calibration; handbook does not quantify. The principle\'s deterministic trigger could be tightened or loosened. Open to recalibration.',
+    ],
+  },
+
+  {
+    id: 'P-IV-MF-3',
+    cluster: 'multifamily',
+    title: 'Class C → durable Class B upgrades difficult and often unsustainable',
+    principleText:
+      'Upgrading Class C assets into durable Class B properties is difficult and often unsustainable',
+    sourceCitation: 'Handbook §IV, Multifamily, bullet 3',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_class_repositioning_assessment',
+        verification_required: true,
+        target_data:
+          'current asset class designation, business plan / sponsor narrative about repositioning, neighborhood class (often determines achievable property class), comparable asset class drift over time, rent premium being underwritten vs current market',
+        summary_prompt_hint:
+          'Identify whether the business plan involves repositioning the asset to a higher class tier. If yes, assess whether this is achievable given neighborhood quality and demographics. Class follows neighborhood — Class C neighborhoods generally produce Class C performance regardless of unit renovation. Surface evidence of similar repositioning attempts in the submarket and their outcomes. Skepticism warranted; explicit class-upgrade business plans should be flagged.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-4',
+    cluster: 'multifamily',
+    title: 'Scrutinize historical and forward-looking capex (roofs, major systems)',
+    principleText:
+      'Scrutinize historical and forward-looking capex, particularly roofs and major systems',
+    sourceCitation: 'Handbook §IV, Multifamily, bullet 4',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_capex_assessment',
+        verification_required: true,
+        target_data:
+          'historical capex spending (last 3-5 years, broken down by category), property condition report findings on roof, HVAC, plumbing, electrical, parking lots, exterior systems; estimated remaining useful life of major systems; engineering report (PCA) findings; proposed reserve structure',
+        summary_prompt_hint:
+          'Assess historical and forward-looking capex needs. Surface: (a) historical capex spending vs typical $/unit norms ($300-500/unit/year is a common baseline; higher for older assets), (b) condition of major systems from PCA — roof age and remaining life, HVAC status, plumbing, electrical, parking lots, (c) any flagged capex items in the engineering report. Compare to proposed reserve structure. Flag if reserves appear insufficient against identified capex needs.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-4'],
+      relatedReviewStepIds: ['V-3'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-5',
+    cluster: 'multifamily',
+    title: 'Crime as first-order concern — independent crime search',
+    principleText:
+      'Crime is a first-order underwriting concern; do an independent crime search – this is often best done by searching the property name and finding news on the assets and also sometimes local Police Departments have GIS Mapping that can be a good source of data',
+    sourceCitation: 'Handbook §IV, Multifamily, bullet 5',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'mf_crime_independent_search',
+        verification_required: true,
+        target_data:
+          'news search results for "{property name} crime", "{property name} police", "{property address} incidents"; local Police Department GIS crime mapping data for the property and surrounding blocks; crime statistics for the census tract / police precinct; any specific high-profile incidents tied to the property',
+        summary_prompt_hint:
+          'Conduct independent crime research on the subject property. Search news sources for the property name + crime/police/incident keywords. Check local Police Department GIS mapping if available (many police departments publish incident data online, especially in larger cities). Surface: any specific incidents at the property, crime trends in the immediate area (1-3 block radius), comparison to broader submarket. Crime issues are first-order concerns — do not rely on issuer-provided safety narrative. Analyst must verify.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook gives specific methodology (news search + police GIS). Engine should automate where possible (news search) and surface what is available; analyst must verify.',
+    ],
+  },
+
+  {
+    id: 'P-IV-MF-6',
+    cluster: 'multifamily',
+    title: 'Tenant reviews mandate (1-2 star focus on crime, deferred maintenance, pests)',
+    principleText:
+      'Focus on substantive resident issues such as crime, deferred maintenance, and pests by reading third party websites for tenant reviews. Tenant reviews from third party websites provide great insight, ALWAYS review these and summarize what you see in the 1 and 2 star reviews.',
+    sourceCitation: 'Handbook §IV, Multifamily, bullets 6 + closing',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'tenant_reviews_third_party',
+        verification_required: true,
+        target_data:
+          '1-star and 2-star reviews from ApartmentRatings.com, Google Maps, Yelp, Apartments.com, Facebook reviews, and similar third-party review sites for the specific property; focus on patterns indicating crime, deferred maintenance, and pest issues',
+        summary_prompt_hint:
+          'Search third-party review sites for the subject multifamily property. Focus on 1-star and 2-star reviews. Per handbook, prioritize patterns indicating: (a) crime — break-ins, assaults, drug activity, unsafe environment; (b) deferred maintenance — broken appliances, water leaks, mold, HVAC failures, general decay; (c) pests — roaches, bedbugs, rodents, infestations. These three categories are first-order concerns. Surface themes and quantify how frequently they appear. Cross-reference with the crime search from P-IV-MF-5. Analyst MUST independently verify before relying on this summary.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-MHC-8', 'P-IV-HOT-2'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Combines two handbook bullets — the substantive-issues bullet and the closing "ALWAYS review tenant reviews" mandate. Third instance of the tenant-reviews mandate (after P-IV-MHC-8; before Hotel\'s TripAdvisor version). Multifamily version adds the explicit focus areas (crime, deferred maintenance, pests).',
+    ],
+  },
+
+  {
+    id: 'P-IV-MF-7',
+    cluster: 'multifamily',
+    title: 'Avoid highly syndicated equity structures',
+    principleText: 'Avoid highly syndicated equity structures',
+    sourceCitation: 'Handbook §IV, Multifamily, bullet 7',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_equity_structure_assessment',
+        verification_required: true,
+        target_data:
+          'equity stack details — sponsor commitment, LP structure, number of investors, retail syndication indicators (use of crowdfunding platforms like CrowdStreet, RealtyMogul, Yieldstreet; many small LPs), GP/LP capital call provisions and history, sponsor\'s prior syndication track record',
+        summary_prompt_hint:
+          'Assess the equity capital structure. Highly syndicated structures (many small LPs, often raised through retail platforms like CrowdStreet, RealtyMogul, etc.) carry elevated risk: weak governance, limited capacity for capital calls under stress, sponsor often has minimal skin in the game. Surface: number of LPs, sponsor\'s $ commitment as % of total equity, whether retail syndication was used, capital call history if applicable. Flag highly syndicated structures explicitly per handbook.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-8',
+    cluster: 'multifamily',
+    title: 'Evaluate sponsor portfolio concentration and correlated exposure',
+    principleText:
+      'Evaluate sponsor portfolio concentration and correlated exposure',
+    sourceCitation: 'Handbook §IV, Multifamily, bullet 8',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_sponsor_portfolio_concentration',
+        verification_required: true,
+        target_data:
+          'sponsor\'s broader portfolio (other multifamily deals, geographic distribution, asset types), public filings if any, news coverage of sponsor\'s portfolio, similar properties under same sponsorship in same MSA/submarket, financing structure across portfolio (floating-rate concentration, bridge vs permanent)',
+        summary_prompt_hint:
+          'Assess the sponsor\'s broader portfolio for correlated exposure. Surface: (a) geographic concentration, (b) strategic concentration (same business plan repeated), (c) financial structure concentration (all floating-rate? all bridge loans?), (d) recent news of distress at other portfolio properties. Correlated exposure means stress at one property predicts stress across the portfolio.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-12', 'P-III-13'],
+      relatedReviewStepIds: ['V-4'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-9',
+    cluster: 'multifamily',
+    title: 'Analyze concessions, bad debt, collections where operating history limited',
+    principleText:
+      'Analyze concessions, bad debt, and collections where operating history is limited',
+    sourceCitation: 'Handbook §IV, Multifamily, Lease-up bullet 1',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Multifamily' },
+        {
+          kind: 'any_of',
+          conditions: [
+            { kind: 'field_lt', field: 'building_age', value: 5 },
+            { kind: 'field_lt', field: 'years_of_stable_operating_history', value: 2 },
+          ],
+        },
+      ],
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_lease_up_revenue_quality',
+        verification_required: true,
+        target_data:
+          'concession structure on recent leases (free months, reduced first-year rent), concession trend (rising/falling), bad debt as % of gross potential revenue, collections rate (actual cash received vs billed), aged receivables, comparison of net effective rent vs face rent',
+        summary_prompt_hint:
+          'For lease-up or newly-stabilized properties, scrutinize the quality of reported revenue. Surface: (a) concessions, (b) bad debt as % of gross revenue, (c) collections rate, (d) net effective rent vs face rent gap. Reported occupancy and rent can mask underlying revenue quality issues. If revenue quality is weak, the property\'s true stabilized economics may be materially different from underwriting.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-10',
+    cluster: 'multifamily',
+    title: 'Verify rents supportable via competing assets and their concessions',
+    principleText:
+      'Verify rents supportable by checking competing assets and knowing their concession offerings',
+    sourceCitation: 'Handbook §IV, Multifamily, Lease-up bullet 2',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_rent_comp_verification',
+        verification_required: true,
+        target_data:
+          'comparable property face rents (from comp survey or property listings), CONCESSIONS at comparable properties (free months, reduced first-year rents), effective rents net of concessions at comps, subject\'s underwritten rent vs effective comp rent',
+        summary_prompt_hint:
+          'Verify that the subject\'s underwritten rents are defensible against the competitive set. Critical to capture concessions at comp properties, not just face rents. Surface: comparable property face rents, their current concession offerings (free months, etc.), resulting effective rents net of concessions. Compare to subject\'s underwritten rent. If subject is being underwritten at face rent level while comps are offering material concessions, the rents are not realistic — flag explicitly.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-11',
+    cluster: 'multifamily',
+    title: 'Verify expense comparability — property tax reassessments',
+    principleText:
+      'Verify expense comparability, including property tax reassessments',
+    sourceCitation: 'Handbook §IV, Multifamily, Lease-up bullet 3',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_expense_verification',
+        verification_required: true,
+        target_data:
+          'subject expense ratios vs comparable properties; state and county property tax reassessment rules and triggers; projected post-closing taxes vs underwritten taxes; insurance market conditions in the geography (Florida, coastal states, wildfire zones have particular pressure)',
+        summary_prompt_hint:
+          'Verify the underwritten operating expenses against comparable benchmarks. Critical attention to: (a) property taxes — many jurisdictions reassess upon sale or refi; if the deal involves a transaction, taxes likely step up. (b) insurance — in coastal/wildfire/high-loss markets, insurance has spiked materially in 2022-2024. (c) other expense lines — flag any line that\'s materially below comp benchmarks as a potential underwriting understatement.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-12',
+    cluster: 'multifamily',
+    title: 'Confirm certificates of occupancy',
+    principleText: 'Confirm certificates of occupancy',
+    sourceCitation: 'Handbook §IV, Multifamily, Lease-up bullet 4',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Multifamily' },
+        {
+          kind: 'any_of',
+          conditions: [
+            { kind: 'field_lt', field: 'building_age', value: 5 },
+            { kind: 'field_truthy', field: 'has_recent_substantial_renovation' },
+          ],
+        },
+      ],
+    },
+    executionModes: ['RESEARCH'],
+    injectionPoints: ['red_flag_assessment'],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'mf_certificate_of_occupancy_verification',
+        verification_required: true,
+        target_data:
+          'number of units with C of O, number of units without C of O, status of any pending C of O issuance, the municipal building department records for the subject property',
+        summary_prompt_hint:
+          'Verify certificates of occupancy for all units. Especially critical for new construction and recently-renovated assets. Surface: (a) total unit count vs units with valid C of O, (b) any pending C of O applications or issues, (c) any units that cannot be legally occupied. Units without C of O cannot be leased; underwriting that includes those units is over-stated. Flag any C of O gap as a critical issue.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Trigger condition could narrow this further (only new construction within first 2-3 years). Used building_age < 5 OR recent renovation as a broad capture. May be tightened later.',
+    ],
+  },
+
+  {
+    id: 'P-IV-MF-13',
+    cluster: 'multifamily',
+    title: 'Always assess new supply',
+    principleText: 'Always assess new supply',
+    sourceCitation: 'Handbook §IV, Multifamily, Supply bullet 1',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_new_supply_assessment',
+        verification_required: true,
+        target_data:
+          'units under construction in the submarket (typically 3-5 mile radius for urban, 10-mile for suburban), units in planning/permitting pipeline, expected delivery dates, comparison to current submarket inventory (new supply as % of existing), historical absorption rate',
+        summary_prompt_hint:
+          'Assess new multifamily supply in the submarket. Surface: (a) units under construction, (b) units in planning/permitting, (c) ratio of new supply to existing submarket inventory (10%+ is materially elevated), (d) historical submarket absorption rate vs incoming supply. Heavy supply in delivery window compresses rent growth and pressures occupancy.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-MF-14',
+    cluster: 'multifamily',
+    title: 'Evaluate exposure to rent control, stabilization, vouchers, and subsidies',
+    principleText:
+      'Evaluate exposure to rent control, stabilization, vouchers, and other subsidies',
+    sourceCitation: 'Handbook §IV, Multifamily, Supply bullet 2',
+    trigger: {
+      kind: 'field_equals',
+      field: 'asset_type',
+      value: 'Multifamily',
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'mf_regulatory_exposure_assessment',
+        verification_required: true,
+        target_data:
+          'state and municipal rent control / stabilization rules applicable to the subject property, percentage of units in rent control or stabilization, percentage of units accepting Section 8 vouchers, percentage of units subject to LIHTC or other affordability programs, expiration dates of any affordability restrictions, any pending legislation that could expand rent control',
+        summary_prompt_hint:
+          'Assess regulatory exposure. Surface: (a) rent control / stabilization rules and affected unit %, (b) Section 8 voucher acceptance, (c) LIHTC or other affordability subsidies and their expiration dates, (d) pending legislation. Each form of regulation constrains cash flow, operational flexibility, and exit liquidity differently.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+];
+
+// =============================================================================
+// Section IV — Hotel (10 principles)
+// =============================================================================
+
+const sectionIV_hotel_principles: Principle[] = [
+  {
+    id: 'P-IV-HOT-1',
+    cluster: 'hotel',
+    title: 'New supply as primary risk — evaluate in detail',
+    principleText:
+      'New supply is a primary risk and must be evaluated in detail',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 1',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    researchActions: [
+      {
+        action_type: 'hotel_new_supply_assessment',
+        verification_required: true,
+        target_data:
+          'hotels under construction in the competitive set / submarket, hotels in planning/permitting pipeline, expected delivery dates, brand identity of incoming supply, room counts of new supply, comparison to existing market room inventory, expected RevPAR impact from new supply',
+        summary_prompt_hint:
+          'Assess new hotel supply in the competitive market. Hotel is supply-sensitive — even modest new supply (5-10% of inventory) can materially impact RevPAR across the existing competitive set. Surface: (a) properties under construction with expected open dates, (b) properties in planning/permitting pipeline, (c) brand and segment match to subject, (d) impact analysis from STR or other industry sources if available. New supply is the primary credit risk per handbook.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-HOT-2',
+    cluster: 'hotel',
+    title: 'Guest reviews mandate (1-2 star focus, TripAdvisor primary)',
+    principleText:
+      'Read reviews from TripAdvisor always. Guest reviews from third party websites provide great insight, ALWAYS review these and summarize what you see in the 1 and 2 star reviews.',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 2 + closing',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'guest_reviews_third_party',
+        verification_required: true,
+        target_data:
+          '1-star and 2-star reviews from TripAdvisor (primary), Google Maps, Booking.com, Hotels.com, Expedia for the specific hotel; focus on patterns indicating service failures, cleanliness issues, deferred maintenance, safety concerns, brand-standard compliance issues',
+        summary_prompt_hint:
+          'Search third-party review sites for the subject hotel, with TripAdvisor as the primary source per handbook. Focus on 1-star and 2-star reviews. Surface patterns indicating: (a) service failures, (b) cleanliness, (c) deferred maintenance, (d) safety concerns, (e) brand-standard compliance gaps (relevant for franchise relationship risk under P-IV-HOT-3). Analyst MUST independently verify.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-MHC-8', 'P-IV-MF-6'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Fourth instance of the tenant/guest reviews mandate pattern (after P-IV-MHC-8 and P-IV-MF-6). Hotel emphasizes TripAdvisor specifically — the canonical hospitality review source.',
+    ],
+  },
+
+  {
+    id: 'P-IV-HOT-3',
+    cluster: 'hotel',
+    title: 'Franchise / flag expiration dates — required diligence',
+    principleText:
+      'Franchise or flag expiration dates are required diligence items',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 3',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'years_until_franchise_expiration_from_loan_maturity' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 3 },
+              severity: 'critical',
+              flag_message:
+                'Franchise/flag agreement expires within 3 years of loan maturity (or before). Per handbook, franchise expiration is required diligence. Surface renewal commitment status, expected PIP at renewal, and brand alternatives if franchise is not renewed.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'hotel_franchise_diligence',
+        verification_required: true,
+        target_data:
+          'current franchise/flag (brand identity), franchise agreement expiration date, renewal terms negotiated or pending, history of brand relationship, expected PIP scope at renewal, sponsor\'s brand relationships and ability to attract alternative flag if non-renewal occurs',
+        summary_prompt_hint:
+          'Diligence the franchise/flag agreement. Surface: (a) current brand and franchise expiration date relative to loan maturity, (b) renewal status, (c) expected PIP at renewal, (d) brand compliance history, (e) brand alternatives. Loss of flag typically destroys 20-40% of value; this is a critical diligence item.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-HOT-4',
+    cluster: 'hotel',
+    title: '7-year renovation cycle — calculate time since last renovation',
+    principleText:
+      'Most brands require renovations on roughly seven-year cycles; always calculate time since last renovation',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 4',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'years_since_last_renovation' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'gte',
+              threshold: { kind: 'literal', value: 7 },
+              severity: 'high',
+              flag_message:
+                'Hotel is {years_since_last_renovation} years past last major renovation, at or beyond the typical 7-year brand-mandated cycle. Per handbook, a PIP is likely required. Surface expected PIP scope and cost (see P-IV-HOT-5 for per-key benchmarks), and verify it is accounted for in reserves.',
+            },
+            {
+              operator: 'in_range',
+              threshold: {
+                kind: 'range',
+                min: 5,
+                max: 7,
+                minInclusive: true,
+                maxInclusive: false,
+              },
+              severity: 'medium',
+              flag_message:
+                'Hotel is {years_since_last_renovation} years past last renovation, approaching the 7-year brand-mandated cycle. PIP exposure becoming material over loan term.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'hotel_renovation_cycle_assessment',
+        verification_required: true,
+        target_data:
+          "date and scope of last major renovation, brand's typical renovation cycle, any communications from brand regarding upcoming PIP requirements, planned renovation timeline if any",
+        summary_prompt_hint:
+          'Identify the date and scope of the last major renovation. Calculate time since last renovation. Most major brands require renovations on 7-year cycles; some (luxury, higher-tier) on shorter cycles. Surface: (a) date of last renovation, (b) scope, (c) any brand communications about upcoming PIP requirements, (d) planned renovation timing.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-HOT-5'],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-HOT-5',
+    cluster: 'hotel',
+    title: 'PIP per-key cost benchmarks ($15K-$50K range)',
+    principleText:
+      'Typical PIPs range from ~$15k/key (low end) to ~$40–50k/key for full-service hotels',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 5',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'pip_reserve_per_key' },
+      evaluationGroups: [
+        {
+          condition: {
+            kind: 'field_in',
+            field: 'hotel_service_level',
+            values: ['Limited-Service', 'Select-Service'],
+          },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 15000 },
+              severity: 'high',
+              flag_message:
+                'PIP reserve is {pip_reserve_per_key}/key, below the ~$15K/key handbook low-end benchmark for limited/select-service hotels. Reserve appears insufficient for typical PIP scope.',
+            },
+          ],
+        },
+        {
+          condition: {
+            kind: 'field_in',
+            field: 'hotel_service_level',
+            values: ['Full-Service', 'Luxury', 'Upper-Upscale'],
+          },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 40000 },
+              severity: 'high',
+              flag_message:
+                'PIP reserve is {pip_reserve_per_key}/key, below the ~$40-50K/key handbook range for full-service hotels. Reserve appears insufficient — full-service PIPs typically include guest rooms, public spaces, F&B, technology, brand elements.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'hotel_pip_reserve_adequacy',
+        verification_required: true,
+        target_data:
+          'hotel service level (limited / select / full / luxury), PIP reserve structure (cash on hand, springing), expected PIP scope from brand and timing, comparison of reserve $/key to handbook benchmarks',
+        summary_prompt_hint:
+          'Assess PIP reserve adequacy against handbook benchmarks. Surface: (a) hotel service level, (b) reserve $/key, (c) expected PIP scope and timing, (d) gap between reserve and expected PIP cost.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: ['P-IV-HOT-4'],
+      relatedReviewStepIds: ['V-3'],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Bi-modal threshold by service level. Schema accommodates conditional thresholds within a single principle via two evaluationGroups with different field_in conditions.',
+    ],
+  },
+
+  {
+    id: 'P-IV-HOT-6',
+    cluster: 'hotel',
+    title: 'Older hotels — maintenance difficulty and franchise-exit risk',
+    principleText:
+      "Older hotels are more difficult to maintain and are at risk of being pushed out of franchise systems (think first gen Hampton Inns from the 1990's)",
+    sourceCitation: 'Handbook §IV, Hotel, bullet 6',
+    trigger: {
+      kind: 'all_of',
+      conditions: [
+        { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+        { kind: 'field_gte', field: 'building_age', value: 25 },
+      ],
+    },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'hotel_aging_franchise_exit_risk',
+        verification_required: true,
+        target_data:
+          "building age, brand vintage (when the property opened under current brand), brand's known position on legacy product, property condition vs current brand prototype, recent PIPs and their thoroughness",
+        summary_prompt_hint:
+          'Assess franchise-exit risk for older hotels. Surface: (a) building age and time under current brand, (b) brand stance on legacy product, (c) property condition vs current brand prototype standards, (d) recent PIPs and whether they were sufficient, (e) brand-relationship signals.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      '"Older" threshold of 25 years is calibration. Handbook example (first-gen Hampton Inns from the 1990s) suggests ~30-35 year age range. Open to recalibration.',
+    ],
+  },
+
+  {
+    id: 'P-IV-HOT-7',
+    cluster: 'hotel',
+    title: 'Older full-service CBD hotels — post-COVID business travel decline',
+    principleText:
+      'Older full-service CBD hotels are particularly challenging in light of reduced business travel post COVID',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 7',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'critical',
+    deterministicCheck: {
+      metric: { kind: 'categorical' },
+      evaluationGroups: [
+        {
+          condition: {
+            kind: 'all_of',
+            conditions: [
+              { kind: 'field_gte', field: 'building_age', value: 20 },
+              {
+                kind: 'field_in',
+                field: 'hotel_service_level',
+                values: ['Full-Service', 'Upper-Upscale', 'Luxury'],
+              },
+              { kind: 'field_equals', field: 'location_type', value: 'CBD' },
+            ],
+          },
+          bands: [
+            {
+              operator: 'matches',
+              threshold: { kind: 'none' },
+              severity: 'critical',
+              flag_message:
+                'Property matches the handbook-flagged combination: older ({building_age} years) full-service CBD hotel. Per handbook, this combination is particularly challenged by reduced post-COVID business travel. Surface business mix, demand recovery vs 2019 baseline, and structural outlook.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [
+      {
+        action_type: 'hotel_cbd_business_recovery_assessment',
+        verification_required: true,
+        target_data:
+          'RevPAR recovery vs 2019 baseline, business vs leisure mix in demand, group/corporate vs transient mix, days-of-week occupancy patterns, submarket RevPAR recovery',
+        summary_prompt_hint:
+          'Assess post-COVID demand recovery for older full-service CBD hotels. Surface: (a) RevPAR vs 2019, (b) business/group vs leisure demand mix, (c) day-of-week patterns, (d) the submarket\'s broader RevPAR recovery trajectory.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-HOT-8',
+    cluster: 'hotel',
+    title: 'Analyze seasonality and demand mix (T12 monthly)',
+    principleText:
+      'Analyze seasonality and demand mix; trailing 12 month monthly cash flows help with this understanding',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 8',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'hotel_seasonality_demand_mix_analysis',
+        verification_required: true,
+        target_data:
+          'trailing 12 month MONTHLY revenue/RevPAR/NOI (not just annual), demand mix breakdown (business / group / corporate / leisure / transient), seasonality patterns (peak vs trough month spread), days-of-week patterns',
+        summary_prompt_hint:
+          'Analyze seasonality and demand mix using T12 monthly data. Surface: (a) revenue/NOI monthly distribution, (b) demand mix breakdown, (c) days-of-week occupancy patterns, (d) any unusual months. Highly seasonal properties carry elevated stress risk during off-peak; deals dependent on group business carry concentration risk if convention pace softens. Annual averages mask these dynamics.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-HOT-9',
+    cluster: 'hotel',
+    title: 'Group and contract business concentration',
+    principleText: 'Evaluate group and contract business concentration',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 9',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['LLM_CONTEXT', 'RESEARCH'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [
+      {
+        action_type: 'hotel_group_contract_concentration',
+        verification_required: true,
+        target_data:
+          'breakdown of revenue by segment (group, contract, transient, leisure), top 10 group accounts and their % of revenue, contract business identification (airline crew, government per-diem, hospital, university, etc.), contract terms and expiration dates, any recent contract losses or wins, dependency on adjacent convention center or major demand generator',
+        summary_prompt_hint:
+          'Assess group and contract business concentration. Surface: (a) revenue split by segment, (b) top group accounts and concentration, (c) contract business identification and terms, (d) dependence on a single demand generator. High concentration in group/contract creates discrete revenue cliffs if those relationships end.',
+      },
+    ],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+  },
+
+  {
+    id: 'P-IV-HOT-10',
+    cluster: 'hotel',
+    title: 'Assess leverage via debt yield AND multiples of room revenue',
+    principleText:
+      'Assess leverage using both debt yield and multiples of room revenue',
+    sourceCitation: 'Handbook §IV, Hotel, bullet 10',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Hotel' },
+    executionModes: ['DETERMINISTIC', 'LLM_CONTEXT'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'high',
+    deterministicCheck: {
+      metric: {
+        kind: 'computed',
+        formula: {
+          kind: 'op',
+          op: 'divide',
+          operands: [
+            { kind: 'field', path: 'loan_amount' },
+            { kind: 'field', path: 'annual_room_revenue' },
+          ],
+        },
+      },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'gt',
+              threshold: { kind: 'literal', value: 5.0 },
+              severity: 'high',
+              flag_message:
+                'Loan-to-annual-room-revenue multiple is above the ~5x industry benchmark. Hotel leverage looks aggressive relative to the most stable revenue stream. Per handbook, leverage must be assessed by BOTH debt yield AND room revenue multiple.',
+            },
+            {
+              operator: 'in_range',
+              threshold: {
+                kind: 'range',
+                min: 4.0,
+                max: 5.0,
+                minInclusive: true,
+                maxInclusive: true,
+              },
+              severity: 'medium',
+              flag_message:
+                'Loan-to-annual-room-revenue multiple is at the upper end of typical hotel leverage. Cushion against RevPAR decline is thin.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Handbook says "assess leverage using both debt yield and multiples of room revenue" but does not quantify the multiple. The 5x ceiling and 4-5x advisory band are industry calibration choices. Handbook is mainly emphasizing the METHODOLOGY (use both metrics), not specific thresholds. Open to recalibration.',
+    ],
+  },
+];
+
+// =============================================================================
+// Cluster definitions
+// =============================================================================
+
+const coreCluster: PrincipleCluster = {
+  id: 'core_philosophy',
+  title: 'Core Philosophy',
+  section: 'core_philosophy',
+  assetTypeScope: 'All',
+  principleIds: [
+    'P-II-1',
+    'P-II-2',
+    'P-II-3',
+    'P-II-4',
+    'P-II-5',
+    'P-II-6',
+    'P-II-7',
+    'P-II-8',
+  ],
+};
+
+const universalCluster: PrincipleCluster = {
+  id: 'universal_framework',
+  title: 'Universal Framework',
+  section: 'universal_framework',
+  assetTypeScope: 'All',
+  principleIds: [
+    'P-III-1',
+    'P-III-2',
+    'P-III-3',
+    'P-III-4',
+    'P-III-5',
+    'P-III-6',
+    'P-III-7',
+    'P-III-8',
+    'P-III-9',
+    'P-III-10',
+    'P-III-11',
+    'P-III-12',
+    'P-III-13',
+  ],
+};
+
+const singleTenantCluster: PrincipleCluster = {
+  id: 'single_tenant_risk',
+  title: 'Single-Tenant Risk',
+  section: 'asset_type_specific',
+  assetTypeScope: 'SingleTenant',
+  narrative:
+    'Single-tenant loans concentrate all rental income on one credit, eliminating the diversification benefit that mitigates risk in multi-tenant assets. When the single tenant vacates or defaults, NOI goes to zero and the property must be re-leased or sold under distress conditions. Appraisal-derived dark value estimates systematically overstate realizable recovery in distress because they assume idealized re-leasing velocity, achievable rents, downtime, and capital costs that rarely materialize in practice. Single-tenant deals require elevated skepticism regardless of reported in-place cash flow strength, particular attention to whether the tenant relationship is credit-driven (build-to-suit, sale-leaseback) versus market-driven, and a meaningful haircut to appraisal-derived dark value as a baseline credit consideration.',
+  principleIds: ['P-IV-ST-1', 'P-IV-ST-2', 'P-IV-ST-3', 'P-IV-ST-4'],
+};
+
+const industrialCluster: PrincipleCluster = {
+  id: 'industrial',
+  title: 'Industrial',
+  section: 'asset_type_specific',
+  assetTypeScope: 'Industrial',
+  principleIds: [
+    'P-IV-IND-1',
+    'P-IV-IND-2',
+    'P-IV-IND-3',
+    'P-IV-IND-4',
+    'P-IV-IND-5',
+  ],
+};
+
+const selfStorageCluster: PrincipleCluster = {
+  id: 'self_storage',
+  title: 'Self-Storage',
+  section: 'asset_type_specific',
+  assetTypeScope: 'SelfStorage',
+  principleIds: ['P-IV-SS-1', 'P-IV-SS-2', 'P-IV-SS-3', 'P-IV-SS-4'],
+};
+
+const mhcCluster: PrincipleCluster = {
+  id: 'mhc',
+  title: 'MHC (Manufactured Housing Communities)',
+  section: 'asset_type_specific',
+  assetTypeScope: 'MHC',
+  principleIds: [
+    'P-IV-MHC-1',
+    'P-IV-MHC-2',
+    'P-IV-MHC-3',
+    'P-IV-MHC-4',
+    'P-IV-MHC-5',
+    'P-IV-MHC-6',
+    'P-IV-MHC-7',
+    'P-IV-MHC-8',
+  ],
+};
+
+const officeCluster: PrincipleCluster = {
+  id: 'office',
+  title: 'Office',
+  section: 'asset_type_specific',
+  assetTypeScope: 'Office',
+  principleIds: [
+    'P-IV-OFF-1',
+    'P-IV-OFF-2',
+    'P-IV-OFF-3',
+    'P-IV-OFF-4',
+    'P-IV-OFF-5',
+    'P-IV-OFF-6',
+    'P-IV-OFF-7',
+    'P-IV-OFF-8',
+    'P-IV-OFF-9',
+  ],
+};
+
+const retailCluster: PrincipleCluster = {
+  id: 'retail',
+  title: 'Retail',
+  section: 'asset_type_specific',
+  assetTypeScope: 'Retail',
+  principleIds: [
+    'P-IV-RET-1',
+    'P-IV-RET-2',
+    'P-IV-RET-3',
+    'P-IV-RET-4',
+    'P-IV-RET-5',
+    'P-IV-RET-6',
+    'P-IV-RET-7',
+    'P-IV-RET-8',
+    'P-IV-RET-9',
+    'P-IV-RET-10',
+    'P-IV-RET-11',
+    'P-IV-RET-12',
+  ],
+};
+
+const multifamilyCluster: PrincipleCluster = {
+  id: 'multifamily',
+  title: 'Multifamily',
+  section: 'asset_type_specific',
+  assetTypeScope: 'Multifamily',
+  principleIds: [
+    'P-IV-MF-1',
+    'P-IV-MF-2',
+    'P-IV-MF-3',
+    'P-IV-MF-4',
+    'P-IV-MF-5',
+    'P-IV-MF-6',
+    'P-IV-MF-7',
+    'P-IV-MF-8',
+    'P-IV-MF-9',
+    'P-IV-MF-10',
+    'P-IV-MF-11',
+    'P-IV-MF-12',
+    'P-IV-MF-13',
+    'P-IV-MF-14',
+  ],
+};
+
+const hotelCluster: PrincipleCluster = {
+  id: 'hotel',
+  title: 'Hotel',
+  section: 'asset_type_specific',
+  assetTypeScope: 'Hotel',
+  principleIds: [
+    'P-IV-HOT-1',
+    'P-IV-HOT-2',
+    'P-IV-HOT-3',
+    'P-IV-HOT-4',
+    'P-IV-HOT-5',
+    'P-IV-HOT-6',
+    'P-IV-HOT-7',
+    'P-IV-HOT-8',
+    'P-IV-HOT-9',
+    'P-IV-HOT-10',
+  ],
+};
+
+// =============================================================================
+// Handbook (Sections II + III — incremental build)
+// =============================================================================
+
+// =============================================================================
+// Section V — Review Process (7 review steps)
+// =============================================================================
+
+const reviewSteps: ReviewStep[] = [
+  {
+    id: 'V-1',
+    stepNumber: 1,
+    title: 'Executive Summary & Risk Assessment',
+    description:
+      'Process the complete Asset Status Report (ASR) and associated issuer-provided Excel UW models to convey a comprehensive summary. This analysis should highlight core strengths, weaknesses, risks, and mitigants, utilizing the frameworks and historical context established in this Eightfold CRE Credit Handbook.',
+    mandatory: true,
+    outputType: 'summary',
+    crossReferences: {
+      relatedPrincipleIds: [
+        'P-II-1',
+        'P-II-2',
+        'P-II-3',
+        'P-II-4',
+        'P-II-5',
+        'P-II-6',
+        'P-II-7',
+        'P-II-8',
+      ],
+    },
+    notes: [
+      'Methodological ancestors are the full Section II foundational philosophy. Runtime fan-in (every principle that injects content into the executive summary) is captured implicitly via each principle\'s injectionPoints field — not duplicated here.',
+    ],
+  },
+
+  {
+    id: 'V-2',
+    stepNumber: 2,
+    title: 'Asset-Specific Stress Testing',
+    description:
+      'Perform detailed sensitivity analyses based on asset class: Office, Retail, and Industrial: Conduct tenant-specific NOI stress tests. Quantify the impact on NOI should the top three tenants—individually and in various combinations - vacate the premises. Multifamily, Hospitality, Self-Storage, and MHC: Execute stress scenarios centered on systematic reductions in occupancy levels and market rent concessions.',
+    mandatory: true,
+    outputType: 'stress_test',
+    crossReferences: {
+      relatedPrincipleIds: ['P-II-4', 'P-III-8', 'P-IV-OFF-6'],
+    },
+    notes: [
+      'Engine routes to TENANT_REMOVAL methodology for Office/Retail/Industrial; OCC_RENT_CONCESSION for Multifamily/Hospitality/Self-Storage/MHC. Methodological ancestors: P-II-4 (durable cash flow doctrine), P-III-8 (universal stress per asset volatility framing), P-IV-OFF-6 (office-specific top-tenant stress methodology with expiration/credit conditions).',
+    ],
+  },
+
+  {
+    id: 'V-3',
+    stepNumber: 3,
+    title: 'Reserve and Escrow Adequacy Analysis',
+    description:
+      'Determine appropriate reserves and escrows based on the asset class, focusing on: Tenant Improvement (TI) and Leasing Commissions (LC) for Office, Retail, and Industrial assets. Property Improvement Plans (PIPs) for Hospitality assets.',
+    mandatory: true,
+    outputType: 'reserve_analysis',
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-4', 'P-IV-OFF-3', 'P-IV-MF-4', 'P-IV-HOT-5'],
+    },
+    notes: [
+      'Methodological ancestors: P-III-4 (universal cash on hand reserves doctrine), P-IV-OFF-3 (office TI/LC adequacy with appraisal-low caveat), P-IV-MF-4 (multifamily capex on roofs/major systems), P-IV-HOT-5 (PIP per-key benchmarks by hotel service level). Asset-type-specific reserve principles flow up through these.',
+    ],
+  },
+
+  {
+    id: 'V-4',
+    stepNumber: 4,
+    title: 'Market and Sponsor Due Diligence',
+    description:
+      'Conduct comprehensive market research, leveraging your tools and internet to thoroughly evaluate the property, market dynamics, and sponsor. "Google the asset, market, sponsor" approach.',
+    mandatory: true,
+    outputType: 'research',
+    crossReferences: {
+      relatedPrincipleIds: ['P-II-5', 'P-III-12', 'P-IV-RET-12', 'P-IV-MF-8'],
+    },
+    notes: [
+      'Methodological ancestors: P-II-5 (fungible assets in liquid markets — market lens), P-III-12 (universal sponsor review), P-IV-RET-12 (retail/mall sponsor giveback history), P-IV-MF-8 (multifamily sponsor portfolio concentration). The asset-type tenant/guest review principles (P-IV-MHC-8, P-IV-MF-6, P-IV-HOT-2) and crime search (P-IV-MF-5) also feed this step at runtime via their RESEARCH execution mode; they are not listed here as direct methodological ancestors because they are asset-type-conditional rather than universal.',
+    ],
+  },
+
+  {
+    id: 'V-5',
+    stepNumber: 5,
+    title: 'Comparative Market Analysis (Kicks Cross-Reference)',
+    description:
+      'Identify and analyze comparable properties using the EF Master Kicks query. Filter by similar property type and market; highlight assets with comparable size, age, and tenancy profiles; detail reasons for previous removals (kicks), focusing on issues that may also apply to the current property under review.',
+    mandatory: true,
+    outputType: 'comparative',
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-13'],
+    },
+    notes: [
+      'First real consumer of kicks_registry data at analysis time. Engine work needed: (1) take new deal\'s asset type + submarket, (2) query kicks_registry for matching prior kicks, (3) return kick details + Comments field, (4) pass to LLM to generate comparative section.',
+      'Methodological ancestor: P-III-13 (Eightfold Portfolio Exposure Study) is the universal-framework formalization of the institutional-memory consultation doctrine.',
+    ],
+  },
+
+  {
+    id: 'V-6',
+    stepNumber: 6,
+    title: 'Portfolio Loss Correlation',
+    description:
+      'Cross-Portfolio Loss Analysis. Access the database (qryCurrentLosses) to identify B-piece losses in similar properties or markets. Use this data to construct a refined risk profile and historical context analysis. The following metrics MUST be considered for every review: Property losses by market, Property losses by sponsor, Property losses by property type.',
+    mandatory: true,
+    outputType: 'portfolio_correlation',
+    crossReferences: {
+      relatedPrincipleIds: ['P-II-7', 'P-III-13'],
+    },
+    notes: [
+      'Hard dependency. References qryCurrentLosses database query that does not exist in current codebase. B-piece historical loss data corpus is not currently captured in any registry. Until infrastructure exists, engine should produce "Data unavailable — manual review required" output for this step.',
+      'Methodological ancestors: P-II-7 (early/severe losses kill B-piece — the principle this step operationalizes), P-III-13.',
+    ],
+  },
+
+  {
+    id: 'V-7',
+    stepNumber: 7,
+    title: 'Cross-Portfolio Data Extraction',
+    description:
+      'Cross-reference the new deal against Eightfold\'s broader UW corpus to ensure consistent analysis and integration with historical data. Query approved deals and the UW Library snapshot for comparable properties — by submarket, asset type, sponsor — to surface relevant context and patterns from prior reviews. Loss data should be incorporated where available.',
+    mandatory: true,
+    outputType: 'cross_portfolio',
+    crossReferences: {
+      relatedPrincipleIds: ['P-III-13'],
+    },
+    notes: [
+      'Modernized in this atomization. Original handbook text referenced CMBS UW Files Batch 1/2 SharePoint folders and tblLossData — obsolete legacy template work. The step\'s intent (broad cross-portfolio query) remains valid. New-spine implementation: query approved_deals table + library_snapshot registry.',
+      'Methodological ancestor: P-III-13.',
+    ],
+  },
+];
+
+export const handbook: Handbook = {
+  version: '2026.1',
+  effectiveDate: '2026-05-22',
+  description:
+    'Eightfold CRE Credit Handbook — structured form derived from atomization Sessions 1-4 (commits d183cb6, e2c84d0, 47da28e, plus the cross-reference cleanup pass). 87 atomic principles + 1 cluster narrative + 7 review steps capturing the full handbook. Source-of-truth typed TS literal; handbook.json is generated from this file.',
+  clusters: [
+    coreCluster,
+    universalCluster,
+    singleTenantCluster,
+    industrialCluster,
+    selfStorageCluster,
+    mhcCluster,
+    officeCluster,
+    retailCluster,
+    multifamilyCluster,
+    hotelCluster,
+  ],
+  principles: [
+    ...sectionII_principles,
+    ...sectionIII_principles,
+    ...sectionIV_singleTenant_principles,
+    ...sectionIV_industrial_principles,
+    ...sectionIV_selfStorage_principles,
+    ...sectionIV_mhc_principles,
+    ...sectionIV_office_principles,
+    ...sectionIV_retail_principles,
+    ...sectionIV_multifamily_principles,
+    ...sectionIV_hotel_principles,
+  ],
+  reviewProcess: reviewSteps,
+};
