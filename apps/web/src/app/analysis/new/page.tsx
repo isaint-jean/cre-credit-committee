@@ -191,10 +191,22 @@ export default function NewAnalysisPage() {
     if (uploading || !registryReady) return false;
     if (!dealRef.trim() || !analysisAsOfDate || !propertyType) return false;
     if (!librarySnapshotId || !marketBenchmarksId || !creditManifestoId) return false;
-    // loanAmount is the only loanTerms field judgment definitely needs.
+    // Engine requires loanAmount, amortization, AND maturityDate (each fires a
+    // JE_*_MISSING throw if null — see line-item-builders.ts {L280, L328, L637}).
+    // interestRate is needed for DSCR computation downstream; required here for
+    // institutional rigor (no real submission lacks it). IO period stays optional
+    // — engine treats it as applicability-gated.
     if (asFiniteOrNull(loanTerms.loanAmount) === null) return false;
+    if (asFiniteOrNull(loanTerms.interestRatePercent) === null) return false;
+    if (asFiniteOrNull(loanTerms.amortizationYears) === null) return false;
+    if (loanTerms.maturityDate.length === 0) return false;
     return true;
-  }, [uploading, registryReady, dealRef, analysisAsOfDate, propertyType, librarySnapshotId, marketBenchmarksId, creditManifestoId, loanTerms.loanAmount]);
+  }, [
+    uploading, registryReady, dealRef, analysisAsOfDate, propertyType,
+    librarySnapshotId, marketBenchmarksId, creditManifestoId,
+    loanTerms.loanAmount, loanTerms.interestRatePercent,
+    loanTerms.amortizationYears, loanTerms.maturityDate,
+  ]);
 
   async function handleSubmit(): Promise<void> {
     setError('');
@@ -387,11 +399,13 @@ export default function NewAnalysisPage() {
         <p className="text-xs text-text-muted mb-3">
           The new-spine judgment engine needs loan terms supplied at upload time (no v0.2.0 adapter
           extracts them from documents yet).
-          Loan amount is required; other fields are best-effort.
+          Loan amount, rate, amortization, and maturity date are required. IO period is optional.
         </p>
         <div className="grid grid-cols-5 gap-4">
           <div>
-            <label className="text-xs text-text-secondary block mb-1">Loan amount ($)</label>
+            <label className="text-xs text-text-secondary block mb-1">
+              Loan amount ($) <span className="text-risk-high">*</span>
+            </label>
             <input
               type="number"
               className="input-field w-full"
@@ -401,7 +415,9 @@ export default function NewAnalysisPage() {
             />
           </div>
           <div>
-            <label className="text-xs text-text-secondary block mb-1">Rate (%)</label>
+            <label className="text-xs text-text-secondary block mb-1">
+              Rate (%) <span className="text-risk-high">*</span>
+            </label>
             <input
               type="number"
               step="0.01"
@@ -412,7 +428,9 @@ export default function NewAnalysisPage() {
             />
           </div>
           <div>
-            <label className="text-xs text-text-secondary block mb-1">Amort (years)</label>
+            <label className="text-xs text-text-secondary block mb-1">
+              Amort (years) <span className="text-risk-high">*</span>
+            </label>
             <input
               type="number"
               className="input-field w-full"
@@ -432,7 +450,9 @@ export default function NewAnalysisPage() {
             />
           </div>
           <div>
-            <label className="text-xs text-text-secondary block mb-1">Maturity date</label>
+            <label className="text-xs text-text-secondary block mb-1">
+              Maturity date <span className="text-risk-high">*</span>
+            </label>
             <input
               type="date"
               className="input-field w-full"
