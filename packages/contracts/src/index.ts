@@ -82,5 +82,11 @@ export * from './rent-roll.js';
 // for Property & Loan Summary header + Property Detail tabs.
 export * from './property-metadata.js';
 
+// Institutional-memory layer - rejected-deal corpus (CRE Credit Handbook §III).
+// Imported from the Master Kick List xlsx into kicks_registry. Today: storage
+// only (queryable via the store). Engine consultation is deferred to a later
+// ticket that depends on the handbook framework (#31).
+export * from './kick.js';
+
 // Typed error payloads
 export * from './errors.js';

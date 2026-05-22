@@ -37,6 +37,8 @@
     "test:get-analysis-route": "tsx src/scripts/test-get-analysis-route.ts",
     "test:import-historical-uws": "tsx src/scripts/test-import-historical-uws.ts",
     "import-uws-to-approved": "tsx src/scripts/import-uws-to-approved.ts",
+    "test:import-kicks-to-registry": "tsx src/scripts/test-import-kicks-to-registry.ts",
+    "import-kicks-to-registry": "tsx src/scripts/import-kicks-to-registry.ts",
     "test:record-graph": "tsx src/scripts/test-record-graph-store.ts",
     "test:cross-check-contracts": "tsx src/scripts/test-cross-check-contracts.ts",
     "test:stress-contracts": "tsx src/scripts/test-stress-contracts.ts",

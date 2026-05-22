@@ -6,6 +6,13 @@ dist/
 .env*
 uploads/
 .data/
+# Institutional-memory artifacts (extracted from source xlsx) are committed even
+# though .data/ is otherwise ignored. Git can't re-include files inside an
+# ignored directory directly; the un-ignore-then-re-ignore-contents dance below
+# is required. See #34 (kicks).
+!apps/api/.data/
+apps/api/.data/*
+!apps/api/.data/kicks-master-list.json
 apps/api/data/
 .DS_Store
 *.log
