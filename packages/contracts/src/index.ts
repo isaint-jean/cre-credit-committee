@@ -88,5 +88,12 @@ export * from './property-metadata.js';
 // ticket that depends on the handbook framework (#31).
 export * from './kick.js';
 
+// Handbook contract (#31) — machine-readable form of the Eightfold CRE Credit
+// Handbook. Source of truth for: JSON conversion of atomization notes, the
+// handbook_registry table schema, the admin UI, and the engine's deterministic
+// check / research action interpreter. Three entity types (Handbook,
+// PrincipleCluster, Principle) plus a separate ReviewStep entity for §V.
+export * from './handbook.js';
+
 // Typed error payloads
 export * from './errors.js';
