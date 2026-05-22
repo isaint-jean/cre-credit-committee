@@ -688,4 +688,41 @@ export const api = {
     }
     return res.json();
   },
+
+  // ---------------------------------------------------------------------------
+  // Kicks registry (#34 follow-up) — institutional memory of rejected deals.
+  // ---------------------------------------------------------------------------
+
+  listKicks: (params: {
+    assetTypes?: readonly string[];
+    state?: string;
+    msa?: string;
+    sponsor?: string;
+    vintage?: number;
+    singleTenant?: boolean;
+    search?: string;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params.assetTypes && params.assetTypes.length > 0) {
+      for (const t of params.assetTypes) qs.append('assetType', t);
+    }
+    if (params.state) qs.set('state', params.state);
+    if (params.msa) qs.set('msa', params.msa);
+    if (params.sponsor) qs.set('sponsor', params.sponsor);
+    if (params.vintage !== undefined) qs.set('vintage', String(params.vintage));
+    if (params.singleTenant !== undefined) qs.set('singleTenant', params.singleTenant ? 'true' : 'false');
+    if (params.search) qs.set('search', params.search);
+    if (params.sortBy) qs.set('sortBy', params.sortBy);
+    if (params.sortDir) qs.set('sortDir', params.sortDir);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+    const q = qs.toString();
+    return request<any>(`/kicks${q ? `?${q}` : ''}`);
+  },
+
+  getKicksFacets: () => request<any>('/kicks/facets'),
 };

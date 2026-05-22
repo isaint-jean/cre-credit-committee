@@ -277,9 +277,188 @@ export class KicksRegistryStore {
     return out;
   }
 
+  /**
+   * Filtered query for the admin UI. Returns the paged slice plus the total
+   * count for pagination. Sort column is whitelisted — never accept raw user
+   * input for ORDER BY (SQL injection vector).
+   */
+  query(args: {
+    readonly assetTypes?: readonly AssetType[];
+    readonly state?: string;
+    readonly msa?: string;
+    /** Case-insensitive substring match. */
+    readonly sponsor?: string;
+    readonly vintage?: number;
+    readonly singleTenant?: boolean;
+    /** Case-insensitive substring match across property_name, deal, sponsor, zf_comments. */
+    readonly search?: string;
+    readonly sortBy?: KickSortColumn;
+    readonly sortDir?: 'asc' | 'desc';
+    /** 1-based page index. */
+    readonly page: number;
+    /** Rows per page. */
+    readonly pageSize: number;
+  }): {
+    readonly kicks: readonly Kick[];
+    readonly total: number;
+    readonly page: number;
+    readonly pageSize: number;
+    readonly totalPages: number;
+  } {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (args.assetTypes && args.assetTypes.length > 0) {
+      const placeholders = args.assetTypes.map(() => '?').join(',');
+      conditions.push(`asset_type IN (${placeholders})`);
+      for (const t of args.assetTypes) params.push(t);
+    }
+    if (args.state !== undefined && args.state !== '') {
+      conditions.push('state = ?');
+      params.push(args.state);
+    }
+    if (args.msa !== undefined && args.msa !== '') {
+      conditions.push('LOWER(msa) LIKE LOWER(?)');
+      params.push(`%${args.msa}%`);
+    }
+    if (args.sponsor !== undefined && args.sponsor !== '') {
+      conditions.push('LOWER(sponsor) LIKE LOWER(?)');
+      params.push(`%${args.sponsor}%`);
+    }
+    if (args.vintage !== undefined) {
+      conditions.push('vintage = ?');
+      params.push(args.vintage);
+    }
+    if (args.singleTenant !== undefined) {
+      conditions.push('single_tenant = ?');
+      params.push(args.singleTenant ? 1 : 0);
+    }
+    if (args.search !== undefined && args.search !== '') {
+      const term = `%${args.search}%`;
+      conditions.push(
+        '(LOWER(COALESCE(property_name, \'\')) LIKE LOWER(?) OR ' +
+        ' LOWER(COALESCE(deal, \'\')) LIKE LOWER(?) OR ' +
+        ' LOWER(COALESCE(sponsor, \'\')) LIKE LOWER(?) OR ' +
+        ' LOWER(COALESCE(zf_comments, \'\')) LIKE LOWER(?))',
+      );
+      params.push(term, term, term, term);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const totalRow = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM kicks_registry ${whereClause}`)
+      .get(...params) as { n: number };
+    const total = totalRow.n;
+
+    const sortCol = args.sortBy ?? 'imported_at';
+    const sortDir = args.sortDir === 'asc' ? 'ASC' : 'DESC';
+    // sortCol comes from a typed union; safe to interpolate.
+    const orderClause = `ORDER BY ${sortCol} ${sortDir}`;
+
+    const limit = args.pageSize;
+    const offset = (args.page - 1) * args.pageSize;
+    const rows = this.db
+      .prepare(
+        `SELECT id, asset_type, source_8f_control, deal, seller, vintage,
+                property_name, address, city, state, msa, property_sub_type,
+                property_flag, year_built, year_renovated, units,
+                cut_off_balance_dollars, implied_debt_dollars, debt_per_unit_dollars,
+                ltv_at_cutoff, ltv_at_maturity, debt_yield, dscr, occupancy_pct,
+                amortization_type, sponsor, single_tenant, loan_purpose,
+                zf_comments, zf_uw_review_comment, uw_received_raw, asr_received_raw,
+                raw_row_json, imported_at
+         FROM kicks_registry
+         ${whereClause}
+         ${orderClause}
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset) as KickRow[];
+
+    const totalPages = total === 0 ? 0 : Math.ceil(total / args.pageSize);
+    return {
+      kicks: rows.map(rowToKick),
+      total,
+      page: args.page,
+      pageSize: args.pageSize,
+      totalPages,
+    };
+  }
+
+  /** Distinct asset_type values present in the table. */
+  distinctAssetTypes(): readonly AssetType[] {
+    const rows = this.db
+      .prepare('SELECT DISTINCT asset_type AS v FROM kicks_registry ORDER BY v ASC')
+      .all() as Array<{ v: string }>;
+    return rows.filter((r) => ASSET_TYPE_SET.has(r.v)).map((r) => r.v as AssetType);
+  }
+
+  /** Distinct non-null state values, sorted alphabetically. */
+  distinctStates(): readonly string[] {
+    const rows = this.db
+      .prepare(`SELECT DISTINCT state AS v FROM kicks_registry WHERE state IS NOT NULL ORDER BY v ASC`)
+      .all() as Array<{ v: string }>;
+    return rows.map((r) => r.v);
+  }
+
+  /** Distinct non-null vintage values, sorted descending (newest first). */
+  distinctVintages(): readonly number[] {
+    const rows = this.db
+      .prepare(`SELECT DISTINCT vintage AS v FROM kicks_registry WHERE vintage IS NOT NULL ORDER BY v DESC`)
+      .all() as Array<{ v: number }>;
+    return rows.map((r) => r.v);
+  }
+
+  /** Top-N most frequent non-null sponsors. Drives autocomplete on the admin UI. */
+  topSponsors(limit: number = 50): readonly string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT sponsor AS v FROM kicks_registry
+         WHERE sponsor IS NOT NULL
+         GROUP BY sponsor
+         ORDER BY COUNT(*) DESC
+         LIMIT ?`,
+      )
+      .all(limit) as Array<{ v: string }>;
+    return rows.map((r) => r.v);
+  }
+
+  /** Top-N most frequent non-null MSAs. */
+  topMsas(limit: number = 50): readonly string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT msa AS v FROM kicks_registry
+         WHERE msa IS NOT NULL
+         GROUP BY msa
+         ORDER BY COUNT(*) DESC
+         LIMIT ?`,
+      )
+      .all(limit) as Array<{ v: string }>;
+    return rows.map((r) => r.v);
+  }
+
   close(): void {
     this.db.close();
   }
 }
+
+/** Whitelisted sort columns for query(). Adding a column? Add it here AND to
+ *  the frontend's sort header. Anything not on this list will throw — never
+ *  accept raw user input for ORDER BY. */
+export const KICK_SORT_COLUMNS = [
+  'imported_at',
+  'vintage',
+  'cut_off_balance_dollars',
+  'dscr',
+  'ltv_at_cutoff',
+  'debt_yield',
+  'occupancy_pct',
+  'property_name',
+  'sponsor',
+  'state',
+  'msa',
+  'asset_type',
+] as const;
+export type KickSortColumn = (typeof KICK_SORT_COLUMNS)[number];
 
 export const kicksRegistryStore = new KicksRegistryStore();

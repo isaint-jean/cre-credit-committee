@@ -23,6 +23,23 @@ export const ASSET_TYPES = [
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 /**
+ * Display labels for AssetType — human-readable form with proper spacing.
+ * Canonical values are PascalCase (single-token), labels add the spaces
+ * a reader expects. Use this in UI surfaces; never hardcode the labels.
+ */
+export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
+  Office: 'Office',
+  Retail: 'Retail',
+  Multifamily: 'Multifamily',
+  Hotel: 'Hotel',
+  Industrial: 'Industrial',
+  SelfStorage: 'Self Storage',
+  MHC: 'Manufactured Housing',
+  MixedUse: 'Mixed Use',
+  Other: 'Other',
+};
+
+/**
  * `PropertyType` is an alias retained for the doctrine YAML's vocabulary. Resolve to one name in
  * a future revision; for now both are accepted.
  */
