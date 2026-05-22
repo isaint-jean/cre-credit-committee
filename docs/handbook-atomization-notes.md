@@ -6,13 +6,18 @@ This document captures atomization decisions for converting the CRE Credit Handb
 (CRE_Credit.docx) into structured Principle + ReviewStep records per the schema
 designed during the session.
 
-Session 1 (this commit): Schema design + Sections II, III, V fully atomized + Section IV
+Session 1: Schema design + Sections II, III, V fully atomized + Section IV
 Single-Tenant Risk cluster atomized.
+
+Session 2 (this commit): Section IV Industrial, Self-Storage, and MHC clusters
+atomized. 17 new atomic principles (Industrial 5, Self-Storage 4, MHC 8).
+Cumulative total: 42 atomic principles + 1 cluster narrative + 7 review steps.
 
 Remaining work for future sessions:
 - Section IV remaining clusters: Office, Retail (with Mall sub-section), Multifamily,
-  Hotel, Industrial, Self-Storage, MHC (~7 clusters, ~50+ principles)
-- Cross-reference cleanup pass (8+ links queued in CROSS-REF notes)
+  Hotel (~4 clusters)
+- Cross-reference cleanup pass (queued CROSS-REF notes plus the duplicated
+  tenant-reviews mandate that needs the Multifamily + Hotel versions added)
 - JSON conversion conforming to the Handbook contract (future task)
 - Handbook contract type definition in @cre/contracts
 - handbook_registry table + admin UI
@@ -538,3 +543,375 @@ All principles trigger on ALL assets, ALL deals unless noted.
   - **flag_severity:** high
 - **NOTE:** The 50% haircut is a baseline heuristic, not a hard rule. The handbook explicitly states "This adjustment is not a substitute for asset-specific analysis." The deterministic flag should be paired with LLM context so the analyst sees both the computation result AND the handbook caveat. Engine should also surface asset-specific dark value analysis from issuer if available.
 - **DEPENDENCY:** Requires `appraised_dark_value` field in the deal data. If form/extraction doesn't capture this today, the check is inert until added. File ticket if needed.
+
+---
+
+### Cluster: Industrial
+
+- **section:** asset_type_specific
+- **title:** Industrial
+- **assetTypeScope:** Industrial
+- **narrative:** None (flat-bullet section in handbook)
+
+All principles in this cluster trigger on `asset_type = Industrial` unless noted otherwise.
+
+---
+
+#### P-IV-IND-1: Older specialized manufacturing assets — elevated backfill risk
+
+- **Cluster:** Industrial
+- **Trigger:** asset_type = Industrial AND property_sub_type ∈ {"Manufacturing", "Specialized Manufacturing", "Heavy Industrial"} (placeholder values — verify against actual sub-type taxonomy in production)
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** high
+- **Source citation:** Handbook §IV, Industrial, "Functional obsolescence" group, bullet 1
+- **Principle text:** "Older and highly specialized manufacturing assets pose elevated backfill risk"
+- **Research actions:**
+  - **action_type:** industrial_backfill_assessment
+  - **verification_required:** true
+  - **target_data:** building age, specialization indicators (purpose-built features, custom power/HVAC, unique floor configurations, heavy floor loading for specific equipment), evidence of re-tenanting market
+  - **summary_prompt_hint:** "Assess the building's age and degree of specialization. Specialized manufacturing buildings (purpose-built power, plant configurations, custom HVAC, heavy floor loading for specific equipment) face elevated backfill risk if current tenant vacates. Surface re-tenanting feasibility."
+- **NOTE:** Overlaps with P-II-5 (fungibility) and P-II-8 (specialty assets). Captured separately because the handbook restated this with industrial-specific framing (the "older + specialized + manufacturing" combination is more specific than the universal specialty list). Engine may consolidate firings at runtime.
+
+#### P-IV-IND-2: Sale-leasebacks with PE-owned non-credit tenants are negative
+
+- **Cluster:** Industrial
+- **Trigger:** asset_type = Industrial AND single_tenant = TRUE (sale-leasebacks are by definition single-tenant)
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** high
+- **Source citation:** Handbook §IV, Industrial, "Tenant and structure risk" group, bullet 1
+- **Principle text:** "Sale-leasebacks with private equity-owned, non-credit tenants are viewed negatively"
+- **Research actions:**
+  - **action_type:** sale_leaseback_detection
+  - **verification_required:** true
+  - **target_data:** transaction history (was property recently acquired in a sale-leaseback structure?), tenant ownership type (PE-owned vs publicly traded vs privately held), tenant credit rating (investment-grade vs non-investment-grade vs unrated)
+  - **summary_prompt_hint:** "Identify whether the deal is a sale-leaseback (tenant was prior owner, sold to current sponsor, leased back). Determine tenant ownership type — flag if PE-owned. Establish tenant credit quality — flag if non-investment-grade or unrated. The combination (sale-leaseback + PE-owned + non-credit tenant) is a handbook-level negative signal."
+- **NOTE:** Three conditions must combine for the negative signal (sale-leaseback AND PE-owned AND non-credit). Captured as one principle rather than three separate principles to preserve the conjunctive structure the handbook articulated. Cross-references P-IV-ST-2 (credit-driven vs market-driven tenancy in single-tenant cluster) — these are related but distinct framings.
+
+#### P-IV-IND-3: Tenant credit quality critical when lease term is primary support
+
+- **Cluster:** Industrial
+- **Trigger:** asset_type = Industrial AND (single_tenant = TRUE OR top_tenant_share_of_noi > 0.50)
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** critical
+- **Source citation:** Handbook §IV, Industrial, "Tenant and structure risk" group, bullet 2
+- **Principle text:** "Tenant credit quality is critical where lease term is the primary support"
+- **Research actions:**
+  - **action_type:** tenant_credit_assessment
+  - **verification_required:** true
+  - **target_data:** tenant credit rating (S&P/Moody's/Fitch if rated), public financials if applicable, parent guarantor structure, remaining lease term, contracted rent vs market rent
+  - **summary_prompt_hint:** "Assess the tenant's credit quality. Surface credit rating (or note absence), financial strength, parent guarantor. If the lease term is the primary credit support (long remaining lease, single-tenant or concentrated, rent above market), tenant default risk is the central concern. Flag accordingly."
+- **NOTE:** Overlaps with P-IV-ST-2 (credit-driven tenancy in single-tenant cluster) but adds the "lease term as primary support" condition. Captured separately because the framing is meaningfully different — P-IV-ST-2 is about the NATURE of the relationship (credit-driven vs market-driven); this is about the ROLE of the lease in deal support.
+
+#### P-IV-IND-4: Fungible newer-build industrial with modern specs preferred
+
+- **Cluster:** Industrial
+- **Trigger:** asset_type = Industrial
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** executive_summary
+- **Severity:** advisory
+- **Source citation:** Handbook §IV, Industrial, "Preferred asset profile" group, bullet 1
+- **Principle text:** "Fungible, newer-build industrial assets with standard modern specifications are favored"
+- **Research actions:**
+  - **action_type:** industrial_specs_assessment
+  - **verification_required:** true
+  - **target_data:** year built, year renovated, clear heights, loading dock count and configuration, power capacity, fire suppression, building configuration (column spacing, bay depth, office/warehouse ratio)
+  - **summary_prompt_hint:** "Assess industrial asset profile vs modern market standards. Newer-build with standard modern specs (32'+ clear, ample loading, modern power, sprinklered) is positive. Explicitly evaluate clear height, loading, power, and configuration per handbook. Identify whether the asset matches modern preferences or shows obsolescence indicators."
+- **NOTE:** Positive-attribute principle (describes what's "favored"). Severity is `advisory` because this is positive framing, not a credit negative. Injection point is `executive_summary` only — the LLM uses this to characterize the deal holistically when the preferred profile is present. Overlaps with P-II-5 (fungibility) but adds industrial-specific concrete specs. Handbook bullet "Evaluate clear height, loading, power, and configuration" was atomization-folded into this principle's research action (it specifies the methodology for the preferred-profile assessment rather than introducing a new principle).
+
+#### P-IV-IND-5: Dynamic markets with diversified industrial demand preferred
+
+- **Cluster:** Industrial
+- **Trigger:** asset_type = Industrial
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** executive_summary, red_flag_assessment
+- **Severity:** advisory
+- **Source citation:** Handbook §IV, Industrial, "Preferred asset profile" group, bullet 2
+- **Principle text:** "Dynamic markets with diversified demand are preferred"
+- **Research actions:**
+  - **action_type:** industrial_market_diversification
+  - **verification_required:** true
+  - **target_data:** submarket industrial absorption trends, dominant employment sectors driving demand, employment concentration (single-industry vs diversified)
+  - **summary_prompt_hint:** "Assess the submarket's industrial demand base. Diversified demand (multiple sectors, no single-industry dependence) is positive. Surface single-industry concentration as a risk factor."
+- **NOTE:** Bi-directional principle — fires as positive context (summary) when preferred condition holds, fires as red flag when condition is absent (concentrated single-industry demand). Overlaps with P-II-5 (fungible assets in liquid markets) but adds industrial-specific framing about demand diversification.
+
+#### (Handbook bullet absorbed: "Highly specialized use like cold-storage is an underwriting challenge")
+
+Captured upstream by P-II-8 (Specialized assets are higher risk). Cold Storage is already in P-II-8's deterministic specialty sub-type list. No new industrial-specific content; skipped to avoid pure duplication.
+
+---
+
+**End of Industrial cluster.** 5 atomic principles: P-IV-IND-1, P-IV-IND-2, P-IV-IND-3, P-IV-IND-4 (absorbed "evaluate clear height, loading, power, configuration" bullet), P-IV-IND-5.
+
+---
+
+### Cluster: Self-Storage
+
+- **section:** asset_type_specific
+- **title:** Self-Storage
+- **assetTypeScope:** SelfStorage
+- **narrative:** None (flat-bullet section)
+
+All principles in this cluster trigger on `asset_type = SelfStorage` unless noted otherwise.
+
+---
+
+#### P-IV-SS-1: Stable historical performance essential
+
+- **Cluster:** Self-Storage
+- **Trigger:** asset_type = SelfStorage
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** executive_summary, red_flag_assessment
+- **Severity:** critical
+- **Source citation:** Handbook §IV, Self-Storage, "Operating stability" group, bullet 1
+- **Principle text:** "Stable historical performance is essential"
+- **Research actions:**
+  - **action_type:** ss_historical_performance_stability
+  - **verification_required:** true
+  - **target_data:** historical NOI, occupancy, rent per SF trends over available periods (T36/T24/T12)
+  - **summary_prompt_hint:** "Assess the stability of historical operating metrics — NOI, occupancy, rent per SF. Self-storage deals rely heavily on operating stability; volatility or recent ramp is a red flag. If history is short or shows volatility, surface as a credit concern."
+- **NOTE:** Overlaps with P-II-4 (stable durable cash flow) but is asset-type-specific. Self-storage is particularly sensitive to operating stability because the asset class is more management-intensive than other property types.
+
+#### P-IV-SS-2: SF per capita supply check (~7 SF benchmark)
+
+- **Cluster:** Self-Storage
+- **Trigger:** asset_type = SelfStorage
+- **Execution modes:** DETERMINISTIC, LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** high
+- **Source citation:** Handbook §IV, Self-Storage, "Supply discipline" group, bullets 1-2 (absorbed methodology bullet "Evaluate supply at the trade-area level using per-capita metrics")
+- **Principle text:** "Evaluate supply at the trade-area level using per-capita metrics. Approximately 7 SF per capita is a key benchmark; materially higher levels warrant caution."
+- **Deterministic check (oversupply detection):**
+  - **metric:** trade_area_sf_per_capita
+  - **operator:** `>`
+  - **threshold:** 9
+  - **flag_message:** "Trade-area supply is {X} SF per capita, materially above the ~7 SF benchmark. Per handbook, oversupply warrants caution — flag elevated competition risk."
+  - **flag_severity:** high
+- **Advisory check (approaching saturation):**
+  - **metric:** trade_area_sf_per_capita
+  - **operator:** `>=`
+  - **threshold:** 7
+  - **AND `<= 9`**
+  - **flag_message:** "Trade-area supply is {X} SF per capita, near the ~7 SF benchmark. Supply is at saturation; new product or rate-cutting competitors could pressure performance."
+  - **flag_severity:** medium
+- **Research actions:**
+  - **action_type:** ss_trade_area_supply_analysis
+  - **verification_required:** true
+  - **target_data:** trade-area population (3-mile or 5-mile radius); existing self-storage SF in trade area (existing facilities + facilities under construction); resulting SF per capita
+  - **summary_prompt_hint:** "Compute trade-area SF per capita: identify the relevant trade-area population (typically 3- or 5-mile radius), aggregate existing and under-construction self-storage SF in that area, divide. The handbook benchmark is ~7 SF per capita; materially higher signals oversupply risk."
+- **DEPENDENCY:** Requires trade-area population data + competitor SF inventory data. If engine doesn't have this structured today, the research action surfaces what issuer provided (most ASRs include this analysis) and the deterministic check fires only when the metric is computable.
+- **NOTE on threshold calibration:** Handbook explicitly says "Approximately 7 SF per capita" and "materially higher warrants caution." The "9" threshold for the high-severity flag and the 7-9 advisory band are calibration choices made during atomization, not directly from handbook text. The 7-9 advisory tier surfaces "approaching saturation" before the materially-oversupplied flag fires. Open to recalibration if 9 is too tight or too loose in practice.
+
+#### P-IV-SS-3: Debt yield floor 8% with market quality condition
+
+- **Cluster:** Self-Storage
+- **Trigger:** asset_type = SelfStorage
+- **Execution modes:** DETERMINISTIC, LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** critical
+- **Source citation:** Handbook §IV, Self-Storage, "Credit standards" group, bullet 1
+- **Principle text:** "Debt yield of 8% is as low as you should go, and only in good markets with history"
+- **Deterministic check 1 (hard floor):**
+  - **metric:** debt_yield
+  - **operator:** `<`
+  - **threshold:** 0.08
+  - **flag_message:** "Debt yield is {X}%, below the 8% handbook floor for self-storage. This level should not be accepted."
+  - **flag_severity:** critical
+- **Deterministic check 2 (at-floor conditional):**
+  - **metric:** debt_yield
+  - **operator:** `>=`
+  - **threshold:** 0.08
+  - **AND `< 0.09`** (within 1% of floor)
+  - **flag_message:** "Debt yield is {X}%, at or near the 8% handbook floor. Per handbook, this level is acceptable ONLY in good markets with operating history. Confirm market quality and historical track record meet the conditional."
+  - **flag_severity:** high
+- **Research actions:**
+  - **action_type:** ss_market_quality_assessment
+  - **verification_required:** true
+  - **target_data:** market tier (primary/secondary/tertiary), submarket performance history, established competitors with operating track record, demographic trends
+  - **summary_prompt_hint:** "Assess whether the market qualifies as 'good market with history' per handbook. Established primary/secondary submarkets with multi-year operating track records of mature self-storage facilities qualify. Developing markets, tertiary locations, or markets with limited competitor history do NOT qualify; in such markets, debt yield should exceed 8% by a meaningful margin."
+- **NOTE on structure:** Two deterministic checks mirror the handbook's two conditions: (1) hard 8% floor for any deal, (2) conditional "good market with history" requirement when approaching the floor. The 9% upper bound for "near the floor" is a calibration choice; handbook doesn't quantify "good markets with history" so the conditional is qualitative.
+
+#### P-IV-SS-4: Minimum DSCR ~1.30x
+
+- **Cluster:** Self-Storage
+- **Trigger:** asset_type = SelfStorage
+- **Execution modes:** DETERMINISTIC, LLM_CONTEXT
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** critical
+- **Source citation:** Handbook §IV, Self-Storage, "Credit standards" group, bullet 2
+- **Principle text:** "Target minimum DSCR of approximately 1.30x"
+- **Deterministic check (DSCR floor):**
+  - **metric:** dscr
+  - **operator:** `<`
+  - **threshold:** 1.30
+  - **flag_message:** "DSCR is {X}x, below the 1.30x handbook minimum for self-storage. Per handbook, this level falls short of the target minimum coverage."
+  - **flag_severity:** high
+- **Advisory check (near floor):**
+  - **metric:** dscr
+  - **operator:** `>=`
+  - **threshold:** 1.30
+  - **AND `< 1.35`**
+  - **flag_message:** "DSCR is {X}x, at or near the 1.30x handbook minimum. Limited cushion against NOI decline or rate increase at refinance."
+  - **flag_severity:** medium
+- **NOTE on calibration:** Handbook says "approximately 1.30x" — captured at the 1.30 floor. Advisory band 1.30-1.35 (medium severity) added to surface deals at-or-near the floor where cushion is thin. Open to recalibration.
+
+---
+
+**End of Self-Storage cluster.** 4 atomic principles (P-IV-SS-2 absorbed the "evaluate supply via per-capita metrics" methodology bullet). This cluster exercised the deterministic schema heavily — 3 of 4 principles have deterministic checks with real thresholds, two with multi-tier (hard + advisory) structures.
+
+---
+
+### Cluster: Mobile Home Parks (MHC)
+
+- **section:** asset_type_specific
+- **title:** Mobile Home Parks (MHC)
+- **assetTypeScope:** MHC
+- **narrative:** None (flat-bullet section)
+
+All principles in this cluster trigger on `asset_type = MHC` unless noted otherwise.
+
+---
+
+#### P-IV-MHC-1: Property age and condition critical
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** executive_summary, red_flag_assessment
+- **Severity:** high
+- **Source citation:** Handbook §IV, MHC, "Physical infrastructure quality" group, bullet 1
+- **Principle text:** "Property age and condition are critical"
+- **Research actions:**
+  - **action_type:** mhc_age_condition_assessment
+  - **verification_required:** true
+  - **target_data:** park established date, average home age, condition reports, recent capex history, deferred maintenance indicators
+  - **summary_prompt_hint:** "Assess the age and physical condition of the park. Many MHC parks are decades old with deferred infrastructure. Surface park age, condition rating, and any indicators of substantial deferred maintenance or capex requirements."
+
+#### P-IV-MHC-2: Understand utility structure (municipal vs private)
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** critical
+- **Source citation:** Handbook §IV, MHC, "Physical infrastructure quality" group, bullet 2
+- **Principle text:** "Fully understand utility structure for water and sewer, including municipal versus private systems"
+- **Research actions:**
+  - **action_type:** mhc_utility_structure_classification
+  - **verification_required:** true
+  - **target_data:** water source (municipal connection vs private wells), wastewater handling (municipal sewer vs private septic vs private treatment plant), age of any private systems, regulatory compliance status
+  - **summary_prompt_hint:** "Classify the park's water and sewer infrastructure: (1) municipal (connected to city utilities), (2) private (wells, septic systems, on-site treatment), or (3) hybrid. Private systems represent material capex exposure and environmental compliance risk. Surface the structure type and any private infrastructure capex/compliance risks explicitly."
+
+#### P-IV-MHC-3: Private wastewater treatment / lift stations — significant capex risk
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC AND has_private_wastewater_treatment_or_lift_station = TRUE
+- **Execution modes:** DETERMINISTIC (conditional), LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** critical
+- **Source citation:** Handbook §IV, MHC, "Physical infrastructure quality" group, bullet 3
+- **Principle text:** "Private wastewater treatment plants and lift stations pose significant capex risk"
+- **Deterministic check (private wastewater detection):**
+  - **metric:** utility_infrastructure_type (derived from P-IV-MHC-2's research output)
+  - **operator:** contains
+  - **threshold:** "private wastewater treatment" OR "lift station"
+  - **flag_message:** "Park has private wastewater treatment plant and/or lift station infrastructure. Per handbook, these pose significant capex risk — material capital reserves and ongoing regulatory compliance exposure. Surface the system age, recent inspections, and any pending compliance issues."
+  - **flag_severity:** high
+- **Research actions:**
+  - **action_type:** mhc_wastewater_capex_assessment
+  - **verification_required:** true
+  - **target_data:** age of treatment plant or lift station, recent capex history, pending regulatory issues, estimated replacement cost
+  - **summary_prompt_hint:** "If park has private wastewater infrastructure, assess: age of the system (treatment plants typically have 20-30 year useful lives), recent capex history, any pending regulatory issues or compliance gaps, estimated replacement cost. Surface as material credit consideration."
+- **CROSS-REF (upstream data dependency):** Depends on P-IV-MHC-2's research action output (utility structure classification) for the deterministic check to fire.
+- **NOTE:** First principle with explicit research-action dependency for its deterministic check to fire (similar pattern to P-II-3 depending on P-III-11's sources & uses extraction). Schema accommodates this — it's a runtime ordering issue: engine implementation must run P-IV-MHC-2's research first, then evaluate P-IV-MHC-3's deterministic check against the output. Both fire together when the upstream returns private wastewater infrastructure.
+
+#### P-IV-MHC-4: Park-owned homes — vacancy and capex exposure
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC
+- **Execution modes:** DETERMINISTIC, LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** high
+- **Source citation:** Handbook §IV, MHC, "Park-owned homes" group, bullet 1
+- **Principle text:** "Analyze the number of park-owned homes and associated vacancy and capex exposure"
+- **Deterministic check (POH concentration):**
+  - **metric:** park_owned_home_share (= park-owned home count / total home count)
+  - **operator:** `>`
+  - **threshold:** 0.25
+  - **flag_message:** "Park-owned home share is {X}%, representing material POH exposure. Per handbook, POH carries direct vacancy and capex exposure on top of normal lot rent risk. Surface POH count, vacancy on POH specifically, and capex needs on the POH inventory."
+  - **flag_severity:** high
+- **Research actions:**
+  - **action_type:** mhc_poh_analysis
+  - **verification_required:** true
+  - **target_data:** total home count, park-owned home count, POH share, vacancy on POH inventory, age and condition of POH inventory, recent capex history on POHs
+  - **summary_prompt_hint:** "Surface the breakdown of park-owned vs tenant-owned homes. Analyze POH vacancy (separately from lot vacancy), age and condition of POH inventory, and recent capex history. Material POH exposure (>25% of homes) represents elevated risk on top of normal MHC park dynamics."
+- **NOTE on threshold calibration:** Handbook does not specify a POH concentration threshold. The 25% threshold is calibration based on industry context — POH share below 25% is generally manageable; above 25% materially elevates risk profile. Open to recalibration.
+
+#### P-IV-MHC-5: Regulatory and eviction dynamics
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** high
+- **Source citation:** Handbook §IV, MHC, "Park-owned homes" group, bullet 2
+- **Principle text:** "Understand regulatory and eviction dynamics"
+- **Research actions:**
+  - **action_type:** mhc_regulatory_assessment
+  - **verification_required:** true
+  - **target_data:** state-level MHC tenant protections, lot rent increase notice requirements, eviction restrictions, park closure restrictions, any local rent control or stabilization
+  - **summary_prompt_hint:** "Identify state and local regulations affecting the park's economic flexibility. Surface notice requirements for lot rent increases, eviction procedures (often slower than typical multifamily), park closure restrictions, and any local rent control. States with strong MHC tenant protections (e.g., California, Oregon) materially affect both operations and exit liquidity."
+
+#### P-IV-MHC-6: Environmental risk from older plumbing/sewage
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC AND has_private_wastewater_treatment_or_lift_station = TRUE (shared dependency with P-IV-MHC-3 — depends on P-IV-MHC-2's research output)
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** critical
+- **Source citation:** Handbook §IV, MHC, "Regulatory and exit considerations" group, bullet 1
+- **Principle text:** "Environment risk is a core concern, specifically with older plumbing / sewage systems"
+- **Research actions:**
+  - **action_type:** mhc_environmental_assessment
+  - **verification_required:** true
+  - **target_data:** Phase I/II environmental assessments, historical site contamination, EPA enforcement history, indemnity structures, environmental insurance
+  - **summary_prompt_hint:** "Assess environmental risk specific to MHC infrastructure: older plumbing or sewage systems can leak/contaminate groundwater (environmental liability), septic system failures can trigger EPA or state-level enforcement, and the long lifespan of mobile home parks means historic contamination from prior decades may still surface. Surface Phase I/II environmental assessment status, any historical contamination, and indemnity structures in the loan documents."
+- **NOTE:** Distinct from P-IV-MHC-3 despite both firing on private wastewater infrastructure. P-IV-MHC-3 is about CAPEX (replacement/upgrade cost). P-IV-MHC-6 is about ENVIRONMENTAL LIABILITY (contamination, EPA, indemnification). Different domains, different mitigations, captured separately.
+
+#### P-IV-MHC-7: Exit liquidity and buyer universe under stress
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC
+- **Execution modes:** LLM_CONTEXT, RESEARCH
+- **Injection points:** executive_summary, red_flag_assessment, committee_recommendation
+- **Severity:** high
+- **Source citation:** Handbook §IV, MHC, "Regulatory and exit considerations" group, bullet 2
+- **Principle text:** "Exit liquidity and buyer universe under stress must be evaluated"
+- **Research actions:**
+  - **action_type:** mhc_exit_liquidity_assessment
+  - **verification_required:** true
+  - **target_data:** recent MHC sales in submarket × similar size/quality, identifiable buyer universe (institutional MHC operators active in market, REITs, regional buyers), sales velocity under recent market conditions
+  - **summary_prompt_hint:** "Assess exit liquidity specific to MHC: the buyer universe is materially narrower than mainstream CRE (handful of institutional MHC operators, REITs, regional mom-and-pop investors). Surface recent comparable MHC sales, identifiable buyer pool, and how that pool may contract under stress. Limited exit liquidity is a meaningful credit factor."
+- **NOTE:** Overlaps with P-II-5 (fungible assets in liquid markets) but adds MHC-specific framing about the narrow institutional buyer universe.
+
+#### P-IV-MHC-8: Tenant reviews mandate (1-2 star focus)
+
+- **Cluster:** MHC
+- **Trigger:** asset_type = MHC
+- **Execution modes:** RESEARCH, LLM_CONTEXT
+- **Injection points:** red_flag_assessment, committee_recommendation
+- **Severity:** high (handbook uses "ALWAYS" — mandatory)
+- **Source citation:** Handbook §IV, MHC, "Regulatory and exit considerations" group, bullet 3
+- **Principle text:** "Tenant reviews from third party websites provide great insight, ALWAYS review these and summarize what you see in the 1 and 2 star reviews."
+- **Research actions:**
+  - **action_type:** tenant_reviews_third_party
+  - **verification_required:** true (analyst MUST verify the AI summary independently)
+  - **target_data:** 1-star and 2-star reviews from Google Maps, Yelp, ApartmentRatings.com, MobileHomeParkInsider.com, and similar third-party review sites for the specific park
+  - **summary_prompt_hint:** "Search third-party review sites for the subject park. Focus on 1-star and 2-star reviews — these surface management issues, infrastructure problems, neighbor disputes, and operational red flags that often don't appear in issuer materials. Summarize themes; flag any patterns that indicate material credit concerns (chronic maintenance failures, predatory management practices, infrastructure deterioration, etc.). Analyst MUST independently verify before relying on this summary."
+- **NOTE:** This principle also appears in the Multifamily and Hotel sections of the handbook. When those clusters are atomized, the principle will be duplicated there with asset-type-specific triggers and slightly different review-site targets (TripAdvisor for hotels; ApartmentRatings for multifamily; this set for MHC). The handbook stated the principle three times in three different asset-type contexts — atomization preserves that structure rather than hoisting it to a universal principle, because the relevant review sites differ by asset type.
+
+---
+
+**End of MHC cluster.** 8 atomic principles. Notable patterns: (1) two principles with explicit research-action dependencies (P-IV-MHC-3 and P-IV-MHC-6 both fire on P-IV-MHC-2's output), (2) the same tenant-reviews mandate principle appearing in MHC + soon to appear in Multifamily + Hotel, intentionally not hoisted because the relevant review sources differ by asset type.
