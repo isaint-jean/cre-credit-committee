@@ -930,6 +930,17 @@ export function listHistoricalUWs(): HistoricalUWSummary[] {
   }));
 }
 
+/**
+ * Returns the full HistoricalUnderwriting records (not summaries) for batch
+ * processing. Used by the issue #20 connector (`import-historical-uws-to-approved`)
+ * which needs the complete `inputs` block + per-deal metadata to project into
+ * ApprovedDeal shape. NOT for general consumer use — the summary form
+ * (`listHistoricalUWs`) is the preferred public read.
+ */
+export function listHistoricalUWsFull(): readonly HistoricalUnderwriting[] {
+  return Array.from(historicalUWs.values());
+}
+
 export function getPortfolioChildren(parentId: string): HistoricalUnderwriting[] {
   return Array.from(historicalUWs.values()).filter(uw => uw.parentId === parentId);
 }

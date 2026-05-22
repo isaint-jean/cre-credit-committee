@@ -28,7 +28,14 @@ export function getLibraryDistribution(
   return snapshot.byAssetType[assetType];
 }
 
-/** Returns the median of a metric for an asset type, or `null` if unavailable. */
+/** Returns the median of a metric for an asset type, or `null` if unavailable.
+ *
+ *  Two layers of "unavailable":
+ *    1. The asset-type distribution itself is null (n<20 / degraded mode).
+ *    2. The specific metric's distribution stat is null (e.g., treasury10YAtClose
+ *       when imported source deals don't carry a treasury-at-close field —
+ *       issue #20 connector work). Per-metric nullability lives on the
+ *       LibrarySnapshotDistribution contract type. */
 export function getLibraryMedian(
   snapshot: LibrarySnapshot,
   assetType: AssetType,
@@ -36,10 +43,13 @@ export function getLibraryMedian(
 ): number | null {
   const dist = getLibraryDistribution(snapshot, assetType);
   if (dist === null) return null;
-  return dist[metric].median;
+  const stat = dist[metric];
+  if (stat === null) return null;
+  return stat.median;
 }
 
-/** Returns the full {median, p25, p75} stats for a metric, or `null` if unavailable. */
+/** Returns the full {median, p25, p75} stats for a metric, or `null` if unavailable.
+ *  Null paths: see getLibraryMedian's docstring. */
 export function getLibraryStats(
   snapshot: LibrarySnapshot,
   assetType: AssetType,
@@ -47,5 +57,5 @@ export function getLibraryStats(
 ): DistributionStats | null {
   const dist = getLibraryDistribution(snapshot, assetType);
   if (dist === null) return null;
-  return dist[metric];
+  return dist[metric] ?? null;
 }

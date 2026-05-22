@@ -81,12 +81,19 @@ function computeByAssetType(
 }
 
 function computeDistribution(deals: readonly ApprovedDeal[]): LibrarySnapshotDistribution {
+  // Treasury10Y is nullable per ApprovedDeal contract (issue #20 connector work):
+  // imports from HistoricalUW lack a treasury field. Filter nulls before computing
+  // the distribution; if all source deals are null for this asset type, the stat
+  // itself is null (per LibrarySnapshotDistribution.treasury10YAtClose contract).
+  const treasuryValues = deals
+    .map((d) => d.treasury10YAtClose)
+    .filter((v): v is number => v !== null);
   return {
     vacancy:            stats(sortAsc(deals.map(d => d.vacancyPct))),
     expenseRatio:       stats(sortAsc(deals.map(d => d.expenseRatio))),
     capRate:            stats(sortAsc(deals.map(d => d.capRate))),
     dscr:               stats(sortAsc(deals.map(d => d.dscr))),
-    treasury10YAtClose: stats(sortAsc(deals.map(d => d.treasury10YAtClose))),
+    treasury10YAtClose: treasuryValues.length === 0 ? null : stats(sortAsc(treasuryValues)),
     n: deals.length,
   };
 }

@@ -31,7 +31,13 @@ export interface ApprovedDeal {
   readonly vacancyPct: number;            // 0..1
   readonly expenseRatio: number;          // 0..1
   readonly capRate: number;               // 0..1
-  readonly treasury10YAtClose: number;    // 0..1 (e.g., 0.0425 for 4.25%)
+  /**
+   * 0..1 (e.g., 0.0425 for 4.25%). Nullable since issue #20 connector work:
+   * historical-UW imports don't carry a treasury-at-close field, so imported
+   * deals stamp null here. Pre-existing approved-deal sources (the synthetic
+   * seed at scripts/seed-approved-deals.ts) continue to stamp a real number.
+   */
+  readonly treasury10YAtClose: number | null;
   readonly dscr: number;                  // ratio (e.g., 1.35)
   readonly status: ApprovedDealStatus;
   readonly closedAt: ISODateTime;
@@ -43,7 +49,7 @@ interface ApprovedDealRow {
   readonly vacancy_pct: number;
   readonly expense_ratio: number;
   readonly cap_rate: number;
-  readonly treasury_10y_at_close: number;
+  readonly treasury_10y_at_close: number | null;
   readonly dscr: number;
   readonly status: string;
   readonly closed_at: string;
@@ -86,6 +92,7 @@ export class ApprovedDealsStore {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
+    this.migrateDropTreasuryNotNull();
   }
 
   private migrate(): void {
@@ -96,7 +103,7 @@ export class ApprovedDealsStore {
         vacancy_pct REAL NOT NULL,
         expense_ratio REAL NOT NULL,
         cap_rate REAL NOT NULL,
-        treasury_10y_at_close REAL NOT NULL,
+        treasury_10y_at_close REAL,
         dscr REAL NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('approved', 'pending', 'rejected')),
         closed_at TEXT NOT NULL
@@ -105,6 +112,54 @@ export class ApprovedDealsStore {
       CREATE INDEX IF NOT EXISTS idx_approved_deals_asset_type ON approved_deals(asset_type);
       CREATE INDEX IF NOT EXISTS idx_approved_deals_status     ON approved_deals(status);
     `);
+  }
+
+  /**
+   * One-time idempotent migration (issue #20 connector work): databases created
+   * before the treasury_10y_at_close column was widened to nullable still carry
+   * `NOT NULL` on that column. Detect via PRAGMA table_info; if the constraint
+   * is still in place, rebuild the table without it.
+   *
+   * SQLite doesn't support `ALTER COLUMN ... DROP NOT NULL` directly. Standard
+   * workaround is the table-rebuild dance: CREATE new, copy rows, DROP old,
+   * RENAME new → old, recreate indexes. Transactional. No-op when the column
+   * is already nullable (fresh DBs created by the new `migrate()` above) or
+   * when the table doesn't exist yet (in which case migrate() just created it
+   * with the nullable schema directly).
+   */
+  private migrateDropTreasuryNotNull(): void {
+    try {
+      const cols = this.db.prepare("PRAGMA table_info('approved_deals')").all() as Array<{
+        readonly name: string; readonly notnull: number;
+      }>;
+      const treasuryCol = cols.find((c) => c.name === 'treasury_10y_at_close');
+      if (treasuryCol === undefined || treasuryCol.notnull === 0) return;
+      this.db.exec(`
+        BEGIN;
+        CREATE TABLE approved_deals_new (
+          id TEXT PRIMARY KEY,
+          asset_type TEXT NOT NULL,
+          vacancy_pct REAL NOT NULL,
+          expense_ratio REAL NOT NULL,
+          cap_rate REAL NOT NULL,
+          treasury_10y_at_close REAL,
+          dscr REAL NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('approved', 'pending', 'rejected')),
+          closed_at TEXT NOT NULL
+        );
+        INSERT INTO approved_deals_new
+          SELECT id, asset_type, vacancy_pct, expense_ratio, cap_rate,
+                 treasury_10y_at_close, dscr, status, closed_at
+          FROM approved_deals;
+        DROP TABLE approved_deals;
+        ALTER TABLE approved_deals_new RENAME TO approved_deals;
+        CREATE INDEX IF NOT EXISTS idx_approved_deals_asset_type ON approved_deals(asset_type);
+        CREATE INDEX IF NOT EXISTS idx_approved_deals_status     ON approved_deals(status);
+        COMMIT;
+      `);
+    } catch {
+      /* Table not yet created — migrate() above creates it with the new schema. */
+    }
   }
 
   /** Returns rows where status='approved', sorted by id ascending. Sort order is deterministic

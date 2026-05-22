@@ -25,7 +25,15 @@ export interface LibrarySnapshotDistribution {
   readonly expenseRatio: DistributionStats;
   readonly capRate: DistributionStats;
   readonly dscr: DistributionStats;
-  readonly treasury10YAtClose: DistributionStats;
+  /**
+   * Per-issue-#20 connector work (UW Library → approved_deals): nullable because
+   * not all source deals carry a treasury-at-close field. `HistoricalUWInputs` has
+   * no treasury10Y column; imported deals pass null through; the producer reports
+   * `null` for this distribution stat when ALL source deals for the asset type are
+   * null. When stats exist, {median, p25, p75} are computed over the non-null
+   * subset of deals for that asset type.
+   */
+  readonly treasury10YAtClose: DistributionStats | null;
   readonly n: number;
 }
 
