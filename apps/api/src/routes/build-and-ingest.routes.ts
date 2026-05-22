@@ -402,23 +402,10 @@ export function makeBuildAndIngestHandler(
         return;
       }
 
-      /* Write the cache entry after a successful compose. Best-effort: a
-       * cache-write failure does not fail the request — the spine + PM are
-       * already persisted, the next re-upload just won't dedupe. */
-      try {
-        deps.recordGraphStore.insertExtractionInputCache({
-          cacheKey,
-          extractionResultId: composed.extractionResult.id,
-          propertyMetadataId: composed.propertyMetadata?.id ?? null,
-          cfHash: slotHashes.cf,
-          rentRollHash: slotHashes.rentRoll,
-          asrHash: slotHashes.asr,
-          extractorVersions: deps.extractorVersions,
-        });
-      } catch (e) {
-        // eslint-disable-next-line no-console -- TODO(observability): typed log event
-        console.warn('[build-and-ingest] extraction_input_cache insert failed:', e);
-      }
+      /* Cache write moved to AFTER ingest persists the spine — see below. The
+         FK extraction_input_cache.extraction_result_id → extraction_results(id)
+         can only resolve once Stage 1 of ingestExtractionResult has inserted
+         the ExtractionResult row. */
     }
 
     /* Run ingest against the composed ExtractionResult. Synchronous. */
@@ -452,11 +439,35 @@ export function makeBuildAndIngestHandler(
         return;
       }
       const err = e as Error;
+      // eslint-disable-next-line no-console
+      console.error('[build-and-ingest] non-IngestionError thrown by ingestExtractionResult:', err);
       res.status(400).json({
         error: err.name === undefined ? 'INGEST_ERROR' : err.name,
         message: err.message === undefined ? 'ingestion failed' : err.message,
       });
       return;
+    }
+
+    /* Write the cache entry now that ingest has persisted the extraction_result
+       (Stage 1 of ingestExtractionResult). The FK to extraction_results(id) is
+       satisfied. Cache writes are best-effort: a failure here does not fail the
+       request — the spine is committed, the next re-upload simply won't dedupe.
+       Only writes on the cache-miss path; cache hits don't need to re-insert. */
+    if (cached === null) {
+      try {
+        deps.recordGraphStore.insertExtractionInputCache({
+          cacheKey,
+          extractionResultId: composed.extractionResult.id,
+          propertyMetadataId: composed.propertyMetadata?.id ?? null,
+          cfHash: slotHashes.cf,
+          rentRollHash: slotHashes.rentRoll,
+          asrHash: slotHashes.asr,
+          extractorVersions: deps.extractorVersions,
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console -- TODO(observability): typed log event
+        console.warn('[build-and-ingest] extraction_input_cache insert failed:', e);
+      }
     }
 
     /* Conditional PM persistence. Best-effort: spine is already committed
