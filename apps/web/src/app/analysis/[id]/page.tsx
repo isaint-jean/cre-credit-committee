@@ -12,7 +12,7 @@ import {
   formatCurrencyFullSafe,
 } from '@/lib/format';
 import type { Analysis, Finding, Severity, Comment, StressScenario, CriteriaEvaluation, CrossCheckFinding, MitigationStrategy, ResearchResult, BPieceDecision, UnderwritingModel, RepaymentScheduleEntry } from '@cre/shared';
-import type { CommitteeTimeline, DealWorkflowState, RenderedAnalysis } from '@cre/contracts';
+import type { CommitteeTimeline, DealWorkflowState, HandbookEvaluation, RenderedAnalysis } from '@cre/contracts';
 import { RenderedAnalysisView } from '@/components/RenderedAnalysisView';
 
 type Tab = 'summary' | 'findings' | 'crosscheck' | 'research' | 'mitigations' | 'score' | 'criteria' | 'decision';
@@ -29,6 +29,9 @@ export default function AnalysisDashboard() {
   // Pure server-derived state; never reconstructed in the browser.
   const [workflow, setWorkflow] = useState<DealWorkflowState | null>(null);
   const [timeline, setTimeline] = useState<CommitteeTimeline | null>(null);
+  // #31 Commit 3 — handbook engine output. null = analysis exists but no eval
+  // was produced (pre-Commit-2 deals); undefined-on-fetch handled via try/catch.
+  const [handbookEvaluation, setHandbookEvaluation] = useState<HandbookEvaluation | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('summary');
   const [uwTab, setUwTab] = useState<UWTab>('income');
@@ -64,6 +67,10 @@ export default function AnalysisDashboard() {
           try {
             const tl = await api.getCommitteeTimeline(rootId);
             setTimeline(tl);
+          } catch {}
+          try {
+            const he = await api.getHandbookEvaluation(rootId);
+            setHandbookEvaluation(he);
           } catch {}
           return;
         }
@@ -153,6 +160,7 @@ export default function AnalysisDashboard() {
         data={rendered}
         workflow={workflow ?? undefined}
         timeline={timeline ?? undefined}
+        handbookEvaluation={handbookEvaluation}
         onWorkflowChanged={() => { void refetchWorkflow(); }}
         onRevisionSaved={async () => {
           // 8.8 — after a successful revision write, the latest in the lineage moved.
@@ -166,6 +174,7 @@ export default function AnalysisDashboard() {
               const rootId = response.body.rootId;
               try { setWorkflow(await api.getWorkflowState(rootId)); } catch {}
               try { setTimeline(await api.getCommitteeTimeline(rootId)); } catch {}
+              try { setHandbookEvaluation(await api.getHandbookEvaluation(rootId)); } catch {}
             }
           } catch {}
         }}

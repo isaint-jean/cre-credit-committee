@@ -10,6 +10,7 @@ import type {
   LibrarySnapshot,
   MarketBenchmarks,
   OverlayId,
+  HandbookEvaluation,
   RenderedAnalysis,
   RenderedAnalysisId,
 } from '@cre/contracts';
@@ -568,6 +569,11 @@ export const api = {
     request<CommitteeTimeline>(`/committee-timeline?rootId=${encodeURIComponent(rootId)}`),
   getAuditReplay: (rootId: DoctrineEvaluationId) =>
     request<AuditReplayResponse>(`/audit-replay?rootId=${encodeURIComponent(rootId)}`),
+
+  // Handbook engine output (#31, Commit 3). Sibling endpoint — returns null
+  // when the analysis exists but no eval has been produced (pre-Commit-2 deals).
+  getHandbookEvaluation: (rootId: string) =>
+    request<HandbookEvaluation | null>(`/analyses/${encodeURIComponent(rootId)}/handbook-evaluation`),
 
   getMarketIntelligence: (filters?: { assetType?: string; state?: string; city?: string; yearMin?: number; yearMax?: number }) => {
     const params = new URLSearchParams();

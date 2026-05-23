@@ -85,7 +85,8 @@
     "test:handbook-field-bag-known-fields": "tsx src/scripts/test-handbook-field-bag-known-fields.ts",
     "test:handbook-field-bag-smoke-e2e": "tsx src/scripts/test-handbook-field-bag-smoke-e2e.ts",
     "test:handbook-evaluation": "tsx src/scripts/test-handbook-evaluation.ts",
-    "test:build-handbook-evaluation": "tsx src/scripts/test-build-handbook-evaluation.ts"
+    "test:build-handbook-evaluation": "tsx src/scripts/test-build-handbook-evaluation.ts",
+    "test:handbook-evaluation-route": "tsx src/scripts/test-handbook-evaluation-route.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",

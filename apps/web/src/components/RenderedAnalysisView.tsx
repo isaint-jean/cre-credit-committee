@@ -19,12 +19,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type {
   CommitteeTimeline,
   DealWorkflowState,
+  FieldValue,
+  FiredFlag,
+  HandbookEvaluation,
   RenderedAnalysis,
   RenderBadge,
   RenderBadgeSeverity,
   RenderedFinding,
   RenderedLineItem,
   RenderedStressScenario,
+  SkippedPrinciple,
 } from '@cre/contracts';
 import { ROLE_PERMISSIONS } from '@cre/contracts';
 import { CommitteeStatusHeader } from './CommitteeStatusHeader';
@@ -69,6 +73,10 @@ interface Props {
   // when absent the edit affordance does not render (no point editing if the
   // page can't refresh).
   readonly onRevisionSaved?: () => void | Promise<void>;
+  // #31 Commit 3 — handbook engine output for this analysis. null = analysis
+  // exists but no eval was produced (pre-Commit-2 deals); undefined = prop not
+  // passed (fetch hasn't completed). Both render to "no section."
+  readonly handbookEvaluation?: HandbookEvaluation | null;
 }
 
 function userCanRevise(role: string | undefined): boolean {
@@ -98,6 +106,158 @@ function Cell({ label, displayValue }: { label: string; displayValue: string }):
       <span className="text-xs uppercase tracking-wide text-gray-500">{label}</span>
       <span className="text-lg font-semibold text-gray-900">{displayValue}</span>
     </div>
+  );
+}
+
+// =============================================================================
+// HandbookEvaluation rendering helpers (#31 Commit 3)
+// =============================================================================
+
+function formatMetricValue(value: FieldValue): string {
+  if (value === undefined || value === null) return '—';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return String(value);
+    const fixed = value.toFixed(3);
+    return fixed.replace(/\.?0+$/, '') || '0';
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => formatMetricValue(v as FieldValue)).join(', ');
+  }
+  return String(value);
+}
+
+function filterSkipsForDisplay(
+  skips: readonly SkippedPrinciple[],
+): readonly SkippedPrinciple[] {
+  return skips.filter((s) => s.reason === 'missing_field');
+}
+
+type HandbookSeverity = 'critical' | 'high' | 'medium' | 'advisory';
+
+function severityToBadgeTone(severity: HandbookSeverity): RenderBadgeSeverity {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+      return 'critical';
+    case 'medium':
+      return 'warning';
+    case 'advisory':
+      return 'info';
+  }
+}
+
+const HANDBOOK_SEVERITY_RANK: Record<HandbookSeverity, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  advisory: 3,
+};
+
+function sortFiredFlagsForDisplay(
+  flags: readonly FiredFlag[],
+): readonly FiredFlag[] {
+  const indexed = flags.map((flag, i) => ({ flag, i }));
+  indexed.sort((a, b) => {
+    const rankDiff =
+      HANDBOOK_SEVERITY_RANK[a.flag.severity] - HANDBOOK_SEVERITY_RANK[b.flag.severity];
+    if (rankDiff !== 0) return rankDiff;
+    return a.i - b.i;
+  });
+  return indexed.map((x) => x.flag);
+}
+
+function HandbookEvaluationSection(
+  { evaluation }: { evaluation: HandbookEvaluation },
+): React.ReactElement {
+  const sortedFlags = sortFiredFlagsForDisplay(evaluation.firedFlags);
+  const displaySkips = filterSkipsForDisplay(evaluation.skippedPrinciples);
+  const totalSkips = evaluation.skippedPrinciples.length;
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">
+        Handbook Says
+      </h2>
+
+      {sortedFlags.length > 0 && (
+        <div className="overflow-x-auto border border-gray-200 rounded bg-white">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Severity</th>
+                <th className="px-3 py-2 text-left font-medium">Principle</th>
+                <th className="px-3 py-2 text-left font-medium">Metric</th>
+                <th className="px-3 py-2 text-left font-medium">Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedFlags.map((flag, i) => (
+                <tr
+                  key={flag.principleId + ':' + flag.groupIndex + ':' + flag.bandIndex + ':' + i}
+                  className="border-t border-gray-100"
+                >
+                  <td className="px-3 py-2">
+                    <Badge
+                      badge={{
+                        code: flag.principleId + ':' + flag.groupIndex + ':' + flag.bandIndex,
+                        label: flag.severity,
+                        severity: severityToBadgeTone(flag.severity as HandbookSeverity),
+                      }}
+                    />
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-600">{flag.principleId}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-900">
+                    {formatMetricValue(flag.metricValue)}
+                  </td>
+                  <td className="px-3 py-2 text-gray-700">{flag.flag_message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {sortedFlags.length === 0 && (
+        <p className="text-sm text-gray-500 italic">No flags fired.</p>
+      )}
+
+      {displaySkips.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs uppercase tracking-wide font-semibold text-gray-500">
+            Data Gaps ({displaySkips.length} missing-data {displaySkips.length === 1 ? 'skip' : 'skips'} of {totalSkips} total)
+          </h3>
+          <div className="overflow-x-auto border border-gray-200 rounded bg-white">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">Principle</th>
+                  <th className="px-3 py-2 text-left font-medium">Missing</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displaySkips.map((skip, i) => (
+                  <tr
+                    key={skip.principleId + ':' + i}
+                    className="border-t border-gray-100"
+                  >
+                    <td className="px-3 py-2 font-mono text-xs text-gray-600">{skip.principleId}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-900">{skip.detail ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-400">
+        Evaluated against handbook v{evaluation.handbookVersion} (engine {evaluation.engineVersion})
+        {' · '}
+        {new Date(evaluation.analysisAsOfDate).toISOString().slice(0, 10)}
+      </p>
+    </section>
   );
 }
 
@@ -330,7 +490,7 @@ function EditCell(
   );
 }
 
-export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChanged, onRevisionSaved }: Props): React.ReactElement {
+export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChanged, onRevisionSaved, handbookEvaluation }: Props): React.ReactElement {
   const { user } = useAuth();
   const canRevise = userCanRevise(user?.role);
   const editAvailable = canRevise && onRevisionSaved !== undefined;
@@ -578,6 +738,10 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
           </div>
         ) : null}
       </section>
+
+      {handbookEvaluation !== undefined && handbookEvaluation !== null && (
+        <HandbookEvaluationSection evaluation={handbookEvaluation} />
+      )}
 
       {data.doctrine.components.length > 0 ? (
         <section className="space-y-3">

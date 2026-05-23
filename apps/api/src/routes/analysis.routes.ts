@@ -316,6 +316,12 @@ analysisRoutes.get('/:id', (req: Request, res: Response) => {
   res.json({ analysis: applyCreditPolicyBandsToAnalysis(analysis) });
 });
 
+// GET /api/analyses/:id/handbook-evaluation — Sibling endpoint for the handbook
+// engine output (#31 Commit 3). Returns null when no evaluation exists.
+analysisRoutes.get('/:id/handbook-evaluation', (req: Request, res: Response) => {
+  handleHandbookEvaluationRead(req, res, recordGraphStore);
+});
+
 // GET /api/analyses/:id/status — Polling endpoint
 analysisRoutes.get('/:id/status', (req: Request, res: Response) => {
   const analysis = store.getAnalysis(req.params.id);
@@ -471,6 +477,53 @@ export function handleGraphRead(
     const err = e as Error;
     res.status(400).json({ error: err?.name ?? 'GET_ANALYSIS_ERROR', message: err?.message });
   }
+}
+
+/**
+ * Route handler: GET /api/analyses/:id/handbook-evaluation (#31 Commit 3).
+ *
+ * Returns the latest HandbookEvaluation for the analysis identified by :id
+ * (treated as a RevisionId lineageRootId, same as handleGraphRead).
+ *
+ * Response shape:
+ *   200 + HandbookEvaluation  — eval exists for the latest revision
+ *   200 + null                — analysis exists but no eval yet (pre-Commit-2
+ *                                deals or eval not produced)
+ *   404                        — analysis not found
+ *
+ * Design choice: 200+null vs 404 for "no eval" case. The analysis exists, but
+ * the handbook eval doesn't. We choose 200+null rather than 404 because the
+ * "no eval yet" case is normal data state, not an error. 404 typically signals
+ * "wrong URL"; the client wraps the fetch in try/catch and silences errors
+ * anyway (matching the workflow/timeline precedent), so either path leads to
+ * the same UI — but 200+null is semantically truthful.
+ */
+export function handleHandbookEvaluationRead(
+  req: Request,
+  res: Response,
+  graphStore: RecordGraphStore,
+): void {
+  const lineageRootId = req.params.id as RevisionId;
+
+  // Resolve the lineageRootId to the latest revision envelope. Same pattern
+  // as handleGraphRead — content-hash root → latest envelope on that lineage.
+  const envelope = graphStore.getLatestRevisionByLineageRoot(lineageRootId);
+  if (envelope === null) {
+    res.status(404).json({
+      error: 'ANALYSIS_NOT_FOUND',
+      message: `No revision lineage found with root ${req.params.id}`,
+      lineageRootId: req.params.id,
+    });
+    return;
+  }
+
+  // May legitimately be null — analyses produced before #31 Commit 2 don't
+  // have a HandbookEvaluation. The null is the truthful "no eval" signal.
+  const evaluation = graphStore.getLatestHandbookEvaluationForAdjustedInputs(
+    envelope.adjustedInputsId,
+  );
+
+  res.status(200).json(evaluation);
 }
 
 /** Exported for direct invocation by route tests with an in-memory store. The production
