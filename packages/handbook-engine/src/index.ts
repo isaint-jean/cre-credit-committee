@@ -25,10 +25,13 @@ export {
   evaluatePrinciple,
 } from './evaluator.js';
 
+export { HANDBOOK_ENGINE_VERSION } from './types.js';
+
 export type {
   FieldBag,
   FieldValue,
   FiredFlag,
+  HandbookEngineVersion,
   HandbookEvaluationResult,
   PrincipleEvaluationResult,
   SkippedPrinciple,

@@ -232,6 +232,7 @@ console.log('Happy path:');
       narrativeFacts: u.narrativeFacts,
       extractionResultId: u.extractionResult.id,
       analysisAsOfDate: AS_OF,
+      propertyMetadata: null,
     },
     store,
   );
@@ -265,6 +266,7 @@ console.log('\nIdempotency — two calls with the same args produce the same eva
     narrativeFacts: u.narrativeFacts,
     extractionResultId: u.extractionResult.id,
     analysisAsOfDate: AS_OF,
+    propertyMetadata: null,
   };
   const r1 = evaluateFromAdjustedInputs(args, store);
   const r2 = evaluateFromAdjustedInputs(args, store);
@@ -293,6 +295,7 @@ console.log('\nCaller pre-inserts AdjustedInputs — function still completes:')
       narrativeFacts: u.narrativeFacts,
       extractionResultId: u.extractionResult.id,
       analysisAsOfDate: AS_OF,
+      propertyMetadata: null,
     },
     store,
   );
@@ -314,6 +317,7 @@ console.log('\nDiscipline — evaluateFromAdjustedInputs does NOT create a revis
       narrativeFacts: u.narrativeFacts,
       extractionResultId: u.extractionResult.id,
       analysisAsOfDate: AS_OF,
+      propertyMetadata: null,
     },
     store,
   );

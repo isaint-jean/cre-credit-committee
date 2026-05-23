@@ -857,6 +857,44 @@ export class RecordGraphStore {
     return row ? this.parseRow<PropertyMetadata>(row) : null;
   }
 
+  /**
+   * STOPGAP (#31 Commit 2) — see follow-up ticket "Promote PropertyMetadata to
+   * spine record with FK to ExtractionResult". PropertyMetadata is FK-less
+   * today; the only existing linkage is via extraction_input_cache (designed
+   * as a re-upload short-circuit, not as a lookup index). Commit 1 of #31
+   * didn't touch this; Commit 2 establishes the lookup pattern.
+   *
+   * Multiple cache entries can map to the same extraction_result_id (different
+   * extractor-version slot hashes producing the same extraction body), but the
+   * composer is deterministic over (slot-hashes + extractor-versions) so all
+   * such entries reference the same PropertyMetadata when one exists. We return
+   * the first non-null match.
+   *
+   * Returns null if:
+   *   - no cache entry exists for this extractionResultId
+   *   - cache entry exists but property_metadata_id is null (PM was best-effort
+   *     and that composer run didn't produce one)
+   *   - PM row was deleted independently (PM persistence is best-effort)
+   *
+   * Lookup path uses the existing idx_extraction_input_cache_result index on
+   * extraction_input_cache(extraction_result_id).
+   */
+  getPropertyMetadataByExtractionResultId(
+    extractionResultId: ExtractionResultId,
+  ): PropertyMetadata | null {
+    const cacheRow = this.db
+      .prepare(
+        `SELECT property_metadata_id FROM extraction_input_cache
+         WHERE extraction_result_id = ? AND property_metadata_id IS NOT NULL
+         LIMIT 1`,
+      )
+      .get(extractionResultId) as { property_metadata_id: string | null } | undefined;
+    if (cacheRow === undefined || cacheRow.property_metadata_id === null) {
+      return null;
+    }
+    return this.getPropertyMetadata(cacheRow.property_metadata_id as PropertyMetadataId);
+  }
+
   /* -------------------------- extraction_input_cache --------------------------- */
 
   /** Cache entry: composite slot-hash + extractor-version key → resulting

@@ -220,6 +220,11 @@ export function ingestExtractionResult(
     analysisAsOfDate,
   });
 
+  /* Best-effort PropertyMetadata for the handbook evaluator (#31, Commit 2).
+     Looked up via the stopgap cache-traversal method; returns null if no PM
+     was produced or persisted for this extraction. */
+  const propertyMetadata = store.getPropertyMetadataByExtractionResultId(extractionResult.id);
+
   /* Stages 4-8 (AI insert through DoctrineEvaluation insert) delegated to the
      shared pipeline tail. The same tail is used by applyRevisionDelta (issue #20,
      step 8.5) so root and non-root paths share one evaluation flow. */
@@ -231,6 +236,7 @@ export function ingestExtractionResult(
       narrativeFacts,
       extractionResultId: extractionResult.id,
       analysisAsOfDate,
+      propertyMetadata,
     },
     store,
   );

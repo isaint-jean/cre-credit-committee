@@ -42,10 +42,12 @@ import type {
   ISODateTime,
   LibrarySnapshot,
   NarrativeFacts,
+  PropertyMetadata,
 } from '@cre/contracts';
 import { buildStressOutputs } from './stress-test-contracts.service.js';
 import { buildValuationConclusion } from './valuation.service.js';
 import { buildDoctrineEvaluation } from './doctrine/build-doctrine-evaluation.js';
+import { buildHandbookEvaluation } from './handbook/build-handbook-evaluation.js';
 import { computeCrossCheckResultId } from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
@@ -59,6 +61,11 @@ export interface EvaluateFromAdjustedInputsArgs {
    *  root in single-hop FK lookups (Batch 6.5 hydration invariant HY1). */
   readonly extractionResultId: ExtractionResultId;
   readonly analysisAsOfDate: ISODateTime;
+  /** Best-effort PropertyMetadata for the handbook field-bag assembler.
+   *  Sourced upstream via getPropertyMetadataByExtractionResultId(extractionResultId).
+   *  null is a valid state — assembler is null-tolerant and the engine skips
+   *  metadata-derived principles with reason 'missing_field'. */
+  readonly propertyMetadata: PropertyMetadata | null;
 }
 
 export interface EvaluateFromAdjustedInputsResult {
@@ -76,6 +83,7 @@ export function evaluateFromAdjustedInputs(
     narrativeFacts,
     extractionResultId,
     analysisAsOfDate,
+    propertyMetadata,
   } = args;
 
   /* Stage 4 (insert only) — AdjustedInputs already constructed by caller. */
@@ -101,6 +109,22 @@ export function evaluateFromAdjustedInputs(
     analysisAsOfDate,
   });
   store.insertStressOutputs(stressOutputs);
+
+  /* Stage 6.5 — HandbookEvaluation (#31, Commit 2). Parallel "handbook says"
+     annotation. Sibling to the doctrine pipeline — does NOT feed into
+     valuation/doctrine scoring. Persisted independently. Placed after
+     StressOutputs because the assembler reads stressed_dscr_top_3_removed
+     from the named scenario; placed before ValuationConclusion because the
+     handbook evaluation has no dependency on valuation or doctrine. */
+  const handbookEvaluation = buildHandbookEvaluation({
+    adjustedInputs,
+    assetProfile,
+    narrativeFacts,
+    stressOutputs,
+    propertyMetadata,
+    analysisAsOfDate,
+  });
+  store.insertHandbookEvaluation(handbookEvaluation);
 
   /* Stage 7 — ValuationConclusion. */
   const valuationConclusion = buildValuationConclusion({

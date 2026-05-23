@@ -438,6 +438,12 @@ export function applyRevisionDelta(
   };
 
   // i. Drive the shared pipeline tail (persists AI + CC + SO + VC + DE).
+  //    Best-effort PropertyMetadata for the handbook evaluator (#31, Commit 2)
+  //    — revisions reuse the parent's ExtractionResult, so PM is keyed off
+  //    the parent doctrine's extractionResultId.
+  const propertyMetadata = store.getPropertyMetadataByExtractionResultId(
+    parentDoctrine.extractionResultId,
+  );
   const { evaluation } = evaluateFromAdjustedInputs(
     {
       adjustedInputs: childAdjustedInputs,
@@ -446,6 +452,7 @@ export function applyRevisionDelta(
       narrativeFacts,
       extractionResultId: parentDoctrine.extractionResultId,
       analysisAsOfDate: parentAdjustedInputs.analysisAsOfDate,
+      propertyMetadata,
     },
     store,
   );
