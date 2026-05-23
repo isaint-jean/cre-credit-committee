@@ -18,6 +18,17 @@ export const VALUATION_ENGINE_VERSION = '1.0' as const;
 export const RENDER_CONTRACT_VERSION = '1.0' as const;
 export const EXTRACTION_ENGINE_VERSION = '1.1' as const;
 export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
+/**
+ * Handbook-engine semantic version. Stamped onto every HandbookEvaluation record
+ * (#31, Commit 1) so historical evaluations stay anchored to the engine semantics
+ * they were produced under. Bump rules:
+ *   PATCH (1.0.0 → 1.0.1): bug fixes that don't change firing behavior.
+ *   MINOR (1.0.0 → 1.1.0): bug fixes that change firing behavior in edge cases,
+ *     or new operators / formula ops that don't affect existing principles.
+ *   MAJOR (1.0.0 → 2.0.0): semantic changes to existing operators or condition
+ *     evaluation order. Re-evaluation recommended for historical deals.
+ */
+export const HANDBOOK_ENGINE_VERSION = '1.0.0' as const;
 
 export type DoctrineVersion = typeof DOCTRINE_VERSION;
 export type JudgmentEngineVersion = typeof JUDGMENT_ENGINE_VERSION;
@@ -26,6 +37,7 @@ export type ValuationEngineVersion = typeof VALUATION_ENGINE_VERSION;
 export type RenderContractVersion = typeof RENDER_CONTRACT_VERSION;
 export type ExtractionEngineVersion = typeof EXTRACTION_ENGINE_VERSION;
 export type ManifestoContractVersion = typeof MANIFESTO_CONTRACT_VERSION;
+export type HandbookEngineVersion = typeof HANDBOOK_ENGINE_VERSION;
 
 /**
  * ISO 8601 UTC timestamp, frozen at extraction time. Used as `analysisAsOfDate` everywhere a

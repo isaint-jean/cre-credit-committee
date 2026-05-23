@@ -95,5 +95,13 @@ export * from './kick.js';
 // PrincipleCluster, Principle) plus a separate ReviewStep entity for §V.
 export * from './handbook.js';
 
+// HandbookEvaluation (#31, Commit 1 of engine-invocation integration) — engine
+// output record persisted as a sibling to HydratedRecordGraph. FKs to
+// AdjustedInputs only; not in the typed bundle (preserves Batch 6.5 HY1).
+// Also re-hosts engine-output types (FiredFlag, SkippedPrinciple, SkipReason,
+// FieldBag, FieldValue) so contracts are the single source of truth and the
+// engine package imports them back.
+export * from './handbook-evaluation.js';
+
 // Typed error payloads
 export * from './errors.js';

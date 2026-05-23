@@ -35,6 +35,7 @@ export type CrossCheckResultId     = RecordId<'CrossCheckResult'>;
 export type StressOutputsId        = RecordId<'StressOutputs'>;
 export type ValuationConclusionId  = RecordId<'ValuationConclusion'>;
 export type DoctrineEvaluationId   = RecordId<'DoctrineEvaluation'>;
+export type HandbookEvaluationId   = RecordId<'HandbookEvaluation'>;
 export type ExtractionResultId     = RecordId<'ExtractionResult'>;
 export type AssetProfileId         = RecordId<'AssetProfile'>;
 export type RenderedAnalysisId     = RecordId<'RenderedAnalysis'>;

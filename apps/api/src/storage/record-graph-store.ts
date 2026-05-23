@@ -38,6 +38,8 @@ import type {
   CrossCheckResultId,
   DoctrineEvaluation,
   DoctrineEvaluationId,
+  HandbookEvaluation,
+  HandbookEvaluationId,
   ExtractionResult,
   ExtractionResultId,
   LibrarySnapshot,
@@ -183,6 +185,23 @@ export class RecordGraphStore {
         adjusted_inputs_id TEXT NOT NULL,
         stress_engine_version TEXT NOT NULL,
         method TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (adjusted_inputs_id) REFERENCES adjusted_inputs(id)
+      );
+
+      -- Handbook engine output (#31, Commit 1). Sibling to stress_outputs:
+      -- both FK to adjusted_inputs and are independent stage outputs. NOT FK'd
+      -- to doctrine_evaluations despite both being parallel — the dependency
+      -- is "evaluation depends on AdjustedInputs," not "one sibling on the
+      -- other." May have MULTIPLE rows per adjusted_inputs_id over time as
+      -- the handbook version is bumped and old deals are re-evaluated.
+      CREATE TABLE IF NOT EXISTS handbook_evaluations (
+        id TEXT PRIMARY KEY,
+        analysis_as_of_date TEXT NOT NULL,
+        adjusted_inputs_id TEXT NOT NULL,
+        handbook_version TEXT NOT NULL,
+        engine_version TEXT NOT NULL,
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (adjusted_inputs_id) REFERENCES adjusted_inputs(id)
@@ -335,6 +354,8 @@ export class RecordGraphStore {
       CREATE INDEX IF NOT EXISTS idx_adjusted_inputs_lib       ON adjusted_inputs(library_snapshot_id);
       CREATE INDEX IF NOT EXISTS idx_cross_check_ai            ON cross_check_results(adjusted_inputs_id);
       CREATE INDEX IF NOT EXISTS idx_stress_outputs_ai         ON stress_outputs(adjusted_inputs_id);
+      CREATE INDEX IF NOT EXISTS idx_handbook_eval_ai          ON handbook_evaluations(adjusted_inputs_id);
+      CREATE INDEX IF NOT EXISTS idx_handbook_eval_version     ON handbook_evaluations(handbook_version);
       CREATE INDEX IF NOT EXISTS idx_valuation_ai              ON valuation_conclusions(adjusted_inputs_id);
       CREATE INDEX IF NOT EXISTS idx_valuation_stress          ON valuation_conclusions(stress_outputs_id);
       CREATE INDEX IF NOT EXISTS idx_doctrine_ai               ON doctrine_evaluations(adjusted_inputs_id);
@@ -626,6 +647,72 @@ export class RecordGraphStore {
       .prepare(`SELECT id, payload FROM stress_outputs WHERE id = ?`)
       .get(id) as RecordRow | undefined;
     return row ? this.parseRow<StressOutputs>(row) : null;
+  }
+
+  /* ---------------------------- handbook_evaluations --------------------------- */
+
+  insertHandbookEvaluation(record: HandbookEvaluation): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'HandbookEvaluation');
+    const result = this.db
+      .prepare(
+        `INSERT INTO handbook_evaluations
+         (id, analysis_as_of_date, adjusted_inputs_id, handbook_version, engine_version, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(
+        id,
+        body.analysisAsOfDate,
+        body.adjustedInputsId,
+        body.handbookVersion,
+        body.engineVersion,
+        payload,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  getHandbookEvaluation(id: HandbookEvaluationId): HandbookEvaluation | null {
+    const row = this.db
+      .prepare(`SELECT id, payload FROM handbook_evaluations WHERE id = ?`)
+      .get(id) as RecordRow | undefined;
+    return row ? this.parseRow<HandbookEvaluation>(row) : null;
+  }
+
+  /**
+   * NEW pattern — accessors for the render layer, NOT for hydration. Unlike
+   * other records that are 1:1 with AdjustedInputs, HandbookEvaluation may
+   * have multiple rows per AdjustedInputs over time as the handbook version
+   * is bumped and old deals are re-evaluated against the new handbook.
+   *
+   * The "latest by created_at" semantic intentionally diverges from the HY4
+   * hydration invariant ("no LIMIT 1, no latest by created_at"). This is OK
+   * because these accessors are NOT used during hydration — hydration is FK
+   * closure from a specific id. These are for the render layer's "show me
+   * the current handbook eval for this analysis" surface.
+   */
+  getHandbookEvaluationsForAdjustedInputs(adjustedInputsId: string): HandbookEvaluation[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, payload FROM handbook_evaluations
+         WHERE adjusted_inputs_id = ?
+         ORDER BY created_at DESC`,
+      )
+      .all(adjustedInputsId) as RecordRow[];
+    return rows.map((row) => this.parseRow<HandbookEvaluation>(row));
+  }
+
+  getLatestHandbookEvaluationForAdjustedInputs(
+    adjustedInputsId: string,
+  ): HandbookEvaluation | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, payload FROM handbook_evaluations
+         WHERE adjusted_inputs_id = ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(adjustedInputsId) as RecordRow | undefined;
+    return row ? this.parseRow<HandbookEvaluation>(row) : null;
   }
 
   /* --------------------------- valuation_conclusions --------------------------- */
