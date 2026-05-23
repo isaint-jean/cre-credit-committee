@@ -80,11 +80,16 @@
     "test:compute-workbook-coverage": "tsx src/scripts/test-compute-workbook-coverage.ts",
     "test:extract-property-metadata": "tsx src/scripts/test-extract-property-metadata.ts",
     "test:populate-property-metadata": "tsx src/scripts/test-populate-property-metadata.ts",
-    "test:extract-cash-flow": "tsx src/scripts/test-extract-cash-flow-from-xlsx.ts"
+    "test:extract-cash-flow": "tsx src/scripts/test-extract-cash-flow-from-xlsx.ts",
+    "test:handbook-field-bag": "tsx src/scripts/test-handbook-field-bag.ts",
+    "test:handbook-field-bag-known-fields": "tsx src/scripts/test-handbook-field-bag-known-fields.ts",
+    "test:handbook-field-bag-smoke-e2e": "tsx src/scripts/test-handbook-field-bag-smoke-e2e.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
     "@cre/contracts": "*",
+    "@cre/handbook-data": "*",
+    "@cre/handbook-engine": "*",
     "@cre/shared": "*",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.8.0",
