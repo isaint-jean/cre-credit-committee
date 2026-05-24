@@ -21,7 +21,8 @@
 - **v2 — 2026-05-24.** Two days of bucket recon (Buckets 1, 2, 3, 6 covered; 4 and 5 deferred) revealed that the 6-bucket framing groups cells by underwriting concept when the more decision-relevant grouping is by work-shape. Reclassified into a four-type taxonomy (X / Y / Z / D) plus a separate "Mapped (with quality notes)" non-gap category. Original 6-bucket framing preserved as a cross-reference index (§8).
 - **v3 — 2026-05-25.** Added Tier B judgment workstream stub (now §10) and analysis page upgrade stub (now §11). Reframed the v2 X/Y/Z/D taxonomy as explicitly Tier A-scoped — it was implicitly already, but not stated (see §2.5 for the scope note; §8 cross-reference table updated to note Tier A scope). No Tier A reclassifications.
 - **v4 — 2026-05-26.** Piece 3 recon completed. Bucket 4 PROVISIONAL CONFIRMED as Type Y appraisal, with ghost-contract finding: `AppraisalExtraction` exists at `packages/contracts/src/extraction.ts:108-114` with 3 fields but has no producer today (always null in production), so a future appraisal-extractor workstream builds from zero. Bucket 5 PROVISIONAL PARTIALLY REVISED — split across Type Z `external_cmbs_database_integration` (3 cells: C18 composite, C19, D19), Type Z `product_decision_on_required_uploads` (1 cell: E18 — static historical number, needs prior-loan-doc upload, not external database), and Mapped partial (C18 deal-code portion already extracted today by `extractComparablesLinkageRefs`; see §3.4). The previous §9 PROVISIONAL section is REMOVED; subsequent sections renumbered (§10 Next steps → §9; §11 Tier B stub → §10; §12 Analysis page stub → §11). Added an extractor-surface-sweep candidate to Next steps (now §9 item 5) based on the recon meta-finding: "extractor exists but narrowly applied / unfilled" surfaced three times across the three recon cycles.
-- **v5 — 2026-05-30 (this revision).** D.3 SellerUW triplet back-fill shipped as the first implementation ticket (commit `83328b4` on main). Added `derive` as a third Type X sub-flag for derivations from existing extractor output into separate empty target sub-records — D.3 retroactively classified under it. New §3.5 documents the SellerUW triplet under Mapped cells. New §4.4 reserves the `derive` sub-flag (currently 0 open candidates). §9 item 2 marked COMPLETED with D.3 details; §9 item 7 adds [#42](https://github.com/isaint-jean/cre-credit-committee/issues/42) (T-12 vacancy cascade sign-convention bug) as a carried-forward architectural question. §8 footnote notes D.3 sits outside the original six-bucket cross-reference. New §10 Behavior change log documents the bank-floor activation and EXTRACTION_ENGINE_VERSION bump as production-behavior changes; §10 Tier B stub renumbered to §11 and §11 Analysis page stub renumbered to §12.
+- **v5 — 2026-05-30.** D.3 SellerUW triplet back-fill shipped as the first implementation ticket (commit `83328b4` on main). Added `derive` as a third Type X sub-flag for derivations from existing extractor output into separate empty target sub-records — D.3 retroactively classified under it. New §3.5 documents the SellerUW triplet under Mapped cells. New §4.4 reserves the `derive` sub-flag (currently 0 open candidates). §9 item 2 marked COMPLETED with D.3 details; §9 item 7 adds [#42](https://github.com/isaint-jean/cre-credit-committee/issues/42) (T-12 vacancy cascade sign-convention bug) as a carried-forward architectural question. §8 footnote notes D.3 sits outside the original six-bucket cross-reference. New §10 Behavior change log documents the bank-floor activation and EXTRACTION_ENGINE_VERSION bump as production-behavior changes; §10 Tier B stub renumbered to §11 and §11 Analysis page stub renumbered to §12.
+- **v6 — 2026-05-31 (this revision).** Tier B coverage-gap recon completed (Piece 6 in the session sequence; Pieces 1-3 were Tier A bucket recons, Piece 4 was the extractor surface sweep, Piece 5 was the D.3 scoping recon). §11 Tier B promoted from stub to workstream section with cell inventory + gap-pattern analysis: §11.1 coverage table (32 rows mapping every Tier B cell against existing builder infrastructure), §11.2 five gap-pattern categories (surface mismatch / PCA ghost-gated / contract gap / mechanical-or-text-gen / new territory), §11.3 Tier-B-on-Tier-B dependency analysis (cells aren't order-independent the way Tier A line-item-builders are), §11.4 next-step sequencing pointers cross-referenced against §9 candidates. The §11 stub content (Definition / Status / Why it matters / Quality dependency) preserved as the §11.0 preamble with Status + Next step updated to past tense. §9 item 3 updated from "stub" to "recon completed"; §9 item 5 cross-referenced to §11.2 Cat 2 + Cat 3; §9 item 7 gains a new architectural-question bullet about Tier-B-on-Tier-B ordering. Stress Scenario + 10-Yr Pro Forma cells that v3 registry didn't enumerate noted in §11.1 as a documentation gap.
 
 ---
 
@@ -51,7 +52,7 @@ Four classifications for gap cells, plus a separate non-gap category:
 
 ## 2.5 Scope of the X/Y/Z/D taxonomy
 
-The X/Y/Z/D taxonomy in §2 classifies **Tier A (extraction) cells only**. Tier B (judgment) and Tier C (manual) cells are out of scope for this taxonomy. Tier B has its own workstream — currently a stub at §11 pending dedicated inventory + roadmap design. Tier C cells stay red-highlighted as designed (manual entry by the underwriter); no engineering work is intended for them.
+The X/Y/Z/D taxonomy in §2 classifies **Tier A (extraction) cells only**. Tier B (judgment) and Tier C (manual) cells are out of scope for this taxonomy. Tier B has its own workstream at §11 with its own gap-pattern categorization (§11.2). Tier C cells stay red-highlighted as designed (manual entry by the underwriter); no engineering work is intended for them.
 
 ---
 
@@ -312,9 +313,9 @@ Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v
 
 1. **Piece 3 recon — COMPLETED 2026-05-26.** Confirmed Bucket 4 as Type Y appraisal (with `AppraisalExtraction` ghost-contract finding — see §5.2). Partially revised Bucket 5: split across Type Z external_cmbs (C18 composite, C19, D19; see §6.2), Type Z product_decision (E18; see §6.1), and Mapped partial (C18 deal-code via `extractComparablesLinkageRefs`; see §3.4). The prior §9 PROVISIONAL section was removed in v4; subsequent sections renumbered.
 2. **First implementation ticket — COMPLETED `83328b4` (2026-05-29).** D.3 SellerUW triplet back-fill shipped as the first implementation ticket after four sessions of recon (Pieces 1-4 + Piece 5 scoping). New `deriveSellerUwTriplet` helper + composer wire-up + `EXTRACTION_ENGINE_VERSION` bump (1.1 → 1.2) + 5 fixture updates + bank-floor reason text addition. Production-behavior changes documented in §10 Behavior change log. The first-implementation-ticket gate is now open for the next candidate from the list below.
-3. **Tier B workstream design session:** Inventory Tier B cells in the template and design a judgment-coverage roadmap analogous to the v2 taxonomy for Tier A. See §11 for the stub.
+3. **Tier B workstream — coverage-gap recon COMPLETED 2026-05-31.** See §11 for the full inventory + gap-pattern analysis. The §9 candidates intersect with Tier B work; see §11.4 for suggested sequencing. The workstream design is no longer a blocking task — the gap patterns provide the design.
 4. **Analysis page upgrade scoping session:** Scope the rebuild of the legacy analysis page (red-flag detection, internet research, credit scoring), including its dependency on Tier B shipping criteria from §11. See §12 for the stub.
-5. **Extractor surface sweep:** A targeted sweep of all current extractors (legacy POST extraction services, AI-tier extractors, regex-based extractors) to surface other "extractor exists but narrowly applied / unfilled" patterns. Three instances surfaced across the three recon cycles: `uw-intelligence.service.ts` repoint candidate for loan structural terms, `AppraisalExtraction` ghost contract, `extractComparablesLinkageRefs` narrow regex output. A single sweep would either find 2-3 more Type X recovery candidates or confirm none exist; either way it makes first-ticket selection sharper. Not auto-scheduled; treat as a peer candidate to the other four next steps.
+5. **Extractor surface sweep:** A targeted sweep of all current extractors (legacy POST extraction services, AI-tier extractors, regex-based extractors) to surface other "extractor exists but narrowly applied / unfilled" patterns. Three instances surfaced across the three recon cycles: `uw-intelligence.service.ts` repoint candidate for loan structural terms, `AppraisalExtraction` ghost contract, `extractComparablesLinkageRefs` narrow regex output. A single sweep would either find 2-3 more Type X recovery candidates or confirm none exist; either way it makes first-ticket selection sharper. Not auto-scheduled; treat as a peer candidate to the other four next steps. **Cross-reference (v6):** the Piece 4 sweep's D.2 PCAExtraction ghost-contract finding maps to Tier B Category 2 in §11.2 (5 cells gated on PCA producer); its C.2 OperatingStatementExtraction narrow-output finding maps to Tier B Category 3 in §11.2 (3 cells gated on contract widening).
 6. **Product decisions to surface** (not engineering scope):
    - Whether to add an audited-statements upload slot for Bucket 3 prior-year columns (Type Z product_decision resolution).
    - Whether to add a prior-loan-doc upload slot for Bucket 5 cell E18 (Type Z product_decision resolution).
@@ -325,6 +326,7 @@ Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v
    - The conflation of D12 Current Balance and D13 Original Balance via shared `uwModel.loanAmount` — clean fix is a separate `currentBalance` field on the loan terms record.
    - The Type X / Type D choice for H12 Ground Lease.
    - **T-12 vacancy cascade sign-convention bug** ([#42](https://github.com/isaint-jean/cre-credit-committee/issues/42), filed during D.3 implementation). The cascade at `source-cascade.ts:55-72` has the same naive `vl/gpr` derivation D.3 handled locally; #42 carries the architectural-question discussion of retroactive vs version-gated fix, `JUDGMENT_ENGINE_VERSION` rotation, and cascade-side vs contract-side fix. Not blocked on anything specific; deferred from D.3's scope per the scope decisions in that brief.
+   - **Tier-B-on-Tier-B dependency ordering** (§11.3). I9 Concluded Cap Rate depends on NOI which depends on col L UW values; this is a structural difference from Tier A line-item-builders' order-independence. When Tier B implementation starts, the execution ordering needs deliberate design.
 
 ---
 
@@ -344,17 +346,108 @@ The cascade design clearly anticipated this floor's activation; D.3 delivers the
 
 ---
 
-## 11. Tier B (judgment) workstream — stub
+## 11. Tier B (judgment) workstream
+
+### 11.0 Preamble
 
 **Definition.** Tier B cells are populated from LLM judgment guided by the handbook. Examples: year-1 pro forma assumptions (Operating History col L), 10-year projections, stress scenarios, concluded values (Conclusions & Escrows tab — concluded cap rate, escrow recommendations, etc.). Yellow-background convention in the populated workbook.
 
-**Status.** No roadmap exists yet. The X/Y/Z/D taxonomy in §2 does NOT classify Tier B cells (per §2.5 — the taxonomy is Tier A-scoped). A separate bucket inventory + taxonomy is needed for Tier B before any engineering scoping.
+**Status.** Coverage-gap recon completed 2026-05-31 (Piece 6). The X/Y/Z/D taxonomy in §2 does NOT classify Tier B cells (per §2.5 — the taxonomy is Tier A-scoped); Tier B uses its own gap-pattern categorization (§11.2) instead.
 
 **Why this matters for the populator.** The populator's value above "extraction transcription tool" depends on Tier B cells being populated AND trustworthy. Shipping the populator with extraction-only coverage (Tier A populated, Tier B blank or red) reduces the deliverable to a workbook generator. Shipping with weak Tier B coverage is worse than blank — plausibly-wrong judgment is harder to detect than missing values.
 
 **Quality dependency on §12.** Tier B output trustworthiness is most naturally surfaced via the analysis page (reasoning traces, doctrine principle invoked, override surface). Populator → analysis page is therefore a quality dependency, not just a parallel feature.
 
-**Next step.** Dedicated session to inventory Tier B cells in the template and design the judgment-coverage roadmap. Not scoped here.
+**Next step.** See §11.4 for sequencing recommendations against the §9 candidates.
+
+### 11.1 Coverage table
+
+The Tier B cells in the registry, mapped against existing builder infrastructure (`apps/api/src/services/judgment/line-item-builders.ts`) and doctrine principles (handbook clusters at `packages/handbook-data/src/handbook.json`).
+
+| Cell | Sheet | Label | Has builder? | Builder function | Anchor pattern | Wired to cell? | Doctrine principle | Notes |
+|---|---|---|---|---|---|---|---|---|
+| I9 | Conclusions & Escrows | Concluded Cap Rate | No | NONE | N/A | No | P-III-9 | "THE MOST CONSEQUENTIAL SINGLE JUDGMENT CELL" per registry. Distinct from `buildCapRate` (going-in) and `buildTerminalCapRate` (exit). No existing builder for concluded cap rate. |
+| E47 | Conclusions & Escrows | RE Taxes — Up Front Deposit | No | NONE | N/A | No | NONE clearly applies | Real estate tax reserve at closing. Not in `AdjustedInputs.capitalReserves` block. |
+| E48 | Conclusions & Escrows | Insurance — Up Front Deposit | No | NONE | N/A | No | NONE clearly applies | Insurance reserve at closing. Same shape as E47. |
+| E49 | Conclusions & Escrows | Replacement Reserves — Up Front | Partial | `buildUpfrontCapex` (line 576) | Pattern 3 (PCAExtraction → default 0) | No | P-III-3, P-IV-OFF-3 | Registry note: $1/SF formula likely; partly mechanical. PCAExtraction is a ghost contract — builder returns 0 today. |
+| G49 | Conclusions & Escrows | Replacement Reserves — Annual Escrow | Partial | `buildMonthlyCapex` (line 595) | Pattern 3 | No | P-III-3, P-IV-OFF-3 | Maps to `AdjustedInputs.capitalReserves.monthlyCapex × 12`. PCAExtraction ghost dependency. |
+| G51 | Conclusions & Escrows | Immediate Repairs — Annual Escrow | Partial | `buildPcaImmediateRepairs` (line 619) | Pattern 3 (PCAExtraction → null) | No | P-III-3 | PCAExtraction ghost dependency. Sunroad = 0. |
+| E54 | Conclusions & Escrows | General TI/LC — Up Front Deposit | Partial | `buildUpfrontTiLc` (line 590) | applicability flag, MANUAL default 0 | No | P-III-3, P-IV-OFF-3 | Builder emits MANUAL default 0 unless applicability=true. Sunroad = $6.17M; dollar requires judgment current builder can't produce. |
+| L9 | Operating History | Potential Gross Rental Income (UW year-1) | Yes — different surface | `buildGrossRentalIncome` (line 193) | Pattern 3 (T-12 → rentRoll annualized) | No (populator wires from `pipeline.uwModelFromSeller`) | P-III-2, P-II-2 | **Surface mismatch.** Builder produces judgment-anchored value; populator instead writes the seller's UW from CF extraction. v3 §3.2 notes the underwriter is expected to revise. |
+| L14 | Operating History | Other Income (UW year-1) | Yes — different surface | `buildOtherIncome` (line 234) | Pattern 3 + MANUAL default 0 | No (uwModelFromSeller) | P-III-1, P-III-2 | Surface mismatch (same as L9). |
+| L15 | Operating History | Expense Reimbursements (UW year-1) | No | NONE | N/A | No (uwModelFromSeller) | P-III-2 | Reimbursements not in `AdjustedInputs` (legacy + contract both omit). Piece 4 C.2: OperatingStatementExtraction drops reimbursements/bad-debt/G&A/janitorial/RR/TI/LC. |
+| L22 | Operating History | General and Administrative (UW year-1) | No | NONE | N/A | No (uwModelFromSeller) | P-III-2 | G&A not in `AdjustedInputs.expenses`. Same contract gap as L15. |
+| L24 | Operating History | Repairs and Maintenance (UW year-1) | Yes — different surface | `buildMaintenance` (line 441) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. |
+| L25 | Operating History | Utilities (UW year-1) | Yes — different surface | `buildUtilities` (line 435) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. |
+| L30 | Operating History | Management Fee (UW year-1) | Yes — different surface | `buildManagementFee` (line 438) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. Has paired Q30 growth-rate parameter. |
+| L31 | Operating History | Property Taxes (UW year-1) | Yes — different surface | `buildRealEstateTaxes` (line 429) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. |
+| L32 | Operating History | Insurance (UW year-1) | Yes — different surface | `buildInsurance` (line 432) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. |
+| L38 | Operating History | Replacement Reserves (UW year-1) | Partial | `buildMonthlyCapex × 12` (line 595) | Pattern 3 (PCAExtraction → null) | No | P-III-3, P-IV-OFF-3 | Ghost-contract dependency. |
+| L39 | Operating History | TI (UW year-1) | Partial | `buildMonthlyTiLc × 12` (line 615) | applicability flag, MANUAL default 0 | No | P-III-3 | Ghost-adjacent + applicability gated. |
+| L40 | Operating History | LC (UW year-1) | Partial | `buildMonthlyTiLc × 12` (line 615) | applicability flag, MANUAL default 0 | No | P-III-3 | Same single `monthlyTiLc` field as L39 — TI and LC not split today. |
+| R14, R22, R24, R25, R31, R32, R38 | Operating History | UW assumption notes (free-text) | No | NONE | N/A | No | P-III-2 (justification surface) | 7 free-text cells (e.g., "Set to T-12 +3%", "UW to Prop 13"). LLM-generated explanatory prose; no builder produces strings. Registry: "Generated by LLM as part of judgment output, Milestone 2." |
+| Q30 | Operating History | Management fee growth rate (3% parameter) | No | NONE | N/A | No | P-III-2 | Per-line-item growth-rate override. `buildExpenseGrowthPct` returns a single 0.03 default; no per-line-item differentiation today. |
+| C4, D4, E4 | Stress Scenario | "Tenants Lost" scenario tier identifiers (1/2/3) | No | NONE | N/A | No | P-III-8 | Scenario definitions, not judgment parameters. Marginal Tier B. |
+| D62 | Stress Scenario | Refi-stress Amortization Period (360 months) | No | NONE | N/A | No | P-III-10 | Refinance-stress amort assumption used in stressed refi DSCR test. |
+| D65 | Stress Scenario | Refi-stress Required DSCR (1.35) | No | NONE | N/A | No | P-III-10, P-III-8, P-III-6 | DSCR threshold for refi-stress test. Deal-level UW assumption (bank's required-refi-DSCR target). |
+| E28-M28 (9 cells) | 10 Yr Pro Forma | Expense Growth Rate per year (3% × 9) | Yes | `buildExpenseGrowthPct` (line 756) | MANUAL default 0.03 (JE_EXPENSE_GROWTH_DEFAULTED) | Unknown | P-III-2, P-III-1 | Builder emits a single 0.03 default; whether the populator broadcasts `AdjustedInputs.assumptions.expenseGrowthPct.adjusted` to 9 cells is unverified — needs grep during ticket scoping. |
+| E35-M35 (9 cells) | 10 Yr Pro Forma | Other Capital Expenditures per year (0 × 9) | No | NONE | N/A | No | P-III-3 | Discretionary year-by-year capex schedule. Not in `AdjustedInputs.capitalReserves` (which carries monthlyCapex as a single rate, not a year-by-year schedule). |
+| E77 | 10 Yr Pro Forma | Critical Tenant Sweep — Months Prior trigger | No | NONE | N/A | No | P-IV-OFF-6 (tentative) | Trigger month before tenant expiration to start sweeping reserves. Tenant-sweep judgment unique to tenant-concentration deals. |
+
+**Table is 27 rows representing ~51 individual cells.** Cells from L38/L39/L40 listed separately; R-column notes grouped as one row (R14, R22, R24, R25, R31, R32, R38); broadcasts E28-M28 and E35-M35 grouped as one row each (9 cells per broadcast); C4/D4/E4 grouped as one row (3 scenario tier identifiers). The table is the working artifact — future Tier B tickets should reference rows by Cell + Sheet and update the "Wired to cell?" column as cells get covered.
+
+**Inventory additions to the v3 registry (documentation gap).** Piece 6 enumerated cells that the v3 registry deferred. To incorporate eventually:
+- **Stress Scenario:** C4/D4/E4 (scenario IDs, marginal Tier B), D62 (refi-stress amortization, 360), D65 (refi-stress DSCR threshold, 1.35).
+- **10-Yr Pro Forma:** E28-M28 (expense growth broadcast, 9 cells of 0.03), E35-M35 (other capex broadcast, 9 cells of 0), E77 (critical-tenant sweep months prior, 0).
+
+These were not in v3 registry's `inputs[]` arrays for those sheets; the registry should eventually be updated to reflect them. Tracked here as a documentation gap, not blocking Tier B work.
+
+### 11.2 Gap patterns (the five categories)
+
+The 32 cells cluster into five distinct categories of work shape:
+
+**Category 1 — Surface mismatch (8 cells).** Existing builders produce judgment-anchored values; the populator (when it ships) would wire those cells from `pipeline.uwModelFromSeller` (the seller's UW passthrough) instead. Same shape as D.3's `derive` sub-flag — existing capability, narrow application; fix is wiring, not new infrastructure.
+Cells: L9, L14, L24, L25, L30, L31, L32, L38 (partial).
+
+**Category 2 — PCAExtraction ghost-contract gated (5 cells).** Builders exist (`buildUpfrontCapex`, `buildMonthlyCapex`, `buildPcaImmediateRepairs`) but read from `PCAExtraction` which is always null in production (Piece 4 sweep finding D.2). Cannot recover via wiring alone; needs PCA producer to ship first. PCA producer would also unlock Bucket 6 cell C14 (Clear Height, industrial-specific).
+Cells: E49, G49, G51, L38 (full), E35-M35.
+
+**Category 3 — Contract gap (2 cells).** No builder exists because the contract doesn't carry the field. Per Piece 4 C.2 finding, `OperatingStatementExtraction` drops reimbursements, bad debt, G&A, janitorial, replacement reserves, TI, LC. Same shape as PCA — contract widening required before any builder can ship.
+Cells: L15 (Reimbursements), L22 (G&A).
+
+Note: the Piece 4 C.2 contract gap also drops bad-debt extraction; no Tier B cell currently exists for bad debt, but if the contract is widened to capture it, future template revisions could add one.
+
+**Category 4 — Mechanical or text-generation (10 cells).** Not builder-shaped work. E47/E48 are formulaic reserve calculations (months-of-tax/insurance); E49 partially is a $1/SF formula (registry note); R-column notes are LLM-generated free-text explanations; C4/D4/E4 are scenario identifiers, not parameters to tune.
+Cells: E47, E48, E49 (partial — the mechanical portion), R14, R22, R24, R25, R31, R32, R38, C4, D4, E4.
+
+**Category 5 — New territory (4 cells / cell groups).** No builder, no contract slot, no doctrine principle wired through to infrastructure. Each requires contract widening + new builder + doctrine work. I9 Concluded Cap Rate is the most consequential single cell in the entire template per registry notes.
+Cells: I9 Concluded Cap Rate (highest single-cell consequence per registry), D62 Refi-stress amortization, D65 Refi-stress DSCR threshold, E77 Critical-tenant sweep months prior, Q30 Management fee growth-rate parameter (per-line-item override of the global expense growth default).
+
+### 11.3 Cross-cell dependencies
+
+Tier B cells aren't independent of each other. The Conclusions & Escrows sheet derives Concluded Value via cell formula from I9 Concluded Cap Rate × NOI. NOI computes from Operating History col L values. So the natural ordering is:
+
+> col L UW values (Cat 1, Cat 3) → NOI computes → I9 cap rate judgment → Concluded Value renders.
+
+This is structurally different from Tier A line-item-builders, which all source from extraction inputs and can run in any order. Tier B has **Tier-B-on-Tier-B dependencies** — one Tier B cell's value depends on another Tier B cell's value being settled first.
+
+Practical implication: if I9 is scoped as a Tier B ticket, the underwriter's intent question becomes load-bearing — "set I9 against the seller's UW NOI" vs. "set I9 against the bank's stressed UW NOI" is a sequencing decision that has to be made before the I9 builder can be designed.
+
+### 11.4 Next-step pointers (Tier B sequencing)
+
+The §9 list of next-step candidates intersects with Tier B work at multiple points. Suggested sequencing based on the gap-pattern analysis (recommendation, not commitment — the user picks tickets):
+
+1. **PCAExtraction producer ticket.** Unlocks Category 2 (5 cells) plus Bucket 6 cell C14 (Clear Height). Multi-week Type Y workstream from §5.2 — appraisal or PCA upload + new extractor + contract field population. Highest cell-count return per ticket of any current candidate.
+
+2. **OperatingStatementExtraction widening (Piece 4 C.2 finding).** Unlocks Category 3 (2 cells: L15, L22) plus any other cells dependent on bad debt / reimbursements / G&A / janitorial / TI / LC line items the seller CF carries today but the contract drops. Contract-touch + extractor-touch coordinated edit; similar shape to D.3 but on the `OperatingStatementExtraction` contract instead of `SellerUWExtraction`.
+
+3. **I9 Concluded Cap Rate as a Tier B ticket.** Highest single-cell consequence in the template per registry notes. Greenfield: new contract slot (e.g., `concludedCapRate` field), new builder, new doctrine wiring. Significantly larger scope than D.3 — closer to "a mini-feature" than "a wire-up ticket." Has Tier-B-on-Tier-B dependencies (§11.3) that should be settled before scoping.
+
+4. **Category 1 wiring (8 surface-mismatch cells).** Cannot ship until the populator (#41) is built — these are populator-side wiring decisions about which `AdjustedInputs` fields project to which template cells. When the populator scoping starts, this category becomes the natural first chunk of populator work because the values already exist.
+
+5. **Category 4 cells.** Not engineering work in the line-item-builders sense. E47/E48/E49-mechanical-portion need formula logic, R-column notes need text-generation pipeline. Each sub-category is its own smaller scoping conversation.
+
+Note: this sequencing is a recommendation, not a commitment. The §9 next-step candidates remain peer choices; Tier B work is one of several directions.
 
 ---
 
