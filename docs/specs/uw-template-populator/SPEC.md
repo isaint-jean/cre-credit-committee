@@ -23,7 +23,8 @@
 - **v4 — 2026-05-26.** Piece 3 recon completed. Bucket 4 PROVISIONAL CONFIRMED as Type Y appraisal, with ghost-contract finding: `AppraisalExtraction` exists at `packages/contracts/src/extraction.ts:108-114` with 3 fields but has no producer today (always null in production), so a future appraisal-extractor workstream builds from zero. Bucket 5 PROVISIONAL PARTIALLY REVISED — split across Type Z `external_cmbs_database_integration` (3 cells: C18 composite, C19, D19), Type Z `product_decision_on_required_uploads` (1 cell: E18 — static historical number, needs prior-loan-doc upload, not external database), and Mapped partial (C18 deal-code portion already extracted today by `extractComparablesLinkageRefs`; see §3.4). The previous §9 PROVISIONAL section is REMOVED; subsequent sections renumbered (§10 Next steps → §9; §11 Tier B stub → §10; §12 Analysis page stub → §11). Added an extractor-surface-sweep candidate to Next steps (now §9 item 5) based on the recon meta-finding: "extractor exists but narrowly applied / unfilled" surfaced three times across the three recon cycles.
 - **v5 — 2026-05-30.** D.3 SellerUW triplet back-fill shipped as the first implementation ticket (commit `83328b4` on main). Added `derive` as a third Type X sub-flag for derivations from existing extractor output into separate empty target sub-records — D.3 retroactively classified under it. New §3.5 documents the SellerUW triplet under Mapped cells. New §4.4 reserves the `derive` sub-flag (currently 0 open candidates). §9 item 2 marked COMPLETED with D.3 details; §9 item 7 adds [#42](https://github.com/isaint-jean/cre-credit-committee/issues/42) (T-12 vacancy cascade sign-convention bug) as a carried-forward architectural question. §8 footnote notes D.3 sits outside the original six-bucket cross-reference. New §10 Behavior change log documents the bank-floor activation and EXTRACTION_ENGINE_VERSION bump as production-behavior changes; §10 Tier B stub renumbered to §11 and §11 Analysis page stub renumbered to §12.
 - **v6 — 2026-05-31.** Tier B coverage-gap recon completed (Piece 6 in the session sequence; Pieces 1-3 were Tier A bucket recons, Piece 4 was the extractor surface sweep, Piece 5 was the D.3 scoping recon). §11 Tier B promoted from stub to workstream section with cell inventory + gap-pattern analysis: §11.1 coverage table (32 rows mapping every Tier B cell against existing builder infrastructure), §11.2 five gap-pattern categories (surface mismatch / PCA ghost-gated / contract gap / mechanical-or-text-gen / new territory), §11.3 Tier-B-on-Tier-B dependency analysis (cells aren't order-independent the way Tier A line-item-builders are), §11.4 next-step sequencing pointers cross-referenced against §9 candidates. The §11 stub content (Definition / Status / Why it matters / Quality dependency) preserved as the §11.0 preamble with Status + Next step updated to past tense. §9 item 3 updated from "stub" to "recon completed"; §9 item 5 cross-referenced to §11.2 Cat 2 + Cat 3; §9 item 7 gains a new architectural-question bullet about Tier-B-on-Tier-B ordering. Stress Scenario + 10-Yr Pro Forma cells that v3 registry didn't enumerate noted in §11.1 as a documentation gap.
-- **v7 — 2026-05-31 (this revision).** C.2 OperatingStatementExtraction widening shipped (commit `c936008` on main) as the second implementation ticket after D.3. Promotes §11.2 Category 3 from "contract gap (needs widening)" to "(0 OPEN cells; 2 closed in `c936008`)" — L15 Reimbursements and L22 G&A now have contract fields + builders, though populator wiring still gated on [#41](https://github.com/isaint-jean/cre-credit-committee/issues/41). §11.1 coverage table rows for L15 and L22 updated. Three new §10 Behavior change log entries: §10.3 totalOpEx Path B correction (correctness improvement, not behavior change); §10.4 `JUDGMENT_ENGINE_VERSION` 1.1 + manifest workflow; §10.5 three new `JE_*_DEFAULTED` rules activated. §9 item 2 marks C.2 as the second completed implementation ticket; §9 item 7 gains a new bullet for [#43](https://github.com/isaint-jean/cre-credit-committee/issues/43) (P-IV-RET-6 cumulative-cash-flow check dormant — 3/4 inputs still undefined). New §13 Process learnings section (4 subsections) captures meta-insights from C.2 implementation: empirical-verification discipline catches real bugs; judgment-engine manifest workflow as load-bearing invariant; test-sweep scope includes downstream consumers; "small D.3-shape" framings have predictably under-estimated scope.
+- **v7 — 2026-05-31.** C.2 OperatingStatementExtraction widening shipped (commit `c936008` on main) as the second implementation ticket after D.3. Promotes §11.2 Category 3 from "contract gap (needs widening)" to "(0 OPEN cells; 2 closed in `c936008`)" — L15 Reimbursements and L22 G&A now have contract fields + builders, though populator wiring still gated on [#41](https://github.com/isaint-jean/cre-credit-committee/issues/41). §11.1 coverage table rows for L15 and L22 updated. Three new §10 Behavior change log entries: §10.3 totalOpEx Path B correction (correctness improvement, not behavior change); §10.4 `JUDGMENT_ENGINE_VERSION` 1.1 + manifest workflow; §10.5 three new `JE_*_DEFAULTED` rules activated. §9 item 2 marks C.2 as the second completed implementation ticket; §9 item 7 gains a new bullet for [#43](https://github.com/isaint-jean/cre-credit-committee/issues/43) (P-IV-RET-6 cumulative-cash-flow check dormant — 3/4 inputs still undefined). New §13 Process learnings section (4 subsections) captures meta-insights from C.2 implementation: empirical-verification discipline catches real bugs; judgment-engine manifest workflow as load-bearing invariant; test-sweep scope includes downstream consumers; "small D.3-shape" framings have predictably under-estimated scope.
+- **v8 — 2026-06-01 (this revision).** PCA producer scoping session: empirical-verification anchor fixture committed (`apps/api/fixtures/sunroad-centrum-pca.pdf`, commit `431102d` on main, Partner Engineering ASTM E2018-15 report for the Sunroad-Centrum deal, 174 pages, 44MB); `sum_over_term` semantics investigation completed; six contract decisions closed for PCAExtraction Phase 2 widening. New §14 Contract design decisions section captures the six decisions with schemas, rationales, and Sunroad anchor values awaiting the implementation ticket. §14 extends the spec's structural vocabulary (v5 added §10 Behavior change log; v7 added §13 Process learnings; v8 adds §14 Contract design decisions — a backward-looking decision-record section, different from §10's *shipped* behavior changes and §13's forward-looking process guidance). §11.4 item 1 (PCA producer) framing corrected: the v6 "5 cells + C14" claim was empirically wrong — Phase 1 against the current 6-field contract unlocks only 1 cell (G51); Phase 2 widening per §14.1 unlocks the rest; C14 Clear Height carved out (probably belongs under AppraisalExtraction per §5.2 or PropertyMetadata). §9 item 5 cross-references §14 for PCA design-in-progress status. §9 item 7 gains a 7th bullet for the `sum_over_term` JSDoc gap discovered during the v8 investigation (operator doesn't implement scalar-broadcast across `loan_term` despite formula.ts:21 JSDoc; engine-side ticket deferred). §10.4 receives an inline Errata note correcting v7's mistaken claim that `sum_over_term` broadcasts scalars across loan term — v7's original text preserved as historical record; errata makes the correction prominent. No code shipped today; v8 is design-only.
 
 ---
 
@@ -318,7 +319,7 @@ Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v
    **Second implementation ticket — COMPLETED `c936008` (2026-05-31).** C.2 OperatingStatementExtraction widening shipped Phase 1+2 in one ticket per the scope decisions made jointly during morning session (see §13 for process notes on the multi-phase decision). 6 new contract fields + 6 new builders + `EXTRACTION_ENGINE_VERSION` bump (1.2 → 1.3) + `JUDGMENT_ENGINE_VERSION` bump (1.0 → 1.1) + `JUDGMENT_ENGINE_MANIFEST` append + 39 fixture updates + [#43](https://github.com/isaint-jean/cre-credit-committee/issues/43) cross-reference. Production-behavior changes documented in §10 Behavior change log §§10.3-10.5. The implementation-ticket gate from v5 remains open for the next candidate from the list below.
 3. **Tier B workstream — coverage-gap recon COMPLETED 2026-05-31.** See §11 for the full inventory + gap-pattern analysis. The §9 candidates intersect with Tier B work; see §11.4 for suggested sequencing. The workstream design is no longer a blocking task — the gap patterns provide the design.
 4. **Analysis page upgrade scoping session:** Scope the rebuild of the legacy analysis page (red-flag detection, internet research, credit scoring), including its dependency on Tier B shipping criteria from §11. See §12 for the stub.
-5. **Extractor surface sweep:** A targeted sweep of all current extractors (legacy POST extraction services, AI-tier extractors, regex-based extractors) to surface other "extractor exists but narrowly applied / unfilled" patterns. Three instances surfaced across the three recon cycles: `uw-intelligence.service.ts` repoint candidate for loan structural terms, `AppraisalExtraction` ghost contract, `extractComparablesLinkageRefs` narrow regex output. A single sweep would either find 2-3 more Type X recovery candidates or confirm none exist; either way it makes first-ticket selection sharper. Not auto-scheduled; treat as a peer candidate to the other four next steps. **Cross-reference (v6):** the Piece 4 sweep's D.2 PCAExtraction ghost-contract finding maps to Tier B Category 2 in §11.2 (5 cells gated on PCA producer); its C.2 OperatingStatementExtraction narrow-output finding maps to Tier B Category 3 in §11.2 (3 cells gated on contract widening).
+5. **Extractor surface sweep:** A targeted sweep of all current extractors (legacy POST extraction services, AI-tier extractors, regex-based extractors) to surface other "extractor exists but narrowly applied / unfilled" patterns. Three instances surfaced across the three recon cycles: `uw-intelligence.service.ts` repoint candidate for loan structural terms, `AppraisalExtraction` ghost contract, `extractComparablesLinkageRefs` narrow regex output. A single sweep would either find 2-3 more Type X recovery candidates or confirm none exist; either way it makes first-ticket selection sharper. Not auto-scheduled; treat as a peer candidate to the other four next steps. **Cross-reference (v6):** the Piece 4 sweep's D.2 PCAExtraction ghost-contract finding maps to Tier B Category 2 in §11.2 (5 cells gated on PCA producer); its C.2 OperatingStatementExtraction narrow-output finding maps to Tier B Category 3 in §11.2 (3 cells gated on contract widening). **Update (v8):** the PCA producer scoping is now in progress — recon completed, anchor fixture committed at `431102d`, and six contract decisions closed in §14.1. Implementation ticket TBD; this candidate is no longer "next candidate, unscoped" — it is "scoped, awaiting implementation."
 6. **Product decisions to surface** (not engineering scope):
    - Whether to add an audited-statements upload slot for Bucket 3 prior-year columns (Type Z product_decision resolution).
    - Whether to add a prior-loan-doc upload slot for Bucket 5 cell E18 (Type Z product_decision resolution).
@@ -331,6 +332,7 @@ Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v
    - **T-12 vacancy cascade sign-convention bug** ([#42](https://github.com/isaint-jean/cre-credit-committee/issues/42), filed during D.3 implementation). The cascade at `source-cascade.ts:55-72` has the same naive `vl/gpr` derivation D.3 handled locally; #42 carries the architectural-question discussion of retroactive vs version-gated fix, `JUDGMENT_ENGINE_VERSION` rotation, and cascade-side vs contract-side fix. Not blocked on anything specific; deferred from D.3's scope per the scope decisions in that brief.
    - **Tier-B-on-Tier-B dependency ordering** (§11.3). I9 Concluded Cap Rate depends on NOI which depends on col L UW values; this is a structural difference from Tier A line-item-builders' order-independence. When Tier B implementation starts, the execution ordering needs deliberate design.
    - **P-IV-RET-6 cumulative-cash-flow check dormant** ([#43](https://github.com/isaint-jean/cre-credit-committee/issues/43), filed during C.2 implementation). C.2 activated 1 of 4 inputs for P-IV-RET-6's deterministic check (`bag['reserves']` from `monthlyReplacementReserves × 12`). The remaining 3 inputs (`capex_projection`, `noi_projection`, `debt_service`) stay `INTENTIONALLY_UNDEFINED`. `debt_service` is derivable today from existing `AdjustedInputs.loan`; `noi_projection` needs extraction; `capex_projection` needs contract-design decision (per-period schedule vs. synthesized array). Activation-risk consideration: P-IV-RET-6 has been silently dormant since handbook engine shipped — full activation may surface previously-invisible Mall scoring deltas.
+   - **`sum_over_term` implementation vs JSDoc gap** (discovered during v8 PCA scoping investigation). The handbook engine's `sum_over_term` operator does NOT broadcast scalars across `loan_term` despite `packages/handbook-engine/src/formula.ts:21` JSDoc describing that behavior. The actual implementation dispatches into `evaluateFormulaAsArray` which lifts scalars to length-1 arrays; if all operands in an `op` resolve to length-1 (i.e., all scalars), the target length stays 1 and no period multiplication happens. No `loan_term` field is implemented anywhere in the codebase. Today the gap is masked because P-IV-RET-6 is the sole `sum_over_term` consumer and three of its four operands are `INTENTIONALLY_UNDEFINED`. The gap will surface when other operands populate — `bag['reserves']` (populated as scalar in C.2) currently does nothing observable in P-IV-RET-6's formula precisely because of this. Fix options: (a) implement `loan_term` broadcast and add a `loan_term` field to the field-bag; (b) correct the JSDoc to describe actual array-only semantics; (c) both — implement the broadcast AND keep the JSDoc, making scalars semantically correct. Engine-side ticket; scoping deferred. See §10.4 Errata (v8) for the related v7 record correction.
 
 ---
 
@@ -359,6 +361,8 @@ Reimbursements EXCLUDED from totalOpEx per CMBS source-CF convention: reimbursem
 `JUDGMENT_ENGINE_VERSION` bumped from `'1.0'` to `'1.1'`. `JudgmentEngineVersion` type alias widened to `'1.0' | '1.1'` to satisfy the append-only manifest convention. New manifest entry appended: `'1.1': '8b1289e7c3f07dfa8a78afbec3d80507f9c2d2fe65129acdd6c81242d3e06f67'`. Boot check (`check:judgment-engine`) verifies the hash on api startup.
 
 Discovered architectural invariant: the judgment engine has a rule-registry hash-drift detector. Any rule-registry change MUST be paired with `JUDGMENT_ENGINE_VERSION` bump + manifest entry. Pre-C.2, the brief didn't know about this workflow; CC surfaced it mid-implementation when `check:judgment-engine` failed after adding 3 new rule IDs. See §13 Process learnings for the codification.
+
+> **Errata (v8):** the sentence in v7's assembler commentary that read "The engine's `sum_over_term` broadcasts the scalar across the loan term as a constant annual reserve assumption" is wrong. Per the v8 investigation, `sum_over_term` does NOT broadcast scalars across `loan_term` — the operator dispatches into `evaluateFormulaAsArray` which lifts scalars to length-1 arrays and, when combined with other length-1 operands, produces a single-period sum. The "loan term broadcast" semantic described in `packages/handbook-engine/src/formula.ts:21` JSDoc is intended but not implemented. `bag['reserves']` populated as a scalar in C.2 currently does nothing observable in P-IV-RET-6's formula because no other operand is array-shaped (all three remain `INTENTIONALLY_UNDEFINED`). See §9 item 7 `sum_over_term` bullet for the architectural question (engine ticket deferred).
 
 ### 10.5 C.2 — Three new JE_*_DEFAULTED rules activated (`c936008`, 2026-05-31)
 
@@ -459,7 +463,11 @@ Practical implication: if I9 is scoped as a Tier B ticket, the underwriter's int
 
 The §9 list of next-step candidates intersects with Tier B work at multiple points. Suggested sequencing based on the gap-pattern analysis (recommendation, not commitment — the user picks tickets):
 
-1. **PCAExtraction producer ticket.** Unlocks Category 2 (5 cells) plus Bucket 6 cell C14 (Clear Height). Multi-week Type Y workstream from §5.2 — appraisal or PCA upload + new extractor + contract field population. Highest cell-count return per ticket of any current candidate.
+1. **PCAExtraction producer + Phase 2 widening ticket.** Scoping completed; design decisions captured in §14.1; anchor fixture committed at `431102d`. The v6 framing of this item ("unlocks 5 cells + C14, highest cell-count return") was empirically wrong on both counts:
+   - **Cell-unlock split correction.** Against the current 6-field PCAExtraction contract, **Phase 1 (extractor producer alone) unlocks only 1 cell** — G51 Immediate Repairs Annual via `buildPcaImmediateRepairs`. The 5-cell unlock the v6 framing claimed (E49 Replacement Reserves Up Front, G49 Annual Escrow, L38 Replacement Reserves UW year-1, E35-M35 Other Capex broadcast) requires the **Phase 2 contract widening** captured in §14.1 (per-period capex schedule arrays + replacement-reserves metrics + immediate/short-term split). Phase 1+2 together unlock the full set. The user's Path B choice is to ship Phase 1+2 in one ticket per §13.4's scope-growth expectations.
+   - **C14 Clear Height carve-out.** PCAs for industrial deals sometimes document clear height, but the field is more typically extracted from the appraisal or broker fact sheet. C14 is removed from PCA scope and either (a) deferred to the AppraisalExtraction workstream per §5.2 (ghost-contract), or (b) carved out as a separate small PropertyMetadata-shaped ticket. Removing C14 from PCA scope sharpens the PCA implementation surface.
+
+   See §14.1 for the six closed contract design decisions and the consolidated Phase 2 schema. Implementation ticket TBD; non-trivial per §13.4's "small D.3-shape framing has predictably under-estimated scope" expectation.
 
 2. **OperatingStatementExtraction widening (Piece 4 C.2 finding).** Unlocks Category 3 (2 cells: L15, L22) plus any other cells dependent on bad debt / reimbursements / G&A / janitorial / TI / LC line items the seller CF carries today but the contract drops. Contract-touch + extractor-touch coordinated edit; similar shape to D.3 but on the `OperatingStatementExtraction` contract instead of `SellerUWExtraction`.
 
@@ -549,6 +557,173 @@ C.2 (framed: small D.3-shape contract widening):
 **Practical implication.** Scoping briefs should anticipate scope growth via empirical discovery, and expect implementation to take substantially longer than the initial framing suggests. The "small ticket to maintain momentum" framing trades real value (cadence) for underestimated work; in this codebase, that trade is typically not worth the optimism.
 
 This is not actionable as a process rule; it's an honest expectation adjustment for the user and Claude alike. Expect tickets to be larger than they look. Plan accordingly.
+
+---
+
+## 14. Contract design decisions
+
+Captures design decisions made during scoping conversations *before* implementation work begins. Decisions in this section are documented commitments awaiting implementation; the corresponding code changes ship in implementation tickets that cross-reference back here. Different from §10 (which records *shipped* behavior changes) and from §13 (which records process guidance). When an implementation ticket ships against a §14 decision, that ticket's commit references this section and §10 gets a new entry recording the actual behavior change.
+
+### 14.1 PCA producer (Phase 1+2) — PCAExtraction Phase 2 widening
+
+Scoped during the v8 session against the Sunroad PCA fixture committed at `431102d` (`apps/api/fixtures/sunroad-centrum-pca.pdf`, Partner Engineering ASTM E2018-15 report, 174 pages, prepared for Goldman Sachs Bank USA, dated 2023-07-27). Six decisions taken jointly (chat + user) following a recon-then-design pattern: the morning's PCA-producer recon surfaced the empirical findings (no fixture existed; v6's "5 cells unlocked" framing was wrong; C14 belongs elsewhere); the afternoon's contract design conversation resolved the six design choices against the now-available fixture; this section records the design commitments for the implementation ticket to execute against.
+
+**Decision 1 — Per-period capex schedule shape**
+
+CHOSEN: per-year structured array of `{ year, amount }` objects, both inflated and uninflated.
+
+```ts
+readonly capexScheduleInflated: ReadonlyArray<{
+  readonly year: number;   // 1-indexed
+  readonly amount: number;
+}> | null;
+readonly capexScheduleUninflated: ReadonlyArray<{
+  readonly year: number;
+  readonly amount: number;
+}> | null;
+```
+
+Rationale: matches PCA Table 2's natural structure (per-year sparse schedule); anchors `sum_over_term`'s array path for correct multi-year semantics in P-IV-RET-6; sets the precedent for per-period series shape in the engine. Per the v8 `sum_over_term` investigation, the operator REQUIRES at least one array-shaped operand for the cumulative-over-term semantic to compute correctly — pure scalars produce a degenerate single-period result. Currently `bag['reserves']` is a scalar that anchors nothing (see §10.4 Errata); Decision 1 makes `capex_projection` the load-bearing array operand that the others can broadcast against.
+
+Sunroad anchor values (12-year schedule per PCA Table 2):
+
+```ts
+capexScheduleInflated: [
+  { year: 1, amount: 0 },        { year: 2, amount: 5125 },
+  { year: 3, amount: 63037 },    { year: 4, amount: 24230 },
+  { year: 5, amount: 115900 },   { year: 6, amount: 0 },
+  { year: 7, amount: 0 },        { year: 8, amount: 139671 },
+  { year: 9, amount: 6092 },     { year: 10, amount: 0 },
+  { year: 11, amount: 0 },       { year: 12, amount: 0 },
+]
+capexScheduleUninflated: [
+  { year: 1, amount: 0 },        { year: 2, amount: 5000 },
+  { year: 3, amount: 60000 },    { year: 4, amount: 22500 },
+  { year: 5, amount: 105000 },   { year: 6, amount: 0 },
+  { year: 7, amount: 0 },        { year: 8, amount: 117500 },
+  { year: 9, amount: 5000 },     { year: 10, amount: 0 },
+  { year: 11, amount: 0 },       { year: 12, amount: 0 },
+]
+```
+
+**Decision 2 — Replacement reserves shape**
+
+CHOSEN: no separate annual field; replacement reserves derived downstream from the capex schedule (Decision 1).
+
+Schema: no new field.
+
+Rationale: the PCA itself treats Table 2 as the replacement-reserves source — the page-ii narrative reads "These items are identified in Table 2 – Long-Term Cost Opinion." Decision 1's capex schedule covers it. The per-SF-per-year summary metric the PCA explicitly reports is captured separately via Decision 3. The "how to derive an annual rate from a per-year schedule" question (total/years vs per-SF × NRA vs underwriter judgment) is a builder-side decision belonging to the implementation ticket, not an extraction-shape decision.
+
+**Decision 3 — PCA metadata fields**
+
+CHOSEN: capex-anchoring + reserves-metric fields.
+
+```ts
+readonly evaluationPeriodYears: number | null;
+readonly inflationRate: number | null;
+readonly replacementReservesPerSfPerYearInflated: number | null;
+readonly replacementReservesPerSfPerYearUninflated: number | null;
+```
+
+Rationale: `evaluationPeriodYears` anchors the array length from Decision 1 (consistency check: `capexScheduleInflated.length === evaluationPeriodYears`); `inflationRate` makes the inflated/uninflated relationship traceable and reconstructible if either array's entries need verification; the two per-SF-per-year fields capture what the PCA explicitly reports as its summary replacement-reserves metric (page-ii narrative + Table 2 footer).
+
+Sunroad anchor values:
+
+```ts
+evaluationPeriodYears: 12,
+inflationRate: 0.025,                                       // 2.50%
+replacementReservesPerSfPerYearInflated: 0.11,              // $/SF/yr
+replacementReservesPerSfPerYearUninflated: 0.10,            // $/SF/yr
+```
+
+**Decision 4 — Structural narrative widening**
+
+CHOSEN: no widening; defer to a future Phase 3.
+
+Schema: existing `structural: { roof, hvac, plumbing, electrical }` preserved unchanged.
+
+Rationale: not load-bearing for the cells Phase 1+2 unlocks (E49/G49/L38/G51 want capex/reserves data); the handbook principles that consume condition data (P-IV-MF-4, P-IV-MHC-1) are LLM_CONTEXT consumers — flat condition-narrative strings serve them as well as a structured rating + narrative split would; widening to 8 systems × 2 fields (rating + narrative) = 16 new contract fields would add scope without proportional value; non-blocking for cell-unlock work. The implementation ticket preserves the 4 existing narrative fields without modification.
+
+**Decision 5 — Immediate repairs detail**
+
+CHOSEN: aggregate + immediate/short-term split.
+
+```ts
+readonly immediateRepairs: number | null;       // preserved
+readonly shortTermRepairs: number | null;       // NEW
+```
+
+Rationale: the Immediate vs Short-Term distinction is meaningful underwriting data — Immediate items reserve at closing (E49 Replacement Reserves Up Front); Short-Term items inform the year-1+ capex plan and feed into the L38 / E35-M35 broadcasts. PCAs report both columns explicitly in their cost tables. One-field addition (`shortTermRepairs`) is materially less scope than Option C (a full per-line-item array of repair items with descriptions, costs, system categories).
+
+Sunroad anchor values: `immediateRepairs: 19400`, `shortTermRepairs: 0`.
+
+**Note on the existing `nearTermRepairs` field.** The current PCAExtraction contract carries `nearTermRepairs: number | null` ("year 1-5 typically" per existing JSDoc). Decision 5 doesn't explicitly address its fate — `shortTermRepairs` is the new field for the PCA's explicit Short-Term column. The implementation ticket should resolve whether to preserve `nearTermRepairs` alongside `shortTermRepairs` (back-compat for any persisted records), rename it (`shortTermRepairs` IS what `nearTermRepairs` was trying to be), or drop it. Surfaced as an implementation-ticket question, not a §14.1 decision.
+
+**Decision 6 — Utility infrastructure**
+
+CHOSEN: no field; defer entirely. File an explicit follow-up issue for "MHC PCA support" when MHC underwriting work is scoped.
+
+Schema: no new field.
+
+Rationale: the Sunroad anchor fixture is Office; no MHC PCA fixture is available; adding `utilityInfrastructureType` (the field P-IV-MHC-3 and P-IV-MHC-6 would read) without an MHC empirical anchor would create an untested code path. P-IV-MHC-3 and P-IV-MHC-6 stay correctly dormant — they have no MHC PCA data to consume because we don't ingest MHC PCAs today. The MHC ingestion gap is a workstream of its own; the field should land alongside it, not pre-emptively against an Office fixture.
+
+#### Consolidated PCAExtraction Phase 2 shape
+
+After applying Decisions 1, 3, and 5 (Decisions 2, 4, 6 add no fields), the post-widening contract:
+
+```ts
+export interface PCAExtraction {
+  // Existing fields (preserved unchanged per Decisions 4 + 5).
+  readonly immediateRepairs: number | null;
+  /**
+   * Existing field; relationship to `shortTermRepairs` (new) to be
+   * resolved during implementation — preserve / rename / drop.
+   * See §14.1 Decision 5 "Note on the existing nearTermRepairs field."
+   */
+  readonly nearTermRepairs: number | null;
+  readonly structural: {
+    readonly roof: string | null;
+    readonly hvac: string | null;
+    readonly plumbing: string | null;
+    readonly electrical: string | null;
+  };
+
+  // NEW — Decision 5 (aggregate + split).
+  readonly shortTermRepairs: number | null;
+
+  // NEW — Decision 3 (PCA metadata).
+  readonly evaluationPeriodYears: number | null;
+  readonly inflationRate: number | null;
+  readonly replacementReservesPerSfPerYearInflated: number | null;
+  readonly replacementReservesPerSfPerYearUninflated: number | null;
+
+  // NEW — Decision 1 (per-period capex schedule).
+  readonly capexScheduleInflated: ReadonlyArray<{
+    readonly year: number;
+    readonly amount: number;
+  }> | null;
+  readonly capexScheduleUninflated: ReadonlyArray<{
+    readonly year: number;
+    readonly amount: number;
+  }> | null;
+}
+```
+
+**Field count.** 13 fields total: 7 top-level numeric (`immediateRepairs`, `nearTermRepairs`, `shortTermRepairs`, `evaluationPeriodYears`, `inflationRate`, `replacementReservesPerSfPerYearInflated`, `replacementReservesPerSfPerYearUninflated`) + 4 narrative strings in `structural` + 2 nested arrays of `{ year, amount }` objects. Field count drops to 12 if the implementation ticket decides to remove `nearTermRepairs` (per Decision 5's surfaced question).
+
+**Anchor fixture:** `apps/api/fixtures/sunroad-centrum-pca.pdf` (commit `431102d` on main).
+
+**Implementation ticket:** TBD. Phase 1+2 in one ticket per the user's Path B choice; expected scope per §13.4's "small D.3-shape framing has predictably under-estimated scope" — plan for multi-week, not multi-day. Per the v8 §11.4 framing correction, Phase 1 alone unlocks 1 cell (G51 Immediate Repairs Annual); Phase 2 widening unlocks the rest of Category 2 in §11.2 (E49, G49, L38, E35-M35).
+
+**Open implementation-time questions** (deliberately deferred, not §14.1 decisions):
+- `nearTermRepairs` fate (Decision 5 note).
+- Builder-side derivation rule for annual replacement reserves rate (Decision 2 rationale).
+- Whether `evaluationPeriodYears` consistency should be enforced at the contract level (TypeScript can't express `arr.length === field`), at the extractor's post-processing step, or via runtime invariant check.
+- Whether the PCA's "Site effective age: 17 years" datum (from page 1 property data table) belongs in PCAExtraction or in PropertyMetadata. Not part of Decisions 1-6; surface during implementation.
+
+### 14.2 (Placeholder for future contract design decisions)
+
+The §14.1 entry establishes the format for this section. Future contract design conversations capture under §14.2, §14.3, etc. This is a forward-looking section type, expected to grow as more design-then-implement workstreams reach the design-done / implementation-pending stage.
 
 ---
 
