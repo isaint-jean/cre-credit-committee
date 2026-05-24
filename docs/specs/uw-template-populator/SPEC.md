@@ -18,7 +18,8 @@
   4. Appraisal operating-statement line items (13 cells)
   5. Prior CMBS history (4 cells)
   6. Property Detail physical specs (13 cells)
-- **v2 — 2026-05-24 (this revision).** Two days of bucket recon (Buckets 1, 2, 3, 6 covered; 4 and 5 deferred) revealed that the 6-bucket framing groups cells by underwriting concept when the more decision-relevant grouping is by work-shape. Reclassified into a four-type taxonomy (X / Y / Z / D) plus a separate "Mapped (with quality notes)" non-gap category. Original 6-bucket framing preserved as a cross-reference index (§8).
+- **v2 — 2026-05-24.** Two days of bucket recon (Buckets 1, 2, 3, 6 covered; 4 and 5 deferred) revealed that the 6-bucket framing groups cells by underwriting concept when the more decision-relevant grouping is by work-shape. Reclassified into a four-type taxonomy (X / Y / Z / D) plus a separate "Mapped (with quality notes)" non-gap category. Original 6-bucket framing preserved as a cross-reference index (§8).
+- **v3 — 2026-05-25 (this revision).** Added Tier B judgment workstream stub (§11) and analysis page upgrade stub (§12). Reframed the v2 X/Y/Z/D taxonomy as explicitly Tier A-scoped — it was implicitly already, but not stated (see §2.5 for the scope note; §8 cross-reference table updated to note Tier A scope). No Tier A reclassifications.
 
 ---
 
@@ -43,6 +44,12 @@ Four classifications for gap cells, plus a separate non-gap category:
 | **Z** — Data not reliably in any required-document upload | The data doesn't exist in documents borrowers would reasonably upload. | Requires a **product decision** before any engineering scoping: (1) accept permanent blank, (2) add new required upload, or (3) external data integration. Sub-flag: `blocked_on` (which decision unblocks it). |
 | **D** — Derived from other extracted fields | Cell isn't directly extracted but could be computed from one or more other extracted fields. | Requires a **soundness review** of the derivation rule before treatment as "free." Sub-flag: `source_fields` (the fields the derivation reads from) and `soundness` (`'sound'` / `'risky'` / `'unknown'`). |
 | **Mapped (with quality notes)** | Cells already producing a value today. | NOT a gap. Carry a note about any known limitation (e.g., shared source field, hidden period assumption). |
+
+---
+
+## 2.5 Scope of the X/Y/Z/D taxonomy
+
+The X/Y/Z/D taxonomy in §2 classifies **Tier A (extraction) cells only**. Tier B (judgment) and Tier C (manual) cells are out of scope for this taxonomy. Tier B has its own workstream — currently a stub at §11 pending dedicated inventory + roadmap design. Tier C cells stay red-highlighted as designed (manual entry by the underwriter); no engineering work is intended for them.
 
 ---
 
@@ -218,7 +225,7 @@ Cells that could be computed from already-extracted fields. Each requires a soun
 
 ## 8. Original 6-bucket cross-reference
 
-Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v1 mental model can find their way to the v2 classifications.
+Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v1 mental model can find their way to the v2 classifications. **Tier A cells only** — Tier B and Tier C cells are not enumerated here (Tier B has its own workstream at §11; Tier C cells are red-highlight manual entry).
 
 | v1 bucket | Cell count (v3) | v2 classifications |
 |---|---:|---|
@@ -266,14 +273,46 @@ Provisionally **Type Z, `blocked_on: 'external_cmbs_database_integration'`** (se
    - Search for any latent CMBS-database integration or prior-loan history extraction (Bucket 5).
    - If Bucket 4 verifies as Type Y appraisal, decide whether to scope a joint appraisal extractor ticket with the Bucket 6 appraisal cells.
 2. **First implementation ticket decision:** PENDING Piece 3 completion. Once all six buckets are classified, the decision becomes "pick one Type X group or one Type Y document_type group" — both well-scoped single-ticket candidates.
-3. **Product decisions to surface** (not engineering scope):
+3. **Tier B workstream design session:** Inventory Tier B cells in the template and design a judgment-coverage roadmap analogous to the v2 taxonomy for Tier A. See §11 for the stub.
+4. **Analysis page upgrade scoping session:** Scope the rebuild of the legacy analysis page (red-flag detection, internet research, credit scoring), including its dependency on Tier B shipping criteria from §11. See §12 for the stub.
+5. **Product decisions to surface** (not engineering scope):
    - Whether to add an audited-statements upload slot for Bucket 3 prior-year columns (Type Z resolution).
    - Whether to integrate an external CMBS database for Bucket 5 (Type Z resolution).
    - Whether to add loan_docs as a required upload slot (unlocks ~18 Type Y cells across Buckets 1, 2, 6).
-4. **Open architectural questions** carried forward from the recon:
+6. **Open architectural questions** carried forward from the recon:
    - The hidden-period-assumption in Operating History col H (Mapped today, but the populator can't tell whether the source data is T-12 actuals or a forecast).
    - The conflation of D12 Current Balance and D13 Original Balance via shared `uwModel.loanAmount` — clean fix is a separate `currentBalance` field on the loan terms record.
    - The Type X / Type D choice for H12 Ground Lease.
+
+---
+
+## 11. Tier B (judgment) workstream — stub
+
+**Definition.** Tier B cells are populated from LLM judgment guided by the handbook. Examples: year-1 pro forma assumptions (Operating History col L), 10-year projections, stress scenarios, concluded values (Conclusions & Escrows tab — concluded cap rate, escrow recommendations, etc.). Yellow-background convention in the populated workbook.
+
+**Status.** No roadmap exists yet. The X/Y/Z/D taxonomy in §2 does NOT classify Tier B cells (per §2.5 — the taxonomy is Tier A-scoped). A separate bucket inventory + taxonomy is needed for Tier B before any engineering scoping.
+
+**Why this matters for the populator.** The populator's value above "extraction transcription tool" depends on Tier B cells being populated AND trustworthy. Shipping the populator with extraction-only coverage (Tier A populated, Tier B blank or red) reduces the deliverable to a workbook generator. Shipping with weak Tier B coverage is worse than blank — plausibly-wrong judgment is harder to detect than missing values.
+
+**Quality dependency on §12.** Tier B output trustworthiness is most naturally surfaced via the analysis page (reasoning traces, doctrine principle invoked, override surface). Populator → analysis page is therefore a quality dependency, not just a parallel feature.
+
+**Next step.** Dedicated session to inventory Tier B cells in the template and design the judgment-coverage roadmap. Not scoped here.
+
+---
+
+## 12. Analysis page upgrade — stub
+
+**Definition.** Rebuild of the legacy analysis page that did red-flag detection, internet research (sponsor / market / news), and credit scoring against the handbook. The legacy version is currently degraded.
+
+**Status.** No spec exists. Legacy code existed but needed significant upgrade per prior sessions.
+
+**Dependency relationship with the populator.**
+- **(a)** Shares extraction infrastructure with the populator — both consume the same extraction pipeline outputs (ExtractionResult, PropertyMetadata, RentRoll, UnderwritingModel).
+- **(b)** Is the natural surface for displaying Tier B reasoning, which makes its readiness a quality gate for shipping Tier B cells in the populator (per §11).
+
+**Sequencing implication.** Framing the analysis page as a "follow-on" to the populator creates a risk that the populator ships in a state where Tier B values are visible only in the workbook with no reasoning surface. Parallel-track development is the sequencing this spec recommends, with the understanding that this is a **roadmap statement, not a resource commitment** — the user is the only person driving this work and the parallel-track recommendation is open to revision in a later session.
+
+**Next step.** Dedicated session to scope the analysis page rebuild. Not scoped here.
 
 ---
 
