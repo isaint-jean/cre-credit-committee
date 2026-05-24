@@ -1,0 +1,895 @@
+{
+  "cc_source_mapping_report": {
+    "registry_version": "0.2 (v3 source-mapped)",
+    "mapped_by": "claude-opus-4-7 recon, 2026-05-24",
+    "preserves": "all v2 metadata, structural notes, tier classifications, sunroad examples",
+    "adds": "source field on each Tier A input + cc_note field on Tier X inputs",
+    "tier_A_total_count": 119,
+    "tier_A_outcome_counts": {
+      "mapped_legacy_POST_available": 35,
+      "missing_from_codebase_tier_c": 78,
+      "derived_with_caveats": 4,
+      "requires_graph_pipeline_bridge": 2
+    },
+    "headline_finding": "Approximately 65% of Tier A cells (78 of 119) have NO current codebase source — the underlying data is not extracted by any pipeline. The blocker for Milestone 1 is NOT 'legacy vs graph pipeline access' (the user's a-priori concern); it is 'large categories of deal data are not extracted at all'. Recommend re-scoping Milestone 1 around the data that IS available, with the rest flagged as Tier C (red highlight) for the underwriter to fill manually until extraction expands.",
+    "source_records_inventory": {
+      "in_scope_legacy_POST_handler": {
+        "PropertyMetadata": "graph-pipeline-adjacent, built in legacy POST at line 988 via extractPropertyMetadata. Available before populateTemplate runs (line 1015). Carries: propertyName, propertySubtype, address, city, state, zip, county, msa, submarket, yearBuilt, yearRenovated, buildingClass, totalSquareFeet, totalUnits, totalRooms, totalPads, occupancyPhysical, occupancyEconomic, ownershipInterest, numberOfBuildings",
+        "UnderwritingModel": "legacy @cre/shared. pipeline.uwModel. Carries: income.{grossPotentialRent, vacancyLoss, concessions, otherIncome, EGI}, expenses.{realEstateTaxes, insurance, utilities, repairsAndMaintenance, management, generalAndAdmin, payroll, replacementReserves, totalExpenses}, netOperatingIncome, capRate, impliedValue, loanAmount, interestRate, amortizationYears, termYears, loanDetails.{rateType, ioMonths, amortizationMonths, termMonths, paymentFrequency, prepaymentTerms, originationDate}",
+        "UnderwritingModel_per_source": "legacy. pipeline.uwModelFromAsr (T-12-leaning), pipeline.uwModelFromSeller (Seller-UW column). Each has same shape as UnderwritingModel — provides the per-source columns the Operating History sheet needs",
+        "legacy_ExtractionResult": "@cre/shared (NOT @cre/contracts). pipeline.extractionResult. Carries: fields[CoreFieldName].value/confidence (5 numeric: noi, loanAmount, interestRate, capRate, propertyValue), descriptors[DescriptorFieldName].value (8 strings: propertyName, street, city, state, zip, propertyType, borrowerName, sponsorName), structural[StructuralFieldName].value (7 numerics: loanTermMonths, amortizationMonths, ioMonths, yearBuilt, totalSquareFeet, units, occupancy)",
+        "RentRoll": "graph-pipeline-adjacent. Resolved in legacy POST at line 949-981 via parseRentRollXlsx | extractRentRollFromDocument. Carries tenant-level rows for the Rent Roll sheet",
+        "Analysis_top_level": "legacy @cre/shared. Analysis row from sqlite-store. Carries: id (UUID, not a deal number), name (analysis name as entered by user), assetType (lowercase user pick), createdAt, updatedAt",
+        "AssetType": "asset class string from upload form (user picks). PascalCase via @cre/contracts.AssetType OR lowercase via @cre/shared.AssetType depending on call site."
+      },
+      "NOT_in_scope_legacy_POST_handler_today": {
+        "contract_ExtractionResult": "@cre/contracts. Carries structured rentRoll/t12/sellerUw/appraisal/asr/loanTerms with line-item line items. Built by the graph-pipeline ingest path (ingestExtractionResult), NEVER built in the legacy POST. To use this in the populator would require either (a) running ingestExtractionResult inline or (b) the new-spine populator from legacy-reduction-plan §7",
+        "AdjustedInputs": "@cre/contracts. Post-judgment line items. Available only via the graph pipeline.",
+        "AssetProfile": "@cre/contracts. propertyType + businessPlan + marketLiquidity. Trivial; could be derived inline if needed",
+        "NarrativeFacts": "@cre/contracts. Mostly null in current implementation; not useful for template population today",
+        "StressOutputs": "@cre/contracts. The legacy POST has pipeline.stressScenarios (legacy StressScenario[]) — DIFFERENT shape but same conceptual data. Adequate substitute for populator purposes."
+      }
+    },
+    "biggest_missing_buckets": [
+      {
+        "bucket": "Loan structural/legal terms",
+        "cells_affected": 11,
+        "cells": ["C12 Cutoff Date", "D12 Current Balance", "J11 Release Provisions Y/N", "J12 Recourse Y/N", "J13 Cross-Collateralized Y/N", "J14 Lockbox Type", "K14 CF Sweep Trigger", "J16 ARD Y/N", "J19 Sub Debt flag", "C22 Control Pari status", "D22 Trust Pari Balance"],
+        "why_missing": "No current extraction captures legal/structural loan terms beyond loanAmount/interestRate/term/amortization/IO. The build-and-ingest route's `loanTerms` form field carries 5 numeric fields only (loanAmount, interestRate, amortization, IO, maturityDate). None of the Y/N flags or descriptive terms are extracted.",
+        "proposed_action": "(a) Add legal-loan-terms section to form input + extraction OR (b) Tier C downgrade for Milestone 1 (red highlight, underwriter fills). Recommend (b) for Milestone 1; (a) is a separate batch."
+      },
+      {
+        "bucket": "Sources & Uses block",
+        "cells_affected": 8,
+        "cells": ["F27 Senior Loan", "F28 Cash to Borrower", "F29 Escrow/Reserves", "F30 Closing Costs", "K27 Loan Purpose", "K28 Date Acquired", "K29 Purchase Price", "K30 Total Cost Basis"],
+        "why_missing": "No sources & uses extraction in current pipeline. Issue #35 lists 'Sources & uses structured extraction' as a known engine gap (item 10 — unlocks P-II-3 handbook principle).",
+        "proposed_action": "Tier C downgrade for Milestone 1. Issue #35 will eventually surface this data via the engine extension path."
+      },
+      {
+        "bucket": "Multi-period historical financials (3rd / 2nd / 1st prior year)",
+        "cells_affected": 36,
+        "cells": "All Operating History columns B/D/F line items (6 line items × 3 prior years ≈ 30 cells, plus reimbursements + occupancy per period ≈ 36 total)",
+        "why_missing": "Issue #38 (open) explicitly tracks this: 'Extract per-period pro-forma arrays from seller UW models'. Current extraction is T-12 only (single period via uwModelFromAsr) + seller-UW column (single period via uwModelFromSeller). No multi-year historical array.",
+        "proposed_action": "Tier C downgrade for prior-year columns until Issue #38 ships. T-12 column H + Seller-UW column L are populatable from existing data."
+      },
+      {
+        "bucket": "Appraisal operating-statement line items",
+        "cells_affected": 13,
+        "cells": ["D47 RE Taxes per Appraisal", "D48 Insurance per Appraisal", "All Operating History col J line-item rows (J9 GPR, J11 Bad Debt, J14 Other Income, J15 Reimbursements, J22 G&A, J24 R&M, J25 Utilities, J26 Other OpEx, J30 Mgmt Fee, J31 Property Taxes, J32 Insurance)"],
+        "why_missing": "@cre/contracts.AppraisalExtraction has only {valueConclusion, capRate, methodology} — no expense line items. The appraisal extractor doesn't parse the appraisal's operating-statement projections.",
+        "proposed_action": "Tier C downgrade for Milestone 1. Future appraisal extractor expansion would add an income/expense block to AppraisalExtraction."
+      },
+      {
+        "bucket": "Prior CMBS deal history",
+        "cells_affected": 4,
+        "cells": ["C18 Prior CMBS Deal/Status", "E18 Prior CMBS Balance Before Disposition", "C19 Prior CMBS Trough NCF Year", "D19 Prior CMBS Trough NCF Amount"],
+        "why_missing": "No CMBS database in the codebase. Would require integration with an external CMBS data source (Trepp / Intex / rating-agency presale lookups).",
+        "proposed_action": "Tier C for Milestone 1. Possible Milestone 3 web-research tier."
+      },
+      {
+        "bucket": "Property Detail - Comm physical specs",
+        "cells_affected": 13,
+        "cells": ["L3 Surface Parking", "L4 Covered Parking", "G7 Zoning Code", "H7 Zoning Description", "L11 Land Area (acres)", "C12 Number of Stories", "H12 Ground Lease Y/N", "C13 Outparcels", "H13 GL Subordinate", "C14 Clear Height", "H14 GL Expiration", "H15 GL Options", "H16 GL Rent Steps"],
+        "why_missing": "PropertyMetadata carries identity + size + ownershipInterest + numberOfBuildings, but no zoning, parking, stories, land area, ground-lease details, or clear height (industrial-specific).",
+        "proposed_action": "Either (a) extend PropertyMetadata contract + extractor OR (b) Tier C for Milestone 1. Many of these are NAP for non-applicable asset classes; the populator should write 'NAP' rather than blank for fields that don't apply."
+      },
+      {
+        "bucket": "Cover Page metadata",
+        "cells_affected": 2,
+        "cells": ["H3 Pool (securitization)", "H8 Originator (loan originator)"],
+        "why_missing": "Securitization pool name and loan originator are not extracted today. Pool comes from CMBS docs (often unknown pre-securitization); Originator from loan docs (may be inferable but not captured).",
+        "proposed_action": "Reclassify to Tier C for Milestone 1."
+      }
+    ],
+    "what_IS_well_mapped": {
+      "property_identity_and_address_block": "13 cells in Property & Loan Summary (E3-K8) all map cleanly to PropertyMetadata.* — this block of the template will populate well",
+      "core_loan_terms_minimum": "5 cells (D13 originalBalance / C13 noteDate / E15 termMonths / E17 ioMonths / D18 coupon) map cleanly to UnderwritingModel.{loanAmount, loanDetails.originationDate, loanDetails.termMonths, loanDetails.ioMonths, interestRate}",
+      "T_12_operating_history_column_H": "~9 line-item cells in Operating History col H map to UnderwritingModel income/expenses sections (or pipeline.uwModelFromAsr.* for the ASR-specific projection)",
+      "rent_roll": "Rent Roll sheet populates from pipeline.rentRoll via existing populator (handled by populateRentRollTab in template-engine.service.ts:914)",
+      "subtype_and_class": "PropertyMetadata.propertySubtype → H3 in Property Detail - Comm; PropertyMetadata.buildingClass → K6 P&L Summary AND C15 Property Detail (duplicate field)",
+      "appraisal_value_only": "I11 Appraisal Value maps to ExtractionResult.fields.propertyValue.value (legacy bag) OR UnderwritingModel.impliedValue. Note: the value/cap/methodology trio IS extracted; only the LINE-ITEM appraisal projections are not."
+    },
+    "tier_X_resolutions": [
+      {
+        "cell": "Property & Loan Summary S4",
+        "v2_classification": "X (Map factor — template machinery)",
+        "v3_recommendation": "Confirm as template machinery; remove from input registry. Sunroad value = 1 is a constant for the map embed system, not a deal input.",
+        "action": "Strike from input list during cleanup."
+      },
+      {
+        "cell": "Property & Loan Summary T4",
+        "v2_classification": "X (Date serial 45108 — template machinery)",
+        "v3_recommendation": "45108 = 2023-07-08 in Excel date serial. Likely a 'map last refreshed' timestamp constant, NOT a deal input.",
+        "action": "Strike from input list during cleanup."
+      },
+      {
+        "cell": "Property & Loan Summary K85",
+        "v2_classification": "X (Occupied Units — possible label drift)",
+        "v3_recommendation": "Likely label drift between blank template and Sunroad. Inspect canonical template at K85; if it's a label cell, remove from registry. If it's an input intended for hotel/MF occupancy, classify as Tier A with source = PropertyMetadata.occupancyPhysical or rentRoll.summary.occupiedUnits.",
+        "action": "Inspect Blank_UW_Template_v2.xlsm at K85 during cleanup."
+      },
+      {
+        "cell": "Conclusions & Escrows E55",
+        "v2_classification": "X (Environmental Reserve — possible label drift)",
+        "v3_recommendation": "Sunroad has 'null' value here. Likely a label cell, not an input. Inspect canonical template at E55.",
+        "action": "Inspect during cleanup; if a label, strike from registry."
+      }
+    ],
+    "policy_decisions_to_make_before_M1_codes": [
+      "Q1: For MISSING_FROM_CODEBASE cells — write 'NAP' (Not Applicable), write blank with red highlight, or skip the cell entirely? Recommend: red-highlight blank for all 'missing' cells per the registry's tier_C convention; reserve 'NAP' strictly for cross-asset-class non-applicability (e.g., clear height for office).",
+      "Q2: For DERIVED cells that depend on Tier C inputs (M2 Deal Title depends on H2 Deal Control Number which is Tier C) — populate with placeholder OR leave blank? Recommend: leave blank since the template formula M2 already pulls from H2 when H2 is filled.",
+      "Q3: M2 Cover Page reclassification — the registry has it as Tier A but the cell IS a formula in the live template (per `cell_counts.formula: 17` includes M2). Recommend: reclassify M2 from Tier A to FORMULA (i.e., don't write it; the live template formula handles derivation from H2 + Property Name automatically once H2 is filled).",
+      "Q4: Should the populator have a graph-pipeline-bridge mode for cells that are MISSING_FROM_CODEBASE today but available in @cre/contracts (e.g., ExtractionResult.appraisal.valueConclusion vs the legacy fields.propertyValue.value)? Recommend: NO for Milestone 1 — use legacy POST records only. Revisit when the new-spine populator from legacy-reduction-plan §7 ships."
+    ]
+  },
+  "registry_metadata": {
+    "version": "0.2",
+    "purpose": "Input-cell registry for populate-the-blank-underwriting feature (Milestone 1). Identifies which template cells are INPUTS (the underwriter or system fills) vs FORMULAS (computed) vs LABELS (static text) vs BLANK. The populator writes ONLY into input cells, preserving the live financial model.",
+    "derived_from": {
+      "blank_template": "Blank_UW_Template.xlsm",
+      "filled_example": "001-_Sunroad_Centrum_-_OK_TO_PRINT_JN.xlsm",
+      "example_asset_class": "Office",
+      "example_property": "Sunroad Centrum, San Diego CA, Class A, 274,758 SF, $82.46M loan",
+      "canonical_template": "Blank_UW_Template_v2.xlsm",
+      "canonical_template_note": "Eightfold scrub completed manually in Excel; this is the cleaned template for the populator."
+    },
+    "tier_classification": {
+      "A_extraction": "Auto-populate from ASR / loan docs / cash flow / rent roll uploads. Blue text in output.",
+      "B_judgment": "Auto-populate via LLM + handbook judgment. Yellow background in output. NOT in Milestone 1 scope.",
+      "C_manual": "Leave blank for underwriter. Red highlight in output to draw the eye.",
+      "X_investigate": "Unclear — needs CC review during source mapping."
+    },
+    "visual_scheme": {
+      "tier_A_color": "blue text (RGB 0,0,255) — industry-standard hardcoded input convention",
+      "tier_B_color": "yellow background (RGB 255,255,0) — industry-standard 'needs review' convention",
+      "tier_C_color": "red highlight (cell fill or border) — draw the eye to required manual entry"
+    },
+    "asset_class_scope": "Office/Retail/Industrial (via Sunroad example). MF/SS/MHP and Hotel sheets present in template but no example data; deferred to v1.5.",
+    "deferred": [
+      "Tier B (judgment) cells — Milestone 2",
+      "Tier C web-research (Comps, demographics) — Milestone 3",
+      "MF/SS/MHP and Hotel asset-class registries — v1.5 once example files are available"
+    ]
+  },
+  "global_coverage_report": {
+    "total_sheets": 29,
+    "tier_A_inventoried_sheets": 5,
+    "tier_B_structural_only_sheets": 4,
+    "tier_C_structural_only_sheets": 11,
+    "skipped_sheets_template_machinery": 9,
+    "total_inputs_inventoried": 86,
+    "estimated_total_input_cells_full_template": 350,
+    "milestone_1_input_cells_office": 159
+  },
+  "sheets": {
+    "Start Page": {
+      "dims": "10x2",
+      "visibility": "visible",
+      "purpose": "Asset-class selection start page.",
+      "cell_counts": {"formula": 0, "hardcode": 0, "label": 3, "blank": 17},
+      "tier_summary": "Template-machinery only.",
+      "inputs": []
+    },
+    "Cover Page": {
+      "dims": "63x19",
+      "visibility": "visible",
+      "purpose": "Printed cover with deal title, sponsor, originator, photos, maps.",
+      "cell_counts": {"formula": 17, "hardcode": 7, "label": 25, "blank": 1148},
+      "tier_summary": "8 inputs: 4 Tier A, 0 Tier B, 4 Tier C, 0 X.",
+      "inputs": [
+        {
+          "cell": "H2", "named_range": "Deal_Control_Number", "label": "Deal Control Number",
+          "data_type": "integer", "tier": "C", "sunroad_example": 1,
+          "notes": "Internal deal sequence number. The M2 formula uses this to generate the cover title \"001- {PropertyName}\". Per-deal manual entry (red highlight) OR system-assigned from internal deal numbering. CC to decide source during integration.",
+          "source": null
+        },
+        {
+          "cell": "M2", "named_range": null, "label": "Deal title / Loan Purpose",
+          "data_type": "text", "tier": "A", "sunroad_example": "001- Sunroad Centrum",
+          "notes": "Formatted as `{dealNumber}- {propertyName}`. System-derived from internal deal numbering + property name.",
+          "source": "DERIVED: `${Deal_Control_Number from H2 zero-padded to 3 digits}- ${PropertyMetadata.propertyName}`",
+          "cc_note": "DERIVED with caveats. (a) Depends on H2 Deal_Control_Number which is itself Tier C (per-deal manual or system-assigned — unresolved). (b) The cell IS a formula in the live template (M2 counts toward cell_counts.formula:17 on Cover Page). Recommend reclassify to FORMULA, leave the template's own formula to derive M2 once H2 is filled. If we DO want to overwrite the formula with a hardcoded string, only write when both Deal_Control_Number AND PropertyMetadata.propertyName are available; otherwise leave the template formula intact."
+        },
+        {
+          "cell": "H3", "named_range": null, "label": "Pool",
+          "data_type": "text", "tier": "A", "sunroad_example": "BMARK 2024-V8",
+          "notes": "Securitization pool name from loan docs / CMBS docs. May be blank if not yet securitized.",
+          "source": "MISSING_FROM_CODEBASE_TIER_C",
+          "cc_note": "No current extraction captures CMBS pool name. Reclassify to Tier C for Milestone 1."
+        },
+        {
+          "cell": "B6", "named_range": null, "label": "Underwriting Firm",
+          "data_type": "text", "tier": "C", "sunroad_example": "Starwood Property Trust",
+          "notes": "Re-entered per-deal per user direction. Leave blank, red highlight.",
+          "source": null
+        },
+        {
+          "cell": "B7", "named_range": null, "label": "Underwriter",
+          "data_type": "text", "tier": "C", "sunroad_example": "BSG / AM / SB",
+          "notes": "Re-entered per-deal per user direction. Leave blank, red highlight.",
+          "source": null
+        },
+        {
+          "cell": "H7", "named_range": null, "label": "Sponsor",
+          "data_type": "text", "tier": "A", "sunroad_example": "Sunroad Holding Corporation",
+          "notes": "Sponsor entity name from ASR.",
+          "source": "Analysis.extractionResult.descriptors.sponsorName.value (legacy @cre/shared ExtractionResult — pipeline.extractionResult.descriptors?.sponsorName?.value in legacy POST)"
+        },
+        {
+          "cell": "H8", "named_range": null, "label": "Originator",
+          "data_type": "text", "tier": "A", "sunroad_example": "GSMC",
+          "notes": "Loan originator from loan docs.",
+          "source": "MISSING_FROM_CODEBASE_TIER_C",
+          "cc_note": "Loan originator (e.g., GSMC, Wells, MS-BAML) is not extracted by any current pipeline. Reclassify to Tier C for Milestone 1."
+        },
+        {
+          "cell": "H6", "named_range": null, "label": "Prepared for",
+          "data_type": "text", "tier": "C", "sunroad_example": "Eightfold",
+          "notes": "Per user decision during template cleanup: this is a per-deal Tier C input (red highlight). The recipient the underwriting is being prepared for. Now blank in cleaned template.",
+          "source": null
+        }
+      ],
+      "non_input_notes": "5 photo placeholders (N3:O7) labeled Cover 1/Cover 2/Map 1/Map 2/Map. Reference image files at network path. Tier C, manual upload."
+    },
+    "Property & Loan Summary": {
+      "dims": "115x28",
+      "visibility": "visible",
+      "purpose": "Central deal summary. Property description, loan terms, sources & uses, capital stack, history, annual cash flow summary, rent roll summary.",
+      "cell_counts": {"formula": 477, "hardcode": 44, "label": 255, "blank": 2444},
+      "tier_summary": "44 inputs: 41 Tier A, 0 Tier B, 0 Tier C, 3 X.",
+      "inputs": [
+        {"cell": "E3", "named_range": "Property_Name", "label": "Property Name", "data_type": "text", "tier": "A", "sunroad_example": "Sunroad Centrum",
+         "notes": "Property name from ASR header",
+         "source": "PropertyMetadata.propertyName"},
+        {"cell": "J3", "named_range": "Property_Type", "label": "Property Type / Subtype", "data_type": "text", "tier": "A", "sunroad_example": "Office",
+         "notes": "Asset class — user picks at upload",
+         "source": "Analysis.assetType (legacy @cre/shared.AssetType, lowercase — needs display-cased conversion to 'Office'/'Retail'/'Industrial' etc. via @cre/contracts.ASSET_TYPE_LABELS or inline case-fold)"},
+        {"cell": "E4", "named_range": "Address", "label": "Address", "data_type": "text", "tier": "A", "sunroad_example": "8620 Spectrum Center Boulevard",
+         "notes": "Street address from ASR",
+         "source": "PropertyMetadata.address"},
+        {"cell": "S4", "named_range": null, "label": "Map factor (template machinery)", "data_type": "unknown", "tier": "X", "sunroad_example": 1,
+         "notes": "Likely a template/layout control. NOT user-facing input. Investigate during cleanup.",
+         "source": null,
+         "cc_note": "Resolved (recon): template machinery constant. Strike from input registry."},
+        {"cell": "T4", "named_range": null, "label": "Map factor (template machinery)", "data_type": "unknown", "tier": "X", "sunroad_example": 45108,
+         "notes": "Likely a date serial (45108 = 2023-07-08). Template machinery. Investigate.",
+         "source": null,
+         "cc_note": "Resolved (recon): Excel date serial 45108 = 2023-07-08, likely a 'map last refreshed' constant. Strike from input registry."},
+        {"cell": "E5", "named_range": "City", "label": "City", "data_type": "text", "tier": "A", "sunroad_example": "San Diego",
+         "notes": "City from ASR",
+         "source": "PropertyMetadata.city"},
+        {"cell": "K5", "named_range": "Measure", "label": "Net Rentable Area / building size", "data_type": "number", "tier": "A", "sunroad_example": 274758,
+         "notes": "NRA in SF (Office/Retail/Industrial) or units (MF) or rooms (Hotel) from ASR.",
+         "source": "DERIVED: dispatch by Analysis.assetType — Office/Retail/Industrial/SelfStorage/MixedUse → PropertyMetadata.totalSquareFeet; Multifamily → PropertyMetadata.totalUnits; Hotel → PropertyMetadata.totalRooms; MHC → PropertyMetadata.totalPads",
+         "cc_note": "Asset-class dispatch logic at populator. PropertyMetadata carries all four measure fields; populator picks the one for the active asset type."},
+        {"cell": "D6", "named_range": "State", "label": "State", "data_type": "text", "tier": "A", "sunroad_example": "CA",
+         "notes": "2-letter state from ASR",
+         "source": "PropertyMetadata.state"},
+        {"cell": "E6", "named_range": "ZIP", "label": "ZIP", "data_type": "text", "tier": "A", "sunroad_example": "92123",
+         "notes": "ZIP from ASR",
+         "source": "PropertyMetadata.zip"},
+        {"cell": "K6", "named_range": null, "label": "Building Class", "data_type": "text", "tier": "A", "sunroad_example": "A",
+         "notes": "Building class A/B/C from ASR. Duplicates Property Detail - Comm!C15.",
+         "source": "PropertyMetadata.buildingClass"},
+        {"cell": "E7", "named_range": "County", "label": "County", "data_type": "text", "tier": "A", "sunroad_example": "San Diego",
+         "notes": "County from ASR",
+         "source": "PropertyMetadata.county"},
+        {"cell": "J7", "named_range": "Year_Built", "label": "Year Built", "data_type": "integer", "tier": "A", "sunroad_example": 2008,
+         "notes": "Year built from ASR",
+         "source": "PropertyMetadata.yearBuilt"},
+        {"cell": "K7", "named_range": "Year_Renovated", "label": "Year Renovated", "data_type": "integer", "tier": "A", "sunroad_example": 2023,
+         "notes": "Year renovated from ASR. May be blank for unrenovated properties.",
+         "source": "PropertyMetadata.yearRenovated"},
+        {"cell": "E8", "named_range": "MSA", "label": "Submarket / MSA", "data_type": "text", "tier": "A", "sunroad_example": "Kearny Mesa",
+         "notes": "NOTE: cell labeled 'Submarket / MSA' but Sunroad has SUBMARKET here. Named range is MSA but data is submarket.",
+         "source": "PropertyMetadata.submarket",
+         "cc_note": "Source field reflects the DATA semantics (submarket), not the named range label. PropertyMetadata also carries .msa separately if a true MSA value is needed elsewhere — confirm template intent during integration."},
+        {"cell": "K8", "named_range": "Ownership_Interest", "label": "Ownership Interest", "data_type": "text", "tier": "A", "sunroad_example": "Fee",
+         "notes": "Fee / Leasehold / Fee + Leasehold from ASR",
+         "source": "PropertyMetadata.ownershipInterest"},
+        {"cell": "J11", "named_range": null, "label": "Release Provisions (Y/N)", "data_type": "text", "tier": "A", "sunroad_example": "N",
+         "notes": "Y/N flag from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Loan structural Y/N flags are not extracted. Reclassify to Tier C."},
+        {"cell": "C12", "named_range": "Cutoff_Date", "label": "Cutoff Date", "data_type": "date", "tier": "A", "sunroad_example": "2024-05-06",
+         "notes": "Loan cutoff date from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Cutoff date (the date the loan was cut for securitization) is not extracted. ExtractionResult.loanTerms.maturityDate is the only loan date captured. Reclassify to Tier C."},
+        {"cell": "D12", "named_range": "Current_Balance", "label": "Total Current Balance", "data_type": "currency", "tier": "A", "sunroad_example": 82460000,
+         "notes": "Current UPB from loan docs / servicer report",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Distinct from Original Balance (D13) — current UPB after any principal paydown. For new originations, current = original; servicer reports are not consumed by the codebase. Reclassify to Tier C; for new originations populator may copy D13 → D12 as a default with a flag."},
+        {"cell": "J12", "named_range": null, "label": "Recourse flag", "data_type": "text", "tier": "A", "sunroad_example": "N",
+         "notes": "Recourse Y/N from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Reclassify to Tier C. (uw-intelligence.service.ts has a `recourse: boolean | null` field but that's a learned-rule attribute, not extraction.)"},
+        {"cell": "C13", "named_range": "Note_Date", "label": "Note Date", "data_type": "date", "tier": "A", "sunroad_example": "2024-05-01",
+         "notes": "Original note date from loan docs",
+         "source": "UnderwritingModel.loanDetails.originationDate (legacy ISO date string; pipeline.uwModel.loanDetails.originationDate in legacy POST)"},
+        {"cell": "D13", "named_range": "Original_Balance", "label": "Total Original Balance", "data_type": "currency", "tier": "A", "sunroad_example": 82460000,
+         "notes": "Original loan balance from loan docs",
+         "source": "UnderwritingModel.loanAmount (legacy; pipeline.uwModel.loanAmount in legacy POST)"},
+        {"cell": "J13", "named_range": null, "label": "Cross-Collateralized", "data_type": "text", "tier": "A", "sunroad_example": "N",
+         "notes": "Cross-collat Y/N from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "J14", "named_range": null, "label": "Cash Management / Lockbox Type", "data_type": "text", "tier": "A", "sunroad_example": "Hard",
+         "notes": "Hard / Soft / Springing lockbox from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "K14", "named_range": "CF_Sweep_Date", "label": "Cash Flow Sweep Trigger", "data_type": "text", "tier": "A", "sunroad_example": "Multiple",
+         "notes": "Cash flow sweep trigger description from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "E15", "named_range": "Balloon_Term", "label": "Term (months)", "data_type": "integer", "tier": "A", "sunroad_example": 60,
+         "notes": "Loan term in MONTHS (not years) from loan docs. E15 holds months; formula in D15 converts to years for display.",
+         "source": "UnderwritingModel.loanDetails.termMonths (legacy; pipeline.uwModel.loanDetails.termMonths in legacy POST)"},
+        {"cell": "J16", "named_range": null, "label": "ARD (Y/N)", "data_type": "text", "tier": "A", "sunroad_example": "N",
+         "notes": "Anticipated Repayment Date Y/N from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "E17", "named_range": "Interest_Only_Period", "label": "Interest Only period (months)", "data_type": "integer", "tier": "A", "sunroad_example": 60,
+         "notes": "IO period in months from loan docs",
+         "source": "UnderwritingModel.loanDetails.ioMonths (legacy; pipeline.uwModel.loanDetails.ioMonths in legacy POST)"},
+        {"cell": "D18", "named_range": "Coupon", "label": "Coupon", "data_type": "percentage", "tier": "A", "sunroad_example": 0.07912,
+         "notes": "Coupon rate as decimal (e.g., 0.07912 = 7.912%) from loan docs",
+         "source": "DERIVED: UnderwritingModel.interestRate / 100",
+         "cc_note": "UNIT CONVERSION REQUIRED. Legacy UnderwritingModel.interestRate is stored as percent (e.g., 7.912) per ai-analysis.service.ts:714 comment. Excel cell expects decimal (0.07912). Divide by 100 at write time. The contract @cre/contracts.LoanTermsExtraction.interestRate is already 0..1 decimal — if/when the populator switches to graph records, drop the /100."},
+        {"cell": "J19", "named_range": null, "label": "Total Sub Debt flag", "data_type": "text", "tier": "A", "sunroad_example": "N",
+         "notes": "Has subordinate debt Y/N from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "C22", "named_range": null, "label": "Control Pari status", "data_type": "text", "tier": "A", "sunroad_example": "Non-control",
+         "notes": "Whether this loan piece is the controlling or non-controlling note",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "D22", "named_range": "Trust_Pari_Balance", "label": "Pari balance in trust", "data_type": "currency", "tier": "A", "sunroad_example": 30000000,
+         "notes": "Balance of pari piece in this trust",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "E23", "named_range": null, "label": "Controlling Party", "data_type": "text", "tier": "A", "sunroad_example": "TBD",
+         "notes": "Name of controlling party. Often 'TBD' early in deal lifecycle.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Often 'TBD' at underwriting time anyway — Tier C with default 'TBD' value is a reasonable populator behavior."},
+        {"cell": "F27", "named_range": null, "label": "Senior Loan (Sources)", "data_type": "currency", "tier": "A", "sunroad_example": 63932950,
+         "notes": "Senior loan proceeds. NOTE: Original_Balance=82.46M but F27=63.93M, so this is the FUNDED amount at origination (different from current balance).",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Sources & Uses block (F27-F30) — no current extraction. Per Issue #35 item 10, S&U structured extraction is a planned engine extension."},
+        {"cell": "K27", "named_range": "Loan_Purpose", "label": "Loan Purpose", "data_type": "text", "tier": "A", "sunroad_example": "Refinance",
+         "notes": "Refinance / Acquisition / Construction etc. from loan docs",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "F28", "named_range": null, "label": "Cash to Borrower", "data_type": "currency", "tier": "A", "sunroad_example": 10792410,
+         "notes": "Cash to borrower from sources & uses",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "K28", "named_range": "Date_Acquired", "label": "Date Acquired", "data_type": "date", "tier": "A", "sunroad_example": "2008-01-31",
+         "notes": "Date sponsor acquired the property",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "F29", "named_range": null, "label": "Escrow / Reserves", "data_type": "currency", "tier": "A", "sunroad_example": 6679133,
+         "notes": "Up-front reserves established at closing",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "K29", "named_range": null, "label": "Purchase Price", "data_type": "text|currency", "tier": "A", "sunroad_example": "NAV",
+         "notes": "Purchase price. May be 'NAV' (Not Available) for old acquisitions where price isn't disclosed.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "F30", "named_range": null, "label": "Closing Costs", "data_type": "currency", "tier": "A", "sunroad_example": 1055507,
+         "notes": "Closing costs from sources & uses",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "K30", "named_range": "Cost_Basis", "label": "Total Cost Basis", "data_type": "currency", "tier": "A", "sunroad_example": 103900000,
+         "notes": "Total cost basis including improvements (acquisition + capex)",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "G35", "named_range": null, "label": "Subject Loan tag", "data_type": "text", "tier": "A", "sunroad_example": "Pari",
+         "notes": "Loan type tag — Pari / Whole / Senior / Mezz etc.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "B40", "named_range": null, "label": "Prior Sale Date", "data_type": "date", "tier": "A", "sunroad_example": "2008-01-31",
+         "notes": "Date of prior sale. Often the sponsor acquisition date for sponsor-acquired properties.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "C40", "named_range": null, "label": "Prior Sale Price", "data_type": "text|currency", "tier": "A", "sunroad_example": "NAV",
+         "notes": "Prior sale price. May be NAV.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "K85", "named_range": null, "label": "Occupied Units (template label drift?)", "data_type": "text", "tier": "X", "sunroad_example": "Occupied Units",
+         "notes": "INVESTIGATE — looks like a template label that Sunroad has filled with its own label text. May be label drift between blank and Sunroad. Verify during template cleanup.",
+         "source": null,
+         "cc_note": "Cannot resolve without inspecting Blank_UW_Template_v2.xlsm at K85. If it's a label cell, strike from registry. If it's an input intended for MF/hotel occupancy, classify Tier A with source = PropertyMetadata.occupancyPhysical or rentRoll.summary.occupiedUnits."}
+      ]
+    },
+    "Conclusions & Escrows": {
+      "dims": "67x20",
+      "visibility": "visible",
+      "purpose": "Concluded loan summary, supportable debt at refi, appraisal data, prior CMBS loan history, escrow structure.",
+      "cell_counts": {"formula": 108, "hardcode": 17, "label": 74, "blank": 1141},
+      "tier_summary": "17 inputs: 7 Tier A (appraisal value + prior CMBS history + appraisal line-items), 9 Tier B (concluded cap rate + escrow recommendations), 3 Tier C (comments/conclusion narrative), 1 X.",
+      "inputs": [
+        {"cell": "I9", "named_range": "Concluded_Cap_Rate", "label": "Concluded Cap Rate", "data_type": "percentage", "tier": "B", "sunroad_example": 0.085,
+         "notes": "THE MOST CONSEQUENTIAL SINGLE JUDGMENT CELL in the template. LLM-with-handbook output, Milestone 2.",
+         "source": null},
+        {"cell": "I11", "named_range": "Appraised_Value", "label": "Appraisal Value", "data_type": "currency", "tier": "A", "sunroad_example": 122000000,
+         "notes": "From appraisal upload.",
+         "source": "Analysis.extractionResult.fields.propertyValue.value (legacy @cre/shared ExtractionResult). Alternate: UnderwritingModel.impliedValue but that's derived, not the appraised value directly.",
+         "cc_note": "The cleaner source is @cre/contracts.AppraisalExtraction.valueConclusion, but that's only present in the graph-pipeline ExtractionResult, not the legacy one in scope. The legacy `fields.propertyValue.value` is sourced from appraisal extraction during legacy pipeline run."},
+        {"cell": "C18", "named_range": null, "label": "Prior CMBS Loan (Deal / Status)", "data_type": "text", "tier": "A", "sunroad_example": "COMM 2014-CR19 Bridgepoint Tower (No DQ)",
+         "notes": "Prior CMBS deal name + delinquency status. Source: CMBS database lookup OR rating agency presale report.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "No CMBS database integration. Reclassify to Tier C."},
+        {"cell": "E18", "named_range": null, "label": "Prior CMBS Loan Balance Before Disposition", "data_type": "currency", "tier": "A", "sunroad_example": 64198404.13,
+         "notes": "Same source as C18",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "C19", "named_range": null, "label": "Prior CMBS Trough NCF Year", "data_type": "integer", "tier": "A", "sunroad_example": 2022,
+         "notes": "Same source as C18",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "D19", "named_range": null, "label": "Prior CMBS Trough NCF Amount", "data_type": "currency", "tier": "A", "sunroad_example": -1023736,
+         "notes": "Same source. Negative NCF here is notable — prior loan had a stressed period.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "E21", "named_range": null, "label": "Comments", "data_type": "text", "tier": "C", "sunroad_example": null,
+         "notes": "Underwriter free-text comments. Red highlight.",
+         "source": null},
+        {"cell": "G21", "named_range": null, "label": "Conclusion", "data_type": "text", "tier": "C", "sunroad_example": null,
+         "notes": "Underwriter free-text conclusion. Red highlight.",
+         "source": null},
+        {"cell": "D47", "named_range": null, "label": "Real Estate Taxes — Per Appraisal", "data_type": "currency", "tier": "A", "sunroad_example": 1674577,
+         "notes": "From appraisal",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Appraisal extraction (both legacy and graph) captures only value/cap/methodology — no operating-statement line items. Reclassify to Tier C."},
+        {"cell": "E47", "named_range": null, "label": "Real Estate Taxes — Up Front Deposit", "data_type": "currency", "tier": "B", "sunroad_example": 133543.49,
+         "notes": "Underwritten reserve deposit. Judgment.",
+         "source": null},
+        {"cell": "D48", "named_range": null, "label": "Insurance — Per Appraisal", "data_type": "currency", "tier": "A", "sunroad_example": 302234,
+         "notes": "From appraisal",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Same reason as D47."},
+        {"cell": "E48", "named_range": null, "label": "Insurance — Up Front Deposit", "data_type": "currency", "tier": "B", "sunroad_example": 104806.8,
+         "notes": "Judgment",
+         "source": null},
+        {"cell": "E49", "named_range": null, "label": "Replacement Reserves — Up Front", "data_type": "currency", "tier": "B", "sunroad_example": 274758,
+         "notes": "Judgment. NOTE: 274758 = exactly the NRA, suggesting $1/SF formula rather than freeform judgment.",
+         "source": null},
+        {"cell": "G49", "named_range": null, "label": "Replacement Reserves — Annual Escrow", "data_type": "currency", "tier": "B", "sunroad_example": 68689,
+         "notes": "Annual replacement reserve. Judgment.",
+         "source": null},
+        {"cell": "G51", "named_range": null, "label": "Immediate Repairs — Annual Escrow", "data_type": "currency", "tier": "B", "sunroad_example": 0,
+         "notes": "Judgment",
+         "source": null},
+        {"cell": "E54", "named_range": null, "label": "General TI/LC — Up Front Deposit", "data_type": "currency", "tier": "B", "sunroad_example": 6166024,
+         "notes": "TI/LC reserve. Judgment.",
+         "source": null},
+        {"cell": "E55", "named_range": null, "label": "Environmental Reserve (likely template label drift)", "data_type": "text", "tier": "X", "sunroad_example": null,
+         "notes": "Appears as label, not value. Verify during cleanup.",
+         "source": null,
+         "cc_note": "Inspect Blank_UW_Template_v2.xlsm at E55 during cleanup. Likely a label cell; if so, strike from registry."}
+      ]
+    },
+    "Property Detail - Comm": {
+      "dims": "68x16",
+      "visibility": "hidden",
+      "purpose": "Office/Retail/Industrial property details. Asset-class-specific. Heavy formula computation from rent roll.",
+      "asset_class_scope": "Office, Retail, Industrial",
+      "cell_counts": {"formula": 204, "hardcode": 17, "label": 51, "blank": 816},
+      "tier_summary": "17 inputs: 16 Tier A (property facts), 1 Tier C (demographic data needing external API).",
+      "inputs": [
+        {"cell": "H3", "named_range": null, "label": "Property Subtype", "data_type": "text", "tier": "A", "sunroad_example": "CBD",
+         "notes": "Office subtype (CBD, Suburban, Medical, Flex). From ASR.",
+         "source": "PropertyMetadata.propertySubtype"},
+        {"cell": "L3", "named_range": null, "label": "Surface Parking", "data_type": "integer", "tier": "A", "sunroad_example": 1637,
+         "notes": "Surface parking space count from ASR",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Parking counts not in PropertyMetadata contract. Reclassify to Tier C."},
+        {"cell": "L4", "named_range": null, "label": "Covered Parking", "data_type": "integer", "tier": "A", "sunroad_example": 33,
+         "notes": "Covered parking space count from ASR",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "G7", "named_range": null, "label": "Zoning Code", "data_type": "text", "tier": "A", "sunroad_example": "CC-3-8",
+         "notes": "Zoning designation from ASR",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Zoning not captured by PropertyMetadata. Reclassify to Tier C."},
+        {"cell": "H7", "named_range": null, "label": "Zoning Description", "data_type": "text", "tier": "A", "sunroad_example": "Commercial Community",
+         "notes": "Plain-English description of zoning. May need to be derived from zoning code via lookup.",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "C11", "named_range": null, "label": "Number of Buildings", "data_type": "integer", "tier": "A", "sunroad_example": 1,
+         "notes": "From ASR",
+         "source": "PropertyMetadata.numberOfBuildings"},
+        {"cell": "L11", "named_range": "Land_Area", "label": "Land Area (acres)", "data_type": "number", "tier": "A", "sunroad_example": 3.48,
+         "notes": "Land area in ACRES (not SF) from ASR",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "Land area not captured by PropertyMetadata. Reclassify to Tier C."},
+        {"cell": "C12", "named_range": null, "label": "Number of Stories", "data_type": "integer", "tier": "A", "sunroad_example": 11,
+         "notes": "From ASR",
+         "source": "MISSING_FROM_CODEBASE_TIER_C"},
+        {"cell": "H12", "named_range": null, "label": "Ground Lease (Y/N)", "data_type": "text", "tier": "A", "sunroad_example": "N",
+         "notes": "From ASR",
+         "source": "MISSING_FROM_CODEBASE_TIER_C",
+         "cc_note": "PropertyMetadata.ownershipInterest contains the answer indirectly ('Fee Simple' implies N), but the mapping is not categorical (e.g., 'Fee + Leasehold' is ambiguous). Reclassify to Tier C; the populator could heuristically default to 'N' when ownershipInterest==='Fee Simple' but this is a guess, not extraction."},
+        {"cell": "C13", "named_range": null, "label": "Number of Outparcels", "data_type": "text|integer", "tier": "A", "sunroad_example": "NAP",
+         "notes": "'NAP' = Not Applicable. Retail-specific concept; office uses NAP.",
+         "source": "DERIVED: 'NAP' literal when Analysis.assetType !== 'Retail'; MISSING_FROM_CODEBASE_TIER_C when Retail",
+         "cc_note": "Retail-specific. Populator writes literal 'NAP' for non-retail; for retail, no extraction exists — Tier C."},
+        {"cell": "H13", "named_range": null, "label": "Ground Lease Subordinate", "data_type": "text", "tier": "A", "sunroad_example": "NAP",
+         "notes": "If H12 (Ground Lease) = N, this = NAP",
+         "source": "DERIVED: 'NAP' literal when H12 === 'N' (which it almost always is until ground-lease extraction exists)",
+         "cc_note": "Conditional on H12 which is itself MISSING. In practice the populator can write 'NAP' as the default when no ground-lease data exists, matching Sunroad behavior."},
+        {"cell": "C14", "named_range": null, "label": "Clear Height (ft)", "data_type": "text|number", "tier": "A", "sunroad_example": "NAP",
+         "notes": "Industrial-specific concept. NAP for office. Important for industrial deals.",
+         "source": "DERIVED: 'NAP' literal when Analysis.assetType !== 'Industrial'; MISSING_FROM_CODEBASE_TIER_C when Industrial",
+         "cc_note": "Industrial-specific. Populator writes literal 'NAP' for non-industrial. Issue #35 lists clear height implicitly (P-IV-IND principles need it); future engine work will surface it."},
+        {"cell": "H14", "named_range": null, "label": "Ground Lease Expiration Date", "data_type": "text|date", "tier": "A", "sunroad_example": "NAP",
+         "notes": "If H12 = N, this = NAP",
+         "source": "DERIVED: 'NAP' literal when H12 === 'N'"},
+        {"cell": "C15", "named_range": null, "label": "Building Class (duplicate)", "data_type": "text", "tier": "A", "sunroad_example": "A",
+         "notes": "Duplicates Property & Loan Summary K6. Both should be populated from same source.",
+         "source": "PropertyMetadata.buildingClass"},
+        {"cell": "H15", "named_range": null, "label": "Ground Lease Options", "data_type": "text", "tier": "A", "sunroad_example": "NAP",
+         "notes": "If H12 = N, this = NAP",
+         "source": "DERIVED: 'NAP' literal when H12 === 'N'"},
+        {"cell": "H16", "named_range": null, "label": "GL Rent Steps", "data_type": "text", "tier": "A", "sunroad_example": "NAP",
+         "notes": "If H12 = N, this = NAP",
+         "source": "DERIVED: 'NAP' literal when H12 === 'N'"},
+        {"cell": "L16", "named_range": null, "label": "Average Home Price in Submarket", "data_type": "currency", "tier": "C", "sunroad_example": 862500,
+         "notes": "Demographic data requiring external API. Tier C for Milestone 1.",
+         "source": null}
+      ],
+      "non_input_notes": "204 formula cells compute the Rollover Summary from the Rent Roll.",
+      "convention_notes": "NAP convention: when a field doesn't apply, populator writes 'NAP' rather than blank. Asset-class-specific."
+    },
+    "Operating History and Pro Forma": {
+      "dims": "78x37",
+      "visibility": "hidden",
+      "purpose": "Financial statements: 3 prior years + T-12 historical (Tier A), appraisal column (Tier A from appraisal), underwritten year-1 pro forma (Tier B), actual-in-place from rent roll (Tier A).",
+      "asset_class_scope": "Non-hotel",
+      "cell_counts": {"formula": 369, "hardcode": 74, "label": 96, "blank": 2347},
+      "column_layout": {
+        "B-C": "3rd Prior Year ($, $/measure)",
+        "D-E": "2nd Prior Year ($, $/measure)",
+        "F-G": "Prior Year ($, $/measure)",
+        "H-I": "T-12 most recent 12 months ($, $/measure)",
+        "J-K": "Appraisal ($, $/measure)",
+        "L-M": "Issuer UW — THE TIER B JUDGMENT COLUMN ($, $/measure)",
+        "N-O": "Actual Income In Place — from rent roll snapshot ($, $/measure)",
+        "Q": "Growth rate parameter (Tier B)",
+        "R": "UW assumption notes / methodology comments (Tier B text)"
+      },
+      "tier_summary_v3_revised": "~51 Tier A cells originally. v3 finding: cols B/D/F (3rd/2nd/1st prior) cannot be populated today (Issue #38 — no per-period extraction). Col J (Appraisal) cannot be populated today (appraisal extraction has no operating-statement line items). Only col H (T-12) and col N (actual-in-place) are populatable from current legacy POST records. ~9 cells map cleanly; ~36 cells reclassify to Tier C until Issues #38 and appraisal-extraction-expansion ship.",
+      "source_mapping_by_column": {
+        "column_B_D_F": {
+          "status": "MISSING_FROM_CODEBASE_TIER_C",
+          "affected_cells_estimate": 30,
+          "blocker_issue": "#38 (open) — per-period array extraction from seller UW models",
+          "explanation": "Current extraction is single-period (T-12 from ASR or Seller UW column). Multi-year historical arrays are not parsed."
+        },
+        "column_H_T12": {
+          "status": "MAPPED_LEGACY_POST_AVAILABLE",
+          "affected_cells_estimate": 9,
+          "source_template": "pipeline.uwModelFromAsr.income.{grossPotentialRent | otherIncome} OR pipeline.uwModelFromAsr.expenses.{realEstateTaxes | insurance | utilities | repairsAndMaintenance | management | generalAndAdmin | payroll | replacementReserves}",
+          "explanation": "uwModelFromAsr is the per-source ASR extraction surfaced for Operating History column rendering (per underwriting-pipeline.service.ts:53 comment 'surfaced so downstream consumers (template populator) can render the multi-period Operating History columns')",
+          "per_cell_mapping": {
+            "H9 (Potential Gross Rental Income)": "pipeline.uwModelFromAsr.income.grossPotentialRent.annualAmount",
+            "H11 (Bad Debt Expense)": "MISSING_FROM_CODEBASE_TIER_C — legacy ExpenseSection has no badDebt field. Sometimes captured as a vacancyLoss subset; not separately extracted.",
+            "H14 (Other Income)": "pipeline.uwModelFromAsr.income.otherIncome.annualAmount",
+            "H15 (Expense Reimbursements)": "MISSING_FROM_CODEBASE_TIER_C — legacy IncomeSection doesn't separately track reimbursements; sometimes embedded in otherIncome.",
+            "H22 (General and Administrative)": "pipeline.uwModelFromAsr.expenses.generalAndAdmin.annualAmount",
+            "H24 (Repairs and Maintenance)": "pipeline.uwModelFromAsr.expenses.repairsAndMaintenance.annualAmount",
+            "H25 (Utilities)": "pipeline.uwModelFromAsr.expenses.utilities.annualAmount",
+            "H30 (Management Fee)": "pipeline.uwModelFromAsr.expenses.management.annualAmount",
+            "H31 (Property Taxes)": "pipeline.uwModelFromAsr.expenses.realEstateTaxes.annualAmount",
+            "H32 (Insurance)": "pipeline.uwModelFromAsr.expenses.insurance.annualAmount",
+            "H6 (Average Physical Occupancy)": "PropertyMetadata.occupancyPhysical (fraction; multiply by 100 if cell expects percent)",
+            "H7 (Average Economic Occupancy)": "PropertyMetadata.occupancyEconomic"
+          }
+        },
+        "column_J_appraisal": {
+          "status": "MISSING_FROM_CODEBASE_TIER_C",
+          "affected_cells_estimate": 11,
+          "blocker": "Appraisal extraction (both @cre/contracts.AppraisalExtraction and the legacy bag) carries only {valueConclusion, capRate, methodology} — no income/expense line items. Reclassify all col J line-item rows to Tier C.",
+          "exception": "J6/J7 occupancy MIGHT be derivable from appraisal narrative if extraction expands; today MISSING."
+        },
+        "column_L_M_underwriting_judgment": {
+          "status": "TIER_B_unchanged (Milestone 2)",
+          "note": "Per registry, col L is the Tier B judgment column — LLM-with-handbook output. The graph pipeline DOES produce AdjustedInputs.income/expenses but the legacy POST doesn't have AdjustedInputs in scope. When new-spine populator ships, AdjustedInputs.income.* and AdjustedInputs.expenses.* will be the mapping for these cells."
+        },
+        "column_N_O_actual_in_place": {
+          "status": "MAPPED_LEGACY_POST_AVAILABLE",
+          "affected_cells_estimate": 3,
+          "source_template": "Derived from pipeline.rentRoll (the contract RentRoll record built at line 949-981)",
+          "per_cell_mapping": {
+            "N (Actual In Place income lines)": "DERIVED: sum across rentRoll.units of (baseRentMonthly * 12) for occupied units; can also aggregate via existing rent roll summarization code",
+            "occupancy stats (L6/L7)": "DERIVED: rentRoll.summary.occupiedUnits / rentRoll.summary.totalUnits for physical; rentRoll.summary.economicOccupancy for economic — but these are Tier B per registry (UW column), not Tier A"
+          },
+          "cc_note": "Actual-in-place column is supposed to come from rent roll snapshot. Current rent roll extraction is unit-level; aggregation to line-item bucketing (GPR, other income, reimbursements) requires aggregation logic that doesn't exist today. Recommend implementing an aggregator OR reclassifying col N to Tier C until aggregator ships."
+        },
+        "Q_R_columns": {
+          "status": "TIER_B_unchanged (Milestone 2)",
+          "note": "Growth rate parameters and UW notes — LLM-with-handbook output."
+        }
+      },
+      "inputs_summary_by_line_item": [
+        {"line_item": "Potential Gross Rental Income",
+         "tier_A_cells": ["B9", "D9", "F9", "H9", "J9"],
+         "tier_B_cells": ["L9"],
+         "sources_v3": {
+           "B9": "MISSING_FROM_CODEBASE_TIER_C (3rd prior year — Issue #38)",
+           "D9": "MISSING_FROM_CODEBASE_TIER_C (2nd prior year)",
+           "F9": "MISSING_FROM_CODEBASE_TIER_C (1st prior year)",
+           "H9": "pipeline.uwModelFromAsr.income.grossPotentialRent.annualAmount",
+           "J9": "MISSING_FROM_CODEBASE_TIER_C (appraisal line items not extracted)"
+         }},
+        {"line_item": "Bad Debt Expense",
+         "tier_A_cells": ["H11", "J11"],
+         "tier_B_cells": [],
+         "sources_v3": {
+           "H11": "MISSING_FROM_CODEBASE_TIER_C (legacy ExpenseSection has no badDebt field)",
+           "J11": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Other Income",
+         "tier_A_cells": ["B14", "F14", "H14", "J14"],
+         "tier_B_cells": ["L14"],
+         "sources_v3": {
+           "B14": "MISSING_FROM_CODEBASE_TIER_C",
+           "F14": "MISSING_FROM_CODEBASE_TIER_C",
+           "H14": "pipeline.uwModelFromAsr.income.otherIncome.annualAmount",
+           "J14": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Expense Reimbursements",
+         "tier_A_cells": ["B15", "D15", "F15", "H15", "J15"],
+         "tier_B_cells": ["L15"],
+         "sources_v3": {
+           "B15": "MISSING_FROM_CODEBASE_TIER_C",
+           "D15": "MISSING_FROM_CODEBASE_TIER_C",
+           "F15": "MISSING_FROM_CODEBASE_TIER_C",
+           "H15": "MISSING_FROM_CODEBASE_TIER_C (legacy IncomeSection has no reimbursements field)",
+           "J15": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "General and Administrative",
+         "tier_A_cells": ["B22", "D22", "F22", "H22", "J22"],
+         "tier_B_cells": ["L22"],
+         "sources_v3": {
+           "B22": "MISSING_FROM_CODEBASE_TIER_C",
+           "D22": "MISSING_FROM_CODEBASE_TIER_C",
+           "F22": "MISSING_FROM_CODEBASE_TIER_C",
+           "H22": "pipeline.uwModelFromAsr.expenses.generalAndAdmin.annualAmount",
+           "J22": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Repairs and Maintenance",
+         "tier_A_cells": ["B24", "D24", "F24", "H24", "J24"],
+         "tier_B_cells": ["L24"],
+         "sources_v3": {
+           "B24": "MISSING_FROM_CODEBASE_TIER_C",
+           "D24": "MISSING_FROM_CODEBASE_TIER_C",
+           "F24": "MISSING_FROM_CODEBASE_TIER_C",
+           "H24": "pipeline.uwModelFromAsr.expenses.repairsAndMaintenance.annualAmount",
+           "J24": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Utilities",
+         "tier_A_cells": ["B25", "D25", "F25", "H25", "J25"],
+         "tier_B_cells": ["L25"],
+         "sources_v3": {
+           "B25": "MISSING_FROM_CODEBASE_TIER_C",
+           "D25": "MISSING_FROM_CODEBASE_TIER_C",
+           "F25": "MISSING_FROM_CODEBASE_TIER_C",
+           "H25": "pipeline.uwModelFromAsr.expenses.utilities.annualAmount",
+           "J25": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Other (Op Ex)",
+         "tier_A_cells": ["J26"],
+         "tier_B_cells": [],
+         "sources_v3": {"J26": "MISSING_FROM_CODEBASE_TIER_C"}},
+        {"line_item": "Management Fee",
+         "tier_A_cells": ["B30", "D30", "F30", "H30", "J30"],
+         "tier_B_cells": ["L30"],
+         "tier_B_parameter": "Q30 = 0.03 (3% growth rate)",
+         "sources_v3": {
+           "B30": "MISSING_FROM_CODEBASE_TIER_C",
+           "D30": "MISSING_FROM_CODEBASE_TIER_C",
+           "F30": "MISSING_FROM_CODEBASE_TIER_C",
+           "H30": "pipeline.uwModelFromAsr.expenses.management.annualAmount",
+           "J30": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Property Taxes",
+         "tier_A_cells": ["B31", "D31", "F31", "H31", "J31"],
+         "tier_B_cells": ["L31"],
+         "sources_v3": {
+           "B31": "MISSING_FROM_CODEBASE_TIER_C",
+           "D31": "MISSING_FROM_CODEBASE_TIER_C",
+           "F31": "MISSING_FROM_CODEBASE_TIER_C",
+           "H31": "pipeline.uwModelFromAsr.expenses.realEstateTaxes.annualAmount",
+           "J31": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Insurance",
+         "tier_A_cells": ["B32", "D32", "F32", "H32", "J32"],
+         "tier_B_cells": ["L32"],
+         "sources_v3": {
+           "B32": "MISSING_FROM_CODEBASE_TIER_C",
+           "D32": "MISSING_FROM_CODEBASE_TIER_C",
+           "F32": "MISSING_FROM_CODEBASE_TIER_C",
+           "H32": "pipeline.uwModelFromAsr.expenses.insurance.annualAmount",
+           "J32": "MISSING_FROM_CODEBASE_TIER_C"
+         }},
+        {"line_item": "Replacement Reserves / TI / LC",
+         "tier_A_cells": [],
+         "tier_B_cells": ["L38", "L39", "L40"]},
+        {"line_item": "Occupancy stats",
+         "tier_A_cells": ["H6", "J6", "L6", "J7", "L7"],
+         "tier_B_cells": [],
+         "note": "Average physical/economic occupancy",
+         "sources_v3": {
+           "H6": "PropertyMetadata.occupancyPhysical (multiply by 100 if cell expects %)",
+           "J6": "MISSING_FROM_CODEBASE_TIER_C (appraisal occupancy not extracted)",
+           "L6": "TIER_B_judgment (UW occupancy assumption — Milestone 2)",
+           "J7": "MISSING_FROM_CODEBASE_TIER_C",
+           "L7": "TIER_B_judgment"
+         }}
+      ],
+      "tier_B_notes_cells": ["R14", "R22", "R24", "R25", "R31", "R32", "R38"],
+      "tier_B_notes_purpose": "Free-text UW assumption notes. Milestone 2.",
+      "critical_observations": [
+        "v3: 30+ Tier A cells in columns B/D/F cannot be populated until Issue #38 (per-period extraction) ships.",
+        "v3: 11+ Tier A cells in column J cannot be populated until appraisal extraction expands to line-item operating statement.",
+        "v3: ~9 Tier A cells in column H ARE populatable from pipeline.uwModelFromAsr. This is the practical Milestone 1 scope for this sheet.",
+        "Column L (UW year-1) remains Tier B per Milestone 2 scope.",
+        "If appraisal upload is not currently in the upload set, all column J cells become Tier C (red) for Milestone 1.",
+        "369 formula cells compute EGI/Total Op Ex/NOI/NCF/DSCR from the 74 inputs. Getting the column H inputs right makes a partial sheet work; col B/D/F/J/L blank is acceptable for an underwriter to fill manually."
+      ]
+    },
+    "Property Detail - MF SS MHP": {
+      "dims": "88x64", "visibility": "hidden", "asset_class_scope": "MF, SS, MHP",
+      "cell_counts": {"formula": 267, "hardcode": 1, "label": 264, "blank": 5100},
+      "milestone_1_status": "DEFERRED to v1.5 — no example data.",
+      "inputs": []
+    },
+    "Property Detail - Hotel": {
+      "dims": "65x18", "visibility": "hidden", "asset_class_scope": "Hotel",
+      "cell_counts": {"formula": 50, "hardcode": 0, "label": 119, "blank": 1001},
+      "milestone_1_status": "DEFERRED to v1.5.",
+      "inputs": []
+    },
+    "Hotel Op History and Pro Forma": {
+      "dims": "81x42", "visibility": "hidden", "asset_class_scope": "Hotel",
+      "cell_counts": {"formula": 624, "hardcode": 0, "label": 143, "blank": 2635},
+      "milestone_1_status": "DEFERRED to v1.5.",
+      "inputs": []
+    },
+    "10 Yr Pro Forma": {
+      "dims": "92x138", "visibility": "hidden",
+      "purpose": "10-year projection grid. Almost entirely formula-driven from year-1.",
+      "cell_counts": {"formula": 3341, "hardcode": 2, "label": 105, "blank": 9248},
+      "tier_summary": "TIER B sheet. The 2 hardcoded cells are likely growth-rate parameters.",
+      "milestone_1_status": "SKIP for Milestone 1 cell inventory.",
+      "inputs": []
+    },
+    "Rent Roll": {
+      "dims": "551x459", "visibility": "hidden",
+      "purpose": "Tenant-by-tenant rent roll. Existing rent roll extraction pipeline populates this.",
+      "cell_counts": {"formula": 124344, "hardcode": 877, "label": 1665, "blank": 126023},
+      "structural_notes_v3": {
+        "header_row": "Row 13",
+        "data_start_row": "Row 14",
+        "current_populator": "apps/api/src/services/template-engine.service.ts:914 — populateRentRollTab(worksheet, options.rentRoll) handles this in legacy POST today",
+        "source_record": "pipeline.rentRoll (resolved at apps/api/src/routes/analysis.routes.ts:949-981, contract @cre/contracts.RentRoll shape)",
+        "per_tenant_field_mapping": {
+          "C (Tenant Name)": "rentRoll.lines[].tenantName",
+          "B (Unit/suite)": "rentRoll.lines[].unitId",
+          "D (Sq. Ft.)": "rentRoll.lines[].squareFeet (verify field name in RentRoll contract; the registry's RentRoll.units shape from @cre/contracts.extraction has unitId/tenantName/leaseStart/leaseEnd/baseRentMonthly etc.)",
+          "F (Lease Start)": "rentRoll.lines[].leaseStart",
+          "G (Lease Expiration)": "rentRoll.lines[].leaseEnd",
+          "K (UW Base Rent PSF)": "DERIVED: rentRoll.lines[].baseRentMonthly * 12 / squareFeet",
+          "Others (CAM, Recovery, etc.)": "Partial coverage from contract RentRoll; full mapping to be verified during integration"
+        }
+      },
+      "milestone_1_status": "DEFER detailed cell inventory. Existing populator covers most of this; verify column-by-column mapping during integration.",
+      "inputs": []
+    },
+    "Presentation Rent Roll": {
+      "dims": "422x459", "visibility": "hidden",
+      "cell_counts": {"formula": 5836, "hardcode": 161, "label": 13, "blank": 187688},
+      "purpose": "Print-formatted version of Rent Roll. Auto-derives via formulas.",
+      "milestone_1_status": "Likely auto-derives from Rent Roll."
+    },
+    "Rent Roll Summary": {
+      "dims": "70x13", "visibility": "hidden",
+      "cell_counts": {"formula": 429, "hardcode": 5, "label": 31, "blank": 445},
+      "purpose": "Computed summary of rent roll.",
+      "milestone_1_status": "Auto-derives from Rent Roll."
+    },
+    "Rent Roll Footnotes": {
+      "dims": "17x10", "visibility": "hidden",
+      "cell_counts": {"formula": 36, "hardcode": 10, "label": 21, "blank": 86},
+      "purpose": "Footnote text. Tier C — manual.",
+      "milestone_1_status": "Tier C."
+    },
+    "Stress Scenario": {
+      "dims": "67x9", "visibility": "hidden",
+      "cell_counts": {"formula": 248, "hardcode": 1, "label": 94, "blank": 260},
+      "purpose": "Stress test scenarios. Mostly formula-driven.",
+      "milestone_1_status": "TIER B — Milestone 2."
+    },
+    "Broker Interview": {
+      "dims": "61x20", "visibility": "hidden",
+      "cell_counts": {"formula": 46, "hardcode": 24, "label": 172, "blank": 978},
+      "purpose": "Broker interview notes — manual.",
+      "milestone_1_status": "Tier C — all manual."
+    },
+    "Third Party Reports Summary": {
+      "dims": "54x18", "visibility": "hidden",
+      "cell_counts": {"formula": 4, "hardcode": 27, "label": 43, "blank": 898},
+      "purpose": "Summary of third-party reports.",
+      "milestone_1_status": "Tier C for Milestone 1."
+    },
+    "Borrower": {
+      "dims": "57x12", "visibility": "hidden",
+      "cell_counts": {"formula": 0, "hardcode": 14, "label": 50, "blank": 620},
+      "purpose": "Sponsor/borrower details.",
+      "milestone_1_status": "Mix of Tier A (sponsor name from Analysis.extractionResult.descriptors.sponsorName.value or .borrowerName) and Tier C (financial statements).",
+      "v3_partial_source_mapping": {
+        "sponsor_name_cells": "Analysis.extractionResult.descriptors.sponsorName.value (legacy)",
+        "borrower_name_cells": "Analysis.extractionResult.descriptors.borrowerName.value (legacy)",
+        "all_other_borrower_financials": "MISSING_FROM_CODEBASE_TIER_C"
+      }
+    },
+    "Market": {
+      "dims": "74x17", "visibility": "hidden",
+      "cell_counts": {"formula": 51, "hardcode": 41, "label": 135, "blank": 1031},
+      "purpose": "Market and submarket data — vacancy, rents, absorption.",
+      "milestone_1_status": "Tier C for Milestone 1. Could be Tier A in future via existing research.service.js (searchMarket)."
+    },
+    "Site Inspection": {
+      "dims": "57x13", "visibility": "hidden",
+      "cell_counts": {"formula": 4, "hardcode": 55, "label": 70, "blank": 612},
+      "purpose": "Site inspection observations.",
+      "milestone_1_status": "Tier C — manual."
+    },
+    "Pictures": {
+      "dims": "100x25", "visibility": "hidden",
+      "cell_counts": {"formula": 34, "hardcode": 0, "label": 36, "blank": 2430},
+      "purpose": "Photo embeds.",
+      "milestone_1_status": "Tier C — manual."
+    },
+    "Maps": {
+      "dims": "44x21", "visibility": "hidden",
+      "cell_counts": {"formula": 3, "hardcode": 0, "label": 15, "blank": 906},
+      "purpose": "Map embeds.",
+      "milestone_1_status": "Tier C — manual."
+    },
+    "Lease Comps": {
+      "dims": "56x27", "visibility": "hidden",
+      "cell_counts": {"formula": 30, "hardcode": 36, "label": 52, "blank": 1394},
+      "purpose": "Comparable lease data.",
+      "milestone_1_status": "Tier C / Milestone 3."
+    },
+    "Sales Comps": {
+      "dims": "56x21", "visibility": "hidden",
+      "cell_counts": {"formula": 31, "hardcode": 46, "label": 44, "blank": 1055},
+      "purpose": "Comparable sales.",
+      "milestone_1_status": "Tier C / Milestone 3."
+    },
+    "CMBS Comps": {
+      "dims": "57x21", "visibility": "hidden",
+      "cell_counts": {"formula": 31, "hardcode": 48, "label": 44, "blank": 1074},
+      "purpose": "Comparable CMBS loans.",
+      "milestone_1_status": "Tier C / Milestone 3."
+    },
+    "Addendum": {
+      "dims": "99x10", "visibility": "hidden",
+      "cell_counts": {"formula": 0, "hardcode": 0, "label": 18, "blank": 972},
+      "purpose": "Empty addendum.",
+      "milestone_1_status": "Tier C — manual."
+    },
+    "Detailed Rollover": {
+      "dims": "110x14", "visibility": "hidden",
+      "cell_counts": {"formula": 1318, "hardcode": 0, "label": 32, "blank": 190},
+      "purpose": "Detailed rollover analysis — formula-driven.",
+      "milestone_1_status": "Pure formula sheet. Auto-derives."
+    },
+    "Amortization Schedule": {
+      "dims": "361x10", "visibility": "hidden",
+      "cell_counts": {"formula": 3599, "hardcode": 0, "label": 11, "blank": 0},
+      "purpose": "Loan amortization schedule — formula-driven.",
+      "milestone_1_status": "Pure formula sheet. Auto-derives."
+    },
+    "Controls": {
+      "dims": "54x5", "visibility": "hidden",
+      "cell_counts": {"formula": 64, "hardcode": 72, "label": 33, "blank": 56},
+      "purpose": "Template control / configuration.",
+      "milestone_1_status": "Template machinery — leave alone."
+    }
+  },
+  "next_steps_for_cc_integration_v3": {
+    "1_milestone_1_scope_recheck": "Given ~65% of Tier A cells are MISSING_FROM_CODEBASE, decide whether (a) reduce Milestone 1 to the ~35 cells that ARE mappable + everything else red-highlighted Tier C, OR (b) expand pre-Milestone-1 extraction to fill the biggest gaps (loan structural terms, sources & uses, multi-period historicals). Recommend (a).",
+    "2_projector_service_v3_input_shape": "If proceeding with Milestone 1: build a projector service with signature roughly: projectCellWrites({propertyMetadata, uwModel, uwModelFromAsr, extractionResultLegacy, rentRoll, analysisAssetType, dealControlNumber?}): CellWrite[]. All inputs available in legacy POST today.",
+    "3_template_writer_unchanged": "The existing populateTemplate machinery (template-engine.service.ts:894) already handles workbook open + cell write + style application + formula preservation. Replace its label-scanner with the new registry-driven projector output.",
+    "4_unit_conversions_to_handle": "(a) UnderwritingModel.interestRate is percent → divide by 100 for D18 Coupon. (b) PropertyMetadata.occupancyPhysical is fraction 0..1 — confirm template H6/H7 cell format; multiply by 100 if cell expects percent.",
+    "5_NAP_convention_implementation": "Populator must dispatch by Analysis.assetType to write 'NAP' for cross-asset-class non-applicable cells (C13/C14 in Property Detail - Comm). Centralize the dispatch in a single helper.",
+    "6_open_questions_for_user": [
+      "Should M2 Cover Page Deal Title be reclassified to FORMULA (don't write; let template's M2 formula derive from H2)?",
+      "Should the populator copy D13 Original Balance → D12 Current Balance as a default for new originations (with a flag), or leave D12 Tier C?",
+      "For Property Detail - Comm cells that are NAP-by-asset-class (clear height for office, outparcels for office), should the populator write 'NAP' explicitly or leave blank?",
+      "Should the populator's gap report (per-deal) surface to the underwriter at the top of the populated workbook so they know which red-highlighted cells need manual entry?"
+    ]
+  }
+}
