@@ -16,7 +16,7 @@ export const JUDGMENT_ENGINE_VERSION = '1.0' as const;
 export const STRESS_ENGINE_VERSION = '1.0' as const;
 export const VALUATION_ENGINE_VERSION = '1.0' as const;
 export const RENDER_CONTRACT_VERSION = '1.0' as const;
-export const EXTRACTION_ENGINE_VERSION = '1.1' as const;
+export const EXTRACTION_ENGINE_VERSION = '1.2' as const;
 export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
 /**
  * Handbook-engine semantic version. Stamped onto every HandbookEvaluation record

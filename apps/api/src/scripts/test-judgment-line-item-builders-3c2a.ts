@@ -69,7 +69,7 @@ function makeExtraction(o: Partial<ExtractionResult> = {}): ExtractionResult {
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.1',
+    extractionEngineVersion: '1.2',
     dealRef: 'TEST', rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],

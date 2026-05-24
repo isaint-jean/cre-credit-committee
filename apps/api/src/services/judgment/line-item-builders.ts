@@ -138,7 +138,7 @@ export function buildVacancyPct(args: {
     libraryFloorReason: `vacancy raised to library median (${libraryMedian})`,
     bankFloor,
     bankFloorRuleId: 'JE_VACANCY_RAISED_TO_BANK',
-    bankFloorReason: `vacancy raised to bank UW vacancy (${bankFloor})`,
+    bankFloorReason: `vacancy raised to bank UW vacancy (${bankFloor}) — bank-floor activation introduced by D.3 (sellerUw triplet back-fill)`,
   });
 }
 

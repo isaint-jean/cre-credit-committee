@@ -71,7 +71,9 @@ import type {
   ExtractionResultId,
   ISODateTime,
   LoanTermsExtraction,
+  OperatingStatementExtraction,
   PropertyMetadata,
+  SellerUWExtraction,
   SourceDocumentRef,
 } from '@cre/contracts';
 import { EXTRACTION_ENGINE_VERSION } from '@cre/contracts';
@@ -198,6 +200,68 @@ function toSlotReport<T>(outcome: ExtractorOutcome<T> | null): SlotReport {
   };
 }
 
+/* ----------------------- sellerUw triplet derivation ---------------------- */
+
+/**
+ * Version stamp for the sellerUw triplet derivation. Not an adapter version
+ * (adapters extract from source documents); this derivation reads from an
+ * already-extracted sub-record (`sellerUwOperatingStatement`) and projects
+ * the summary triplet shape the judgment source-cascade expects. The version
+ * key participates in extractorVersions stamping under the 'sellerUw' map key
+ * per the convention documented in the extractorVersions block below.
+ */
+const SELLER_UW_DERIVE_VERSION = 'derive-v1';
+
+/**
+ * Back-fill `SellerUWExtraction` (the 3-field summary triplet consumed by the
+ * judgment source-cascade) from `sellerUwOperatingStatement` (the full
+ * operating-statement projection of the seller's UW column, produced by the
+ * CF adapter today).
+ *
+ * Two fields are derivable from this source:
+ *   - underwrittenNOI:      direct passthrough of `sellerUwOperatingStatement.noi`.
+ *   - underwrittenVacancy:  `|vacancyLoss| / grossPotentialRent`, clamped to [0, 1].
+ * The third field — `underwrittenRentGrowth` — is intentionally left null;
+ * it requires prior-period data that this source doesn't carry. The judgment
+ * engine's `buildRentGrowthPct` falls through to the conservative default
+ * (3% via JE_RENT_GROWTH_DEFAULTED) when the field is null, so leaving it
+ * null is the established behavior for this case.
+ *
+ * Sign convention note (D.3 scoping recon, see SellerUWExtraction ghost-
+ * contract finding): the seller CF expresses vacancy as a NEGATIVE dollar
+ * amount in some CMBS-style workbooks (e.g., Sunroad CF row 23 = -$455k).
+ * `Math.abs(vacancyLoss)` normalizes the sign so the derived vacancy
+ * fraction is always non-negative. The `Math.min(1, ...)` guards data-
+ * error cases where the loss exceeds gross potential rent (shouldn't
+ * happen on real CFs, but cheap to defend).
+ *
+ * Returns null when the input is null OR when both derivable fields would
+ * be null (so an all-null triplet doesn't get persisted — same all-null →
+ * null discipline as parsePropertyMetadataAiResponse and parseAsrAiResponse).
+ */
+function deriveSellerUwTriplet(
+  sellerUwOperatingStatement: OperatingStatementExtraction | null,
+): SellerUWExtraction | null {
+  if (sellerUwOperatingStatement === null) return null;
+
+  const noi = sellerUwOperatingStatement.noi;
+  const vacancyLoss = sellerUwOperatingStatement.vacancyLoss;
+  const gpr = sellerUwOperatingStatement.income.grossPotentialRent;
+
+  const underwrittenVacancy: number | null =
+    vacancyLoss !== null && gpr !== null && gpr > 0
+      ? Math.max(0, Math.min(1, Math.abs(vacancyLoss) / gpr))
+      : null;
+
+  if (noi === null && underwrittenVacancy === null) return null;
+
+  return {
+    underwrittenNOI: noi,
+    underwrittenRentGrowth: null,
+    underwrittenVacancy,
+  };
+}
+
 /* ------------------------------ composer ---------------------------------- */
 
 export async function buildExtractionResult(
@@ -281,8 +345,13 @@ export async function buildExtractionResult(
    *     via the route's form field (Ticket K), not extractor-produced.
    *     When a future extractLoanTerms adapter ships (analog to Ticket I's
    *     extractASR), it'll start emitting a 'loanTerms' key here.
-   *   - pca / appraisal / sellerUw similarly stay absent until their
-   *     producers land in later batches. */
+   *   - pca / appraisal similarly stay absent until their producers land
+   *     in later batches.
+   *   - sellerUw IS produced as of D.3 (extraction engine v1.2): a
+   *     derivation reads from sellerUwOperatingStatement (the CF adapter's
+   *     output) and projects the 3-field summary triplet. Its version is
+   *     SELLER_UW_DERIVE_VERSION, a 'derive-vN' string rather than a
+   *     semver — see deriveSellerUwTriplet's JSDoc for the rationale. */
   const extractorVersions: Record<string, string> = {};
   if (cfOutcome !== null && cfOutcome.status === 'ok') {
     if (t12 !== null) {
@@ -303,9 +372,20 @@ export async function buildExtractionResult(
     extractorVersions.asr = asrOutcome.adapterVersion;
   }
 
+  /* D.3 (extraction engine v1.2): back-fill sellerUw from
+     sellerUwOperatingStatement. Returns null when the operating-statement
+     source is null OR when both derivable fields (NOI, vacancy) would be
+     null. See deriveSellerUwTriplet's JSDoc above for the derivation rule
+     + sign-convention rationale. Stamps 'sellerUw' in extractorVersions
+     iff non-null (mirrors the per-extractor convention). */
+  const sellerUw = deriveSellerUwTriplet(sellerUwOperatingStatement);
+  if (sellerUw !== null) {
+    extractorVersions.sellerUw = SELLER_UW_DERIVE_VERSION;
+  }
+
   /* Build the body (everything except id). Fields with no producer in the
-     current spine stay null — pca, appraisal, sellerUw (summary triplet).
-     Their producers land in later batches. */
+     current spine stay null — pca, appraisal. Their producers land in
+     later batches. sellerUw IS produced as of v1.2 (see derivation above). */
   const body = {
     analysisAsOfDate: args.analysisAsOfDate,
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
@@ -314,7 +394,7 @@ export async function buildExtractionResult(
     t12,
     pca: null,
     appraisal: null,
-    sellerUw: null,
+    sellerUw,
     sellerUwOperatingStatement,
     asr,
     loanTerms,
