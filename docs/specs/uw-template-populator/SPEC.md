@@ -22,7 +22,8 @@
 - **v3 — 2026-05-25.** Added Tier B judgment workstream stub (now §10) and analysis page upgrade stub (now §11). Reframed the v2 X/Y/Z/D taxonomy as explicitly Tier A-scoped — it was implicitly already, but not stated (see §2.5 for the scope note; §8 cross-reference table updated to note Tier A scope). No Tier A reclassifications.
 - **v4 — 2026-05-26.** Piece 3 recon completed. Bucket 4 PROVISIONAL CONFIRMED as Type Y appraisal, with ghost-contract finding: `AppraisalExtraction` exists at `packages/contracts/src/extraction.ts:108-114` with 3 fields but has no producer today (always null in production), so a future appraisal-extractor workstream builds from zero. Bucket 5 PROVISIONAL PARTIALLY REVISED — split across Type Z `external_cmbs_database_integration` (3 cells: C18 composite, C19, D19), Type Z `product_decision_on_required_uploads` (1 cell: E18 — static historical number, needs prior-loan-doc upload, not external database), and Mapped partial (C18 deal-code portion already extracted today by `extractComparablesLinkageRefs`; see §3.4). The previous §9 PROVISIONAL section is REMOVED; subsequent sections renumbered (§10 Next steps → §9; §11 Tier B stub → §10; §12 Analysis page stub → §11). Added an extractor-surface-sweep candidate to Next steps (now §9 item 5) based on the recon meta-finding: "extractor exists but narrowly applied / unfilled" surfaced three times across the three recon cycles.
 - **v5 — 2026-05-30.** D.3 SellerUW triplet back-fill shipped as the first implementation ticket (commit `83328b4` on main). Added `derive` as a third Type X sub-flag for derivations from existing extractor output into separate empty target sub-records — D.3 retroactively classified under it. New §3.5 documents the SellerUW triplet under Mapped cells. New §4.4 reserves the `derive` sub-flag (currently 0 open candidates). §9 item 2 marked COMPLETED with D.3 details; §9 item 7 adds [#42](https://github.com/isaint-jean/cre-credit-committee/issues/42) (T-12 vacancy cascade sign-convention bug) as a carried-forward architectural question. §8 footnote notes D.3 sits outside the original six-bucket cross-reference. New §10 Behavior change log documents the bank-floor activation and EXTRACTION_ENGINE_VERSION bump as production-behavior changes; §10 Tier B stub renumbered to §11 and §11 Analysis page stub renumbered to §12.
-- **v6 — 2026-05-31 (this revision).** Tier B coverage-gap recon completed (Piece 6 in the session sequence; Pieces 1-3 were Tier A bucket recons, Piece 4 was the extractor surface sweep, Piece 5 was the D.3 scoping recon). §11 Tier B promoted from stub to workstream section with cell inventory + gap-pattern analysis: §11.1 coverage table (32 rows mapping every Tier B cell against existing builder infrastructure), §11.2 five gap-pattern categories (surface mismatch / PCA ghost-gated / contract gap / mechanical-or-text-gen / new territory), §11.3 Tier-B-on-Tier-B dependency analysis (cells aren't order-independent the way Tier A line-item-builders are), §11.4 next-step sequencing pointers cross-referenced against §9 candidates. The §11 stub content (Definition / Status / Why it matters / Quality dependency) preserved as the §11.0 preamble with Status + Next step updated to past tense. §9 item 3 updated from "stub" to "recon completed"; §9 item 5 cross-referenced to §11.2 Cat 2 + Cat 3; §9 item 7 gains a new architectural-question bullet about Tier-B-on-Tier-B ordering. Stress Scenario + 10-Yr Pro Forma cells that v3 registry didn't enumerate noted in §11.1 as a documentation gap.
+- **v6 — 2026-05-31.** Tier B coverage-gap recon completed (Piece 6 in the session sequence; Pieces 1-3 were Tier A bucket recons, Piece 4 was the extractor surface sweep, Piece 5 was the D.3 scoping recon). §11 Tier B promoted from stub to workstream section with cell inventory + gap-pattern analysis: §11.1 coverage table (32 rows mapping every Tier B cell against existing builder infrastructure), §11.2 five gap-pattern categories (surface mismatch / PCA ghost-gated / contract gap / mechanical-or-text-gen / new territory), §11.3 Tier-B-on-Tier-B dependency analysis (cells aren't order-independent the way Tier A line-item-builders are), §11.4 next-step sequencing pointers cross-referenced against §9 candidates. The §11 stub content (Definition / Status / Why it matters / Quality dependency) preserved as the §11.0 preamble with Status + Next step updated to past tense. §9 item 3 updated from "stub" to "recon completed"; §9 item 5 cross-referenced to §11.2 Cat 2 + Cat 3; §9 item 7 gains a new architectural-question bullet about Tier-B-on-Tier-B ordering. Stress Scenario + 10-Yr Pro Forma cells that v3 registry didn't enumerate noted in §11.1 as a documentation gap.
+- **v7 — 2026-05-31 (this revision).** C.2 OperatingStatementExtraction widening shipped (commit `c936008` on main) as the second implementation ticket after D.3. Promotes §11.2 Category 3 from "contract gap (needs widening)" to "(0 OPEN cells; 2 closed in `c936008`)" — L15 Reimbursements and L22 G&A now have contract fields + builders, though populator wiring still gated on [#41](https://github.com/isaint-jean/cre-credit-committee/issues/41). §11.1 coverage table rows for L15 and L22 updated. Three new §10 Behavior change log entries: §10.3 totalOpEx Path B correction (correctness improvement, not behavior change); §10.4 `JUDGMENT_ENGINE_VERSION` 1.1 + manifest workflow; §10.5 three new `JE_*_DEFAULTED` rules activated. §9 item 2 marks C.2 as the second completed implementation ticket; §9 item 7 gains a new bullet for [#43](https://github.com/isaint-jean/cre-credit-committee/issues/43) (P-IV-RET-6 cumulative-cash-flow check dormant — 3/4 inputs still undefined). New §13 Process learnings section (4 subsections) captures meta-insights from C.2 implementation: empirical-verification discipline catches real bugs; judgment-engine manifest workflow as load-bearing invariant; test-sweep scope includes downstream consumers; "small D.3-shape" framings have predictably under-estimated scope.
 
 ---
 
@@ -312,7 +313,9 @@ Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v
 ## 9. Next steps
 
 1. **Piece 3 recon — COMPLETED 2026-05-26.** Confirmed Bucket 4 as Type Y appraisal (with `AppraisalExtraction` ghost-contract finding — see §5.2). Partially revised Bucket 5: split across Type Z external_cmbs (C18 composite, C19, D19; see §6.2), Type Z product_decision (E18; see §6.1), and Mapped partial (C18 deal-code via `extractComparablesLinkageRefs`; see §3.4). The prior §9 PROVISIONAL section was removed in v4; subsequent sections renumbered.
-2. **First implementation ticket — COMPLETED `83328b4` (2026-05-29).** D.3 SellerUW triplet back-fill shipped as the first implementation ticket after four sessions of recon (Pieces 1-4 + Piece 5 scoping). New `deriveSellerUwTriplet` helper + composer wire-up + `EXTRACTION_ENGINE_VERSION` bump (1.1 → 1.2) + 5 fixture updates + bank-floor reason text addition. Production-behavior changes documented in §10 Behavior change log. The first-implementation-ticket gate is now open for the next candidate from the list below.
+2. **First implementation ticket — COMPLETED `83328b4` (2026-05-29).** D.3 SellerUW triplet back-fill shipped as the first implementation ticket after four sessions of recon (Pieces 1-4 + Piece 5 scoping). New `deriveSellerUwTriplet` helper + composer wire-up + `EXTRACTION_ENGINE_VERSION` bump (1.1 → 1.2) + 5 fixture updates + bank-floor reason text addition. Production-behavior changes documented in §10 Behavior change log.
+
+   **Second implementation ticket — COMPLETED `c936008` (2026-05-31).** C.2 OperatingStatementExtraction widening shipped Phase 1+2 in one ticket per the scope decisions made jointly during morning session (see §13 for process notes on the multi-phase decision). 6 new contract fields + 6 new builders + `EXTRACTION_ENGINE_VERSION` bump (1.2 → 1.3) + `JUDGMENT_ENGINE_VERSION` bump (1.0 → 1.1) + `JUDGMENT_ENGINE_MANIFEST` append + 39 fixture updates + [#43](https://github.com/isaint-jean/cre-credit-committee/issues/43) cross-reference. Production-behavior changes documented in §10 Behavior change log §§10.3-10.5. The implementation-ticket gate from v5 remains open for the next candidate from the list below.
 3. **Tier B workstream — coverage-gap recon COMPLETED 2026-05-31.** See §11 for the full inventory + gap-pattern analysis. The §9 candidates intersect with Tier B work; see §11.4 for suggested sequencing. The workstream design is no longer a blocking task — the gap patterns provide the design.
 4. **Analysis page upgrade scoping session:** Scope the rebuild of the legacy analysis page (red-flag detection, internet research, credit scoring), including its dependency on Tier B shipping criteria from §11. See §12 for the stub.
 5. **Extractor surface sweep:** A targeted sweep of all current extractors (legacy POST extraction services, AI-tier extractors, regex-based extractors) to surface other "extractor exists but narrowly applied / unfilled" patterns. Three instances surfaced across the three recon cycles: `uw-intelligence.service.ts` repoint candidate for loan structural terms, `AppraisalExtraction` ghost contract, `extractComparablesLinkageRefs` narrow regex output. A single sweep would either find 2-3 more Type X recovery candidates or confirm none exist; either way it makes first-ticket selection sharper. Not auto-scheduled; treat as a peer candidate to the other four next steps. **Cross-reference (v6):** the Piece 4 sweep's D.2 PCAExtraction ghost-contract finding maps to Tier B Category 2 in §11.2 (5 cells gated on PCA producer); its C.2 OperatingStatementExtraction narrow-output finding maps to Tier B Category 3 in §11.2 (3 cells gated on contract widening).
@@ -327,6 +330,7 @@ Mapping the old concept-bucket framing to the new taxonomy. Anyone holding the v
    - The Type X / Type D choice for H12 Ground Lease.
    - **T-12 vacancy cascade sign-convention bug** ([#42](https://github.com/isaint-jean/cre-credit-committee/issues/42), filed during D.3 implementation). The cascade at `source-cascade.ts:55-72` has the same naive `vl/gpr` derivation D.3 handled locally; #42 carries the architectural-question discussion of retroactive vs version-gated fix, `JUDGMENT_ENGINE_VERSION` rotation, and cascade-side vs contract-side fix. Not blocked on anything specific; deferred from D.3's scope per the scope decisions in that brief.
    - **Tier-B-on-Tier-B dependency ordering** (§11.3). I9 Concluded Cap Rate depends on NOI which depends on col L UW values; this is a structural difference from Tier A line-item-builders' order-independence. When Tier B implementation starts, the execution ordering needs deliberate design.
+   - **P-IV-RET-6 cumulative-cash-flow check dormant** ([#43](https://github.com/isaint-jean/cre-credit-committee/issues/43), filed during C.2 implementation). C.2 activated 1 of 4 inputs for P-IV-RET-6's deterministic check (`bag['reserves']` from `monthlyReplacementReserves × 12`). The remaining 3 inputs (`capex_projection`, `noi_projection`, `debt_service`) stay `INTENTIONALLY_UNDEFINED`. `debt_service` is derivable today from existing `AdjustedInputs.loan`; `noi_projection` needs extraction; `capex_projection` needs contract-design decision (per-period schedule vs. synthesized array). Activation-risk consideration: P-IV-RET-6 has been silently dormant since handbook engine shipped — full activation may surface previously-invisible Mall scoring deltas.
 
 ---
 
@@ -343,6 +347,24 @@ The cascade design clearly anticipated this floor's activation; D.3 delivers the
 ### 10.2 D.3 — EXTRACTION_ENGINE_VERSION bump (`83328b4`, 2026-05-29)
 
 `EXTRACTION_ENGINE_VERSION` bumped from `'1.1'` to `'1.2'`. All newly-built ExtractionResults post-bump have different content-hash ids than pre-bump records for the same source documents. Previously-persisted ExtractionResults retain their pre-bump ids unchanged (they're never rehashed on read). Treat pre-1.2 and post-1.2 extraction outputs as different id spaces.
+
+### 10.3 C.2 — totalOpEx Path B correction (`c936008`, 2026-05-31)
+
+The `buildTotalOperatingExpenses` Path B sub-line sum extended from 5 fields to 7: now sums `[taxes, insurance, utilities, repairsMaintenance, managementFees, generalAndAdmin, janitorial]`. **This is a correctness improvement, not a behavior change.** The previous derivation was under-counting Path B totalOpEx on every deal where G&A or janitorial was populated, because the contract didn't carry those fields. Empirical Sunroad-CF verification: previous Path B sum $2,769,459; corrected sum $3,455,762, exactly matching the source's row 36 "Total Expenses" line.
+
+Reimbursements EXCLUDED from totalOpEx per CMBS source-CF convention: reimbursements is revenue-side (added to EGR upstream of OpEx), not an expense offset. The working assumption during scope-decision walkthrough that reimbursements should subtract from totalOpEx was empirically wrong; the seller's `totalIncome` (= EGR) already includes reimbursements, so OpEx-side subtraction would double-count. `AdjustedExpenses.reimbursements` remains populated for audit-trail and doctrine visibility but does not feed totalOpEx or NOI math.
+
+### 10.4 C.2 — JUDGMENT_ENGINE_VERSION 1.1 + manifest workflow (`c936008`, 2026-05-31)
+
+`JUDGMENT_ENGINE_VERSION` bumped from `'1.0'` to `'1.1'`. `JudgmentEngineVersion` type alias widened to `'1.0' | '1.1'` to satisfy the append-only manifest convention. New manifest entry appended: `'1.1': '8b1289e7c3f07dfa8a78afbec3d80507f9c2d2fe65129acdd6c81242d3e06f67'`. Boot check (`check:judgment-engine`) verifies the hash on api startup.
+
+Discovered architectural invariant: the judgment engine has a rule-registry hash-drift detector. Any rule-registry change MUST be paired with `JUDGMENT_ENGINE_VERSION` bump + manifest entry. Pre-C.2, the brief didn't know about this workflow; CC surfaced it mid-implementation when `check:judgment-engine` failed after adding 3 new rule IDs. See §13 Process learnings for the codification.
+
+### 10.5 C.2 — Three new JE_*_DEFAULTED rules activated (`c936008`, 2026-05-31)
+
+Three new judgment-engine rule IDs registered in `packages/contracts/src/judgment-engine-rules.ts`: `JE_REPLACEMENT_RESERVES_DEFAULTED`, `JE_TENANT_IMPROVEMENTS_DEFAULTED`, `JE_LEASING_COMMISSIONS_DEFAULTED`. Each fires when a seller CF lacks the corresponding below-NOI line, defaulting to 0 monthly per the Pattern-3 convention (T-12 + MANUAL default + `JE_<FIELD>_DEFAULTED`).
+
+These rule emissions are now visible in `AdjustedInputs.capitalReserves.*.adjustments` for every deal whose seller CF lacks a below-NOI replacement reserves / tenant improvements / leasing commissions line. On Sunroad these don't fire (the lines are present); on deals where they ARE present but a different upstream field is missing, the emissions surface the absence to doctrine. Pattern matches the existing `JE_OTHER_INCOME_DEFAULTED` / `JE_RENT_GROWTH_DEFAULTED` / `JE_EXPENSE_GROWTH_DEFAULTED` conventions.
 
 ---
 
@@ -375,8 +397,8 @@ The Tier B cells in the registry, mapped against existing builder infrastructure
 | E54 | Conclusions & Escrows | General TI/LC — Up Front Deposit | Partial | `buildUpfrontTiLc` (line 590) | applicability flag, MANUAL default 0 | No | P-III-3, P-IV-OFF-3 | Builder emits MANUAL default 0 unless applicability=true. Sunroad = $6.17M; dollar requires judgment current builder can't produce. |
 | L9 | Operating History | Potential Gross Rental Income (UW year-1) | Yes — different surface | `buildGrossRentalIncome` (line 193) | Pattern 3 (T-12 → rentRoll annualized) | No (populator wires from `pipeline.uwModelFromSeller`) | P-III-2, P-II-2 | **Surface mismatch.** Builder produces judgment-anchored value; populator instead writes the seller's UW from CF extraction. v3 §3.2 notes the underwriter is expected to revise. |
 | L14 | Operating History | Other Income (UW year-1) | Yes — different surface | `buildOtherIncome` (line 234) | Pattern 3 + MANUAL default 0 | No (uwModelFromSeller) | P-III-1, P-III-2 | Surface mismatch (same as L9). |
-| L15 | Operating History | Expense Reimbursements (UW year-1) | No | NONE | N/A | No (uwModelFromSeller) | P-III-2 | Reimbursements not in `AdjustedInputs` (legacy + contract both omit). Piece 4 C.2: OperatingStatementExtraction drops reimbursements/bad-debt/G&A/janitorial/RR/TI/LC. |
-| L22 | Operating History | General and Administrative (UW year-1) | No | NONE | N/A | No (uwModelFromSeller) | P-III-2 | G&A not in `AdjustedInputs.expenses`. Same contract gap as L15. |
+| L15 | Operating History | Expense Reimbursements (UW year-1) | Yes | `buildReimbursements` | Pattern 3 (silent NAP) | No (uwModelFromSeller) | P-III-2 | Builder shipped in C.2 (`c936008`); populator-side wiring deferred. Per the source-CF convention discovered during C.2, reimbursements is revenue-side (added to EGR upstream of OpEx) — see §10.3 for the totalOpEx-exclusion rationale. |
+| L22 | Operating History | General and Administrative (UW year-1) | Yes | `buildGeneralAndAdmin` | Pattern 3 (silent NAP) | No (uwModelFromSeller) | P-III-2 | Builder shipped in C.2 (`c936008`); populator-side wiring deferred. |
 | L24 | Operating History | Repairs and Maintenance (UW year-1) | Yes — different surface | `buildMaintenance` (line 441) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. |
 | L25 | Operating History | Utilities (UW year-1) | Yes — different surface | `buildUtilities` (line 435) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. |
 | L30 | Operating History | Management Fee (UW year-1) | Yes — different surface | `buildManagementFee` (line 438) | Pattern 3 default 0 | No (uwModelFromSeller) | P-III-2 | Surface mismatch. Has paired Q30 growth-rate parameter. |
@@ -412,10 +434,10 @@ Cells: L9, L14, L24, L25, L30, L31, L32, L38 (partial).
 **Category 2 — PCAExtraction ghost-contract gated (5 cells).** Builders exist (`buildUpfrontCapex`, `buildMonthlyCapex`, `buildPcaImmediateRepairs`) but read from `PCAExtraction` which is always null in production (Piece 4 sweep finding D.2). Cannot recover via wiring alone; needs PCA producer to ship first. PCA producer would also unlock Bucket 6 cell C14 (Clear Height, industrial-specific).
 Cells: E49, G49, G51, L38 (full), E35-M35.
 
-**Category 3 — Contract gap (2 cells).** No builder exists because the contract doesn't carry the field. Per Piece 4 C.2 finding, `OperatingStatementExtraction` drops reimbursements, bad debt, G&A, janitorial, replacement reserves, TI, LC. Same shape as PCA — contract widening required before any builder can ship.
-Cells: L15 (Reimbursements), L22 (G&A).
+**Category 3 — Contract gap (0 OPEN cells; 2 closed in `c936008`).** Per Piece 4 C.2 finding, `OperatingStatementExtraction` was widened to add G&A, janitorial, reimbursements (expenses) and replacementReserves / tenantImprovements / leasingCommissions (belowNoiAdjustments). L15 Reimbursements and L22 G&A now have contract fields and builders (`buildReimbursements`, `buildGeneralAndAdmin`). Populator wiring (the actual L15/L22 cell-fill step) remains gated on [#41](https://github.com/isaint-jean/cre-credit-committee/issues/41) — what shipped in C.2 is contract slots + judgment-engine builders, not template population.
+Cells: L15 (Reimbursements) — CLOSED in `c936008`; L22 (G&A) — CLOSED in `c936008`.
 
-Note: the Piece 4 C.2 contract gap also drops bad-debt extraction; no Tier B cell currently exists for bad debt, but if the contract is widened to capture it, future template revisions could add one.
+Note: the original Piece 4 C.2 finding identified bad-debt as a contract gap as well, but bad-debt was DROPPED from C.2 scope during scope-decision walkthrough. No Tier B cell currently exists for bad debt; if the contract is widened in a future ticket, template revisions could add one.
 
 **Category 4 — Mechanical or text-generation (10 cells).** Not builder-shaped work. E47/E48 are formulaic reserve calculations (months-of-tax/insurance); E49 partially is a $1/SF formula (registry note); R-column notes are LLM-generated free-text explanations; C4/D4/E4 are scenario identifiers, not parameters to tune.
 Cells: E47, E48, E49 (partial — the mechanical portion), R14, R22, R24, R25, R31, R32, R38, C4, D4, E4.
@@ -464,6 +486,69 @@ Note: this sequencing is a recommendation, not a commitment. The §9 next-step c
 **Sequencing implication.** Framing the analysis page as a "follow-on" to the populator creates a risk that the populator ships in a state where Tier B values are visible only in the workbook with no reasoning surface. Parallel-track development is the sequencing this spec recommends, with the understanding that this is a **roadmap statement, not a resource commitment** — the user is the only person driving this work and the parallel-track recommendation is open to revision in a later session.
 
 **Next step.** Dedicated session to scope the analysis page rebuild. Not scoped here.
+
+---
+
+## 13. Process learnings
+
+Captures meta-insights surfaced during implementation work. Not architectural decisions (those live in earlier sections); not behavior changes (those live in §10). These are observations about the discipline of doing the work in this codebase — patterns that improve future scoping and execution.
+
+### 13.1 Empirical-verification discipline catches real bugs (D.3 + C.2)
+
+Both implementation tickets to date have surfaced bugs via empirical verification against the Sunroad fixture during implementation, not via chat-side framing or contract reasoning.
+
+D.3 (commit `83328b4`): the bank-floor wake-up was anticipated, but the `vacancyLoss` negative-sign convention was discovered only by looking at the actual Sunroad UW column.
+
+C.2 (commit `c936008`): two corrections.
+- The reimbursements regex initially matched a section header row ("Commercial Reimbursement Revenue", value=null) before the actual total row. Tightened to require `^total\s+` prefix only after CC ran the patterns against the Sunroad UW column and found the first-match-wins bug.
+- The totalOpEx derivation working assumption (reimbursements should subtract from totalOpEx) was empirically wrong. The source-CF convention is revenue-side: reimbursements is added to EGR upstream, not netted against OpEx. CC discovered this only by reading the Sunroad CF's actual NOI math: row 36 Total Expenses = $3.46M EXCLUDES reimbursements; row 24 EGR = $13.6M INCLUDES them; row 37 NOI = EGR − Total Expenses.
+
+**Practical implication.** Implementation steps that touch extraction patterns or derivations should include an explicit empirical-verification sub-step that runs the new code against the canonical Sunroad fixture before declaring the step complete. This is cheap (a few lines of targeted grep/node script) and has now prevented bugs on both ships.
+
+### 13.2 Judgment-engine manifest workflow as load-bearing invariant
+
+The judgment engine enforces rule-registry hash-drift detection via `check:judgment-engine` boot check. Any rule-registry change requires:
+
+1. Bump `JUDGMENT_ENGINE_VERSION` constant in `packages/contracts/src/versioning.ts`.
+2. Widen `JudgmentEngineVersion` type alias (append-only union expansion).
+3. Run `npm run judgment-engine:print-hash` to capture the new state hash.
+4. Append (do not edit) a new entry in `JUDGMENT_ENGINE_MANIFEST`.
+5. Verify with `npm run check:judgment-engine`.
+
+The C.2 scoping recon did not know about this workflow; CC discovered it mid-Step-4 when the boot check failed after registering 3 new rule IDs. The brief had specified "investigate whether `JUDGMENT_ENGINE_VERSION` should bump" as a Step 5 decision; the actual workflow made it mandatory, not optional.
+
+**Practical implication.** Future tickets touching judgment-engine state should include an explicit verification sub-step: `npm run check:judgment-engine` after any change to the rule registry or related state. The manifest workflow above should be in any implementation brief that anticipates rule-registry changes.
+
+### 13.3 Test-sweep scope includes downstream consumers
+
+Tickets touching judgment-engine state affect not just judgment-* test suites but also doctrine-*, valuation-*, and ingest-* suites that consume `JudgmentEngineVersion` or judgment-output shapes. The C.2 ticket's Step 5 test sweep was scoped to "the full judgment test suite" which CC reasonably read as judgment-* files; this left 6 doctrine and valuation fixture sites invisible until Step 6's wider grep surfaced them.
+
+**Practical implication.** Test-sweep instructions in implementation briefs should explicitly enumerate the suite scope. For judgment-engine work: judgment-* + doctrine-* + valuation-* + ingest-* + handbook-evaluation-route. For extraction work: extraction-* + ingest-* + extract-cash-flow + build-extraction-result. For contract-widening work: anywhere with inline literals of the affected contract — this is the largest sweep.
+
+### 13.4 "Small D.3-shape" framing has predictably under-estimated scope
+
+Both D.3 and C.2 were framed at session-start as "small ticket" with the implicit comparison to a hypothetical D.3-scale unit. Both grew substantially during scoping and implementation:
+
+D.3 (framed: back-fill triplet from existing record):
+- Bank-floor activation as production behavior change
+- Sign-convention handling for negative `vacancyLoss`
+- `EXTRACTION_ENGINE_VERSION` bump with 5 fixture updates
+- Actually shipped ~ days, not hours
+
+C.2 (framed: small D.3-shape contract widening):
+- Six scope decisions surfaced and resolved jointly
+- Two empirical corrections discovered mid-implementation
+- Judgment-engine manifest workflow discovered mid-implementation
+- Multi-phase decision (Phase 1+2 in one ticket vs. two)
+- 39 fixture updates (vs. predicted ~17-22)
+- Three new behavior-change log entries
+- Actually shipped ~ days, not hours
+
+**Observation.** Tickets that look "D.3-shape" from a scoping recon probably aren't. The codebase has accumulated complexity (judgment-engine manifest workflow, doctrine consumers of judgment-engine state, field-bag assembler invariants) that the surface-level scoping framing doesn't capture. This is not a problem with our recon-then-scope discipline — it's *because* of that discipline that we surface these complexities.
+
+**Practical implication.** Scoping briefs should anticipate scope growth via empirical discovery, and expect implementation to take substantially longer than the initial framing suggests. The "small ticket to maintain momentum" framing trades real value (cadence) for underestimated work; in this codebase, that trade is typically not worth the optimism.
+
+This is not actionable as a process rule; it's an honest expectation adjustment for the user and Claude alike. Expect tickets to be larger than they look. Plan accordingly.
 
 ---
 
