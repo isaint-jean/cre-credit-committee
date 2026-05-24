@@ -35,8 +35,10 @@ console.log('Registry shape:');
   // library normalization + 6 substitution + 1 concessions default + 2 terminal-cap split
   // + 3 degraded-state signals (6.2)
   // + 6 deferred-cleanup rules (6.2.1: rent-roll incomplete + composite range + 4 MANUAL defaults)
-  // = 32.
-  assertEqual(rules.length, 32, 'v1.0 registry has 32 rules');
+  // = 32 (v1.0).
+  // + 3 below-NOI projection defaults (C.2: replacement reserves, TI, LC)
+  // = 35 (v1.1).
+  assertEqual(rules.length, 35, 'v1.1 registry has 35 rules');
   for (const r of rules) {
     assert(r.startsWith('JE_'), `rule '${r}' uses JE_ prefix`);
   }

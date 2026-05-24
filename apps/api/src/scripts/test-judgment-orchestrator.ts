@@ -106,7 +106,9 @@ function makeFullExtraction(asOf: string = AS_OF): ExtractionResult {
       income: { grossPotentialRent: 1_200_000, effectiveRent: 1_140_000, otherIncome: 60_000, totalIncome: 1_200_000 },
       expenses: { taxes: 100_000, insurance: 18_000, utilities: 24_000,
                    repairsMaintenance: 36_000, managementFees: 40_000,
+                   generalAndAdmin: null, janitorial: null, reimbursements: null,
                    totalOperatingExpenses: 218_000 },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
     pca: {
       immediateRepairs: 50_000, nearTermRepairs: 150_000,
@@ -289,6 +291,9 @@ console.log('\nConservatism gate (direct invocation):');
       payroll: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       maintenance: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       other: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      generalAndAdmin: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      janitorial: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      reimbursements: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       totalOperatingExpenses: { raw: 200_000, adjusted: 200_000, source: 'BANK', adjustments: [] },
     },
     capitalReserves: {
@@ -296,6 +301,9 @@ console.log('\nConservatism gate (direct invocation):');
       upfrontTiLc: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       monthlyCapex: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       monthlyTiLc: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      monthlyReplacementReserves: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      monthlyTenantImprovements: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      monthlyLeasingCommissions: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       pcaImmediateRepairs: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
     },
     loan: {

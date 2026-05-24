@@ -69,7 +69,7 @@ function makeExtraction(o: Partial<ExtractionResult> = {}): ExtractionResult {
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.2',
+    extractionEngineVersion: '1.3',
     dealRef: 'TEST', rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
@@ -162,8 +162,10 @@ console.log('\nbuildTotalOperatingExpenses:');
       expenses: {
         taxes: 100_000, insurance: 18_000, utilities: 24_000,
         repairsMaintenance: 36_000, managementFees: 40_000,
+        generalAndAdmin: null, janitorial: null, reimbursements: null,
         totalOperatingExpenses: 218_000,
       },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const r = buildTotalOperatingExpenses({
@@ -209,8 +211,10 @@ console.log('\nbuildTotalOperatingExpenses:');
       expenses: {
         taxes: 100_000, insurance: 18_000, utilities: 24_000,
         repairsMaintenance: 36_000, managementFees: 40_000,
+        generalAndAdmin: null, janitorial: null, reimbursements: null,
         totalOperatingExpenses: null,        // partial T-12: sub-lines yes, total no
       },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const r = buildTotalOperatingExpenses({
@@ -229,7 +233,8 @@ console.log('\nbuildTotalOperatingExpenses:');
     t12: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: 1_000_000 },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: 200_000 },  // ratio 0.20
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: 200_000 },  // ratio 0.20
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const r = buildTotalOperatingExpenses({

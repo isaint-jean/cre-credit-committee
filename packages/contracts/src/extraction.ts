@@ -86,10 +86,23 @@ export interface OperatingStatementExtraction {
     readonly utilities: number | null;
     readonly repairsMaintenance: number | null;
     readonly managementFees: number | null;
+    readonly generalAndAdmin: number | null;
+    readonly janitorial: number | null;
+    readonly reimbursements: number | null;
     readonly totalOperatingExpenses: number | null;
   };
   readonly noi: number | null;
   readonly vacancyLoss: number | null;
+  /**
+   * Line items reported below the NOI line in the source cash flow statement.
+   * These are NCF adjustments, not operating expenses; per handbook P-III-3
+   * they must be deducted from NOI to arrive at realistic NCF.
+   */
+  readonly belowNoiAdjustments: {
+    readonly replacementReserves: number | null;
+    readonly tenantImprovements: number | null;
+    readonly leasingCommissions: number | null;
+  };
 }
 
 /* ------------------------------------ PCA ----------------------------------- */

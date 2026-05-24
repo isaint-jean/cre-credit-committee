@@ -17,10 +17,21 @@
  * (a) period-header row exposes both an In-Place column AND a UW column, and
  * (b) line-item label column has ≥ 3 recognizable labels below the header.
  *
- * Output shape: each snapshot is the contract's `OperatingStatementExtraction`.
- * Per option (1) in the cell-map gap discussion, line items NOT in that contract
- * (reimbursements, bad debt, G&A, janitorial, replacement reserves, TI, LC) are
- * dropped on the floor. Follow-up ticket tracks an option-2 contract extension.
+ * Output shape: each snapshot is the contract's `OperatingStatementExtraction`,
+ * which carries: gross potential rent, effective rent, other income, total income,
+ * taxes, insurance, utilities, repairs & maintenance, management fees, general &
+ * administrative, janitorial, reimbursements, total operating expenses, NOI,
+ * vacancy loss, and a belowNoiAdjustments sub-block (replacement reserves, tenant
+ * improvements, leasing commissions). Per handbook P-III-3 the below-NOI items
+ * are NCF adjustments rather than operating expenses, so they live in their own
+ * sub-block on the contract.
+ *
+ * Bad debt remains DROPPED from the contract. Empirically rare in CMBS-style CFs
+ * (Sunroad lumps it into "Commercial Adj. to Market Vacancy" which is captured as
+ * vacancyLoss); the only handbook principle governing it (P-IV-MF-9) is
+ * multifamily-conditional and runs in LLM_CONTEXT mode rather than deterministic;
+ * adding a badDebt pattern risks regex collision with the existing vacancyLoss
+ * pattern. Revisit if future fixtures show bad debt as reliably separable.
  */
 
 import ExcelJS from 'exceljs';
@@ -68,9 +79,15 @@ type LineItemKey =
   | 'utilities'
   | 'repairsMaintenance'
   | 'managementFees'
+  | 'generalAndAdmin'
+  | 'janitorial'
+  | 'reimbursements'
   | 'totalOperatingExpenses'
   | 'noi'
-  | 'vacancyLoss';
+  | 'vacancyLoss'
+  | 'replacementReserves'
+  | 'tenantImprovements'
+  | 'leasingCommissions';
 
 const LINE_PATTERNS: { readonly key: LineItemKey; readonly regex: RegExp }[] = [
   // NOI first — protects against "Net Operating" being shadowed by other "net" rows.
@@ -83,12 +100,25 @@ const LINE_PATTERNS: { readonly key: LineItemKey; readonly regex: RegExp }[] = [
   { key: 'grossPotentialRent',     regex: /^gross\s*potential\s*(?:commercial\s*)?(?:rental\s*revenue|rent\b)/i },
   // Other income (total).
   { key: 'otherIncome',            regex: /^total\s*other\s*(?:revenue|income)\b/i },
+  // Reimbursements — requires "total" prefix to match Sunroad's row 12
+  // ("Total Commercial Reimbursement Revenue") rather than the row 10
+  // section header ("Commercial Reimbursement Revenue", value=null) which
+  // findLineItems would otherwise match first. Same convention as the
+  // otherIncome pattern (which also requires `^total\s+`).
+  { key: 'reimbursements',         regex: /^total\s+(?:commercial\s+)?reimbursement\b/i },
   // Expense lines.
   { key: 'taxes',                  regex: /^real\s*estate\s*taxes|^property\s*taxes\b/i },
   { key: 'insurance',              regex: /^insurance\b/i },
   { key: 'utilities',              regex: /^utilities\b/i },
   { key: 'repairsMaintenance',     regex: /^repairs?\s*(?:&|and)\s*maintenance\b|^r\s*&\s*m\b/i },
   { key: 'managementFees',         regex: /^management\s*fees?\b/i },
+  // G&A — matches Sunroad's "General and Administrative - Direct" via \b after admin.
+  { key: 'generalAndAdmin',        regex: /^general\s*(?:and|&)\s*administrative\b|^g\s*&\s*a\b/i },
+  { key: 'janitorial',             regex: /^janitorial\b|^cleaning\b/i },
+  // Below-NOI items per handbook P-III-3 — replacement reserves, TI, LC.
+  { key: 'replacementReserves',    regex: /^replacement\s+reserves?\b/i },
+  { key: 'tenantImprovements',     regex: /^tenant\s+improvements?\b/i },
+  { key: 'leasingCommissions',     regex: /^leasing\s+commissions?\b/i },
 ];
 
 /* --------------------------------- helpers --------------------------------- */
@@ -267,10 +297,18 @@ function buildStatement(
       utilities:              at('utilities'),
       repairsMaintenance:     at('repairsMaintenance'),
       managementFees:         at('managementFees'),
+      generalAndAdmin:        at('generalAndAdmin'),
+      janitorial:             at('janitorial'),
+      reimbursements:         at('reimbursements'),
       totalOperatingExpenses: at('totalOperatingExpenses'),
     },
     noi:         at('noi'),
     vacancyLoss: at('vacancyLoss'),
+    belowNoiAdjustments: {
+      replacementReserves: at('replacementReserves'),
+      tenantImprovements:  at('tenantImprovements'),
+      leasingCommissions:  at('leasingCommissions'),
+    },
   };
 }
 

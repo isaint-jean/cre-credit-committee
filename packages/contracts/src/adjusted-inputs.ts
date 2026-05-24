@@ -72,6 +72,15 @@ export interface AdjustedExpenses {
   readonly payroll: AdjustedLineItem;
   readonly maintenance: AdjustedLineItem;
   readonly other: AdjustedLineItem;
+  readonly generalAndAdmin: AdjustedLineItem;
+  readonly janitorial: AdjustedLineItem;
+  /**
+   * Tenant expense recoveries (CAM, tax recoveries, etc.). Semantically a REVENUE
+   * offset to operating expenses, not an expense per se. Placed here to match the
+   * source cash flow statement layout; consumers that sum AdjustedExpenses fields
+   * for `totalOperatingExpenses` must SUBTRACT this field, not add it.
+   */
+  readonly reimbursements: AdjustedLineItem;
   readonly totalOperatingExpenses: AdjustedLineItem;
 }
 
@@ -79,7 +88,31 @@ export interface AdjustedCapitalReserves {
   readonly upfrontCapex: AdjustedLineItem;
   readonly upfrontTiLc: AdjustedLineItem;
   readonly monthlyCapex: AdjustedLineItem;
+  /**
+   * Sum of monthlyTenantImprovements + monthlyLeasingCommissions. Derived field
+   * — populated by the orchestrator after the two split projection builders run.
+   * Retained as a separate field for downstream API stability (doctrine's
+   * scoreTiLcSizing reads this directly); null-handling semantics for partial
+   * triplet (one split populated, one null) are specified in the orchestrator.
+   */
   readonly monthlyTiLc: AdjustedLineItem;
+  /**
+   * From OperatingStatementExtraction.belowNoiAdjustments.replacementReserves / 12.
+   * Distinct from monthlyCapex (which is PCA-sourced from immediateRepairs);
+   * these capture different reserve concepts and are additive, not redundant.
+   */
+  readonly monthlyReplacementReserves: AdjustedLineItem;
+  /**
+   * From OperatingStatementExtraction.belowNoiAdjustments.tenantImprovements / 12.
+   * Split from leasingCommissions to match source-CF layout; the combined
+   * monthlyTiLc above is derived from both.
+   */
+  readonly monthlyTenantImprovements: AdjustedLineItem;
+  /**
+   * From OperatingStatementExtraction.belowNoiAdjustments.leasingCommissions / 12.
+   * Split from tenantImprovements (see monthlyTenantImprovements).
+   */
+  readonly monthlyLeasingCommissions: AdjustedLineItem;
   readonly pcaImmediateRepairs: AdjustedLineItem;
 }
 

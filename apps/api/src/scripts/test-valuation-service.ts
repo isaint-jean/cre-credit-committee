@@ -63,7 +63,7 @@ function makeAdjustedInputs(opts: {
 } = {}): AdjustedInputs {
   const body = {
     analysisAsOfDate: AS_OF,
-    judgmentEngineVersion: '1.0' as const,
+    judgmentEngineVersion: '1.1' as const,
     librarySnapshotId: computeLibrarySnapshotId({ x: 1 }),
     income: {
       grossRentalIncome: lineItem(1_000_000), otherIncome: lineItem(0),
@@ -74,11 +74,14 @@ function makeAdjustedInputs(opts: {
       realEstateTaxes: lineItem(80_000), insurance: lineItem(15_000),
       utilities: lineItem(20_000), managementFee: lineItem(28_000),
       payroll: lineItem(0), maintenance: lineItem(30_000),
-      other: lineItem(0), totalOperatingExpenses: lineItem(173_000),
+      other: lineItem(0),
+      generalAndAdmin: lineItem(0), janitorial: lineItem(0), reimbursements: lineItem(0),
+      totalOperatingExpenses: lineItem(173_000),
     },
     capitalReserves: {
       upfrontCapex: lineItem(0), upfrontTiLc: lineItem(0),
       monthlyCapex: lineItem(0), monthlyTiLc: lineItem(0),
+      monthlyReplacementReserves: lineItem(0), monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
       pcaImmediateRepairs: lineItem(0),
     },
     loan: {

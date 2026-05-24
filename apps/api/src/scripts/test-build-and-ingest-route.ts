@@ -101,7 +101,7 @@ function makeExtractionResult(): ExtractionResult {
   return {
     id: EXT_ID,
     analysisAsOfDate: '2026-05-20T00:00:00Z' as ISODateTime,
-    extractionEngineVersion: '1.1.0' as never,
+    extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef: 'TEST',
     rentRoll: null,
     t12: null,

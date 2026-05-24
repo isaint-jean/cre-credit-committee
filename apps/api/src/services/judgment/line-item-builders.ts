@@ -441,6 +441,21 @@ export function buildManagementFee(args: { readonly extraction: ExtractionResult
 export function buildMaintenance(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
   return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.repairsMaintenance ?? null });
 }
+export function buildGeneralAndAdmin(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
+  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.generalAndAdmin ?? null });
+}
+export function buildJanitorial(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
+  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.janitorial ?? null });
+}
+/**
+ * Reimbursements — revenue offset to operating expenses (CAM/tax/insurance recoveries).
+ * Placed on AdjustedExpenses to mirror source-CF layout, but downstream consumers
+ * computing totalOperatingExpenses must SUBTRACT this field (it nets against the
+ * other expense fields). See AdjustedExpenses.reimbursements JSDoc for full semantics.
+ */
+export function buildReimbursements(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
+  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.reimbursements ?? null });
+}
 export function buildOtherExpenses(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
   // T-12 doesn't break out 'other' — return 0 unless explicitly tracked.
   return buildNotApplicableLineItem();
@@ -490,7 +505,19 @@ export function buildTotalOperatingExpenses(args: {
     source = 'T12_ACTUAL';
   } else if (t12 !== null) {
     const e = t12.expenses;
-    const subLines = [e.taxes, e.insurance, e.utilities, e.repairsMaintenance, e.managementFees];
+    // Sub-lines that comprise totalOpEx when the seller CF omits the explicit total row.
+    // generalAndAdmin and janitorial are real operating expenses (CMBS standard) and must
+    // contribute additively. reimbursements is EXCLUDED — per source-CF convention it is a
+    // revenue-side line (already netted into EGR upstream), not an offset to OpEx.
+    const subLines = [
+      e.taxes,
+      e.insurance,
+      e.utilities,
+      e.repairsMaintenance,
+      e.managementFees,
+      e.generalAndAdmin,
+      e.janitorial,
+    ];
     const presentValues = subLines.filter((v): v is number => v !== null);
     if (presentValues.length > 0) {
       raw = null;
@@ -612,8 +639,135 @@ export function buildMonthlyCapex(args: {
   };
 }
 
-export function buildMonthlyTiLc(args: { readonly applicable: boolean }): AdjustedLineItem {
-  return buildNotApplicableLineItem();
+/**
+ * Derived sum of monthlyTenantImprovements + monthlyLeasingCommissions.
+ * Pure projection — does not consult extraction directly.
+ *
+ * Semantics (the four cases):
+ *   - both splits T12_ACTUAL  → raw = TI.raw + LC.raw, source = T12_ACTUAL
+ *   - either split MANUAL     → raw = null,            source = MANUAL  (lowest-source dominates)
+ *
+ * In every case `adjusted = TI.adjusted + LC.adjusted` (each split's adjusted is always a finite
+ * number — either the extracted monthly rate or the 0 default). `adjustments` is empty on the
+ * derived field; the per-split JE_<FIELD>_DEFAULTED rules live on the splits where the defaulting
+ * happened (symmetric with monthlyCapex, which carries its own JE_MONTHLY_CAPEX_DEFAULTED without
+ * propagating to any downstream sum).
+ *
+ * Doctrine's scoreTiLcSizing reads this combined field; the API shape is preserved.
+ */
+export function deriveMonthlyTiLc(
+  monthlyTenantImprovements: AdjustedLineItem,
+  monthlyLeasingCommissions: AdjustedLineItem,
+): AdjustedLineItem {
+  const adjusted = monthlyTenantImprovements.adjusted + monthlyLeasingCommissions.adjusted;
+  const tiRaw = monthlyTenantImprovements.raw;
+  const lcRaw = monthlyLeasingCommissions.raw;
+  const raw = tiRaw !== null && lcRaw !== null ? tiRaw + lcRaw : null;
+  const bothExtracted =
+    monthlyTenantImprovements.source === 'T12_ACTUAL' &&
+    monthlyLeasingCommissions.source === 'T12_ACTUAL';
+  return {
+    raw,
+    adjusted,
+    source: bothExtracted ? 'T12_ACTUAL' : 'MANUAL',
+    adjustments: [],
+  };
+}
+
+/* ----------------------- below-NOI projection builders --------------------- */
+/**
+ * Three projection builders that read from OperatingStatementExtraction's
+ * belowNoiAdjustments sub-block (per handbook P-III-3: replacement reserves,
+ * tenant improvements, leasing commissions must be deducted from NOI to arrive
+ * at realistic NCF) and project into AdjustedCapitalReserves' monthly-rate fields.
+ *
+ * Unit conversion: source is annual dollars; output is monthly dollars (annual / 12).
+ * `raw` and `adjusted` both carry the monthly rate to preserve the
+ * AdjustmentEntry.delta = adjusted - raw invariant (diverging units would show
+ * the unit conversion as a misleading delta).
+ *
+ * Source-traceability for the annual figure lives in the extraction tier
+ * (extraction.t12.belowNoiAdjustments.X); AdjustedCapitalReserves is canonical
+ * monthly throughout.
+ *
+ * Null path: emits a JE_<FIELD>_DEFAULTED rule so doctrine can distinguish
+ * "reserve = 0 (extracted)" from "reserve = 0 (defaulted because seller CF
+ * didn't show the line)". Per P-III-3, absence of a reserve line is itself
+ * a credit-negative signal.
+ */
+export function buildMonthlyReplacementReserves(args: {
+  readonly extraction: ExtractionResult;
+}): AdjustedLineItem {
+  const annual = args.extraction.t12?.belowNoiAdjustments?.replacementReserves ?? null;
+  if (annual === null) {
+    return {
+      raw: null,
+      adjusted: 0,
+      source: 'MANUAL',
+      adjustments: [{
+        ruleId: 'JE_REPLACEMENT_RESERVES_DEFAULTED',
+        delta: 0,
+        reason: 'Seller CF below-NOI replacement reserves line absent; defaulted to 0 monthly.',
+      }],
+    };
+  }
+  const monthly = annual / 12;
+  return {
+    raw: monthly,
+    adjusted: monthly,
+    source: 'T12_ACTUAL',
+    adjustments: [],
+  };
+}
+
+export function buildMonthlyTenantImprovements(args: {
+  readonly extraction: ExtractionResult;
+}): AdjustedLineItem {
+  const annual = args.extraction.t12?.belowNoiAdjustments?.tenantImprovements ?? null;
+  if (annual === null) {
+    return {
+      raw: null,
+      adjusted: 0,
+      source: 'MANUAL',
+      adjustments: [{
+        ruleId: 'JE_TENANT_IMPROVEMENTS_DEFAULTED',
+        delta: 0,
+        reason: 'Seller CF below-NOI tenant improvements line absent; defaulted to 0 monthly.',
+      }],
+    };
+  }
+  const monthly = annual / 12;
+  return {
+    raw: monthly,
+    adjusted: monthly,
+    source: 'T12_ACTUAL',
+    adjustments: [],
+  };
+}
+
+export function buildMonthlyLeasingCommissions(args: {
+  readonly extraction: ExtractionResult;
+}): AdjustedLineItem {
+  const annual = args.extraction.t12?.belowNoiAdjustments?.leasingCommissions ?? null;
+  if (annual === null) {
+    return {
+      raw: null,
+      adjusted: 0,
+      source: 'MANUAL',
+      adjustments: [{
+        ruleId: 'JE_LEASING_COMMISSIONS_DEFAULTED',
+        delta: 0,
+        reason: 'Seller CF below-NOI leasing commissions line absent; defaulted to 0 monthly.',
+      }],
+    };
+  }
+  const monthly = annual / 12;
+  return {
+    raw: monthly,
+    adjusted: monthly,
+    source: 'T12_ACTUAL',
+    adjustments: [],
+  };
 }
 
 export function buildPcaImmediateRepairs(args: {

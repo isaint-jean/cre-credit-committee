@@ -175,6 +175,9 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId, salt = 0): Adj
       payroll: lineItem(0),
       maintenance: lineItem(300_000),
       other: lineItem(100_000),
+      generalAndAdmin: lineItem(0),
+      janitorial: lineItem(0),
+      reimbursements: lineItem(0),
       totalOperatingExpenses: lineItem(1_830_000),
     },
     capitalReserves: {
@@ -182,6 +185,9 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId, salt = 0): Adj
       upfrontTiLc: lineItem(0),
       monthlyCapex: lineItem(0),
       monthlyTiLc: lineItem(0),
+      monthlyReplacementReserves: lineItem(0),
+      monthlyTenantImprovements: lineItem(0),
+      monthlyLeasingCommissions: lineItem(0),
       pcaImmediateRepairs: lineItem(0),
     },
     loan: {

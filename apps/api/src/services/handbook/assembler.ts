@@ -122,7 +122,14 @@ export const INTENTIONALLY_UNDEFINED_FIELDS: ReadonlySet<string> = new Set([
   // Category C — captured in documents but not yet typed-extracted (ticket #35).
   // When extraction work lands, add real lookups here.
   'annual_room_revenue',
-  'capex_projection',         // per-period array; see ticket TBD (split from #35)
+  // capex_projection is read by P-IV-RET-6's cumulative-cash-flow formula but
+  // the AdjustedInputs contract carries only a single monthly capex rate, not
+  // a year-by-year capex schedule. Populating from the monthly rate alone
+  // would silently misrepresent year-1-heavy or back-loaded capex profiles
+  // as flat. Defer until a per-period capex schedule is extracted (#TBD,
+  // split from #35). The engine handles the missing field correctly —
+  // P-IV-RET-6's deterministic check skips with reason 'missing_field'.
+  'capex_projection',
   'cash_out_amount',
   'debt_service',             // per-period array; see ticket TBD
   'hotel_service_level',
@@ -130,7 +137,6 @@ export const INTENTIONALLY_UNDEFINED_FIELDS: ReadonlySet<string> = new Set([
   'location_type',
   'mall_class',
   'noi_projection',           // per-period array; see ticket TBD
-  'reserves',                 // per-period array; see ticket TBD
   'tenant_categories',
   'utility_infrastructure_type',
   // Category D — not captured anywhere; structurally absent.
@@ -150,7 +156,9 @@ export const INTENTIONALLY_UNDEFINED_FIELDS: ReadonlySet<string> = new Set([
  * The 14 fields the v1 assembler actually populates with values pulled
  * or derived from real data. Sourced from the recon report's
  * classification of (A) direct + the three trivial (B) derivations.
- * Plus stressed_dscr_top_3_removed which is a named-scenario lookup.
+ * Plus stressed_dscr_top_3_removed which is a named-scenario lookup,
+ * and `reserves` which is a unit-converted projection from
+ * AdjustedInputs.capitalReserves.monthlyReplacementReserves (C.2).
  *
  * NOTE: Exported for test introspection; not used by the assembler
  * itself at runtime. The set is implicit in `buildFieldBag` below.
@@ -166,6 +174,7 @@ export const POPULATED_FIELDS: ReadonlySet<string> = new Set([
   'property_sub_type',
   'park_owned_home_pct',
   'pip_reserve_per_key',
+  'reserves',
   'stressed_dscr_top_3_removed',
   // Derivations (B)
   'building_age',
@@ -200,6 +209,14 @@ export function buildFieldBag(inputs: AssemblerInputs): FieldBag {
   bag['debt_yield'] = graph.adjustedInputs.metrics.debtYield;
   bag['dscr'] = graph.adjustedInputs.metrics.dscr;
   bag['loan_amount'] = graph.adjustedInputs.loan.loanAmount.adjusted;
+
+  // reserves: annualized from the monthly replacement-reserve rate. P-IV-RET-6's
+  // cumulative-cash-flow formula reads this via sum_over_term, which broadcasts
+  // a scalar across the loan term (constant annual reserve assumption — matches
+  // the convention encoded in the contract, where capitalReserves carries a
+  // single monthly rate rather than a per-period schedule).
+  bag['reserves'] =
+    graph.adjustedInputs.capitalReserves.monthlyReplacementReserves.adjusted * 12;
 
   // === Direct projection from AssetProfile ===
   // assetProfile.propertyType is the PascalCase enum the handbook uses

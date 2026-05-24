@@ -42,21 +42,26 @@ import {
   buildDebtServiceAnnual,
   buildEffectiveGrossIncome,
   buildExpenseGrowthPct,
+  buildGeneralAndAdmin,
   buildGrossRentalIncome,
   buildInsurance,
   buildInterestRate,
   buildIoPeriodMonths,
+  buildJanitorial,
   buildLoanAmount,
   buildMaintenance,
   buildManagementFee,
   buildMaturityBalance,
   buildMonthlyCapex,
-  buildMonthlyTiLc,
+  buildMonthlyLeasingCommissions,
+  buildMonthlyReplacementReserves,
+  buildMonthlyTenantImprovements,
   buildOtherExpenses,
   buildOtherIncome,
   buildPayroll,
   buildPcaImmediateRepairs,
   buildRealEstateTaxes,
+  buildReimbursements,
   buildRentGrowthPct,
   buildTermMonths,
   buildTerminalCapRate,
@@ -65,13 +70,13 @@ import {
   buildUpfrontTiLc,
   buildUtilities,
   buildVacancyPct,
+  deriveMonthlyTiLc,
 } from './line-item-builders.js';
 
 import {
   concessionsApplies,
   ioPeriodApplies,
   monthlyCapexApplies,
-  monthlyTiLcApplies,
   payrollApplies,
   pcaImmediateRepairsApplies,
   upfrontCapexApplies,
@@ -214,6 +219,9 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   const maintenance = buildMaintenance({ extraction });
   const otherExp = buildOtherExpenses({ extraction });
   const payroll = buildPayroll({ extraction, applicable: payrollApplies(assetProfile) });
+  const generalAndAdmin = buildGeneralAndAdmin({ extraction });
+  const janitorial = buildJanitorial({ extraction });
+  const reimbursements = buildReimbursements({ extraction });
 
   const loanAmount = buildLoanAmount({ extraction });
   const interestRate = buildInterestRate({ extraction, marketBenchmarks });
@@ -235,7 +243,10 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   });
   const tilcArgs = { profile: assetProfile, extraction, termMonths: termMonths.adjusted };
   const upfrontTiLc = buildUpfrontTiLc({ applicable: upfrontTiLcApplies(tilcArgs) });
-  const monthlyTiLc = buildMonthlyTiLc({ applicable: monthlyTiLcApplies(tilcArgs) });
+  const monthlyReplacementReserves = buildMonthlyReplacementReserves({ extraction });
+  const monthlyTenantImprovements = buildMonthlyTenantImprovements({ extraction });
+  const monthlyLeasingCommissions = buildMonthlyLeasingCommissions({ extraction });
+  const monthlyTiLc = deriveMonthlyTiLc(monthlyTenantImprovements, monthlyLeasingCommissions);
   const pcaImmediateRepairs = buildPcaImmediateRepairs({
     extraction,
     applicable: pcaImmediateRepairsApplies(extraction),
@@ -322,6 +333,9 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       payroll,
       maintenance,
       other: otherExp,
+      generalAndAdmin,
+      janitorial,
+      reimbursements,
       totalOperatingExpenses,
     },
     capitalReserves: {
@@ -329,6 +343,9 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       upfrontTiLc,
       monthlyCapex,
       monthlyTiLc,
+      monthlyReplacementReserves,
+      monthlyTenantImprovements,
+      monthlyLeasingCommissions,
       pcaImmediateRepairs,
     },
     loan: {

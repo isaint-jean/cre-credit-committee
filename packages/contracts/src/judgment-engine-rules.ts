@@ -8,7 +8,7 @@
  * conceptual names (e.g., `RENT_ROLL_MISSING` is a doctrine scoring rule; `JE_RENT_ROLL_MISSING`
  * is the corresponding judgment-engine adjustment rule that fires the confidence penalty).
  *
- * Frozen for `JUDGMENT_ENGINE_VERSION = '1.0'`. Adding a rule means adding a literal here AND
+ * Frozen for `JUDGMENT_ENGINE_VERSION = '1.1'`. Adding a rule means adding a literal here AND
  * appending an entry to `JUDGMENT_ENGINE_MANIFEST` for hash-drift protection. The naming +
  * literal-union enforcement gives compile-time discrimination across the adjustment ledger.
  */
@@ -85,6 +85,9 @@ export const JudgmentEngineRules = {
   JE_RENT_GROWTH_DEFAULTED:                         'JE_RENT_GROWTH_DEFAULTED',
   JE_EXPENSE_GROWTH_DEFAULTED:                      'JE_EXPENSE_GROWTH_DEFAULTED',
   JE_MONTHLY_CAPEX_DEFAULTED:                       'JE_MONTHLY_CAPEX_DEFAULTED',
+  JE_REPLACEMENT_RESERVES_DEFAULTED:                'JE_REPLACEMENT_RESERVES_DEFAULTED',
+  JE_TENANT_IMPROVEMENTS_DEFAULTED:                 'JE_TENANT_IMPROVEMENTS_DEFAULTED',
+  JE_LEASING_COMMISSIONS_DEFAULTED:                 'JE_LEASING_COMMISSIONS_DEFAULTED',
 } as const;
 
 export type JudgmentEngineRuleId = (typeof JudgmentEngineRules)[keyof typeof JudgmentEngineRules];

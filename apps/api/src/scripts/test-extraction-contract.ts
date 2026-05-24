@@ -99,10 +99,14 @@ function makeFullExtractionBody() {
         utilities:            24_000,
         repairsMaintenance:   36_000,
         managementFees:       40_000,
+        generalAndAdmin:      null,
+        janitorial:           null,
+        reimbursements:       null,
         totalOperatingExpenses: 218_000,
       },
       noi: 982_000,
       vacancyLoss: 60_000,
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
 
     pca: {
@@ -142,10 +146,14 @@ function makeFullExtractionBody() {
         utilities:              25_000,
         repairsMaintenance:     40_000,
         managementFees:         36_000,
+        generalAndAdmin:        null,
+        janitorial:             null,
+        reimbursements:         null,
         totalOperatingExpenses: 251_000,
       },
       noi:         949_000,
       vacancyLoss: -50_000,
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
 
     asr: {
@@ -231,9 +239,10 @@ console.log('\nExtractionResult — null preservation in canonical form:');
     t12: {
       period: 'T-12',
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       noi: null,
       vacancyLoss: null,
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
     pca: null,
     appraisal: null,

@@ -55,9 +55,10 @@ function makeT12(): OperatingStatementExtraction {
   return {
     period: 'T-12 ending 2025-12-31',
     income: { grossPotentialRent: 1_000_000, effectiveRent: null, otherIncome: null, totalIncome: 1_000_000 },
-    expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: 300_000 },
+    expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: 300_000 },
     noi: 700_000,
     vacancyLoss: null,
+    belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
   };
 }
 
@@ -65,9 +66,10 @@ function makeSellerUwOS(): OperatingStatementExtraction {
   return {
     period: 'Seller UW',
     income: { grossPotentialRent: 1_050_000, effectiveRent: null, otherIncome: null, totalIncome: 1_050_000 },
-    expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: 310_000 },
+    expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: 310_000 },
     noi: 740_000,
     vacancyLoss: null,
+    belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
   };
 }
 

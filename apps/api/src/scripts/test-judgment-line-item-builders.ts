@@ -62,7 +62,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.2',
+    extractionEngineVersion: '1.3',
     dealRef: 'TEST-1',
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
@@ -134,7 +134,8 @@ console.log('buildVacancyPct:');
     t12: {
       period: 'T-12', noi: null, vacancyLoss: 200_000,
       income: { grossPotentialRent: 1_000_000, effectiveRent: null, otherIncome: null, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const result = buildVacancyPct({
@@ -153,7 +154,8 @@ console.log('buildVacancyPct:');
     t12: {
       period: 'T-12', noi: null, vacancyLoss: 30_000,
       income: { grossPotentialRent: 1_000_000, effectiveRent: null, otherIncome: null, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const result = buildVacancyPct({
@@ -172,7 +174,8 @@ console.log('buildVacancyPct:');
     t12: {
       period: 'T-12', noi: null, vacancyLoss: 30_000,
       income: { grossPotentialRent: 1_000_000, effectiveRent: null, otherIncome: null, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
     sellerUw: { underwrittenNOI: null, underwrittenRentGrowth: null, underwrittenVacancy: 0.12 },
     sellerUwOperatingStatement: null,
@@ -283,7 +286,8 @@ console.log('\nbuildGrossRentalIncome:');
     t12: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: 1_200_000, effectiveRent: null, otherIncome: null, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const result = buildGrossRentalIncome({ extraction: ext });
@@ -307,7 +311,8 @@ console.log('\nbuildOtherIncome:');
     t12: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: 50_000, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const result = buildOtherIncome({ extraction: ext });

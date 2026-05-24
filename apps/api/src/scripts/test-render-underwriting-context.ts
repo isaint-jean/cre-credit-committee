@@ -88,7 +88,9 @@ function makeFullExtraction(): ExtractionResult {
       income: { grossPotentialRent: 1_200_000, effectiveRent: 1_140_000, otherIncome: 60_000, totalIncome: 1_200_000 },
       expenses: { taxes: 100_000, insurance: 18_000, utilities: 24_000,
                    repairsMaintenance: 36_000, managementFees: 40_000,
+                   generalAndAdmin: null, janitorial: null, reimbursements: null,
                    totalOperatingExpenses: 218_000 },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
     pca: {
       immediateRepairs: 50_000, nearTermRepairs: 150_000,

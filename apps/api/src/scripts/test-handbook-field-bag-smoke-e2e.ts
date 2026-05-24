@@ -103,6 +103,7 @@ console.log('\n=== Scenario A: Office deal with weak metrics ===');
           loanAmount: { raw: 30_000_000, adjusted: 30_000_000 },
         },
         metrics: { dscr: 1.20, debtYield: 0.085 },
+        capitalReserves: { monthlyReplacementReserves: { raw: 0, adjusted: 0 } },
       },
       assetProfile: { propertyType: 'Office' },
       narrativeFacts: {
@@ -170,6 +171,7 @@ console.log('\n=== Scenario B: Single-tenant deal with blocked dark value ===');
           loanAmount: { raw: 15_000_000, adjusted: 15_000_000 },
         },
         metrics: { dscr: 1.45, debtYield: 0.11 },
+        capitalReserves: { monthlyReplacementReserves: { raw: 0, adjusted: 0 } },
       },
       assetProfile: { propertyType: 'Industrial' },
       narrativeFacts: {
@@ -241,6 +243,7 @@ console.log('\n=== Scenario C: PropertyMetadata absent ===');
       adjustedInputs: {
         loan: { loanAmount: { raw: 5_000_000, adjusted: 5_000_000 } },
         metrics: { dscr: 1.50, debtYield: 0.12 },
+        capitalReserves: { monthlyReplacementReserves: { raw: 0, adjusted: 0 } },
       },
       assetProfile: { propertyType: 'SelfStorage' },
       narrativeFacts: {

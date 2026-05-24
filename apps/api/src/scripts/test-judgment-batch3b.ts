@@ -67,7 +67,7 @@ function makeAdjustedInputs(overrides: { vacancyPct?: number; dscr?: number | nu
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    judgmentEngineVersion: '1.0',
+    judgmentEngineVersion: '1.1',
     librarySnapshotId: 'b'.repeat(64) as never,
     income: {
       grossRentalIncome: lineItem(10_000_000),
@@ -80,11 +80,14 @@ function makeAdjustedInputs(overrides: { vacancyPct?: number; dscr?: number | nu
       realEstateTaxes: lineItem(800_000), insurance: lineItem(150_000),
       utilities: lineItem(200_000), managementFee: lineItem(280_000),
       payroll: lineItem(0), maintenance: lineItem(300_000),
-      other: lineItem(100_000), totalOperatingExpenses: lineItem(1_830_000),
+      other: lineItem(100_000),
+      generalAndAdmin: lineItem(0), janitorial: lineItem(0), reimbursements: lineItem(0),
+      totalOperatingExpenses: lineItem(1_830_000),
     },
     capitalReserves: {
       upfrontCapex: lineItem(0), upfrontTiLc: lineItem(0),
       monthlyCapex: lineItem(0), monthlyTiLc: lineItem(0),
+      monthlyReplacementReserves: lineItem(0), monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
       pcaImmediateRepairs: lineItem(0),
     },
     loan: {
@@ -116,7 +119,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
   const base: ExtractionResult = {
     id: 'c'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.2',
+    extractionEngineVersion: '1.3',
     dealRef: 'TEST-1',
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
@@ -178,7 +181,8 @@ console.log('\nSource cascade — vacancyPctCascade:');
     t12: {
       period: 'T-12', noi: null, vacancyLoss: 60_000,
       income: { grossPotentialRent: 1_200_000, effectiveRent: null, otherIncome: null, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
     sellerUw: { underwrittenNOI: null, underwrittenRentGrowth: null, underwrittenVacancy: 0.03 },
     sellerUwOperatingStatement: null,
@@ -215,7 +219,8 @@ console.log('\nSource cascade — bankNoiCascade:');
     t12: {
       period: 'T-12', noi: 950_000, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: null },
-      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, totalOperatingExpenses: null },
+      expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
+      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
   });
   const picked = pickFirstNonNull(bankNoiCascade(ext));

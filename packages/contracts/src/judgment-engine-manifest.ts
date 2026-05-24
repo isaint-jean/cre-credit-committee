@@ -28,4 +28,8 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // safe. Once persistence ships in sub-batch 6.4, any further registry change MUST bump the
   // version per the workflow above (no more in-place edits).
   '1.0': '7e39fd654e780c8abf440f770bbce6cdbbae3aac7cf7815ee98a4919951023e9' as ContentHash,
+  // C.2 (2026-05-24) — OperatingStatementExtraction widening Phase 1+2. Three new rules
+  // (JE_REPLACEMENT_RESERVES_DEFAULTED, JE_TENANT_IMPROVEMENTS_DEFAULTED,
+  // JE_LEASING_COMMISSIONS_DEFAULTED) covering the new below-NOI projection builders.
+  '1.1': '8b1289e7c3f07dfa8a78afbec3d80507f9c2d2fe65129acdd6c81242d3e06f67' as ContentHash,
 };

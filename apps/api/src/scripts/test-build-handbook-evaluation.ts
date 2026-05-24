@@ -48,6 +48,7 @@ function makeArgs(overrides: Partial<BuildHandbookEvaluationArgs> = {}): BuildHa
     id: 'aaaa' as AdjustedInputsId,
     loan: { loanAmount: { raw: 30_000_000, adjusted: 30_000_000 } },
     metrics: { dscr: 1.10, debtYield: 0.085 },
+    capitalReserves: { monthlyReplacementReserves: { raw: 0, adjusted: 0 } },
   } as unknown as AdjustedInputs;
 
   const assetProfile = { propertyType: 'Office' } as unknown as AssetProfile;
@@ -182,6 +183,7 @@ console.log('\n=== Different inputs → different ids ===');
         id: 'bbbb' as AdjustedInputsId,
         loan: { loanAmount: { raw: 5_000_000, adjusted: 5_000_000 } },
         metrics: { dscr: 2.50, debtYield: 0.15 },
+        capitalReserves: { monthlyReplacementReserves: { raw: 0, adjusted: 0 } },
       } as unknown as AdjustedInputs,
     }),
   );

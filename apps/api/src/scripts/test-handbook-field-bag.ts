@@ -101,6 +101,9 @@ function makeMinimalGraph(overrides: any = {}): HydratedRecordGraph {
         dscr: 1.35,
         debtYield: 0.10,
       },
+      capitalReserves: {
+        monthlyReplacementReserves: { raw: 0, adjusted: 0 },
+      },
     },
     assetProfile: {
       propertyType: 'Office',
@@ -506,11 +509,11 @@ console.log('\n=== Partition and surface invariants ===');
 (() => {
   // Tally — assert exact counts so accidental changes show up in CI
   assertEqual(KNOWN_FIELDS.size, 31, 'KNOWN_FIELDS has 31 entries');
-  assertEqual(POPULATED_FIELDS.size, 13, 'POPULATED_FIELDS has 13 entries');
+  assertEqual(POPULATED_FIELDS.size, 14, 'POPULATED_FIELDS has 14 entries');
   assertEqual(
     INTENTIONALLY_UNDEFINED_FIELDS.size,
-    18,
-    'INTENTIONALLY_UNDEFINED_FIELDS has 18 entries',
+    17,
+    'INTENTIONALLY_UNDEFINED_FIELDS has 17 entries',
   );
 })();
 
