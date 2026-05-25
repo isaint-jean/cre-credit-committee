@@ -1,5 +1,5 @@
 /**
- * extractPca — AI-tier extractor for Property Condition Assessment (PCA) reports.
+ * extractPca — extractor for Property Condition Assessment (PCA) reports.
  *
  * ASTM E2018-style PCA reports are typically 100-200-page PDFs combining:
  *  - Table 1: Immediate Repair + Short-Term Cost line items with column totals.
@@ -9,32 +9,28 @@
  *  - Structural narratives: condition + remaining-useful-life prose for each
  *             building system (roof, HVAC, plumbing, electrical, etc.).
  *
- * HYBRID TWO-CALL ARCHITECTURE — empirically derived during Step 0 of the PCA
- * producer ticket (against `apps/api/fixtures/sunroad-centrum-pca.pdf`, commit
- * 431102d):
+ * TWO-PATH ARCHITECTURE:
  *
- *   Call A — scalars + structural narratives. Single AI call against full PCA
- *            text; returns 6 scalars + 4 narrative strings. Step 0 empirical
- *            result: 6/6 scalars anchor-exact on first run; narratives
- *            extracted at appropriate length and content.
+ *   Call A — AI extraction for scalars + structural narratives. Single AI
+ *            call against full PCA text; returns 6 scalars + 4 narrative
+ *            strings. The flat-text input is sufficient for these fields:
+ *            scalars surface in well-anchored prose locations, narratives
+ *            are bulk text by nature.
  *
- *   Call B — capex schedule arrays. Separate AI call with B-explicit prompting
- *            (includes a few-shot example demonstrating year-by-year mapping
- *            for a fictional sparse schedule). Step 0 found single-call
- *            extraction produced positional-packing failures on Table 2: the
- *            AI collapsed non-zero entries to consecutive years 1, 2, 3, …
- *            losing the actual year assignment. B-explicit prompting targets
- *            that specific failure mode by forbidding compression of zero
- *            years and showing the right-vs-wrong patterns inline.
+ *   Deterministic — capex schedule arrays via `pdfjs-dist` positional API
+ *            (see `./extract-pca-schedule.ts`). Reads Table 2's year-header
+ *            row and labeled INFLATED/UNINFLATED totals rows via per-text-
+ *            item x-coordinates. Replaces an earlier AI Call B whose
+ *            year-alignment ceiling was structural to the flat-text-extract
+ *            API choice (see #44 for the migration; resolved in v10).
  *
- * Failure handling: Promise.allSettled. Either call may succeed or fail
- * independently; the merged PCAExtraction carries whichever subset of fields
- * was extracted. Both calls failing → return null. One call failing → partial
- * record with that call's fields all null.
+ * Both paths run in parallel via Promise.allSettled. The merge layer at
+ * `buildPcaFromAiResponses` handles partial-success (only Call A populates,
+ * only Schedule populates) per the existing discipline.
  *
- * Pure parsers (parseAiPcaCallAResponse / parseAiPcaCallBResponse) are exported
- * separately for test discipline — tests can exercise normalization + coercion
- * without invoking the live AI.
+ * Pure parsers (parseAiPcaCallAResponse) are exported for test discipline —
+ * tests can exercise normalization + coercion without invoking the live AI
+ * or PDF parsing.
  *
  * Discipline:
  *  - Best-effort. AI extraction can miss; missing scalar → null. The pure
@@ -45,49 +41,25 @@
  *    is structurally absent, return null. The Step 0 reproducibility check
  *    found AI variance on this distinction — the prompt addresses it
  *    explicitly.
- *  - Consistency enforcement (per recon Item 6c, v8 §14.1): trust the array,
- *    override the field. If `capexScheduleInflated.length !== evaluationPeriodYears`,
- *    set `evaluationPeriodYears = capexScheduleInflated.length`. If inflated
- *    and uninflated arrays disagree in length, return null (the schedules
- *    are internally inconsistent — refuse to ship a corrupt record).
+ *  - Consistency enforcement (per v8 §14.1): trust the array, override the
+ *    field. If `capexScheduleInflated.length !== evaluationPeriodYears`,
+ *    set `evaluationPeriodYears = capexScheduleInflated.length`. If
+ *    inflated and uninflated arrays disagree in length, return null (the
+ *    schedules are internally inconsistent — refuse to ship a corrupt
+ *    record).
  *  - Malformed array entry → reject the whole record. Schedule arrays are
  *    load-bearing for P-IV-RET-6's sum_over_term formula; one malformed
- *    entry corrupts the entire sum. Stricter than silent filtering; mirrors
- *    `extract-rent-roll-from-document.ts`'s discipline for malformed rows.
- *
- * KNOWN LIMITATION — schedule-array year-by-year accuracy is approximately
- * 50-60% on the Sunroad fixture. The AI reliably captures the sum AND the
- * SET of non-zero entries, but year placements are often off-by-one or
- * off-by-two for individual non-zero entries. Root cause: PDF text
- * extraction (`unpdf` / pdf.js) strips column positions from Table 2 cells.
- * The extracted text shows row data + dollar amounts as a linear stream
- * (e.g., "5.2 HVAC boiler, Replace/Refurbish 20 15 5 3 3 EA $10,000
- * $30,000 $30,000") with NO positional cue indicating which year column
- * each $30,000 belongs to. The AI must infer year placement from row
- * metadata (RUL, EUL) and/or PDF visual coordinates that aren't preserved
- * in the text. Three prompt iterations in Step 2 of the PCA producer
- * ticket confirmed this ceiling:
- *   - Iteration 0 (vanilla): positional packing (all non-zero values at
- *     years 1, 2, 3, …).
- *   - Iteration 2 (B-explicit, current): 6/12 entries exact, sum exact.
- *   - Iteration 3 (B-explicit + "read totals row"): regressed to 4/12.
- * Sum-precise consumers (P-IV-RET-6, G49 derivation) work correctly.
- * Year-precise consumers (populator E35-M35 broadcast, audit display)
- * MUST NOT rely on per-year accuracy. Future tickets that need per-year
- * precision should evaluate deterministic PDF table parsers (pdfplumber,
- * tabula, camelot) as a replacement extraction path; not this ticket's
- * scope. Tracked as #TBD (filed in Step 9 of the PCA producer ticket).
+ *    entry corrupts the entire sum.
  */
 
 import type { PCAExtraction } from '@cre/contracts';
 import type { ParsedDocument } from '@cre/shared';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
+import { extractCapexScheduleFromPdf } from './extract-pca-schedule.js';
 
 /* -------------------------------- prompts --------------------------------- */
 
 const PCA_CALL_A_SYSTEM = `You extract Property Condition Assessment (PCA) report scalar fields and condition narratives. Return ONLY a JSON object matching the requested schema. Missing fields must be null. Do not invent values. Never add prose, commentary, or markdown.`;
-
-const PCA_CALL_B_SYSTEM = `You extract the year-by-year capital expenditure schedule from a Property Condition Assessment (PCA) report's Table 2. Return ONLY a JSON object matching the requested schema. Do not invent values. Never add prose, commentary, or markdown.`;
 
 function buildCallAPrompt(text: string): string {
   return [
@@ -121,76 +93,6 @@ function buildCallAPrompt(text: string): string {
     '- inflationRate: convert percent to decimal fraction (2.5% → 0.025).',
     '- Structural narratives: 1-3 sentences summarizing system condition + remaining useful life. Pull from the report\'s system-by-system condition section.',
     '- DO NOT include the year-by-year capex schedule arrays here — that is a separate extraction step.',
-    '',
-    '--- PCA DOCUMENT TEXT ---',
-    text,
-  ].join('\n');
-}
-
-function buildCallBPrompt(text: string): string {
-  return [
-    'Extract the year-by-year capital expenditure schedule from this ASTM E2018 PCA report.',
-    '',
-    'The PCA contains a Table 2 (variously titled "Long-Term Cost Opinion", "Replacement Reserves Schedule", "Capital Replacement Schedule", or similar). The table shows year-by-year capital expenditures over an N-year evaluation period (typically 10-12 years).',
-    '',
-    'Table 2 layout: each ROW is one repair line item (e.g., "Refurbish circulation pumps", "Refinish roof"). Each COLUMN is one year (1, 2, 3, …, N). Most cells are blank or zero. The PER-YEAR TOTAL is the column-wise sum of all line items in that year.',
-    '',
-    'Return STRICT JSON of this shape:',
-    '',
-    '{',
-    '  "evaluationPeriodYears": <integer N from Table 2 header>,',
-    '  "capexScheduleInflated": [',
-    '    {"year": 1, "amount": <column-sum of inflated dollars for year 1>},',
-    '    {"year": 2, "amount": <column-sum for year 2>},',
-    '    {"year": 3, "amount": <column-sum for year 3>},',
-    '    ...',
-    '    {"year": N, "amount": <column-sum for year N>}',
-    '  ],',
-    '  "capexScheduleUninflated": [',
-    '    {"year": 1, "amount": <column-sum of uninflated dollars for year 1>},',
-    '    ...',
-    '    {"year": N, "amount": <column-sum for year N>}',
-    '  ]',
-    '}',
-    '',
-    'CRITICAL — full year coverage REQUIRED:',
-    '- Return entries for EVERY year in the evaluation period (year 1 through year N inclusive).',
-    '- For years where the column-sum is zero or where no repair items are scheduled, you MUST explicitly emit {"year": K, "amount": 0}.',
-    '- Do NOT collapse or compress entries.',
-    '- Do NOT omit zero-amount years.',
-    '- The array length MUST equal evaluationPeriodYears. If N is 12, the array MUST have 12 entries.',
-    '',
-    'EXAMPLE — a fictional 10-year PCA with non-zero amounts only in years 3, 5, and 8:',
-    '',
-    'WRONG (positional packing — omits zero years, year assignments are wrong):',
-    '  {"capexScheduleInflated": [',
-    '    {"year": 1, "amount": 1200},',
-    '    {"year": 2, "amount": 5000},',
-    '    {"year": 3, "amount": 850}',
-    '  ]}',
-    '  (3 entries packed at the front. Years 4-10 are missing. The year-1 amount is the year-3 value mislabeled. THIS IS WRONG.)',
-    '',
-    'RIGHT (full schedule — all 10 years explicit, correct year assignments):',
-    '  {"capexScheduleInflated": [',
-    '    {"year": 1, "amount": 0},',
-    '    {"year": 2, "amount": 0},',
-    '    {"year": 3, "amount": 1200},',
-    '    {"year": 4, "amount": 0},',
-    '    {"year": 5, "amount": 5000},',
-    '    {"year": 6, "amount": 0},',
-    '    {"year": 7, "amount": 0},',
-    '    {"year": 8, "amount": 850},',
-    '    {"year": 9, "amount": 0},',
-    '    {"year": 10, "amount": 0}',
-    '  ]}',
-    '  (10 entries, one per year. Years with zero capex are EXPLICITLY {"year": K, "amount": 0}. Year assignments match the table.)',
-    '',
-    'Rules:',
-    '- year values are 1-indexed.',
-    '- Amounts are plain numbers (no $ signs, no commas).',
-    '- Both arrays (inflated + uninflated) must have equal length (both equal to N).',
-    '- If the report contains only inflated values (no separate uninflated column), set capexScheduleUninflated to null.',
-    '- If you cannot find Table 2 in the report, return: {"evaluationPeriodYears": null, "capexScheduleInflated": null, "capexScheduleUninflated": null}',
     '',
     '--- PCA DOCUMENT TEXT ---',
     text,
@@ -261,9 +163,16 @@ export interface CallAResult {
 }
 
 /**
- * Intermediate shape from Call B's pure parser. evaluationPeriodYears is
- * captured here too (Call B sees the table directly); the merge logic
- * reconciles with Call A's reading via "trust the array, override the field".
+ * Intermediate shape carrying the capex schedule arrays into the merge
+ * layer. Historically produced by an AI "Call B" parser; post-v10 produced
+ * by the deterministic `extractCapexScheduleFromPdf` (see
+ * `./extract-pca-schedule.ts`) and wrapped to this shape inside
+ * `extractPca`. The name `CallBResult` is retained for stability of the
+ * merge function's interface; treat the field set as the contract, not
+ * the name.
+ *
+ * `evaluationPeriodYears` is captured here too; the merge logic reconciles
+ * with Call A's reading via "trust the array, override the field".
  */
 export interface CallBResult {
   readonly evaluationPeriodYears: number | null;
@@ -331,83 +240,6 @@ export function parseAiPcaCallAResponse(responseText: string | unknown): CallARe
   if (!anyScalar && !anyNarrative) return null;
 
   return result;
-}
-
-/**
- * Parse Call B's AI JSON response. Validates each schedule entry's shape
- * ({year: integer, amount: number}); ANY malformed entry → return null
- * (the whole record is rejected; the schedule arrays are load-bearing for
- * downstream P-IV-RET-6 formula reads and one bad entry corrupts the sum).
- *
- * Returns null when:
- *   - JSON is unparseable
- *   - top-level is not an object
- *   - any schedule entry is malformed
- *   - both schedule arrays are null (Call B found no Table 2)
- */
-export function parseAiPcaCallBResponse(responseText: string | unknown): CallBResult | null {
-  let parsed: unknown;
-  if (typeof responseText === 'string') {
-    try {
-      parsed = extractJSON(responseText);
-    } catch {
-      return null;
-    }
-  } else {
-    parsed = responseText;
-  }
-  if (typeof parsed !== 'object' || parsed === null) return null;
-  const r = parsed as { [k: string]: unknown };
-
-  const inflated = parseScheduleArray(r.capexScheduleInflated);
-  const uninflated = parseScheduleArray(r.capexScheduleUninflated);
-
-  // If parseScheduleArray rejected (malformed entry mid-array), that signals a
-  // structural problem. Distinguish "explicitly null" from "rejected" via the
-  // sentinel: parseScheduleArray returns `undefined` on malformed-reject vs
-  // `null` on explicit-null. Convert undefined → null for the result, but ALSO
-  // surface the rejection via early-return null on the whole record.
-  if (inflated === undefined) return null;
-  if (uninflated === undefined) return null;
-
-  // Reject if BOTH arrays are null (Call B didn't find any Table 2 data).
-  if (inflated === null && uninflated === null) {
-    // evaluationPeriodYears alone isn't useful — Call A also captures it.
-    return null;
-  }
-
-  return {
-    evaluationPeriodYears: asInteger(r.evaluationPeriodYears),
-    capexScheduleInflated: inflated,
-    capexScheduleUninflated: uninflated,
-  };
-}
-
-/**
- * Parse a schedule array. Three return values:
- *   - `ReadonlyArray<{year, amount}>` — well-formed, returned as-is.
- *   - `null` — the field was explicitly null (PCA has no uninflated column,
- *      or the AI didn't find Table 2).
- *   - `undefined` — the field was present but at least one entry was
- *      malformed (year/amount missing or wrong type). Caller rejects whole
- *      record on undefined.
- */
-function parseScheduleArray(
-  v: unknown,
-): ReadonlyArray<{ readonly year: number; readonly amount: number; }> | null | undefined {
-  if (v === null || v === undefined) return null;
-  if (!Array.isArray(v)) return undefined;
-  const out: { year: number; amount: number; }[] = [];
-  for (const entry of v) {
-    if (typeof entry !== 'object' || entry === null) return undefined;
-    const e = entry as { [k: string]: unknown };
-    const year = asInteger(e.year);
-    const amount = asNumber(e.amount);
-    if (year === null || amount === null) return undefined;
-    if (year < 1) return undefined;
-    out.push({ year, amount });
-  }
-  return out;
 }
 
 /* --------------------------------- merge ---------------------------------- */
@@ -479,20 +311,34 @@ export function buildPcaFromAiResponses(args: {
 /* --------------------------------- main ----------------------------------- */
 
 /**
- * Extract a PCAExtraction from a parsed PCA document. Returns null when both
- * AI calls fail.
+ * Extract a PCAExtraction from a parsed PCA document plus the raw PDF buffer.
  *
- * The two AI calls run in parallel via Promise.allSettled (same pattern as
- * asr.adapter.ts's three-sub-extractor fan-out). Each call's failure is
- * isolated: Call A's success + Call B's failure produces a partial record
- * with arrays null, and vice versa.
+ * Two paths run in parallel via Promise.allSettled:
+ *   - Call A (AI): scalars + structural narratives, against the flat-text
+ *     `document.sections` content.
+ *   - Schedule (deterministic): capex schedule arrays via pdfjs-dist's
+ *     positional API, against the raw `pdfBuffer`. See
+ *     `./extract-pca-schedule.ts`.
  *
- * Input cap: 250_000 chars (~62K tokens, well within Claude Sonnet 4's 200K
- * context window). The full Sunroad PCA fixture is 238K chars; this cap
- * accommodates it with headroom. Step 0 empirically confirmed full-PCA-text
- * Call A produces clean extraction.
+ * Returns null when BOTH paths produce no usable data. Partial success
+ * (only Call A populates scalars, only schedule populates arrays) is
+ * handled by the merge layer at `buildPcaFromAiResponses` — that function
+ * already accepts a null on either side.
+ *
+ * Input cap on Call A's text: 250_000 chars (~62K tokens, well within
+ * Claude Sonnet 4's 200K context window). The full Sunroad PCA fixture is
+ * 238K chars; this cap accommodates it with headroom.
+ *
+ * The `pdfBuffer` flows through from `runPcaAdapter(slot.buffer)` →
+ * `runPcaAdapterOnDocument(doc, hash, deps, pdfBuffer)` → here. It's the
+ * same bytes that produced `document`; just preserved alongside the parsed
+ * intermediate so the deterministic schedule extractor can call pdfjs-dist
+ * directly without re-loading or re-hashing.
  */
-export async function extractPca(document: ParsedDocument): Promise<PCAExtraction | null> {
+export async function extractPca(
+  document: ParsedDocument,
+  pdfBuffer: Buffer,
+): Promise<PCAExtraction | null> {
   const text = document.sections
     .map((s) => (s.title ? '## ' + s.title + '\n' : '') + (s.content ?? ''))
     .join('\n\n')
@@ -506,27 +352,26 @@ export async function extractPca(document: ParsedDocument): Promise<PCAExtractio
     messages: [{ role: 'user', content: buildCallAPrompt(text) }],
   });
 
-  const callBPromise = callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
-    system: PCA_CALL_B_SYSTEM,
-    messages: [{ role: 'user', content: buildCallBPrompt(text) }],
-  });
+  const schedulePromise = extractCapexScheduleFromPdf(pdfBuffer);
 
-  const [callASettled, callBSettled] = await Promise.allSettled([callAPromise, callBPromise]);
+  const [callASettled, scheduleSettled] = await Promise.allSettled([callAPromise, schedulePromise]);
 
   const callAText = callASettled.status === 'fulfilled' ? callASettled.value : null;
-  const callBText = callBSettled.status === 'fulfilled' ? callBSettled.value : null;
+  const schedule = scheduleSettled.status === 'fulfilled' ? scheduleSettled.value : null;
 
   if (callASettled.status === 'rejected') {
     console.warn('[AI:PCA] Call A (scalars + narratives) rejected:', (callASettled.reason as Error)?.message);
   }
-  if (callBSettled.status === 'rejected') {
-    console.warn('[AI:PCA] Call B (capex schedules) rejected:', (callBSettled.reason as Error)?.message);
+  if (scheduleSettled.status === 'rejected') {
+    console.warn('[PCA:schedule] Deterministic capex-schedule extraction rejected:', (scheduleSettled.reason as Error)?.message);
   }
 
   const callA = callAText !== null ? parseAiPcaCallAResponse(callAText) : null;
-  const callB = callBText !== null ? parseAiPcaCallBResponse(callBText) : null;
+  const callB: CallBResult | null = schedule === null ? null : {
+    evaluationPeriodYears: schedule.inflated?.length ?? schedule.uninflated?.length ?? null,
+    capexScheduleInflated: schedule.inflated,
+    capexScheduleUninflated: schedule.uninflated,
+  };
 
   return buildPcaFromAiResponses({ callA, callB });
 }

@@ -54,19 +54,32 @@ import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
  *   1.0 — initial. Phase 1+2 ship of the PCA producer ticket. Wraps
  *         `extractPca` which performs hybrid two-call AI extraction
  *         (scalars + narratives in Call A, capex schedules in Call B).
- *         Schedule-array year-by-year accuracy is approximately 50-60%;
- *         see extract-pca.ts's KNOWN LIMITATION block.
+ *         Schedule-array year-by-year accuracy is approximately 50-60%.
+ *   1.1 — issue #44 resolution. Call B (AI capex-schedule extraction)
+ *         replaced by deterministic extraction via pdfjs-dist's
+ *         positional API. Call A (scalars + narratives) unchanged.
+ *         Adapter threads `slot.buffer` through to the deterministic
+ *         schedule extractor (the PDF bytes are needed for pdfjs's
+ *         getTextContent; previously the buffer was consumed by
+ *         parseDocument and discarded).
  */
-export const PCA_ADAPTER_VERSION = '1.0';
+export const PCA_ADAPTER_VERSION = '1.1';
 
 /**
  * Sub-extractor dependency. The adapter takes this as an optional final
  * parameter (defaulting to DEFAULT_PCA_DEPS). Production code calls the
  * adapter without supplying deps; tests pass mocked deps to control
  * `extractPca` behavior without making AI calls.
+ *
+ * Signature widened in adapter v1.1 to accept the raw PDF buffer alongside
+ * the parsed document — the deterministic schedule extractor needs
+ * pdfjs-dist's positional API which operates on raw bytes.
  */
 export interface PcaAdapterDeps {
-  readonly extractPca: (doc: ParsedDocument) => Promise<PCAExtraction | null>;
+  readonly extractPca: (
+    doc: ParsedDocument,
+    pdfBuffer: Buffer,
+  ) => Promise<PCAExtraction | null>;
 }
 
 export const DEFAULT_PCA_DEPS: PcaAdapterDeps = {
@@ -112,7 +125,7 @@ export async function runPcaAdapter(
     };
   }
 
-  const inner = await runPcaAdapterOnDocument(doc, bufferHash, deps);
+  const inner = await runPcaAdapterOnDocument(doc, bufferHash, slot.buffer, deps);
   // Outer durationMs includes parseDocument time, so the composer sees total
   // wallclock for this slot. Inner durationMs is overwritten.
   return { ...inner, durationMs: Date.now() - t0 };
@@ -125,22 +138,29 @@ export async function runPcaAdapter(
  * `bufferHash` is passed in because the bytes are gone by the time this
  * function runs.
  *
- * Failure isolation: `extractPca` itself runs two AI calls via
- * `Promise.allSettled` and merges partials internally. If both AI calls
- * reject, `extractPca` returns null (mapped to 'empty' here). If
- * `extractPca` itself throws (unexpected — the function is internally
- * defensive), this catches and maps to 'failed'.
+ * `pdfBuffer` (adapter v1.1) is preserved alongside the parsed document so
+ * the deterministic capex-schedule extractor can call pdfjs-dist's
+ * positional API. parseDocument upstream produces the flat-text `doc`;
+ * the raw bytes are still needed for per-text-item x/y coordinates.
+ *
+ * Failure isolation: `extractPca` itself runs Call A (AI) + the
+ * deterministic schedule extractor in parallel and merges partials
+ * internally. If both produce no usable data, `extractPca` returns null
+ * (mapped to 'empty' here). If `extractPca` itself throws (unexpected —
+ * the function is internally defensive), this catches and maps to
+ * 'failed'.
  */
 export async function runPcaAdapterOnDocument(
   doc: ParsedDocument,
   bufferHash: ContentHash,
+  pdfBuffer: Buffer,
   deps: PcaAdapterDeps = DEFAULT_PCA_DEPS,
 ): Promise<ExtractorOutcome<PCAExtraction | null>> {
   const t0 = Date.now();
 
   let value: PCAExtraction | null;
   try {
-    value = await deps.extractPca(doc);
+    value = await deps.extractPca(doc, pdfBuffer);
   } catch (err) {
     const e = err as Error;
     // eslint-disable-next-line no-console -- TODO(observability): typed log event

@@ -540,7 +540,7 @@ console.log('\nPersistence round-trip:');
   // Build a real ExtractionResult fixture so the FK from doctrine_evaluations resolves
   const extBody = {
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.4' as const,
+    extractionEngineVersion: '1.5' as const,
     dealRef: 'PERSIST-DEAL',
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,

@@ -160,12 +160,11 @@ export interface AdjustedCapitalReserves {
    * year order preserved) for P-IV-RET-6's `sum_over_term` formula. Sourced
    * from PCA at extraction time; null when no PCA has been ingested.
    *
-   * KNOWN LIMITATION inherited from `PCAExtraction.capexScheduleInflated`: the
-   * AI-tier PCA extractor reliably captures the sum and the set of non-zero
-   * years, but year-by-year placement accuracy is ~50-60% (PDF text strips
-   * column positions). Sum-precise consumers work correctly; year-precise
-   * consumers should not rely on per-year accuracy. See PCAExtraction's JSDoc
-   * for the full discussion.
+   * Extracted deterministically via pdfjs-dist's positional API (sourced
+   * upstream from `PCAExtraction.capexScheduleInflated`) — issue #44, v10.
+   * The v9 KNOWN LIMITATION inherited here was extractor-choice-structural,
+   * not PDF-format-structural; see PCAExtraction's JSDoc for the full
+   * discussion.
    */
   readonly capexScheduleInflated: ReadonlyArray<{
     readonly year: number;

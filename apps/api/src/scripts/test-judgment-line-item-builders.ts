@@ -62,7 +62,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.4',
+    extractionEngineVersion: '1.5',
     dealRef: 'TEST-1',
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,

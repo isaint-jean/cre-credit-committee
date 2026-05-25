@@ -176,20 +176,15 @@ export interface PCAExtraction {
    * `bag['capex_projection']` (a length-N array of amounts) for P-IV-RET-6's
    * `sum_over_term` formula.
    *
-   * KNOWN LIMITATION (Phase 2 ship — empirically discovered in Step 2 of the
-   * PCA producer ticket): the AI-tier extractor reliably captures the
-   * schedule's total dollar amount AND the SET of non-zero values, but
-   * year-by-year placement accuracy is approximately 50-60% on the Sunroad
-   * Table 2. PDF text extraction strips column positions, leaving the AI
-   * without positional cues for which year column each dollar amount belongs
-   * to (three prompt iterations confirmed the ceiling). Year-precise
-   * consumers (template cells E35-M35, audit-trail surfaces, populator
-   * workbook display) MUST NOT rely on per-year accuracy. Sum-precise
-   * consumers (P-IV-RET-6's `sum_over_term`, G49 derivation via
-   * `sum / evaluationPeriodYears`) work correctly. A follow-up issue
-   * tracks an eventual extraction-approach improvement (deterministic PDF
-   * table parsing via pdfplumber / tabula / camelot is a candidate); not
-   * this ticket's scope.
+   * Extracted deterministically via pdfjs-dist's positional API (see
+   * `apps/api/src/services/extract-pca-schedule.ts`) — issue #44 resolution,
+   * v10. The v9 KNOWN LIMITATION here (50-60% per-year alignment accuracy)
+   * was framed as PDF-format-structural; it was actually
+   * extractor-choice-structural: `unpdf`'s `extractText({ mergePages: true })`
+   * path stripped column positions, but pdfjs-dist (already accessible
+   * through `unpdf`'s `getDocumentProxy`) preserves them. The deterministic
+   * extractor reads Table 2's year-header row + the labeled
+   * INFLATED/UNINFLATED totals rows directly.
    */
   readonly capexScheduleInflated: ReadonlyArray<{
     readonly year: number;     // 1-indexed
