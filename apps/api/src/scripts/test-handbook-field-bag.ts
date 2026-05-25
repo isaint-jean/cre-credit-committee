@@ -509,11 +509,11 @@ console.log('\n=== Partition and surface invariants ===');
 (() => {
   // Tally — assert exact counts so accidental changes show up in CI
   assertEqual(KNOWN_FIELDS.size, 31, 'KNOWN_FIELDS has 31 entries');
-  assertEqual(POPULATED_FIELDS.size, 14, 'POPULATED_FIELDS has 14 entries');
+  assertEqual(POPULATED_FIELDS.size, 15, 'POPULATED_FIELDS has 15 entries');
   assertEqual(
     INTENTIONALLY_UNDEFINED_FIELDS.size,
-    17,
-    'INTENTIONALLY_UNDEFINED_FIELDS has 17 entries',
+    16,
+    'INTENTIONALLY_UNDEFINED_FIELDS has 16 entries',
   );
 })();
 

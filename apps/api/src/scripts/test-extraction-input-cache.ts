@@ -45,11 +45,11 @@ console.log('computeExtractionInputKey — determinism and sensitivity:');
 {
   /* 1. Same inputs → same key */
   const k1 = computeExtractionInputKey({
-    slotHashes: { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C },
+    slotHashes: { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C, pca: null },
     extractorVersions: VERSIONS,
   });
   const k2 = computeExtractionInputKey({
-    slotHashes: { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C },
+    slotHashes: { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C, pca: null },
     extractorVersions: VERSIONS,
   });
   assertEqual(k1, k2, '1.1 same inputs → same key');
@@ -59,11 +59,11 @@ console.log('computeExtractionInputKey — determinism and sensitivity:');
 {
   /* 2. Different slot hash → different key */
   const k1 = computeExtractionInputKey({
-    slotHashes: { cf: HASH_A, rentRoll: null, asr: null },
+    slotHashes: { cf: HASH_A, rentRoll: null, asr: null, pca: null },
     extractorVersions: VERSIONS,
   });
   const k2 = computeExtractionInputKey({
-    slotHashes: { cf: HASH_B, rentRoll: null, asr: null },
+    slotHashes: { cf: HASH_B, rentRoll: null, asr: null, pca: null },
     extractorVersions: VERSIONS,
   });
   assert(k1 !== k2, '2.1 different cf slot hash → different key');
@@ -71,7 +71,7 @@ console.log('computeExtractionInputKey — determinism and sensitivity:');
 
 {
   /* 3. Different extractor version → different key */
-  const slots = { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C };
+  const slots = { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C, pca: null };
   const k1 = computeExtractionInputKey({
     slotHashes: slots,
     extractorVersions: { ...VERSIONS, asr: '0.2.0' },
@@ -86,11 +86,11 @@ console.log('computeExtractionInputKey — determinism and sensitivity:');
 {
   /* 4. Null slots distinguishable from present slots */
   const k1 = computeExtractionInputKey({
-    slotHashes: { cf: HASH_A, rentRoll: null, asr: null },
+    slotHashes: { cf: HASH_A, rentRoll: null, asr: null, pca: null },
     extractorVersions: VERSIONS,
   });
   const k2 = computeExtractionInputKey({
-    slotHashes: { cf: HASH_A, rentRoll: HASH_A, asr: null },
+    slotHashes: { cf: HASH_A, rentRoll: HASH_A, asr: null, pca: null },
     extractorVersions: VERSIONS,
   });
   assert(k1 !== k2, '4.1 adding a slot changes the key');
@@ -101,13 +101,13 @@ console.log('computeExtractionInputKey — determinism and sensitivity:');
         ordering. Two args with the same logical content but different JS
         object construction should produce the same key. */
   const args1: Parameters<typeof computeExtractionInputKey>[0] = {
-    slotHashes: { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C },
+    slotHashes: { cf: HASH_A, rentRoll: HASH_B, asr: HASH_C, pca: null },
     extractorVersions: { cf: '0.1.0', rentRoll: '0.1.0', asr: '0.2.0', engine: EXTRACTION_ENGINE_VERSION },
   };
   // Different insertion order, same logical content
   const args2: Parameters<typeof computeExtractionInputKey>[0] = {
     extractorVersions: { engine: EXTRACTION_ENGINE_VERSION, asr: '0.2.0', rentRoll: '0.1.0', cf: '0.1.0' },
-    slotHashes: { asr: HASH_C, cf: HASH_A, rentRoll: HASH_B },
+    slotHashes: { asr: HASH_C, cf: HASH_A, rentRoll: HASH_B, pca: null },
   };
   const k1 = computeExtractionInputKey(args1);
   const k2 = computeExtractionInputKey(args2);
@@ -137,7 +137,7 @@ console.log('\nrecord-graph-store — extraction_input_cache ops:');
 
   /* 6. Insert + get round-trip */
   const cacheKey = computeExtractionInputKey({
-    slotHashes: { cf: HASH_A, rentRoll: null, asr: null },
+    slotHashes: { cf: HASH_A, rentRoll: null, asr: null, pca: null },
     extractorVersions: VERSIONS,
   });
   const r1 = store.insertExtractionInputCache({

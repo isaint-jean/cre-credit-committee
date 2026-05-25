@@ -111,7 +111,10 @@ function makeFullExtraction(asOf: string = AS_OF): ExtractionResult {
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
     pca: {
-      immediateRepairs: 50_000, nearTermRepairs: 150_000,
+      immediateRepairs: 50_000, shortTermRepairs: 150_000,
+      evaluationPeriodYears: null, inflationRate: null,
+      replacementReservesPerSfPerYearInflated: null, replacementReservesPerSfPerYearUninflated: null,
+      capexScheduleInflated: null, capexScheduleUninflated: null,
       structural: { roof: 'fair', hvac: 'good', plumbing: 'good', electrical: 'good' },
     },
     appraisal: { valueConclusion: 16_500_000, capRate: 0.06, methodology: 'Income' },
@@ -305,6 +308,9 @@ console.log('\nConservatism gate (direct invocation):');
       monthlyTenantImprovements: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       monthlyLeasingCommissions: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       pcaImmediateRepairs: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      upfrontReplacementReserves: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      capexScheduleInflated: null,
+      capexScheduleUninflated: null,
     },
     loan: {
       loanAmount: { raw: 1, adjusted: 1, source: 'BANK', adjustments: [] },

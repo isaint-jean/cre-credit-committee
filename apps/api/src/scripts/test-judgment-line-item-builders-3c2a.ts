@@ -69,7 +69,7 @@ function makeExtraction(o: Partial<ExtractionResult> = {}): ExtractionResult {
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.3',
+    extractionEngineVersion: '1.4',
     dealRef: 'TEST', rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
@@ -371,7 +371,7 @@ console.log('\nbuildUpfrontCapex:');
 {
   const r = buildUpfrontCapex({
     extraction: makeExtraction({
-      pca: { immediateRepairs: 50_000, nearTermRepairs: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
+      pca: { immediateRepairs: 50_000, shortTermRepairs: null, evaluationPeriodYears: null, inflationRate: null, replacementReservesPerSfPerYearInflated: null, replacementReservesPerSfPerYearUninflated: null, capexScheduleInflated: null, capexScheduleUninflated: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
     }),
     applicable: true,
   });
@@ -389,7 +389,7 @@ console.log('\nbuildPcaImmediateRepairs:');
 {
   const r = buildPcaImmediateRepairs({
     extraction: makeExtraction({
-      pca: { immediateRepairs: 75_000, nearTermRepairs: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
+      pca: { immediateRepairs: 75_000, shortTermRepairs: null, evaluationPeriodYears: null, inflationRate: null, replacementReservesPerSfPerYearInflated: null, replacementReservesPerSfPerYearUninflated: null, capexScheduleInflated: null, capexScheduleUninflated: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
     }),
     applicable: true,
   });

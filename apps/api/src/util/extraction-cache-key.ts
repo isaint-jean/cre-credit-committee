@@ -46,6 +46,7 @@ export interface ExtractionInputKeyArgs {
     readonly cf: ContentHash | null;
     readonly rentRoll: ContentHash | null;
     readonly asr: ContentHash | null;
+    readonly pca: ContentHash | null;
   };
   readonly extractorVersions: Record<string, string>;
 }

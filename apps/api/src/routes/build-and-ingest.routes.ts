@@ -105,6 +105,7 @@ import { computeExtractionInputKey } from '../util/extraction-cache-key.js';
 import { CF_ADAPTER_VERSION } from '../services/extraction/adapters/cf.adapter.js';
 import { RENT_ROLL_ADAPTER_VERSION } from '../services/extraction/adapters/rent-roll.adapter.js';
 import { ASR_ADAPTER_VERSION } from '../services/extraction/adapters/asr.adapter.js';
+import { PCA_ADAPTER_VERSION } from '../services/extraction/adapters/pca.adapter.js';
 import { upload } from '../middleware/upload.js';
 
 /* ------------------------------ multer config ----------------------------- */
@@ -117,6 +118,7 @@ const uploadBuildAndIngestFields = upload.fields([
   { name: 'asr', maxCount: 1 },
   { name: 'rent_roll', maxCount: 1 },
   { name: 'seller_cf', maxCount: 1 },
+  { name: 'pca', maxCount: 1 },
 ]);
 
 /* --------------------------------- deps ---------------------------------- */
@@ -152,6 +154,7 @@ export const DEFAULT_BUILD_AND_INGEST_DEPS: BuildAndIngestDeps = {
     cf: CF_ADAPTER_VERSION,
     rentRoll: RENT_ROLL_ADAPTER_VERSION,
     asr: ASR_ADAPTER_VERSION,
+    pca: PCA_ADAPTER_VERSION,
     engine: EXTRACTION_ENGINE_VERSION,
   },
 };
@@ -306,10 +309,12 @@ export function makeBuildAndIngestHandler(
     const asr = takeFile(files, 'asr');
     const rr = takeFile(files, 'rent_roll');
     const cf = takeFile(files, 'seller_cf');
+    const pca = takeFile(files, 'pca');
     const slots: InputSlots = {
       ...(asr !== undefined ? { asrPdf: asr } : {}),
       ...(rr !== undefined ? { rentRollXlsx: rr } : {}),
       ...(cf !== undefined ? { sellerCfXlsx: cf } : {}),
+      ...(pca !== undefined ? { pcaPdf: pca } : {}),
     };
 
     /* Tier B short-circuit (issue #10 / ADR §6). Before invoking the composer:
@@ -325,6 +330,7 @@ export function makeBuildAndIngestHandler(
       cf: cf ? computeBufferContentHash(cf.buffer) : null,
       rentRoll: rr ? computeBufferContentHash(rr.buffer) : null,
       asr: asr ? computeBufferContentHash(asr.buffer) : null,
+      pca: pca ? computeBufferContentHash(pca.buffer) : null,
     };
     const cacheKey = computeExtractionInputKey({
       slotHashes,
@@ -345,7 +351,7 @@ export function makeBuildAndIngestHandler(
           propertyMetadata: cachedPM,
           report: synthesizeBuildReport({
             extractionEngineVersion: cachedExtraction.extractionEngineVersion,
-            slotPresent: { cf: cf !== undefined, rentRoll: rr !== undefined, asr: asr !== undefined },
+            slotPresent: { cf: cf !== undefined, rentRoll: rr !== undefined, asr: asr !== undefined, pca: pca !== undefined },
             extractorVersions: deps.extractorVersions,
           }),
         };
@@ -363,6 +369,7 @@ export function makeBuildAndIngestHandler(
         if (cf)  await deps.blobStore.putBlob(cf.buffer);
         if (rr)  await deps.blobStore.putBlob(rr.buffer);
         if (asr) await deps.blobStore.putBlob(asr.buffer);
+        if (pca) await deps.blobStore.putBlob(pca.buffer);
       } catch (e) {
         if (e instanceof BlobStoreError) {
           res.status(500).json({
@@ -534,13 +541,14 @@ export const buildAndIngestRoutes: Router = createBuildAndIngestRoutes();
  *  accordingly. */
 function synthesizeBuildReport(args: {
   readonly extractionEngineVersion: ExtractionEngineVersion;
-  readonly slotPresent: { cf: boolean; rentRoll: boolean; asr: boolean };
+  readonly slotPresent: { cf: boolean; rentRoll: boolean; asr: boolean; pca: boolean };
   readonly extractorVersions: Record<string, string>;
 }): BuildReport {
   const nowISO = new Date().toISOString() as ISODateTime;
   const cfVersion = args.extractorVersions.cf ?? '?';
   const rrVersion = args.extractorVersions.rentRoll ?? '?';
   const asrVersion = args.extractorVersions.asr ?? '?';
+  const pcaVersion = args.extractorVersions.pca ?? '?';
 
   const okSlot = (adapterVersion: string): SlotReport => ({
     status: 'ok',
@@ -557,6 +565,7 @@ function synthesizeBuildReport(args: {
       sellerCfXlsx: args.slotPresent.cf ? okSlot(cfVersion) : absent,
       rentRollXlsx: args.slotPresent.rentRoll ? okSlot(rrVersion) : absent,
       asrPdf: args.slotPresent.asr ? okSlot(asrVersion) : absent,
+      pcaPdf: args.slotPresent.pca ? okSlot(pcaVersion) : absent,
     },
   };
 }

@@ -111,7 +111,13 @@ function makeFullExtractionBody() {
 
     pca: {
       immediateRepairs: 50_000,
-      nearTermRepairs:  150_000,
+      shortTermRepairs:  150_000,
+      evaluationPeriodYears: null,
+      inflationRate: null,
+      replacementReservesPerSfPerYearInflated: null,
+      replacementReservesPerSfPerYearUninflated: null,
+      capexScheduleInflated: null,
+      capexScheduleUninflated: null,
       structural: {
         roof:       'fair, life remaining 5-7 years',
         hvac:       'good',

@@ -32,4 +32,8 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // (JE_REPLACEMENT_RESERVES_DEFAULTED, JE_TENANT_IMPROVEMENTS_DEFAULTED,
   // JE_LEASING_COMMISSIONS_DEFAULTED) covering the new below-NOI projection builders.
   '1.1': '8b1289e7c3f07dfa8a78afbec3d80507f9c2d2fe65129acdd6c81242d3e06f67' as ContentHash,
+  // PCA producer ticket — Phase 1+2 ship (2026-05-25). One new rule
+  // (JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED) covering the buildUpfrontReplacementReserves
+  // MANUAL-default path (fires when PCA capex schedule is null).
+  '1.2': 'a34151a7568cf30e31fab531ab3dd95af6b4190f6609ce7fb124fc44c6144bf5' as ContentHash,
 };

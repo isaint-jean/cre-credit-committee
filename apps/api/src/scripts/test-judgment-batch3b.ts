@@ -67,7 +67,7 @@ function makeAdjustedInputs(overrides: { vacancyPct?: number; dscr?: number | nu
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    judgmentEngineVersion: '1.1',
+    judgmentEngineVersion: '1.2',
     librarySnapshotId: 'b'.repeat(64) as never,
     income: {
       grossRentalIncome: lineItem(10_000_000),
@@ -89,6 +89,9 @@ function makeAdjustedInputs(overrides: { vacancyPct?: number; dscr?: number | nu
       monthlyCapex: lineItem(0), monthlyTiLc: lineItem(0),
       monthlyReplacementReserves: lineItem(0), monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
       pcaImmediateRepairs: lineItem(0),
+      upfrontReplacementReserves: lineItem(0),
+      capexScheduleInflated: null,
+      capexScheduleUninflated: null,
     },
     loan: {
       loanAmount: lineItem(50_000_000), interestRate: lineItem(0.07),
@@ -119,7 +122,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
   const base: ExtractionResult = {
     id: 'c'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.3',
+    extractionEngineVersion: '1.4',
     dealRef: 'TEST-1',
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,

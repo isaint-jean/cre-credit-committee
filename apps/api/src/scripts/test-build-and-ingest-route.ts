@@ -138,6 +138,7 @@ function makeBuildReport(): BuildReport {
       sellerCfXlsx: { status: 'absent' },
       rentRollXlsx: { status: 'absent' },
       asrPdf: { status: 'absent' },
+      pcaPdf: { status: 'absent' },
     },
   };
 }
@@ -249,6 +250,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
             sellerCfXlsx: { status: 'ok', durationMs: 5, adapterVersion: '0.1.0' },
             rentRollXlsx: { status: 'ok', durationMs: 3, adapterVersion: '0.1.0' },
             asrPdf: { status: 'ok', durationMs: 10, adapterVersion: '0.1.0' },
+            pcaPdf: { status: 'ok', durationMs: 12, adapterVersion: '1.0' },
           },
         },
       },

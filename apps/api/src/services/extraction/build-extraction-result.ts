@@ -81,6 +81,7 @@ import { computeExtractionResultId } from '../../util/content-hash.js';
 import { runCfAdapter } from './adapters/cf.adapter.js';
 import { runRentRollAdapter } from './adapters/rent-roll.adapter.js';
 import { runAsrAdapter } from './adapters/asr.adapter.js';
+import { runPcaAdapter } from './adapters/pca.adapter.js';
 import type {
   ExtractorOutcome,
   ExtractionSlot,
@@ -138,12 +139,14 @@ export interface BuildExtractionResultDeps {
   readonly runCfAdapter: typeof runCfAdapter;
   readonly runRentRollAdapter: typeof runRentRollAdapter;
   readonly runAsrAdapter: typeof runAsrAdapter;
+  readonly runPcaAdapter: typeof runPcaAdapter;
 }
 
 export const DEFAULT_COMPOSER_DEPS: BuildExtractionResultDeps = {
   runCfAdapter,
   runRentRollAdapter,
   runAsrAdapter,
+  runPcaAdapter,
 };
 
 /* ------------------------------- internal --------------------------------- */
@@ -281,18 +284,23 @@ export async function buildExtractionResult(
   const asrP = args.slots.asrPdf
     ? deps.runAsrAdapter(args.slots.asrPdf)
     : Promise.resolve(null);
+  const pcaP = args.slots.pcaPdf
+    ? deps.runPcaAdapter(args.slots.pcaPdf)
+    : Promise.resolve(null);
 
-  const [cfSettled, rrSettled, asrSettled] = await Promise.allSettled([cfP, rrP, asrP]);
+  const [cfSettled, rrSettled, asrSettled, pcaSettled] = await Promise.allSettled([cfP, rrP, asrP, pcaP]);
 
   const cfOutcome = unwrapAdapterSettled(cfSettled);
   const rrOutcome = unwrapAdapterSettled(rrSettled);
   const asrOutcome = unwrapAdapterSettled(asrSettled);
+  const pcaOutcome = unwrapAdapterSettled(pcaSettled);
 
   /* Per-slot reports for the BuildReport. */
   const slotReports: Record<ExtractionSlot, SlotReport> = {
     sellerCfXlsx: toSlotReport(cfOutcome),
     rentRollXlsx: toSlotReport(rrOutcome),
     asrPdf: toSlotReport(asrOutcome),
+    pcaPdf: toSlotReport(pcaOutcome),
   };
 
   /* Project adapter outputs into ExtractionResult-shaped fields. Explicit
@@ -306,6 +314,11 @@ export async function buildExtractionResult(
   const asr = asrOk === null ? null : asrOk.asr;
   const propertyMetadata = asrOk === null ? null : asrOk.propertyMetadata;
   const asrRentRollFallback = asrOk === null ? null : asrOk.rentRollFallback;
+
+  /* PCA: single-value outcome (PCAExtraction | null). Adapter returns
+     'empty' when extractPca returns null (both AI calls produced no data),
+     'failed' when extractPca threw, 'ok' with the value otherwise. */
+  const pca = pcaOutcome !== null && pcaOutcome.status === 'ok' ? pcaOutcome.value : null;
 
   /* Rent-roll precedence: XLSX wins when ok-with-units; AI fallback fills
      in otherwise. Truth table in pick-rent-roll.ts. The returned `source`
@@ -321,6 +334,7 @@ export async function buildExtractionResult(
   if (cfOutcome !== null) sourceDocuments.push(...cfOutcome.sourceRefs);
   if (rrOutcome !== null) sourceDocuments.push(...rrOutcome.sourceRefs);
   if (asrOutcome !== null) sourceDocuments.push(...asrOutcome.sourceRefs);
+  if (pcaOutcome !== null) sourceDocuments.push(...pcaOutcome.sourceRefs);
 
   /* loanTerms projection — caller-provided via args (Ticket K #7). Treat
      undefined and null as "absent" (composer projects null). When present,
@@ -371,6 +385,9 @@ export async function buildExtractionResult(
   if (asrOutcome !== null && asrOutcome.status === 'ok' && asr !== null) {
     extractorVersions.asr = asrOutcome.adapterVersion;
   }
+  if (pcaOutcome !== null && pcaOutcome.status === 'ok' && pca !== null) {
+    extractorVersions.pca = pcaOutcome.adapterVersion;
+  }
 
   /* D.3 (extraction engine v1.2): back-fill sellerUw from
      sellerUwOperatingStatement. Returns null when the operating-statement
@@ -384,15 +401,17 @@ export async function buildExtractionResult(
   }
 
   /* Build the body (everything except id). Fields with no producer in the
-     current spine stay null — pca, appraisal. Their producers land in
-     later batches. sellerUw IS produced as of v1.2 (see derivation above). */
+     current spine stay null — appraisal. sellerUw IS produced as of v1.2
+     (derivation above). pca IS produced as of v1.4 (PCA producer ticket
+     Phase 1+2) — `pca` may be null when no PCA was uploaded or both AI
+     calls failed; otherwise carries the PCAExtraction value. */
   const body = {
     analysisAsOfDate: args.analysisAsOfDate,
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef: args.dealRef,
     rentRoll,
     t12,
-    pca: null,
+    pca,
     appraisal: null,
     sellerUw,
     sellerUwOperatingStatement,

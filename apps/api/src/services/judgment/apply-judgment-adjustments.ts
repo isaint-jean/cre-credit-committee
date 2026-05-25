@@ -37,6 +37,8 @@ import { computeAdjustedInputsId } from '../../util/content-hash.js';
 
 import {
   buildAmortizationMonths,
+  buildCapexScheduleInflated,
+  buildCapexScheduleUninflated,
   buildCapRate,
   buildConcessionsPct,
   buildDebtServiceAnnual,
@@ -67,6 +69,7 @@ import {
   buildTerminalCapRate,
   buildTotalOperatingExpenses,
   buildUpfrontCapex,
+  buildUpfrontReplacementReserves,
   buildUpfrontTiLc,
   buildUtilities,
   buildVacancyPct,
@@ -241,12 +244,15 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     extraction,
     applicable: upfrontCapexApplies(extraction),
   });
+  const upfrontReplacementReserves = buildUpfrontReplacementReserves({ extraction });
   const tilcArgs = { profile: assetProfile, extraction, termMonths: termMonths.adjusted };
   const upfrontTiLc = buildUpfrontTiLc({ applicable: upfrontTiLcApplies(tilcArgs) });
   const monthlyReplacementReserves = buildMonthlyReplacementReserves({ extraction });
   const monthlyTenantImprovements = buildMonthlyTenantImprovements({ extraction });
   const monthlyLeasingCommissions = buildMonthlyLeasingCommissions({ extraction });
   const monthlyTiLc = deriveMonthlyTiLc(monthlyTenantImprovements, monthlyLeasingCommissions);
+  const capexScheduleInflated = buildCapexScheduleInflated({ extraction });
+  const capexScheduleUninflated = buildCapexScheduleUninflated({ extraction });
   const pcaImmediateRepairs = buildPcaImmediateRepairs({
     extraction,
     applicable: pcaImmediateRepairsApplies(extraction),
@@ -340,6 +346,7 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     },
     capitalReserves: {
       upfrontCapex,
+      upfrontReplacementReserves,
       upfrontTiLc,
       monthlyCapex,
       monthlyTiLc,
@@ -347,6 +354,8 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       monthlyTenantImprovements,
       monthlyLeasingCommissions,
       pcaImmediateRepairs,
+      capexScheduleInflated,
+      capexScheduleUninflated,
     },
     loan: {
       loanAmount,

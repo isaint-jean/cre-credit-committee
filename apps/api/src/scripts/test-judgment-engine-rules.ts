@@ -38,7 +38,9 @@ console.log('Registry shape:');
   // = 32 (v1.0).
   // + 3 below-NOI projection defaults (C.2: replacement reserves, TI, LC)
   // = 35 (v1.1).
-  assertEqual(rules.length, 35, 'v1.1 registry has 35 rules');
+  // + 1 PCA upfront replacement reserves default (PCA producer ticket Phase 1+2)
+  // = 36 (v1.2).
+  assertEqual(rules.length, 36, 'v1.2 registry has 36 rules');
   for (const r of rules) {
     assert(r.startsWith('JE_'), `rule '${r}' uses JE_ prefix`);
   }

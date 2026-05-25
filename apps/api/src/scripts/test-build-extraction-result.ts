@@ -22,6 +22,7 @@ import type {
   ContentHash,
   ISODateTime,
   OperatingStatementExtraction,
+  PCAExtraction,
   PropertyMetadata,
   RentRollExtraction,
   RentRollUnit,
@@ -198,6 +199,7 @@ interface DepBehaviorMap {
   cf?: ExtractorOutcome<CfAdapterValue> | 'throw';
   rr?: ExtractorOutcome<RentRollExtraction> | 'throw';
   asr?: ExtractorOutcome<AsrAdapterValue> | 'throw';
+  pca?: ExtractorOutcome<PCAExtraction | null> | 'throw';
 }
 
 function makeDeps(b: DepBehaviorMap = {}): BuildExtractionResultDeps {
@@ -216,6 +218,11 @@ function makeDeps(b: DepBehaviorMap = {}): BuildExtractionResultDeps {
       if (b.asr === 'throw') throw new Error('ASR adapter unexpected throw');
       if (b.asr === undefined) throw new Error('ASR adapter called but no behavior set');
       return b.asr;
+    },
+    runPcaAdapter: async (_slot: SlotInput) => {
+      if (b.pca === 'throw') throw new Error('PCA adapter unexpected throw');
+      if (b.pca === undefined) throw new Error('PCA adapter called but no behavior set');
+      return b.pca;
     },
   };
 }
@@ -255,7 +262,9 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.extractionResult.rentRoll?.units[0]?.unitId ?? null, '100', '1.9 rentRoll first unitId from xlsx (not fallback)');
     assert(o.propertyMetadata !== null, '1.10 propertyMetadata sibling populated');
     assertEqual(o.extractionResult.sourceDocuments.length, 6, '1.11 sourceDocuments has 6 refs (2 cf + 1 rr + 3 asr)');
-    assertEqual(incompleteSlots(o.report).length, 0, '1.12 no incomplete slots');
+    // Test scenario supplies cf+rr+asr but not pca; pcaPdf is absent → one incomplete slot.
+    // Pre-PCA-producer-ticket version asserted 0; post-widening pcaPdf-absent contributes 1.
+    assertEqual(incompleteSlots(o.report).join(','), 'pcaPdf', '1.12 only pcaPdf incomplete (cf+rr+asr ok, pca absent)');
   }
 
   /* CASE 2 — only asrPdf provided; other slots absent */
@@ -276,7 +285,8 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.propertyMetadata !== null, true, '2.7 propertyMetadata populated');
     assertEqual(o.extractionResult.sourceDocuments.length, 2, '2.8 sourceDocuments has 2 refs (pm + rent_roll from ASR)');
     const inc = [...incompleteSlots(o.report)].sort();
-    assertEqual(inc.length, 2, '2.9 two incomplete slots (cf + rr both absent)');
+    // cf + rr + pca all absent in this scenario (asr supplied) → 3 incomplete after PCA producer ticket widening.
+    assertEqual(inc.length, 3, '2.9 three incomplete slots (cf + rr + pca all absent)');
   }
 
   /* CASE 3 — xlsx empty, asr fallback non-null → fallback wins */
@@ -294,10 +304,11 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assert(o.extractionResult.rentRoll !== null, '3.3 rentRoll filled (from fallback)');
     assertEqual(o.extractionResult.rentRoll?.units.length ?? -1, 2, '3.4 rentRoll has 2 units from fallback');
     assertEqual(o.extractionResult.rentRoll?.units[0]?.unitId ?? null, 'A', '3.5 rentRoll unit id from fallback (not xlsx)');
-    // Empty xlsx is "acceptable" per loose-A; only the absent cf slot is incomplete here
-    const inc = incompleteSlots(o.report);
-    assertEqual(inc.length, 1, '3.6 one incomplete (cf absent only; rr empty is acceptable)');
-    assertEqual(inc[0], 'sellerCfXlsx', '3.7 incomplete is sellerCfXlsx');
+    // Empty xlsx is "acceptable" per loose-A; cf absent + pca absent → 2 incomplete after PCA producer ticket widening.
+    const inc = [...incompleteSlots(o.report)].sort();
+    assertEqual(inc.length, 2, '3.6 two incomplete (cf absent + pca absent; rr empty is acceptable)');
+    assertEqual(inc[0], 'pcaPdf', '3.7 incomplete includes pcaPdf');
+    assertEqual(inc[1], 'sellerCfXlsx', '3.8 incomplete includes sellerCfXlsx');
   }
 
   /* CASE 4 — adapter unexpectedly throws → 'failed' with name 'adapterThrew' */
@@ -320,7 +331,8 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.extractionResult.sellerUwOperatingStatement, null, '4.5 sellerUwOS null');
     // Other slots still produce their outputs
     assert(o.extractionResult.rentRoll !== null, '4.6 rr unaffected by CF throw');
-    assertEqual(incompleteSlots(o.report).join(','), 'sellerCfXlsx', '4.7 only cf in incompleteSlots');
+    // cf failed + pca absent → both incomplete after PCA producer ticket widening.
+    assertEqual(incompleteSlots(o.report).join(','), 'sellerCfXlsx,pcaPdf', '4.7 cf + pca in incompleteSlots');
   }
 
   /* CASE 5 — sourceDocuments aggregation across slots */
@@ -359,7 +371,7 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.extractionResult.rentRoll, null, '7.3 rentRoll null');
     assertEqual(o.extractionResult.asr, null, '7.4 asr null');
     assertEqual(o.extractionResult.sourceDocuments.length, 0, '7.5 sourceDocuments empty');
-    assertEqual(incompleteSlots(o.report).length, 3, '7.6 all three slots incomplete (absent)');
+    assertEqual(incompleteSlots(o.report).length, 4, '7.6 all four slots incomplete (absent)');
   }
 
   /* CASE 8 — pickRentRoll integration when xlsx has units AND fallback present → xlsx wins */

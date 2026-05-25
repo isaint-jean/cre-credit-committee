@@ -36,7 +36,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
   return {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.3',
+    extractionEngineVersion: '1.4',
     dealRef: 'TEST', rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
@@ -69,10 +69,10 @@ assertEqual(ioPeriodApplies(makeExtraction({
 console.log('\nupfrontCapexApplies (PCA-driven):');
 assertEqual(upfrontCapexApplies(makeExtraction()), false, 'no PCA → false');
 assertEqual(upfrontCapexApplies(makeExtraction({
-  pca: { immediateRepairs: 0, nearTermRepairs: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
+  pca: { immediateRepairs: 0, shortTermRepairs: null, evaluationPeriodYears: null, inflationRate: null, replacementReservesPerSfPerYearInflated: null, replacementReservesPerSfPerYearUninflated: null, capexScheduleInflated: null, capexScheduleUninflated: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
 })), false, 'pca but immediateRepairs=0 → false');
 assertEqual(upfrontCapexApplies(makeExtraction({
-  pca: { immediateRepairs: 50_000, nearTermRepairs: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
+  pca: { immediateRepairs: 50_000, shortTermRepairs: null, evaluationPeriodYears: null, inflationRate: null, replacementReservesPerSfPerYearInflated: null, replacementReservesPerSfPerYearUninflated: null, capexScheduleInflated: null, capexScheduleUninflated: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
 })), true, 'immediateRepairs > 0 → true');
 
 console.log('\nmonthlyCapexApplies (term-driven):');
@@ -83,7 +83,7 @@ assertEqual(monthlyCapexApplies(null), false, 'null term → false');
 console.log('\npcaImmediateRepairsApplies:');
 assertEqual(pcaImmediateRepairsApplies(makeExtraction()), false, 'no PCA → false');
 assertEqual(pcaImmediateRepairsApplies(makeExtraction({
-  pca: { immediateRepairs: null, nearTermRepairs: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
+  pca: { immediateRepairs: null, shortTermRepairs: null, evaluationPeriodYears: null, inflationRate: null, replacementReservesPerSfPerYearInflated: null, replacementReservesPerSfPerYearUninflated: null, capexScheduleInflated: null, capexScheduleUninflated: null, structural: { roof: null, hvac: null, plumbing: null, electrical: null } },
 })), true, 'PCA present (even with null repairs) → true');
 
 console.log('\nupfrontTiLcApplies (rollover-driven):');

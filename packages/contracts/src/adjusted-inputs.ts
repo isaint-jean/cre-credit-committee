@@ -85,7 +85,33 @@ export interface AdjustedExpenses {
 }
 
 export interface AdjustedCapitalReserves {
+  /**
+   * Closing-time reserve sized against the PCA's IMMEDIATE REPAIRS line items
+   * (Table 1). Doctrine's `scoreCapitalization` reads this directly via
+   * `scorePcaCoverage(pcaImmediateRepairs.raw, upfrontCapex.adjusted)` — the
+   * ratio scores whether the bank's closing reserve adequately covers the
+   * PCA-identified immediate repair cost. Source: 'PCA' (from
+   * `extraction.pca.immediateRepairs`). Conceptually paired with
+   * `upfrontReplacementReserves` below — the two carry DIFFERENT semantics
+   * and MUST NOT be conflated (per Step 5 design recon: rewiring
+   * upfrontCapex to a long-term-capex source would silently break
+   * scorePcaCoverage's risk detection).
+   */
   readonly upfrontCapex: AdjustedLineItem;
+
+  /**
+   * Closing-time reserve for LONG-TERM replacement capex over the PCA's
+   * evaluation period (Table 2). Distinct concept from `upfrontCapex` above
+   * (which is sized for immediate-repair coverage). Maps to the populator's
+   * cell E49 "Replacement Reserves — Up Front". Source: 'PCA' (derived as
+   * `sum(extraction.pca.capexScheduleInflated)` when present); 'MANUAL' with
+   * `JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED` emission otherwise. Doctrine
+   * does NOT currently consume this field; it exists for populator wiring +
+   * future asset-class doctrine that may want a long-term-reserve coverage
+   * check.
+   */
+  readonly upfrontReplacementReserves: AdjustedLineItem;
+
   readonly upfrontTiLc: AdjustedLineItem;
   readonly monthlyCapex: AdjustedLineItem;
   /**
@@ -114,6 +140,48 @@ export interface AdjustedCapitalReserves {
    */
   readonly monthlyLeasingCommissions: AdjustedLineItem;
   readonly pcaImmediateRepairs: AdjustedLineItem;
+
+  /**
+   * Year-by-year capex schedule projected from `PCAExtraction.capexScheduleInflated`
+   * (PCA Phase 2 widening, scoped in v8 §14.1). One entry per year of the PCA's
+   * evaluation period; years with no scheduled capex carry `amount: 0`.
+   *
+   * **SHAPE BREAK NOTE.** This field and `capexScheduleUninflated` are the
+   * FIRST non-`AdjustedLineItem` fields in `AdjustedCapitalReserves`. They are
+   * sibling-shape per-period arrays, not the uniform `{raw, adjusted, source,
+   * adjustments}` line-item shape every other field in this interface follows.
+   * The brief authorized this break in v8 §14.1 (the line-item shape doesn't
+   * compose over arrays-of-objects). Consumers iterating `AdjustedCapitalReserves`
+   * fields generically should dispatch on shape; no such generic iteration
+   * exists today in the codebase (verified during Step 1 mismatch sweep).
+   *
+   * Engine consumption: the field-bag assembler projects this to
+   * `bag['capex_projection']` as a length-N array of amounts (years stripped,
+   * year order preserved) for P-IV-RET-6's `sum_over_term` formula. Sourced
+   * from PCA at extraction time; null when no PCA has been ingested.
+   *
+   * KNOWN LIMITATION inherited from `PCAExtraction.capexScheduleInflated`: the
+   * AI-tier PCA extractor reliably captures the sum and the set of non-zero
+   * years, but year-by-year placement accuracy is ~50-60% (PDF text strips
+   * column positions). Sum-precise consumers work correctly; year-precise
+   * consumers should not rely on per-year accuracy. See PCAExtraction's JSDoc
+   * for the full discussion.
+   */
+  readonly capexScheduleInflated: ReadonlyArray<{
+    readonly year: number;
+    readonly amount: number;
+  }> | null;
+
+  /**
+   * Same schedule as `capexScheduleInflated` but in uninflated (year-0) dollars.
+   * Cross-source for the inflated schedule; not currently consumed by the
+   * handbook engine or any builder. Carried on AdjustedInputs for audit
+   * traceability — the underwriter can see both bases side-by-side.
+   */
+  readonly capexScheduleUninflated: ReadonlyArray<{
+    readonly year: number;
+    readonly amount: number;
+  }> | null;
 }
 
 export interface AdjustedLoan {

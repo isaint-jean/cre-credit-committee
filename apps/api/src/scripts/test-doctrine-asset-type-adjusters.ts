@@ -52,7 +52,7 @@ function makeProfile(t: AssetType): AssetProfile {
 
 function makeAdjustedInputs(opts: { dscr?: number | null; debtYield?: number | null } = {}): AdjustedInputs {
   const body = {
-    analysisAsOfDate: AS_OF, judgmentEngineVersion: '1.1' as const,
+    analysisAsOfDate: AS_OF, judgmentEngineVersion: '1.2' as const,
     librarySnapshotId: computeLibrarySnapshotId({ x: 1 }),
     income: {
       grossRentalIncome: lineItem(1_000_000), otherIncome: lineItem(0),
@@ -72,6 +72,9 @@ function makeAdjustedInputs(opts: { dscr?: number | null; debtYield?: number | n
       monthlyCapex: lineItem(0), monthlyTiLc: lineItem(0),
       monthlyReplacementReserves: lineItem(0), monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
       pcaImmediateRepairs: lineItem(0),
+      upfrontReplacementReserves: lineItem(0),
+      capexScheduleInflated: null,
+      capexScheduleUninflated: null,
     },
     loan: {
       loanAmount: lineItem(10_000_000), interestRate: lineItem(0.07),

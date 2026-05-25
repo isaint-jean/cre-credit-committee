@@ -8,7 +8,7 @@
  * conceptual names (e.g., `RENT_ROLL_MISSING` is a doctrine scoring rule; `JE_RENT_ROLL_MISSING`
  * is the corresponding judgment-engine adjustment rule that fires the confidence penalty).
  *
- * Frozen for `JUDGMENT_ENGINE_VERSION = '1.1'`. Adding a rule means adding a literal here AND
+ * Frozen for `JUDGMENT_ENGINE_VERSION = '1.2'`. Adding a rule means adding a literal here AND
  * appending an entry to `JUDGMENT_ENGINE_MANIFEST` for hash-drift protection. The naming +
  * literal-union enforcement gives compile-time discrimination across the adjustment ledger.
  */
@@ -88,6 +88,14 @@ export const JudgmentEngineRules = {
   JE_REPLACEMENT_RESERVES_DEFAULTED:                'JE_REPLACEMENT_RESERVES_DEFAULTED',
   JE_TENANT_IMPROVEMENTS_DEFAULTED:                 'JE_TENANT_IMPROVEMENTS_DEFAULTED',
   JE_LEASING_COMMISSIONS_DEFAULTED:                 'JE_LEASING_COMMISSIONS_DEFAULTED',
+
+  // PCA producer ticket — Phase 1+2 ship. Fires when buildUpfrontReplacementReserves
+  // synthesizes a 0 default because PCAExtraction.capexScheduleInflated is null
+  // (no PCA uploaded, or both PCA AI calls failed). Distinct from
+  // JE_REPLACEMENT_RESERVES_DEFAULTED (which fires on absent CF below-NOI line);
+  // this one fires on absent PCA capex schedule. Doctrine reads both flags via
+  // its data_confidence component.
+  JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED:        'JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED',
 } as const;
 
 export type JudgmentEngineRuleId = (typeof JudgmentEngineRules)[keyof typeof JudgmentEngineRules];

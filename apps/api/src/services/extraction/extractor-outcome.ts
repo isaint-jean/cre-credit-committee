@@ -16,7 +16,7 @@
 import type { SourceDocumentRef } from '@cre/contracts';
 
 /** Slot keys exposed by the composer. 1:1 with adapters under ./adapters/. */
-export const EXTRACTION_SLOTS = ['sellerCfXlsx', 'rentRollXlsx', 'asrPdf'] as const;
+export const EXTRACTION_SLOTS = ['sellerCfXlsx', 'rentRollXlsx', 'asrPdf', 'pcaPdf'] as const;
 export type ExtractionSlot = (typeof EXTRACTION_SLOTS)[number];
 
 /**
@@ -78,4 +78,5 @@ export interface InputSlots {
   readonly sellerCfXlsx?: SlotInput;
   readonly rentRollXlsx?: SlotInput;
   readonly asrPdf?: SlotInput;
+  readonly pcaPdf?: SlotInput;
 }

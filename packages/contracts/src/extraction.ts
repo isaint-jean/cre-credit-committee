@@ -107,11 +107,114 @@ export interface OperatingStatementExtraction {
 
 /* ------------------------------------ PCA ----------------------------------- */
 
+/**
+ * PCA (Property Condition Assessment) extraction. Source: ASTM E2018-style
+ * Property Condition Report PDF, prepared by an engineering firm for the lender.
+ *
+ * Phase 1+2 widening (#TBD, scoped against the Sunroad PCA fixture committed at
+ * 431102d, design captured in v8 §14.1 of docs/specs/uw-template-populator/SPEC.md):
+ * the shape carries Table 1 totals (immediate + short-term repair dollars),
+ * Table 2 metadata (evaluation period, inflation rate, per-SF-per-year reserves),
+ * Table 2 per-year capex schedules (inflated + uninflated), and the structural
+ * narratives. Decisions 2 (no annual reserves field — derive downstream), 4 (no
+ * structural-narrative widening), and 6 (no utility infrastructure field) are
+ * reasons the contract is NOT widened in directions one might initially expect.
+ */
 export interface PCAExtraction {
-  readonly immediateRepairs: number | null;       // dollars
-  readonly nearTermRepairs: number | null;        // dollars (year 1-5 typically)
+  /**
+   * Total dollars from Table 1's "Immediate Repair" column. Items that require
+   * action at closing — reserved up-front (cell E49 in the template).
+   */
+  readonly immediateRepairs: number | null;
+
+  /**
+   * Total dollars from Table 1's "Short-Term Cost" column. Items that should be
+   * addressed within ~2 years per ASTM E2018 — inform the year-1+ capex plan.
+   * RENAMED from `nearTermRepairs` (Decision 5 / Item 6a of the implementation
+   * recon — zero non-fixture consumers; clean rename eliminates the field-name
+   * ambiguity). The Short-Term Cost column is structurally present in standard
+   * PCA reports even when the total is $0 (Sunroad's case); return `null` only
+   * if the column is structurally absent.
+   */
+  readonly shortTermRepairs: number | null;
+
+  /**
+   * Evaluation period from Table 2's header (e.g., "12-Year Replacement Reserve
+   * Schedule"). Anchors the length of `capexScheduleInflated` / `capexScheduleUninflated`
+   * — extractor post-processing enforces `evaluationPeriodYears === array.length`
+   * by trusting the array and overriding the field when they disagree
+   * (Item 6c of the recon).
+   */
+  readonly evaluationPeriodYears: number | null;
+
+  /**
+   * Annual inflation rate applied to the uninflated schedule to produce the
+   * inflated schedule (e.g., 0.025 for 2.5%). Decimal fraction, NOT percent.
+   */
+  readonly inflationRate: number | null;
+
+  /**
+   * PCA-reported summary metric: average annual replacement reserve cost per
+   * square foot, inflated dollars. Used as a cross-check value against the
+   * primary derivation `sum(capexScheduleInflated) / evaluationPeriodYears`
+   * (Item 6b of the recon).
+   */
+  readonly replacementReservesPerSfPerYearInflated: number | null;
+
+  /**
+   * Same metric as above, in uninflated (year-0) dollars.
+   */
+  readonly replacementReservesPerSfPerYearUninflated: number | null;
+
+  /**
+   * Year-by-year capex schedule in inflated dollars. One entry per year of the
+   * evaluation period. Years with no scheduled capex emit
+   * `{year: N, amount: 0}` — do NOT omit zero-amount years (would silently
+   * misrepresent back-loaded capex profiles per v8 §10.4 Errata).
+   *
+   * Engine consumption: projected to the handbook field-bag as
+   * `bag['capex_projection']` (a length-N array of amounts) for P-IV-RET-6's
+   * `sum_over_term` formula.
+   *
+   * KNOWN LIMITATION (Phase 2 ship — empirically discovered in Step 2 of the
+   * PCA producer ticket): the AI-tier extractor reliably captures the
+   * schedule's total dollar amount AND the SET of non-zero values, but
+   * year-by-year placement accuracy is approximately 50-60% on the Sunroad
+   * Table 2. PDF text extraction strips column positions, leaving the AI
+   * without positional cues for which year column each dollar amount belongs
+   * to (three prompt iterations confirmed the ceiling). Year-precise
+   * consumers (template cells E35-M35, audit-trail surfaces, populator
+   * workbook display) MUST NOT rely on per-year accuracy. Sum-precise
+   * consumers (P-IV-RET-6's `sum_over_term`, G49 derivation via
+   * `sum / evaluationPeriodYears`) work correctly. A follow-up issue
+   * tracks an eventual extraction-approach improvement (deterministic PDF
+   * table parsing via pdfplumber / tabula / camelot is a candidate); not
+   * this ticket's scope.
+   */
+  readonly capexScheduleInflated: ReadonlyArray<{
+    readonly year: number;     // 1-indexed
+    readonly amount: number;   // dollars; 0 for years with no scheduled capex
+  }> | null;
+
+  /**
+   * Same schedule in uninflated (year-0) dollars. Cross-source for the
+   * inflated schedule; not consumed by the handbook engine directly.
+   */
+  readonly capexScheduleUninflated: ReadonlyArray<{
+    readonly year: number;
+    readonly amount: number;
+  }> | null;
+
+  /**
+   * Condition narratives for the four major building-system categories.
+   * 1-3 sentence summary of each system's condition + remaining useful life.
+   * LLM_CONTEXT consumers (P-IV-MF-4, P-IV-MHC-1) read these for credit
+   * narrative; no DET check reads them today. Decision 4: not widened to a
+   * structured rating + narrative split — flat strings serve the handbook
+   * principles adequately.
+   */
   readonly structural: {
-    readonly roof: string | null;                 // condition narrative
+    readonly roof: string | null;
     readonly hvac: string | null;
     readonly plumbing: string | null;
     readonly electrical: string | null;

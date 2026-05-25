@@ -6,11 +6,11 @@
  * This is the integration boundary between the api's deal-shaped data
  * and the engine's handbook-shaped contract. The handbook references
  * 31 distinct field paths (as of commit f981fec); this assembler
- * populates 14 of them with values pulled or derived from real data,
- * and leaves the remaining 17 undefined.
+ * populates 15 of them with values pulled or derived from real data,
+ * and leaves the remaining 16 undefined.
  *
- * Why 17 stay undefined:
- *   - 12 are "captured-in-documents but not typed-extracted" (category C
+ * Why 16 stay undefined:
+ *   - 11 are "captured-in-documents but not typed-extracted" (category C
  *     from the recon report). They'll populate when extraction tickets
  *     land — most of those are tracked in #35.
  *   - 4 are "not captured anywhere" (category D), inert by design.
@@ -122,14 +122,11 @@ export const INTENTIONALLY_UNDEFINED_FIELDS: ReadonlySet<string> = new Set([
   // Category C — captured in documents but not yet typed-extracted (ticket #35).
   // When extraction work lands, add real lookups here.
   'annual_room_revenue',
-  // capex_projection is read by P-IV-RET-6's cumulative-cash-flow formula but
-  // the AdjustedInputs contract carries only a single monthly capex rate, not
-  // a year-by-year capex schedule. Populating from the monthly rate alone
-  // would silently misrepresent year-1-heavy or back-loaded capex profiles
-  // as flat. Defer until a per-period capex schedule is extracted (#TBD,
-  // split from #35). The engine handles the missing field correctly —
-  // P-IV-RET-6's deterministic check skips with reason 'missing_field'.
-  'capex_projection',
+  // NOTE: capex_projection was moved to POPULATED_FIELDS by the PCA producer
+  // ticket (Phase 1+2 ship). The C.2 deferral rationale documented here is
+  // historical; the present implementation projects bag['capex_projection']
+  // from AdjustedCapitalReserves.capexScheduleInflated. See buildFieldBag
+  // below for the projection + the KNOWN LIMITATION on per-year accuracy.
   'cash_out_amount',
   'debt_service',             // per-period array; see ticket TBD
   'hotel_service_level',
@@ -153,12 +150,15 @@ export const INTENTIONALLY_UNDEFINED_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The 14 fields the v1 assembler actually populates with values pulled
+ * The 15 fields the v1 assembler actually populates with values pulled
  * or derived from real data. Sourced from the recon report's
  * classification of (A) direct + the three trivial (B) derivations.
  * Plus stressed_dscr_top_3_removed which is a named-scenario lookup,
- * and `reserves` which is a unit-converted projection from
- * AdjustedInputs.capitalReserves.monthlyReplacementReserves (C.2).
+ * `reserves` which is a unit-converted projection from
+ * AdjustedInputs.capitalReserves.monthlyReplacementReserves (C.2),
+ * and `capex_projection` which is a per-year array projection from
+ * AdjustedInputs.capitalReserves.capexScheduleInflated (PCA producer
+ * ticket Phase 1+2 — anchors P-IV-RET-6's sum_over_term array operand).
  *
  * NOTE: Exported for test introspection; not used by the assembler
  * itself at runtime. The set is implicit in `buildFieldBag` below.
@@ -166,6 +166,7 @@ export const INTENTIONALLY_UNDEFINED_FIELDS: ReadonlySet<string> = new Set([
 export const POPULATED_FIELDS: ReadonlySet<string> = new Set([
   // Direct projections (A)
   'asset_type',
+  'capex_projection',
   'debt_yield',
   'dscr',
   'loan_amount',
@@ -210,13 +211,53 @@ export function buildFieldBag(inputs: AssemblerInputs): FieldBag {
   bag['dscr'] = graph.adjustedInputs.metrics.dscr;
   bag['loan_amount'] = graph.adjustedInputs.loan.loanAmount.adjusted;
 
-  // reserves: annualized from the monthly replacement-reserve rate. P-IV-RET-6's
-  // cumulative-cash-flow formula reads this via sum_over_term, which broadcasts
-  // a scalar across the loan term (constant annual reserve assumption — matches
-  // the convention encoded in the contract, where capitalReserves carries a
-  // single monthly rate rather than a per-period schedule).
+  // reserves: scalar (annual dollars) projected from the monthly replacement
+  // reserve rate. Was initially documented as "broadcast across loan term";
+  // that framing was incorrect per the v8 §10.4 Errata investigation — the
+  // engine's `sum_over_term` does NOT auto-broadcast scalars by loan_term.
+  // What actually happens: `evaluateFormulaAsArray` lifts a scalar to a
+  // length-1 array, and any element-wise op against a real array operand
+  // broadcasts the length-1 entry to that array's length. So `bag['reserves']`
+  // only behaves as "constant annual rate across N years" when ANOTHER
+  // operand in the same op (now `capex_projection` from the PCA producer
+  // ticket) is a real length-N array. With both operands populated,
+  // P-IV-RET-6's `sum_over_term( noi_projection - (debt_service + reserves +
+  // capex_projection) )` would compute correctly — but `noi_projection` and
+  // `debt_service` remain INTENTIONALLY_UNDEFINED, so the deterministic
+  // check still skips with 'missing_field'. PCA work advances #43 from 3/4
+  // missing operands to 2/4.
   bag['reserves'] =
     graph.adjustedInputs.capitalReserves.monthlyReplacementReserves.adjusted * 12;
+
+  // capex_projection: per-year array (one entry per year of the PCA's
+  // evaluation period). PCA producer ticket Phase 1+2: projected from
+  // capitalReserves.capexScheduleInflated, stripping the {year, amount}
+  // objects down to just the amounts in year order. Defensive sort-by-year
+  // ensures positional correctness even if the underlying array order
+  // drifts (current builder is a pass-through that preserves AI output
+  // order; cheap insurance).
+  //
+  // KNOWN LIMITATION inherited from the PCA extractor: per-year amount
+  // placement is approximately 50-60% accurate on the Sunroad fixture
+  // (PDF text extraction loses column positions; see extract-pca.ts file
+  // header). The SUM of this array is reliable; year-by-year placements
+  // are not. P-IV-RET-6's sum_over_term reads the sum, so the formula
+  // tolerates the inaccuracy. Year-precise consumers (populator E35-M35,
+  // audit-trail displays) should not rely on per-year accuracy.
+  // `!= null` (loose) deliberately: contract guarantees the field is
+  // `ReadonlyArray<...> | null`, but test fixtures that cast through
+  // `as unknown as HydratedRecordGraph` may leave it `undefined` at runtime.
+  // Loose check covers both nullish cases without forcing a fixture sweep.
+  const capexSchedule = graph.adjustedInputs.capitalReserves.capexScheduleInflated;
+  if (capexSchedule != null) {
+    const sorted = [...capexSchedule].sort((a, b) => a.year - b.year);
+    bag['capex_projection'] = sorted.map((entry) => entry.amount);
+  } else {
+    // Set explicitly to undefined so bag keys match KNOWN_FIELDS (the
+    // assembler contract guarantees every known path appears as a key in
+    // the bag, with either a real value or `undefined`).
+    bag['capex_projection'] = undefined;
+  }
 
   // === Direct projection from AssetProfile ===
   // assetProfile.propertyType is the PascalCase enum the handbook uses
@@ -264,7 +305,7 @@ export function buildFieldBag(inputs: AssemblerInputs): FieldBag {
     asOfDate,
   );
 
-  // === Intentionally undefined (17 fields) ===
+  // === Intentionally undefined (16 fields) ===
   // We set them explicitly so the bag's key set equals KNOWN_FIELDS.
   // This is purely for human auditing: the engine treats undefined and
   // key-absent identically, but having all 31 keys present in the bag

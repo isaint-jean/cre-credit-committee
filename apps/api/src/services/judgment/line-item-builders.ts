@@ -614,6 +614,34 @@ export function buildUpfrontCapex(args: {
   });
 }
 
+/**
+ * Closing-time reserve for long-term replacement capex. Distinct from
+ * `buildUpfrontCapex` (which sizes against PCA immediate repairs for doctrine's
+ * scorePcaCoverage check). PCA producer ticket Phase 1+2: derived as
+ * `sum(extraction.pca.capexScheduleInflated)` when the PCA is present;
+ * defaults to 0 with `JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED` emission
+ * otherwise. Maps to populator cell E49 "Replacement Reserves — Up Front".
+ */
+export function buildUpfrontReplacementReserves(args: {
+  readonly extraction: ExtractionResult;
+}): AdjustedLineItem {
+  const schedule = args.extraction.pca?.capexScheduleInflated ?? null;
+  if (schedule === null) {
+    return {
+      raw: null,
+      adjusted: 0,
+      source: 'MANUAL',
+      adjustments: [{
+        ruleId: 'JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED',
+        delta: 0,
+        reason: 'PCA capex schedule absent; upfront replacement reserves defaulted to 0.',
+      }],
+    };
+  }
+  const total = schedule.reduce((sum, entry) => sum + entry.amount, 0);
+  return { raw: total, adjusted: total, source: 'PCA', adjustments: [] };
+}
+
 export function buildUpfrontTiLc(args: { readonly applicable: boolean }): AdjustedLineItem {
   // v1.0: zero if not applicable; full reserve sizing logic lives in v1.1.
   return buildNotApplicableLineItem();
@@ -779,6 +807,39 @@ export function buildPcaImmediateRepairs(args: {
   return raw !== null
     ? { raw, adjusted: raw, source: 'PCA', adjustments: [] }
     : buildNotApplicableLineItem();
+}
+
+/* ---------------------- PCA capex schedule projections ---------------------- */
+/**
+ * Pure pass-through projection of `extraction.pca.capexScheduleInflated`. Not
+ * an AdjustedLineItem — the shape is array-of-objects per v8 §14.1 Decision 1
+ * (sibling-shape on AdjustedCapitalReserves, authorized at Step 1 with explicit
+ * JSDoc on the shape break). No applicability arg; no MANUAL default; null when
+ * PCA absent. Engine consumption: field-bag assembler projects this to
+ * `bag['capex_projection']` as a length-N array of amounts for P-IV-RET-6's
+ * sum_over_term formula (Step 6 work).
+ *
+ * KNOWN LIMITATION: per-year placement accuracy is ~50-60% (see extract-pca.ts
+ * file header). Sum is reliable; year-by-year mapping is not. Sum-precise
+ * consumers (P-IV-RET-6, G49 downstream derivation per v8 §14.1 Decision 2)
+ * work correctly; year-precise consumers should not rely on per-year accuracy.
+ */
+export function buildCapexScheduleInflated(args: {
+  readonly extraction: ExtractionResult;
+}): ReadonlyArray<{ readonly year: number; readonly amount: number; }> | null {
+  return args.extraction.pca?.capexScheduleInflated ?? null;
+}
+
+/**
+ * Pure pass-through projection of `extraction.pca.capexScheduleUninflated`.
+ * Same shape + KNOWN LIMITATION as `buildCapexScheduleInflated`. Carried on
+ * AdjustedInputs for audit traceability; not currently consumed by the
+ * handbook engine or any builder.
+ */
+export function buildCapexScheduleUninflated(args: {
+  readonly extraction: ExtractionResult;
+}): ReadonlyArray<{ readonly year: number; readonly amount: number; }> | null {
+  return args.extraction.pca?.capexScheduleUninflated ?? null;
 }
 
 /* ---------------------------------- loan sub-fields ------------------------ */

@@ -78,7 +78,7 @@ function makeAdjustedInputs(opts: Partial<{
 }> = {}): AdjustedInputs {
   const body = {
     analysisAsOfDate: AS_OF,
-    judgmentEngineVersion: '1.1' as const,
+    judgmentEngineVersion: '1.2' as const,
     librarySnapshotId: opts.librarySnapshotId ?? computeLibrarySnapshotId({ x: 1 }),
     income: {
       grossRentalIncome: lineItem(1_000_000),
@@ -109,6 +109,9 @@ function makeAdjustedInputs(opts: Partial<{
       monthlyTenantImprovements: lineItem(0),
       monthlyLeasingCommissions: lineItem(0),
       pcaImmediateRepairs: lineItem(opts.pcaImmediate ?? 0, opts.pcaImmediate === undefined ? null : opts.pcaImmediate),
+      upfrontReplacementReserves: lineItem(0),
+      capexScheduleInflated: null,
+      capexScheduleUninflated: null,
     },
     loan: {
       loanAmount: lineItem(10_000_000),
@@ -537,7 +540,7 @@ console.log('\nPersistence round-trip:');
   // Build a real ExtractionResult fixture so the FK from doctrine_evaluations resolves
   const extBody = {
     analysisAsOfDate: AS_OF,
-    extractionEngineVersion: '1.3' as const,
+    extractionEngineVersion: '1.4' as const,
     dealRef: 'PERSIST-DEAL',
     rentRoll: null, t12: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
@@ -595,7 +598,7 @@ console.log('\nFK + version stamping:');
   assertEqual(r.stressOutputsId, args.stressOutputs.id, 'stressOutputsId FK');
   assertEqual(r.valuationConclusionId, args.valuationConclusion.id, 'valuationConclusionId FK');
   assertEqual(r.doctrineVersion, '1.0', 'doctrineVersion');
-  assertEqual(r.judgmentEngineVersion, '1.1', 'judgmentEngineVersion');
+  assertEqual(r.judgmentEngineVersion, '1.2', 'judgmentEngineVersion');
   assertEqual(r.stressEngineVersion, '1.0', 'stressEngineVersion');
   assertEqual(r.valuationEngineVersion, '1.0', 'valuationEngineVersion');
 }

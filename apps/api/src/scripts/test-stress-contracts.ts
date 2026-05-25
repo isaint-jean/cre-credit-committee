@@ -90,6 +90,9 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       monthlyCapex: lineItem(0), monthlyTiLc: lineItem(0),
       monthlyReplacementReserves: lineItem(0), monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
       pcaImmediateRepairs: lineItem(0),
+      upfrontReplacementReserves: lineItem(0),
+      capexScheduleInflated: null,
+      capexScheduleUninflated: null,
     },
     loan: {
       loanAmount: lineItem(50_000_000), interestRate: lineItem(0.07),
