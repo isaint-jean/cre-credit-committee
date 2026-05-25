@@ -1028,7 +1028,7 @@ The §14.1 entry establishes the format for this section. Future contract design
 - `b6323fb` (2026-06-03) — PCA capex-schedule year-alignment improvement (resolves #44; §§10.10-10.13, §11.4 v10 layered correction, §13.7 process learning).
 
 **Spec amendment commits (docs-only, no code shipped):**
-- `<V11-HASH>` (2026-06-04) — v11: §12 graduation from stub to workstream section; new §13.8 process learning (spec-stub-currency discipline); §9 item 4 prose rewritten; §9 item 2 + §11.0 v11 layered notes.
+- `5e056a7` (2026-06-04) — v11: §12 graduation from stub to workstream section; new §13.8 process learning (spec-stub-currency discipline); §9 item 4 prose rewritten; §9 item 2 + §11.0 v11 layered notes.
 
 **Canonical operational docs referenced (light-integration discipline per v11 Decision B):**
 - `docs/legacy-reduction-plan.md` (~440 lines, drafted post-6.8 + caching + observability + consumer-migration-v1) — canonical operational spec for §12 analysis page workstream. §12 carries spec-side framework (workstream framing + phase-level summary + decision points); per-capability operational detail (38-item capability inventory, coverage matrix, parity-corpus methodology) lives in this doc.
