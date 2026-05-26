@@ -148,6 +148,12 @@ function makeMinimalRendered(): RenderedAnalysis {
       maturityBalance: { name: 'maturityBalance', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
       debtServiceAnnual: { name: 'debtServiceAnnual', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
     },
+    assumptions: {
+      capRate: { name: 'capRate', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
+      terminalCapRate: { name: 'terminalCapRate', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
+      rentGrowthPct: { name: 'rentGrowthPct', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
+      expenseGrowthPct: { name: 'expenseGrowthPct', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
+    },
     stress: { method: 'DEFAULT', scenarios: [] },
     findings: [],
     metadata: { hashedAt: T0, renderVersion: RENDER_VERSION },

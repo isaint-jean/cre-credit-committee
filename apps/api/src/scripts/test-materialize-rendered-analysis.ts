@@ -334,6 +334,12 @@ console.log('\nFK enforcement: cannot insert RenderedAnalysis with non-existent 
       maturityBalance: emptyLine,
       debtServiceAnnual: emptyLine,
     },
+    assumptions: {
+      capRate: emptyLine,
+      terminalCapRate: emptyLine,
+      rentGrowthPct: emptyLine,
+      expenseGrowthPct: emptyLine,
+    },
     stress: { method: 'DEFAULT', scenarios: [] },
     findings: [],
     metadata: { hashedAt: AS_OF, renderVersion: RENDER_VERSION },

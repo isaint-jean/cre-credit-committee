@@ -41,6 +41,7 @@ import type {
   RenderBadge,
   RenderedAdjustment,
   RenderedAnalysis,
+  RenderedAssumptionsSection,
   RenderedComponentScore,
   RenderedFinding,
   RenderedLineItem,
@@ -160,6 +161,17 @@ export function renderUnderwritingContext(ctx: UnderwritingContext): RenderedAna
     debtServiceAnnual:  projectLineItem('debtServiceAnnual',  adjustedInputs.loan.debtServiceAnnual),
   };
 
+  // 7.3 #24 — assumptions projection. Named-field struct mirroring AdjustedInputs.assumptions.
+  // Bijective passthrough via projectLineItem. All 4 fields carry 0..1 decimal values.
+  // Backend-editable via POST /:id/revisions (assumptions.*.adjusted whitelisted in
+  // apply-revision-delta.ts); frontend edit affordances live in uw-edit-utils.ts.
+  const assumptions: RenderedAssumptionsSection = {
+    capRate:          projectLineItem('capRate',          adjustedInputs.assumptions.capRate),
+    terminalCapRate:  projectLineItem('terminalCapRate',  adjustedInputs.assumptions.terminalCapRate),
+    rentGrowthPct:    projectLineItem('rentGrowthPct',    adjustedInputs.assumptions.rentGrowthPct),
+    expenseGrowthPct: projectLineItem('expenseGrowthPct', adjustedInputs.assumptions.expenseGrowthPct),
+  };
+
   // 6.8 D09 — per-component score breakdown. Bijective passthrough of
   // DoctrineEvaluation.componentScores: numeric fields wrapped in RenderCell with
   // sentinel-applied displayValue, reason codes promoted to RenderBadge[]. No
@@ -240,6 +252,7 @@ export function renderUnderwritingContext(ctx: UnderwritingContext): RenderedAna
     incomeLines,
     expenseLines,
     loan,
+    assumptions,
     stress,
     findings,
 

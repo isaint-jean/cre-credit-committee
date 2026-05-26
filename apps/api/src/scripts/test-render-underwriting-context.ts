@@ -14,7 +14,7 @@
 //   - Determinism: two renders of same input -> byte-identical full output
 //   - rootId passthrough
 //   - metadata.hashedAt mirrors doctrine.analysisAsOfDate (no clock leak)
-//   - metadata.renderVersion === '7.2'
+//   - metadata.renderVersion === '7.3'
 //   - Schema exhaustiveness (test-suite version, per the v1 cut): every cell key
 //     in the output sources from a known UnderwritingContext path
 
@@ -204,8 +204,9 @@ console.log('\nSection-keyed shape (PJ1-style bijection check):');
 
   const topKeys = Object.keys(rendered).sort();
   const expected = [
-    'dataQuality', 'doctrine', 'expenseLines', 'findings', 'id', 'incomeLines',
-    'loan', 'metadata', 'metrics', 'rootId', 'stress', 'summary', 'valuation',
+    'assumptions', 'dataQuality', 'doctrine', 'expenseLines', 'findings', 'id',
+    'incomeLines', 'loan', 'metadata', 'metrics', 'rootId', 'stress', 'summary',
+    'valuation',
   ].sort();
   assertEqual(JSON.stringify(topKeys), JSON.stringify(expected), 'top-level keys match contract');
 
@@ -244,7 +245,7 @@ console.log('\nrootId + metadata passthrough (no clock leak, no random):');
   const store = new RecordGraphStore(':memory:');
   const { rootId, rendered } = endToEnd(store);
 
-  assertEqual(rendered.metadata.renderVersion, '7.2', 'metadata.renderVersion === "7.2"');
+  assertEqual(rendered.metadata.renderVersion, '7.3', 'metadata.renderVersion === "7.3"');
   assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'metadata matches RENDER_VERSION constant');
   assertEqual(rendered.metadata.hashedAt, AS_OF, 'metadata.hashedAt mirrors doctrine.analysisAsOfDate');
   assertEqual(rendered.rootId, rootId, 'rootId pass-through');
@@ -527,6 +528,40 @@ console.log('\nD21: loan section is a named-field struct (NOT array) - 7 explici
       'loan.' + e.name + ': adjusted.displayValue is string');
     assert(typeof li.source === 'string' && li.source.length > 0,
       'loan.' + e.name + ': source is non-empty');
+  }
+
+  store.close();
+}
+
+console.log('\n#24 (7.3): assumptions section projects AdjustedInputs.assumptions (4 named fields):');
+{
+  const store = new RecordGraphStore(':memory:');
+  const { rendered } = endToEnd(store);
+
+  // Bijection check on the assumptions section keys: exactly the 4 AdjustedAssumptions fields.
+  const assumptionsKeys = Object.keys(rendered.assumptions).sort();
+  const expectedAssumptionsKeys = [
+    'capRate', 'expenseGrowthPct', 'rentGrowthPct', 'terminalCapRate',
+  ].sort();
+  assertEqual(JSON.stringify(assumptionsKeys), JSON.stringify(expectedAssumptionsKeys),
+    'assumptions section has exactly the 4 AdjustedAssumptions fields');
+
+  // Each field is a RenderedLineItem with the correct .name and the producer's typed values.
+  const expectedAssumptionNames: ReadonlyArray<{ key: keyof typeof rendered.assumptions; name: string }> = [
+    { key: 'capRate', name: 'capRate' },
+    { key: 'terminalCapRate', name: 'terminalCapRate' },
+    { key: 'rentGrowthPct', name: 'rentGrowthPct' },
+    { key: 'expenseGrowthPct', name: 'expenseGrowthPct' },
+  ];
+  for (const e of expectedAssumptionNames) {
+    const li = rendered.assumptions[e.key];
+    assertEqual(li.name, e.name, 'assumptions.' + String(e.key) + '.name === ' + e.name);
+    assert(typeof li.raw.displayValue === 'string',
+      'assumptions.' + e.name + ': raw.displayValue is string');
+    assert(typeof li.adjusted.displayValue === 'string',
+      'assumptions.' + e.name + ': adjusted.displayValue is string');
+    assert(typeof li.source === 'string' && li.source.length > 0,
+      'assumptions.' + e.name + ': source is non-empty');
   }
 
   store.close();

@@ -397,7 +397,7 @@ function LineItemTable(
  *  back to display values for derived rollups and non-editable fields. */
 function EditableLineItemTable(
   { section, title, lines, editMode, pendingEdits, onFieldChange }: {
-    section: 'income' | 'expenses' | 'loan';
+    section: 'income' | 'expenses' | 'loan' | 'assumptions';
     title: string;
     lines: readonly RenderedLineItem[];
     editMode: boolean;
@@ -708,6 +708,24 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
           data.loan.ioPeriodMonths,
           data.loan.maturityBalance,
           data.loan.debtServiceAnnual,
+        ]}
+        editMode={editMode}
+        pendingEdits={pendingEdits}
+        onFieldChange={handleFieldChange}
+      />
+
+      {/* Assumptions section — render version 7.3 (#24). Named-field struct on data.assumptions
+        mirrors AdjustedInputs.assumptions; 4 fields × RenderedLineItem. All four paths are
+        editable (capRate / terminalCapRate / rentGrowthPct / expenseGrowthPct), all 0..1
+        decimal so they classify as 'percent' input type per uw-edit-utils.ts. */}
+      <EditableLineItemTable
+        section="assumptions"
+        title="Assumptions"
+        lines={[
+          data.assumptions.capRate,
+          data.assumptions.terminalCapRate,
+          data.assumptions.rentGrowthPct,
+          data.assumptions.expenseGrowthPct,
         ]}
         editMode={editMode}
         pendingEdits={pendingEdits}

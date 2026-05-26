@@ -6,13 +6,13 @@
 // logic lives here so RenderedAnalysisView stays focused on layout.
 
 /**
- * 16 v1-editable paths on the backend's `AdjustedInputs`. Mirrors the whitelist
+ * 20 editable paths on the backend's `AdjustedInputs`. Mirrors the whitelist
  * in `apps/api/src/services/apply-revision-delta.ts`. Kept in sync manually for
  * now; if either side widens the editable surface, both must update. (A future
  * follow-up could move this list into `@cre/contracts` as a shared constant.)
  *
- * Excluded from v1: `assumptions.*` paths (4) — not surfaced in RenderedAnalysis
- * today; tracked in issue #24.
+ * History: 16 paths shipped in 8.8 (income / expenses / loan); 4 assumptions
+ * paths added in render version 7.3 (#24).
  */
 export const EDITABLE_PATHS: readonly string[] = [
   'income.grossRentalIncome.adjusted',
@@ -31,6 +31,10 @@ export const EDITABLE_PATHS: readonly string[] = [
   'loan.termMonths.adjusted',
   'loan.amortizationMonths.adjusted',
   'loan.ioPeriodMonths.adjusted',
+  'assumptions.capRate.adjusted',
+  'assumptions.terminalCapRate.adjusted',
+  'assumptions.rentGrowthPct.adjusted',
+  'assumptions.expenseGrowthPct.adjusted',
 ];
 
 const EDITABLE_PATH_SET = new Set(EDITABLE_PATHS);
@@ -52,6 +56,10 @@ const PERCENT_PATHS = new Set<string>([
   'income.vacancyPct.adjusted',
   'income.concessionsPct.adjusted',
   'loan.interestRate.adjusted',
+  'assumptions.capRate.adjusted',
+  'assumptions.terminalCapRate.adjusted',
+  'assumptions.rentGrowthPct.adjusted',
+  'assumptions.expenseGrowthPct.adjusted',
 ]);
 const YEARS_PATHS = new Set<string>([
   'loan.termMonths.adjusted',
@@ -114,11 +122,14 @@ export function pathInputStep(path: string): number {
 
 /**
  * Construct the backend path for a line item rendered in a given section.
- * Both income and expenses sections render arrays of RenderedLineItem; each
- * item's `name` field matches the AdjustedInputs key. The loan section renders
- * a hand-assembled array from a named struct; its line.name also matches the
- * AdjustedInputs key. So the path is just `${section}.${line.name}.adjusted`.
+ * Income / expenses sections render arrays of RenderedLineItem; each item's
+ * `name` field matches the AdjustedInputs key. Loan and assumptions sections
+ * render hand-assembled arrays from named structs; each line.name also matches
+ * the AdjustedInputs key. So the path is just `${section}.${line.name}.adjusted`.
  */
-export function buildPath(section: 'income' | 'expenses' | 'loan', lineName: string): string {
+export function buildPath(
+  section: 'income' | 'expenses' | 'loan' | 'assumptions',
+  lineName: string,
+): string {
   return `${section}.${lineName}.adjusted`;
 }

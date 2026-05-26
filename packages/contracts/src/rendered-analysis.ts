@@ -10,7 +10,7 @@ import type { ISODateTime } from './versioning.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.2' as const;
+export const RENDER_VERSION = '7.3' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -125,6 +125,19 @@ export interface RenderedLoanSection {
   readonly debtServiceAnnual: RenderedLineItem;   // producer-emitted; render does NOT compute payment
 }
 
+// Assumptions projection (added in render version 7.3 for #24). Named-field
+// structure mirroring AdjustedInputs.assumptions, NOT an array - assumption fields
+// have distinct semantic identities (capRate vs terminalCapRate vs growth rates) so
+// the contract preserves the named structure. Each field is a RenderedLineItem
+// following the D16/D17/D21 pattern. Bijective passthrough. All four fields carry
+// 0..1 decimal values per backend convention (matches loan.interestRate).
+export interface RenderedAssumptionsSection {
+  readonly capRate: RenderedLineItem;              // entry/going-in; 0..1 decimal
+  readonly terminalCapRate: RenderedLineItem;      // 0..1 decimal
+  readonly rentGrowthPct: RenderedLineItem;        // 0..1 decimal
+  readonly expenseGrowthPct: RenderedLineItem;     // 0..1 decimal
+}
+
 // Per-component scoring projection (added in render version 6.8 for D09 parity).
 // Bijective passthrough of DoctrineEvaluation.componentScores[i]: same field names
 // (renamed `componentId` -> `name` for display friendliness), numeric values wrapped
@@ -191,6 +204,13 @@ export interface RenderedAnalysis {
   // (not array) - loan fields have distinct semantic identities. Each field is a
   // RenderedLineItem.
   readonly loan: RenderedLoanSection;
+
+  // 7.3 (#24): assumptions projection from AdjustedInputs.assumptions. Named-field
+  // struct mirroring the upstream contract. 4 fields × RenderedLineItem. All four
+  // carry 0..1 decimal values. Backend-editable via POST /:id/revisions; the
+  // frontend exposes edit affordances via the EDITABLE_PATHS whitelist in
+  // uw-edit-utils.ts.
+  readonly assumptions: RenderedAssumptionsSection;
 
   // 7.1 (D20): stress projection from StressOutputs. Producer-emitted scenarios pass
   // through unchanged; render does NOT recompute scenario outcomes or breach states.
