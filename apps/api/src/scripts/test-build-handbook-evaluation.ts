@@ -4,13 +4,18 @@ import { computeHandbookEvaluationId } from '../util/content-hash.js';
 import type {
   AdjustedInputs,
   AdjustedInputsId,
+  AdjustedLineItem,
   AssetProfile,
+  AssetProfileId,
   HandbookEvaluation,
   ISODateTime,
+  LibrarySnapshotId,
   NarrativeFacts,
+  NarrativeFactsId,
   PropertyMetadata,
   PropertyMetadataId,
   StressOutputs,
+  StressOutputsId,
 } from '@cre/contracts';
 
 // =============================================================================
@@ -43,40 +48,121 @@ function assertTruthy(value: unknown, m: string): void {
 // Fixtures
 // =============================================================================
 
-function makeArgs(overrides: Partial<BuildHandbookEvaluationArgs> = {}): BuildHandbookEvaluationArgs {
-  const adjustedInputs = {
-    id: 'aaaa' as AdjustedInputsId,
-    loan: { loanAmount: { raw: 30_000_000, adjusted: 30_000_000 } },
-    metrics: { dscr: 1.10, debtYield: 0.085 },
-    capitalReserves: { monthlyReplacementReserves: { raw: 0, adjusted: 0 } },
-  } as unknown as AdjustedInputs;
+const AS_OF: ISODateTime = '2026-01-01T00:00:00.000Z' as ISODateTime;
 
-  const assetProfile = { propertyType: 'Office' } as unknown as AssetProfile;
-  const narrativeFacts = {
+function lineItem(value: number): AdjustedLineItem {
+  return { raw: value, adjusted: value, source: 'BANK' as const, adjustments: [] };
+}
+
+function makeAdjustedInputs(
+  id: AdjustedInputsId,
+  overrides: { readonly dscr?: number; readonly debtYield?: number; readonly loanAmount?: number } = {},
+): AdjustedInputs {
+  const loanAmount = overrides.loanAmount ?? 30_000_000;
+  const dscr = overrides.dscr ?? 1.10;
+  const debtYield = overrides.debtYield ?? 0.085;
+  return {
+    id,
+    analysisAsOfDate: AS_OF,
+    judgmentEngineVersion: '1.2',
+    librarySnapshotId: ('lib' + '0'.repeat(61)) as LibrarySnapshotId,
+    income: {
+      grossRentalIncome: lineItem(0), otherIncome: lineItem(0),
+      vacancyPct: lineItem(0), concessionsPct: lineItem(0),
+      effectiveGrossIncome: lineItem(0),
+    },
+    expenses: {
+      realEstateTaxes: lineItem(0), insurance: lineItem(0),
+      utilities: lineItem(0), managementFee: lineItem(0),
+      payroll: lineItem(0), maintenance: lineItem(0),
+      other: lineItem(0), generalAndAdmin: lineItem(0),
+      janitorial: lineItem(0), reimbursements: lineItem(0),
+      totalOperatingExpenses: lineItem(0),
+    },
+    capitalReserves: {
+      upfrontCapex: lineItem(0), upfrontTiLc: lineItem(0),
+      monthlyCapex: lineItem(0), monthlyTiLc: lineItem(0),
+      monthlyReplacementReserves: lineItem(0),
+      monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
+      pcaImmediateRepairs: lineItem(0), upfrontReplacementReserves: lineItem(0),
+      capexScheduleInflated: null, capexScheduleUninflated: null,
+    },
+    loan: {
+      loanAmount: lineItem(loanAmount), interestRate: lineItem(0),
+      termMonths: lineItem(0), amortizationMonths: lineItem(0),
+      ioPeriodMonths: lineItem(0), maturityBalance: lineItem(0),
+      debtServiceAnnual: lineItem(0),
+    },
+    assumptions: {
+      capRate: lineItem(0), terminalCapRate: lineItem(0),
+      rentGrowthPct: lineItem(0), expenseGrowthPct: lineItem(0),
+    },
+    metrics: {
+      noi: 0, value: 0, dscr, ltvAppraisal: 0, debtYield,
+      expenseRatio: 0, top1IncomeShare: 0, pctIncomeExpiringWithinTerm: 0,
+    },
+    confidenceReduction: 0,
+    topLevelAdjustments: [],
+    dataQualityFlags: [],
+  };
+}
+
+function makeArgs(overrides: Partial<BuildHandbookEvaluationArgs> = {}): BuildHandbookEvaluationArgs {
+  const adjustedInputs: AdjustedInputs = makeAdjustedInputs('aaaa' as AdjustedInputsId);
+
+  const assetProfile: AssetProfile = {
+    id: ('ap' + '0'.repeat(62)) as AssetProfileId,
+    propertyType: 'Office',
+    businessPlan: 'Stabilized',
+    marketLiquidity: 'Primary',
+  };
+
+  const narrativeFacts: NarrativeFacts = {
+    id: ('nf' + '0'.repeat(62)) as NarrativeFactsId,
+    analysisAsOfDate: AS_OF,
+    trailingOccAvg: null, occupancyCurrent: null,
+    propertyClass: null, shadowVacancyFlag: null,
+    subleaseCompetition: null, leasingVelocityDataAvailable: null,
+    isMall: null,
+    franchiseExpirationWithinTerm: null, pipRequired: null, pipBudgetPerKey: null,
+    privateWastewater: null, parkOwnedHomesPct: null,
+    t12NoiTrend: null,
     isSingleTenant: false,
-    pipBudgetPerKey: null,
-    parkOwnedHomesPct: null,
-  } as unknown as NarrativeFacts;
-  const stressOutputs = {
+    appraisalValue: null, appraisalCapRate: null,
+    asrValue: null, marketValueFromComps: null,
+    exitCapRateBase: null, exitCapRateStressed: null,
+  };
+
+  const stressOutputs: StressOutputs = {
+    id: ('so' + '0'.repeat(62)) as StressOutputsId,
+    analysisAsOfDate: AS_OF,
+    adjustedInputsId: adjustedInputs.id,
+    stressEngineVersion: '1.0',
     method: 'TENANT_REMOVAL',
-    scenarios: [{ name: 'Remove T1+T2+T3', dscr: 0.92 }],
-  } as unknown as StressOutputs;
-  const propertyMetadata = {
+    scenarios: [{
+      name: 'Remove T1+T2+T3', noi: null, dscr: 0.92, value: null, ltv: null, debtYield: null,
+      breaches: [], skipped: [],
+    }],
+  };
+
+  const propertyMetadata: PropertyMetadata = {
     id: 'pmpmpmpm' as PropertyMetadataId,
+    source: 'asr_extraction',
+    propertyName: null,
     propertySubtype: 'Suburban Office',
-    buildingClass: 'B',
+    address: null, city: null, state: null, zip: null, county: null,
     msa: 'Atlanta-Sandy Springs-Alpharetta, GA MSA',
-    yearBuilt: 1996,
-    yearRenovated: null,
-  } as unknown as PropertyMetadata;
+    submarket: null,
+    yearBuilt: 1996, yearRenovated: null,
+    buildingClass: 'B',
+    totalSquareFeet: null, totalUnits: null, totalRooms: null, totalPads: null,
+    occupancyPhysical: null, occupancyEconomic: null,
+    ownershipInterest: null, numberOfBuildings: null,
+  };
 
   return {
-    adjustedInputs,
-    assetProfile,
-    narrativeFacts,
-    stressOutputs,
-    propertyMetadata,
-    analysisAsOfDate: '2026-01-01T00:00:00.000Z' as ISODateTime,
+    adjustedInputs, assetProfile, narrativeFacts, stressOutputs, propertyMetadata,
+    analysisAsOfDate: AS_OF,
     ...overrides,
   };
 }
@@ -179,12 +265,9 @@ console.log('\n=== Different inputs → different ids ===');
   const eval1 = buildHandbookEvaluation(makeArgs());
   const eval2 = buildHandbookEvaluation(
     makeArgs({
-      adjustedInputs: {
-        id: 'bbbb' as AdjustedInputsId,
-        loan: { loanAmount: { raw: 5_000_000, adjusted: 5_000_000 } },
-        metrics: { dscr: 2.50, debtYield: 0.15 },
-        capitalReserves: { monthlyReplacementReserves: { raw: 0, adjusted: 0 } },
-      } as unknown as AdjustedInputs,
+      adjustedInputs: makeAdjustedInputs('bbbb' as AdjustedInputsId, {
+        loanAmount: 5_000_000, dscr: 2.50, debtYield: 0.15,
+      }),
     }),
   );
   if (eval1.id === eval2.id) {
