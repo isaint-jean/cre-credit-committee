@@ -356,6 +356,10 @@ console.log('\nBranded id types are distinct:');
   const mb = computeMarketBenchmarksId({ x: 1 });
   // Same content → same hash regardless of brand (hash is purely content-derived). The brand
   // discriminates at compile time only.
+  // The `as unknown as typeof er` cast below is justified per §13.6 acceptance (b): the cast
+  // IS the test's claim. At runtime brands have no presence — `mb` and `er` are equal strings —
+  // so the cast is identity (a tautology); at compile time it is the assertion-under-test that
+  // brands carry no runtime bits. Removing the cast would break the test's purpose.
   assertEqual(er, mb as unknown as typeof er, 'same content → same hash (brand is compile-time only)');
 }
 
