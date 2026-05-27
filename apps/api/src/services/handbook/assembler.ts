@@ -246,7 +246,7 @@ export function buildFieldBag(inputs: AssemblerInputs): FieldBag {
   // audit-trail displays) should not rely on per-year accuracy.
   // `!== null` (strict): contract guarantees the field is
   // `ReadonlyArray<...> | null`. Fixture-cast leak path closed in
-  // <SHIP-HASH> per #48 (test-handbook-field-bag.ts factory cleanup
+  // b11098d per #48 (test-handbook-field-bag.ts factory cleanup
   // removed the as-unknown-as casts that previously allowed undefined
   // to reach this read).
   const capexSchedule = graph.adjustedInputs.capitalReserves.capexScheduleInflated;
