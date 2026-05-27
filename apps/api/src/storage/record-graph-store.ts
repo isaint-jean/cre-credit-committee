@@ -79,6 +79,18 @@ export class RecordIdMismatchError extends Error {
   }
 }
 
+/**
+ * Narrow interface for `handleHandbookEvaluationRead`'s store dependency
+ * (#49, v14). Declared so route tests can construct full-shape stub literals
+ * without `as unknown as RecordGraphStore` casts. Production code passes the
+ * full `RecordGraphStore` singleton (width-subtyping). See SPEC §13.6 v14
+ * layered note for the cleanup-arc framing.
+ */
+export interface HandbookEvaluationReadStore {
+  getLatestRevisionByLineageRoot(lineageRootId: RevisionId): RevisionLineageEnvelope | null;
+  getLatestHandbookEvaluationForAdjustedInputs(adjustedInputsId: string): HandbookEvaluation | null;
+}
+
 interface RecordRow {
   readonly id: string;
   readonly payload: string;

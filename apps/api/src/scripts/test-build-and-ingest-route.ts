@@ -207,6 +207,17 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
     getExtractionResult: (_id: string) => null,
     getPropertyMetadata: (_id: string) => null,
     insertExtractionInputCache: () => ({ inserted: true }),
+    // Cast retained per §13.6 acceptance (b): RecordGraphStore is a class
+    // (~43 methods) without a narrow interface; this stub covers only the
+    // methods the outer route handler directly calls (5 of 43). Cleaning
+    // this cast cleanly requires cascade narrowing — ingestExtractionResult
+    // receives the same store and itself calls 9 store methods, so a
+    // BuildAndIngestStore narrowing forces a downstream
+    // IngestExtractionResultStore extraction too. The cascade is
+    // architectural-design work (interface boundaries, names, location)
+    // outside §13.6's fixture-cleanup framing; deferred to a dedicated
+    // architectural ticket if appetite arises. See #49 v14 ship (SPEC §10.16
+    // or §13.6 v14 layered note for the cleanup-arc framing).
   } as unknown as RecordGraphStore;
 
   return {
@@ -794,6 +805,13 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       insertExtractionResult: realStore.insertExtractionResult.bind(realStore),
       insertExtractionInputCache: realStore.insertExtractionInputCache.bind(realStore),
       insertPropertyMetadata: realStore.insertPropertyMetadata.bind(realStore),
+      // Cast retained per §13.6 acceptance (b): same justification as the
+      // makeDeps default storeMock at the top of this file — RecordGraphStore
+      // is a class without a narrow interface; the spread-over-real-store
+      // pattern loses class identity at the type level (spread returns plain
+      // object). Cleaning cleanly requires cascade narrowing through
+      // ingestExtractionResult; deferred to a dedicated architectural ticket
+      // (see #49 v14 ship).
     } as unknown as RecordGraphStore;
 
     const composedExtraction = makeProperExtractionResult('case-19');

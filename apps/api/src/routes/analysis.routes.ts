@@ -45,6 +45,7 @@ import {
 import { HydrationError } from '../services/hydrate-record-graph.js';
 import { materializeRenderedAnalysisWithMeta } from '../services/materialize-rendered-analysis.js';
 import { recordGraphStore, RecordGraphStore } from '../storage/record-graph-store.js';
+import type { HandbookEvaluationReadStore } from '../storage/record-graph-store.js';
 // Batch 1B — rent-roll resolver imports
 import { parseRentRollXlsx } from '../services/parse-rent-roll-xlsx.js';
 import { extractRentRollFromDocument } from '../services/extract-rent-roll-from-document.js';
@@ -501,7 +502,7 @@ export function handleGraphRead(
 export function handleHandbookEvaluationRead(
   req: Request,
   res: Response,
-  graphStore: RecordGraphStore,
+  graphStore: HandbookEvaluationReadStore,
 ): void {
   const lineageRootId = req.params.id as RevisionId;
 

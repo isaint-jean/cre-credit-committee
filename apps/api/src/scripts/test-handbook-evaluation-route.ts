@@ -7,14 +7,23 @@
  * stores, matching the spec's reference test.
  */
 import { handleHandbookEvaluationRead } from '../routes/analysis.routes.js';
-import type { RecordGraphStore } from '../storage/record-graph-store.js';
+import type { HandbookEvaluationReadStore } from '../storage/record-graph-store.js';
+import {
+  DOCTRINE_VERSION,
+  STRESS_ENGINE_VERSION,
+  VALUATION_ENGINE_VERSION,
+} from '@cre/contracts';
 import type {
   AdjustedInputsId,
+  DoctrineEvaluationId,
   HandbookEngineVersion,
   HandbookEvaluation,
   HandbookEvaluationId,
   ISODateTime,
+  LineageRootId,
+  ParentRevisionId,
   RevisionId,
+  RevisionLineageEnvelope,
 } from '@cre/contracts';
 import type { Request, Response } from 'express';
 
@@ -60,11 +69,30 @@ function makeRes(): { res: Response; captured: { status?: number; body?: unknown
   return { res, captured };
 }
 
+// Full-shape `RevisionLineageEnvelope` for the route-handler stub. The handler
+// reads only `envelope.adjustedInputsId`; the other 9 fields are synthetic
+// brand-cast defaults — they exist to satisfy the `HandbookEvaluationReadStore`
+// interface's full-shape return contract, not to be inspected.
+function makeEnvelope(args: { adjustedInputsId: AdjustedInputsId }): RevisionLineageEnvelope {
+  return {
+    revisionId: ('a'.repeat(64)) as RevisionId,
+    lineageRootId: ('b'.repeat(64)) as LineageRootId,
+    parentRevisionId: null as ParentRevisionId,
+    revisionOrdinal: 0,
+    doctrineEvaluationId: ('d'.repeat(64)) as DoctrineEvaluationId,
+    adjustedInputsId: args.adjustedInputsId,
+    doctrineVersion: DOCTRINE_VERSION,
+    judgmentEngineVersion: '1.2',
+    stressEngineVersion: STRESS_ENGINE_VERSION,
+    valuationEngineVersion: VALUATION_ENGINE_VERSION,
+  };
+}
+
 function makeMockStore(opts: {
-  envelope?: { adjustedInputsId: AdjustedInputsId } | null;
+  envelope?: RevisionLineageEnvelope | null;
   evaluation?: HandbookEvaluation | null;
   onLookup?: (adjustedInputsId: string) => void;
-}): RecordGraphStore {
+}): HandbookEvaluationReadStore {
   return {
     getLatestRevisionByLineageRoot(_rootId: RevisionId) {
       return opts.envelope ?? null;
@@ -73,7 +101,7 @@ function makeMockStore(opts: {
       opts.onLookup?.(adjustedInputsId);
       return opts.evaluation ?? null;
     },
-  } as unknown as RecordGraphStore;
+  };
 }
 
 function makeSampleEvaluation(adjustedInputsId: AdjustedInputsId): HandbookEvaluation {
@@ -120,7 +148,7 @@ console.log('\n=== Analysis exists, no handbook evaluation → 200 + null ===');
 (() => {
   const adjustedInputsId = 'a'.repeat(64) as AdjustedInputsId;
   const store = makeMockStore({
-    envelope: { adjustedInputsId },
+    envelope: makeEnvelope({ adjustedInputsId }),
     evaluation: null,
   });
   const { res, captured } = makeRes();
@@ -135,7 +163,7 @@ console.log('\n=== Analysis exists, handbook evaluation exists → 200 + eval ==
   const adjustedInputsId = 'a'.repeat(64) as AdjustedInputsId;
   const evaluation = makeSampleEvaluation(adjustedInputsId);
   const store = makeMockStore({
-    envelope: { adjustedInputsId },
+    envelope: makeEnvelope({ adjustedInputsId }),
     evaluation,
   });
   const { res, captured } = makeRes();
@@ -156,7 +184,7 @@ console.log('\n=== Handler chains envelope.adjustedInputsId → eval lookup ==='
   const adjustedInputsId = 'a'.repeat(64) as AdjustedInputsId;
   let capturedLookupId: string | null = null;
   const store = makeMockStore({
-    envelope: { adjustedInputsId },
+    envelope: makeEnvelope({ adjustedInputsId }),
     evaluation: null,
     onLookup: (id) => { capturedLookupId = id; },
   });
