@@ -244,12 +244,13 @@ export function buildFieldBag(inputs: AssemblerInputs): FieldBag {
   // are not. P-IV-RET-6's sum_over_term reads the sum, so the formula
   // tolerates the inaccuracy. Year-precise consumers (populator E35-M35,
   // audit-trail displays) should not rely on per-year accuracy.
-  // `!= null` (loose) deliberately: contract guarantees the field is
-  // `ReadonlyArray<...> | null`, but test fixtures that cast through
-  // `as unknown as HydratedRecordGraph` may leave it `undefined` at runtime.
-  // Loose check covers both nullish cases without forcing a fixture sweep.
+  // `!== null` (strict): contract guarantees the field is
+  // `ReadonlyArray<...> | null`. Fixture-cast leak path closed in
+  // <SHIP-HASH> per #48 (test-handbook-field-bag.ts factory cleanup
+  // removed the as-unknown-as casts that previously allowed undefined
+  // to reach this read).
   const capexSchedule = graph.adjustedInputs.capitalReserves.capexScheduleInflated;
-  if (capexSchedule != null) {
+  if (capexSchedule !== null) {
     const sorted = [...capexSchedule].sort((a, b) => a.year - b.year);
     bag['capex_projection'] = sorted.map((entry) => entry.amount);
   } else {

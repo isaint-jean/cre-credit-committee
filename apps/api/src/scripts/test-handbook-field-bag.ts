@@ -28,10 +28,40 @@ import {
   INTENTIONALLY_UNDEFINED_FIELDS,
 } from '../services/handbook/assembler.js';
 import type { AssemblerInputs } from '../services/handbook/assembler.js';
+import { ASSET_TYPES } from '@cre/contracts';
+import {
+  DOCTRINE_VERSION,
+  EXTRACTION_ENGINE_VERSION,
+  STRESS_ENGINE_VERSION,
+  VALUATION_ENGINE_VERSION,
+} from '@cre/contracts';
 import type {
+  AdjustedInputs,
+  AdjustedInputsId,
+  AdjustedLineItem,
+  AssetProfile,
+  AssetProfileId,
+  AssetType,
+  ContentHash,
+  CrossCheckResult,
+  CrossCheckResultId,
+  DoctrineEvaluation,
+  DoctrineEvaluationId,
+  ExtractionResult,
+  ExtractionResultId,
   HydratedRecordGraph,
+  ISODateTime,
+  LibrarySnapshot,
+  LibrarySnapshotId,
+  NarrativeFacts,
+  NarrativeFactsId,
   PropertyMetadata,
+  PropertyMetadataId,
+  StressOutputs,
+  StressOutputsId,
   StressScenarioOutput,
+  ValuationConclusion,
+  ValuationConclusionId,
 } from '@cre/contracts';
 
 // =============================================================================
@@ -85,52 +115,221 @@ function assertSetEqual<T>(
 // Fixture builders
 // =============================================================================
 
-// Fixture builders construct minimal partial shapes that satisfy the
-// assembler's actual reads. Full structural conformance to the real
-// @cre/contracts types is unnecessary — the assembler only touches a
-// handful of fields. Cast at the boundary, matching the workspace
-// convention from test-ingest-pipeline.ts (`as ExtractionResult`).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeMinimalGraph(overrides: any = {}): HydratedRecordGraph {
-  return {
-    adjustedInputs: {
-      loan: {
-        loanAmount: { raw: 10_000_000, adjusted: 10_000_000 },
-      },
-      metrics: {
-        dscr: 1.35,
-        debtYield: 0.10,
-      },
-      capitalReserves: {
-        monthlyReplacementReserves: { raw: 0, adjusted: 0 },
-      },
-    },
-    assetProfile: {
-      propertyType: 'Office',
-    },
-    narrativeFacts: {
-      isSingleTenant: false,
-      pipBudgetPerKey: null,
-      parkOwnedHomesPct: null,
-    },
-    stressOutputs: {
-      method: 'TENANT_REMOVAL',
-      scenarios: [],
-    },
-    ...overrides,
-  } as unknown as HydratedRecordGraph;
+// Fixture builders construct full-shape contract literals with sensible
+// defaults for fields the tests don't exercise. Per §13.6 discipline:
+// type-checked construction at file-local builder boundaries, no
+// `as unknown as` casts. Callers pass typed Partial<T> overrides only
+// for the specific sub-records they want to vary.
+
+const AS_OF: ISODateTime = '2026-01-01T00:00:00.000Z' as ISODateTime;
+
+function lineItem(value: number): AdjustedLineItem {
+  return { raw: value, adjusted: value, source: 'BANK' as const, adjustments: [] };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeMinimalMetadata(overrides: any = {}): PropertyMetadata {
+function makeStressScenario(
+  overrides: Partial<StressScenarioOutput> = {},
+): StressScenarioOutput {
   return {
-    propertySubtype: 'CBD Office',
-    buildingClass: 'A',
-    msa: 'New York-Newark-Jersey City, NY-NJ-PA MSA',
-    yearBuilt: 1995,
-    yearRenovated: 2018,
+    name: '',
+    noi: null,
+    dscr: null,
+    value: null,
+    ltv: null,
+    debtYield: null,
+    breaches: [],
+    skipped: [],
     ...overrides,
-  } as unknown as PropertyMetadata;
+  };
+}
+
+function emptyByAssetType(): { readonly [K in AssetType]: null } {
+  const out = {} as { [K in AssetType]: null };
+  for (const t of ASSET_TYPES) out[t] = null;
+  return out;
+}
+
+const defaultAdjustedInputs: AdjustedInputs = {
+  id: ('ai' + '0'.repeat(62)) as AdjustedInputsId,
+  analysisAsOfDate: AS_OF,
+  judgmentEngineVersion: '1.2',
+  librarySnapshotId: ('lib' + '0'.repeat(61)) as LibrarySnapshotId,
+  income: {
+    grossRentalIncome: lineItem(0), otherIncome: lineItem(0),
+    vacancyPct: lineItem(0), concessionsPct: lineItem(0),
+    effectiveGrossIncome: lineItem(0),
+  },
+  expenses: {
+    realEstateTaxes: lineItem(0), insurance: lineItem(0),
+    utilities: lineItem(0), managementFee: lineItem(0),
+    payroll: lineItem(0), maintenance: lineItem(0),
+    other: lineItem(0), generalAndAdmin: lineItem(0),
+    janitorial: lineItem(0), reimbursements: lineItem(0),
+    totalOperatingExpenses: lineItem(0),
+  },
+  capitalReserves: {
+    upfrontCapex: lineItem(0), upfrontReplacementReserves: lineItem(0),
+    upfrontTiLc: lineItem(0),
+    monthlyCapex: lineItem(0), monthlyTiLc: lineItem(0),
+    monthlyReplacementReserves: lineItem(0),
+    monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
+    pcaImmediateRepairs: lineItem(0),
+    capexScheduleInflated: null, capexScheduleUninflated: null,
+  },
+  loan: {
+    loanAmount: lineItem(10_000_000), interestRate: lineItem(0),
+    termMonths: lineItem(0), amortizationMonths: lineItem(0),
+    ioPeriodMonths: lineItem(0), maturityBalance: lineItem(0),
+    debtServiceAnnual: lineItem(0),
+  },
+  assumptions: {
+    capRate: lineItem(0), terminalCapRate: lineItem(0),
+    rentGrowthPct: lineItem(0), expenseGrowthPct: lineItem(0),
+  },
+  metrics: {
+    noi: 0, value: 0, dscr: 1.35, ltvAppraisal: 0, debtYield: 0.10,
+    expenseRatio: 0, top1IncomeShare: 0, pctIncomeExpiringWithinTerm: 0,
+  },
+  confidenceReduction: 0,
+  topLevelAdjustments: [],
+  dataQualityFlags: [],
+};
+
+const defaultAssetProfile: AssetProfile = {
+  id: ('ap' + '0'.repeat(62)) as AssetProfileId,
+  propertyType: 'Office',
+  businessPlan: 'Stabilized',
+  marketLiquidity: 'Primary',
+};
+
+const defaultNarrativeFacts: NarrativeFacts = {
+  id: ('nf' + '0'.repeat(62)) as NarrativeFactsId,
+  analysisAsOfDate: AS_OF,
+  trailingOccAvg: null, occupancyCurrent: null,
+  propertyClass: null, shadowVacancyFlag: null,
+  subleaseCompetition: null, leasingVelocityDataAvailable: null,
+  isMall: null,
+  franchiseExpirationWithinTerm: null, pipRequired: null, pipBudgetPerKey: null,
+  privateWastewater: null, parkOwnedHomesPct: null,
+  t12NoiTrend: null,
+  isSingleTenant: false,
+  appraisalValue: null, appraisalCapRate: null,
+  asrValue: null, marketValueFromComps: null,
+  exitCapRateBase: null, exitCapRateStressed: null,
+};
+
+const defaultStressOutputs: StressOutputs = {
+  id: ('so' + '0'.repeat(62)) as StressOutputsId,
+  analysisAsOfDate: AS_OF,
+  adjustedInputsId: defaultAdjustedInputs.id,
+  stressEngineVersion: STRESS_ENGINE_VERSION,
+  method: 'TENANT_REMOVAL',
+  scenarios: [],
+};
+
+const defaultLibrarySnapshot: LibrarySnapshot = {
+  id: ('lib' + '0'.repeat(61)) as LibrarySnapshotId,
+  asOf: AS_OF,
+  approvedDealsTableHash: 'a'.repeat(64) as ContentHash,
+  byAssetType: emptyByAssetType(),
+};
+
+const defaultCrossCheckResult: CrossCheckResult = {
+  id: ('cc' + '0'.repeat(62)) as CrossCheckResultId,
+  analysisAsOfDate: AS_OF,
+  adjustedInputsId: defaultAdjustedInputs.id,
+  findings: [],
+  overallAdjustmentBias: 'neutral',
+};
+
+const defaultValuationConclusion: ValuationConclusion = {
+  id: ('vc' + '0'.repeat(62)) as ValuationConclusionId,
+  analysisAsOfDate: AS_OF,
+  valuationEngineVersion: VALUATION_ENGINE_VERSION,
+  adjustedInputsId: defaultAdjustedInputs.id,
+  stressOutputsId: defaultStressOutputs.id,
+  narrativeFactsId: defaultNarrativeFacts.id,
+  uwValue: null, marketValue: null, downsideValue: null, finalValue: null,
+  appraisalValue: null, asrValue: null,
+  capsApplied: [], haircutsApplied: [], valuationFlags: [],
+  anchorUsed: 'none',
+};
+
+const defaultExtractionResult: ExtractionResult = {
+  id: ('er' + '0'.repeat(62)) as ExtractionResultId,
+  analysisAsOfDate: AS_OF,
+  extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
+  dealRef: 'TEST',
+  rentRoll: null, t12: null, pca: null, appraisal: null,
+  sellerUw: null, sellerUwOperatingStatement: null,
+  asr: null, loanTerms: null,
+  sourceDocuments: [],
+  extractorVersions: {},
+};
+
+const defaultDoctrineEvaluation: DoctrineEvaluation = {
+  id: ('de' + '0'.repeat(62)) as DoctrineEvaluationId,
+  analysisAsOfDate: AS_OF,
+  doctrineVersion: DOCTRINE_VERSION,
+  judgmentEngineVersion: '1.2',
+  stressEngineVersion: STRESS_ENGINE_VERSION,
+  valuationEngineVersion: VALUATION_ENGINE_VERSION,
+  adjustedInputsId: defaultAdjustedInputs.id,
+  librarySnapshotId: defaultLibrarySnapshot.id,
+  narrativeFactsId: defaultNarrativeFacts.id,
+  crossCheckResultId: defaultCrossCheckResult.id,
+  stressOutputsId: defaultStressOutputs.id,
+  valuationConclusionId: defaultValuationConclusion.id,
+  assetProfileId: defaultAssetProfile.id,
+  extractionResultId: defaultExtractionResult.id,
+  mechanicalScore: 0,
+  componentScores: [],
+  weightedAggregate: 0,
+  assetTypeAdjustments: [],
+  scoreAdjustments: [],
+  finalScore: 0,
+  ratingBand: 'High Risk',
+  flags: [],
+  reasons: [],
+};
+
+function makeMinimalGraph(
+  overrides: {
+    readonly narrativeFacts?: Partial<NarrativeFacts>;
+    readonly stressOutputs?: Partial<StressOutputs>;
+  } = {},
+): HydratedRecordGraph {
+  return {
+    doctrineEvaluation: defaultDoctrineEvaluation,
+    valuationConclusion: defaultValuationConclusion,
+    stressOutputs: { ...defaultStressOutputs, ...overrides.stressOutputs },
+    crossCheckResult: defaultCrossCheckResult,
+    adjustedInputs: defaultAdjustedInputs,
+    narrativeFacts: { ...defaultNarrativeFacts, ...overrides.narrativeFacts },
+    librarySnapshot: defaultLibrarySnapshot,
+    assetProfile: defaultAssetProfile,
+    extractionResult: defaultExtractionResult,
+  };
+}
+
+function makeMinimalMetadata(
+  overrides: Partial<PropertyMetadata> = {},
+): PropertyMetadata {
+  return {
+    id: ('pm' + '0'.repeat(62)) as PropertyMetadataId,
+    source: 'asr_extraction',
+    propertyName: null,
+    propertySubtype: 'CBD Office',
+    address: null, city: null, state: null, zip: null, county: null,
+    msa: 'New York-Newark-Jersey City, NY-NJ-PA MSA',
+    submarket: null,
+    yearBuilt: 1995, yearRenovated: 2018,
+    buildingClass: 'A',
+    totalSquareFeet: null, totalUnits: null, totalRooms: null, totalPads: null,
+    occupancyPhysical: null, occupancyEconomic: null,
+    ownershipInterest: null, numberOfBuildings: null,
+    ...overrides,
+  };
 }
 
 function makeInputs(
@@ -368,18 +567,15 @@ console.log('\n=== Defensive numeric edge cases ===');
 
 console.log('\n=== stressed_dscr_top_3_removed lookup ===');
 
-const top3Scenario = {
-  name: 'Remove T1+T2+T3',
-  dscr: 0.85,
-} as unknown as StressScenarioOutput;
+const top3Scenario = makeStressScenario({ name: 'Remove T1+T2+T3', dscr: 0.85 });
 
 (() => {
   const graph = makeMinimalGraph({
     stressOutputs: {
       method: 'TENANT_REMOVAL',
       scenarios: [
-        { name: 'Remove T1', dscr: 1.15 },
-        { name: 'Remove T1+T2', dscr: 1.00 },
+        makeStressScenario({ name: 'Remove T1', dscr: 1.15 }),
+        makeStressScenario({ name: 'Remove T1+T2', dscr: 1.00 }),
         top3Scenario,
       ],
     },
@@ -397,7 +593,7 @@ const top3Scenario = {
     stressOutputs: {
       method: 'TENANT_REMOVAL',
       scenarios: [
-        { name: 'Remove T1+T2+T3', dscr: null }, // measurement failed
+        makeStressScenario({ name: 'Remove T1+T2+T3', dscr: null }), // measurement failed
       ],
     },
   });
@@ -414,7 +610,7 @@ const top3Scenario = {
     stressOutputs: {
       method: 'OCC_RENT_CONCESSION',
       scenarios: [
-        { name: 'Occ_down_10', dscr: 1.05 },
+        makeStressScenario({ name: 'Occ_down_10', dscr: 1.05 }),
       ],
     },
   });
