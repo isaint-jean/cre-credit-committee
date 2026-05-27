@@ -520,7 +520,7 @@ console.log('\nError — parent revision not found:');
 {
   const store = new RecordGraphStore(':memory:');
   seedRoot(store);
-  const ghost = ('f'.repeat(64)) as unknown as RevisionId;
+  const ghost = ('f'.repeat(64)) as RevisionId;
   assertThrowsInstance(
     () => applyRevisionDelta(
       {

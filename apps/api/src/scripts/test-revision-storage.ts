@@ -255,7 +255,7 @@ function makeValuationConclusion(
     analysisAsOfDate: AS_OF,
     valuationEngineVersion: VALUATION_ENGINE_VERSION,
     adjustedInputsId,
-    stressOutputsId: stressOutputsId as unknown as ValuationConclusion['stressOutputsId'],
+    stressOutputsId: stressOutputsId as ValuationConclusion['stressOutputsId'],
     narrativeFactsId,
     uwValue: 116_461_538,
     marketValue: null,
@@ -435,7 +435,7 @@ console.log('\nChild envelope (parent absent → FK violation):');
 {
   const store = new RecordGraphStore(':memory:');
   const seed = seedUpstreamGraph(store, 0);
-  const phantomParent = ('f'.repeat(64)) as unknown as RevisionId;
+  const phantomParent = ('f'.repeat(64)) as RevisionId;
   const orphan = makeEnvelope({
     parentRevisionId: phantomParent,
     lineageRootId: phantomParent,
@@ -499,7 +499,7 @@ console.log('\ngetLatestRevisionByLineageRoot + walkLineageChain:');
   assertEqual(chain[2]!.revisionId, child2.revisionId, 'chain[2] is latest');
 
   // Unknown lineage root → no envelopes / null latest
-  const unknown = ('e'.repeat(64)) as unknown as RevisionId;
+  const unknown = ('e'.repeat(64)) as RevisionId;
   assertEqual(store.getLatestRevisionByLineageRoot(unknown), null, 'getLatestRevisionByLineageRoot returns null for unknown root');
   assertEqual(store.walkLineageChain(unknown).length, 0, 'walkLineageChain returns empty for unknown root');
 
@@ -542,7 +542,7 @@ console.log('\nProvenance:');
   assertEqual(got!.adjustmentOrigin.length, 1, 'adjustmentOrigin round-trips');
 
   // FK enforcement: provenance for an envelope that doesn't exist must fail.
-  const orphanRevision = ('d'.repeat(64)) as unknown as RevisionId;
+  const orphanRevision = ('d'.repeat(64)) as RevisionId;
   assertThrows(
     () => store.insertRevisionProvenance({ ...provenance, revisionId: orphanRevision }),
     'provenance insert fails when envelope is absent (FK)',
@@ -564,8 +564,8 @@ console.log('\nEnvelope id mismatch (claimed != computed):');
   });
   const tampered: RevisionLineageEnvelope = {
     ...real,
-    revisionId: ('c'.repeat(64)) as unknown as RevisionId,
-    lineageRootId: ('c'.repeat(64)) as unknown as RevisionId,
+    revisionId: ('c'.repeat(64)) as RevisionId,
+    lineageRootId: ('c'.repeat(64)) as RevisionId,
   };
   assertThrows(
     () => store.insertRevisionLineageEnvelope(tampered),
