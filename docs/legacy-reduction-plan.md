@@ -332,6 +332,8 @@ Require new-spine producer work BEFORE the render projection. Each is a separate
 7. **Manifesto-evaluation projection** (D08) — already runs (judgment engine emits manifesto outcomes). Project as `criteria[]`.
 8. **Narrative producer** (D03, D10) — design TBD; possibly an AI-summarization step that consumes `RenderedAnalysis` and produces a typed narrative record.
 
+**v17 update — Delta Z (D03/D10 collapse).** Item 8's "Narrative producer (D03, D10)" framing collapses TWO semantically distinct D-tag outputs into one workstream. Per the parity table above, D03 (deal-level executive summary, `analysis.executiveSummary`) and D10 (score-level credit narrative, `analysis.creditScore.narrative`) are separate D-tags; legacy `ai-analysis.service.ts` uses different prompts for each (`buildExecutiveSummaryPrompt` vs `buildScoringPrompt`). Per the #40 sandbox artifacts referenced in the issue body, the v1 producer surface targets `executive_summary` + `red_flag_assessment` (the two handbook InjectionPoint survivors per #40's "covers-the-survivors" framing — D06 mitigation_suggestions and D12-D15 committee_recommendation are sunset per Phase 5), NOT D10. **SPEC §14.4 (v17) scopes Piece A explicitly**: Decision 1 (β) confirms `executive_summary` + `red_flag_assessment` survivor scope; D10 deferred to Phase 3 or separate ticket if appetite arises. Original item 8 prose above preserved per the SPEC §13.6/§13.8 layering discipline; v17 reframes scope without rewriting history.
+
 ### Phase 3 — Lineage / audit visibility
 
 9. **Lineage side-panel** (A01) — wire GET /:id/lineage to a side-panel component on `RenderedAnalysisView`; renders the parent chain. Read-only; calls existing endpoint.
