@@ -145,6 +145,10 @@ const EDITABLE_PATHS: ReadonlySet<string> = new Set([
   'loan.ioPeriodMonths.adjusted',
   'assumptions.capRate.adjusted',
   'assumptions.terminalCapRate.adjusted',
+  // §14.3 Decision 3 + Delta X: parent `concludedCapRate` field is nullable
+  // (no engine builder per Delta S handbook constraint). setByPath
+  // auto-constructs the parent AdjustedLineItem when null intermediate is set.
+  'assumptions.concludedCapRate.adjusted',
   'assumptions.rentGrowthPct.adjusted',
   'assumptions.expenseGrowthPct.adjusted',
 ]);
@@ -167,19 +171,42 @@ function getByPath(obj: unknown, path: string): unknown {
 }
 
 /** Returns a deep-cloned object with the leaf at `path` set to `value`. Caller is responsible
- *  for ensuring the path is valid; this helper does not validate against a schema. */
+ *  for ensuring the path is valid; this helper does not validate against a schema.
+ *
+ *  Null-intermediate auto-construct (§14.3 Decision 3 + Delta X): when the last
+ *  intermediate parent is null (e.g., `assumptions.concludedCapRate` is null
+ *  because the analyst has not yet set it) and the path's leaf is `.adjusted`,
+ *  auto-construct a default `AdjustedLineItem` shape `{raw: null, adjusted: 0,
+ *  source: 'MANUAL', adjustments: []}` and then set the leaf. This enables
+ *  editable paths whose parent field is nullable (per the §14.3 Delta X
+ *  resolution R2b — keep leaf-path consistency with sibling EDITABLE_PATHS
+ *  entries while supporting the analyst-input-only field shape).
+ */
 function applyOverride<T extends object>(obj: T, path: string, value: unknown): T {
   const cloned = JSON.parse(JSON.stringify(obj)) as Record<string, unknown>;
   const parts = path.split('.');
   const leaf = parts.pop();
   if (leaf === undefined) return cloned as unknown as T;
   let cursor: Record<string, unknown> = cloned;
-  for (const key of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const key = parts[i];
     const next = cursor[key];
-    if (next === null || next === undefined || typeof next !== 'object') {
+    if (next === null && i === parts.length - 1 && leaf === 'adjusted') {
+      // Null-intermediate auto-construct for analyst-input fields without
+      // engine builders (e.g., AdjustedAssumptions.concludedCapRate).
+      const fresh: Record<string, unknown> = {
+        raw: null,
+        adjusted: 0,           // placeholder; immediately overwritten below
+        source: 'MANUAL',
+        adjustments: [],
+      };
+      cursor[key] = fresh;
+      cursor = fresh;
+    } else if (next === null || next === undefined || typeof next !== 'object') {
       throw new InvalidDeltaError('PATH_NOT_FOUND_ON_PARENT', path);
+    } else {
+      cursor = next as Record<string, unknown>;
     }
-    cursor = next as Record<string, unknown>;
   }
   cursor[leaf] = value;
   return cloned as unknown as T;
@@ -366,8 +393,20 @@ export function applyRevisionDelta(
     if (typeof op.value !== 'number' || !Number.isFinite(op.value)) {
       throw new InvalidDeltaError('BAD_VALUE_TYPE', op.path, { value: op.value });
     }
+    // Validation accepts the null-intermediate auto-construct case (§14.3 Delta X):
+    // if the path resolves to undefined because its parent (second-to-last segment)
+    // is null AND the leaf is `.adjusted`, applyOverride below will auto-construct
+    // the AdjustedLineItem parent — this is intentional, not a typo. For all
+    // other undefined-resolutions, treat as a path-not-found error.
     if (getByPath(parentAdjustedInputs, op.path) === undefined) {
-      throw new InvalidDeltaError('PATH_NOT_FOUND_ON_PARENT', op.path);
+      const parts = op.path.split('.');
+      const leaf = parts.pop();
+      const parentPath = parts.join('.');
+      const parentValue = parts.length > 0 ? getByPath(parentAdjustedInputs, parentPath) : undefined;
+      const isNullIntermediateAutoConstruct = leaf === 'adjusted' && parentValue === null;
+      if (!isNullIntermediateAutoConstruct) {
+        throw new InvalidDeltaError('PATH_NOT_FOUND_ON_PARENT', op.path);
+      }
     }
   }
 

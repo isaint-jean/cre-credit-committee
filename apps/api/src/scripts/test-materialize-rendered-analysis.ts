@@ -337,6 +337,7 @@ console.log('\nFK enforcement: cannot insert RenderedAnalysis with non-existent 
     assumptions: {
       capRate: emptyLine,
       terminalCapRate: emptyLine,
+      concludedCapRate: null,
       rentGrowthPct: emptyLine,
       expenseGrowthPct: emptyLine,
     },

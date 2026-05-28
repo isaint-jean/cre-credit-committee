@@ -324,6 +324,7 @@ console.log('\nConservatism gate (direct invocation):');
     assumptions: {
       capRate: { raw: 0.06, adjusted: 0.06, source: 'BANK', adjustments: [] },
       terminalCapRate: { raw: 0.07, adjusted: 0.07, source: 'BANK', adjustments: [] },
+      concludedCapRate: null,
       rentGrowthPct: { raw: 0.03, adjusted: 0.03, source: 'BANK', adjustments: [] },
       expenseGrowthPct: { raw: 0.03, adjusted: 0.03, source: 'BANK', adjustments: [] },
     },

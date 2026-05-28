@@ -291,6 +291,36 @@ console.log('\nProvenance shape — diff carries the override path:');
   assert(paths.some((p) => p.startsWith('metrics.')), 'inputDiff includes recomputed metrics');
 }
 
+console.log('\n§14.3 — concludedCapRate null-intermediate auto-construct (Delta X resolution):');
+{
+  const store = new RecordGraphStore(':memory:');
+  const root = seedRoot(store);
+  // Seed root has concludedCapRate: null (default per §14.3 Decision 3 — no engine builder).
+  // Verify the editable path auto-constructs the AdjustedLineItem parent on first analyst write.
+  const result = applyRevisionDelta(
+    {
+      parentRevisionId: root.rootId,
+      delta: {
+        kind: 'adjusted-input-overrides',
+        overrides: [{ path: 'assumptions.concludedCapRate.adjusted', value: 0.075 }],
+      },
+      triggerSource: 'USER_EDIT',
+    },
+    store,
+  );
+
+  const child = store.getAdjustedInputs(result.envelope.adjustedInputsId);
+  assert(child !== null, 'child AdjustedInputs persisted');
+  assert(child!.assumptions.concludedCapRate !== null,
+    'child concludedCapRate auto-constructed (null intermediate replaced by AdjustedLineItem)');
+  assertEqual(child!.assumptions.concludedCapRate!.adjusted, 0.075,
+    'child concludedCapRate.adjusted === analyst override value');
+  assertEqual(child!.assumptions.concludedCapRate!.source, 'MANUAL',
+    'child concludedCapRate.source === MANUAL (per §14.3 §SourceTier-decision: reuse existing MANUAL tier for analyst-input)');
+  assertEqual(child!.assumptions.concludedCapRate!.raw, null,
+    'child concludedCapRate.raw === null (no extraction source for analyst-input field)');
+}
+
 console.log('\nLineage walk — chain grows from 1 to 2:');
 {
   const store = new RecordGraphStore(':memory:');

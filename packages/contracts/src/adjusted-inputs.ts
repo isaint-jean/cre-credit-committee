@@ -196,6 +196,18 @@ export interface AdjustedLoan {
 export interface AdjustedAssumptions {
   readonly capRate: AdjustedLineItem;            // entry/going-in
   readonly terminalCapRate: AdjustedLineItem;
+  /**
+   * Analyst-judgment concluded cap rate (I9 cell). Nullable because there is
+   * no engine builder: handbook P-III-9 LLM_CONTEXT mode declares "No
+   * deterministic threshold — handbook does not give one, and inventing one
+   * is out of scope," so the engine cannot derive a default. Non-null siblings
+   * (capRate, etc.) have engine builders and therefore always carry a value.
+   * Set via revision-delta override (analyst-input path); see SPEC §14.3
+   * Decision 3 + Delta X (recon-time correction: field-level nullability
+   * resolves the AdjustedLineItem.adjusted non-null constraint, precedent
+   * `capexScheduleInflated`).
+   */
+  readonly concludedCapRate: AdjustedLineItem | null;
   readonly rentGrowthPct: AdjustedLineItem;
   readonly expenseGrowthPct: AdjustedLineItem;
 }

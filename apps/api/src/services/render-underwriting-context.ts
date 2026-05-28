@@ -162,12 +162,17 @@ export function renderUnderwritingContext(ctx: UnderwritingContext): RenderedAna
   };
 
   // 7.3 #24 — assumptions projection. Named-field struct mirroring AdjustedInputs.assumptions.
-  // Bijective passthrough via projectLineItem. All 4 fields carry 0..1 decimal values.
+  // Bijective passthrough via projectLineItem. All non-null fields carry 0..1 decimal values.
   // Backend-editable via POST /:id/revisions (assumptions.*.adjusted whitelisted in
   // apply-revision-delta.ts); frontend edit affordances live in uw-edit-utils.ts.
+  // concludedCapRate is analyst-input-only (no engine builder per §14.3 Delta S);
+  // null until set, RenderedLineItem when set (analyst-input via revision-delta).
   const assumptions: RenderedAssumptionsSection = {
     capRate:          projectLineItem('capRate',          adjustedInputs.assumptions.capRate),
     terminalCapRate:  projectLineItem('terminalCapRate',  adjustedInputs.assumptions.terminalCapRate),
+    concludedCapRate: adjustedInputs.assumptions.concludedCapRate === null
+      ? null
+      : projectLineItem('concludedCapRate', adjustedInputs.assumptions.concludedCapRate),
     rentGrowthPct:    projectLineItem('rentGrowthPct',    adjustedInputs.assumptions.rentGrowthPct),
     expenseGrowthPct: projectLineItem('expenseGrowthPct', adjustedInputs.assumptions.expenseGrowthPct),
   };

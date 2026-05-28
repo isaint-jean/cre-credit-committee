@@ -111,7 +111,7 @@ function makeAdjustedInputs(opts: Partial<{
       debtServiceAnnual: lineItem(800_000),
     },
     assumptions: {
-      capRate: lineItem(0.065), terminalCapRate: lineItem(0.075),
+      capRate: lineItem(0.065), terminalCapRate: lineItem(0.075), concludedCapRate: null,
       rentGrowthPct: lineItem(0.03), expenseGrowthPct: lineItem(0.03),
     },
     metrics: {

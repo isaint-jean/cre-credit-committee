@@ -200,6 +200,7 @@ function makeMinimalRendered(): RenderedAnalysis {
         source: 'BANK',
         adjustments: [],
       },
+      concludedCapRate: null,
       rentGrowthPct: {
         name: 'rentGrowthPct',
         raw: { value: null, displayValue: '-' },

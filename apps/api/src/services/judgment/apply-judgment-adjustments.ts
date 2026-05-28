@@ -366,7 +366,10 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       maturityBalance: loanMaturityBalance,
       debtServiceAnnual,
     },
-    assumptions: { capRate, terminalCapRate, rentGrowthPct, expenseGrowthPct },
+    // concludedCapRate is analyst-input-only per §14.3 Decision 3 + Delta X
+    // (handbook P-III-9 disallows deterministic threshold derivation); null
+    // until set via revision-delta override.
+    assumptions: { capRate, terminalCapRate, concludedCapRate: null, rentGrowthPct, expenseGrowthPct },
     metrics: {
       noi: finalNoi,
       value,

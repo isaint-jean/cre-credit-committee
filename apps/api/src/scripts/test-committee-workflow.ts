@@ -151,6 +151,7 @@ function makeMinimalRendered(): RenderedAnalysis {
     assumptions: {
       capRate: { name: 'capRate', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
       terminalCapRate: { name: 'terminalCapRate', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
+      concludedCapRate: null,
       rentGrowthPct: { name: 'rentGrowthPct', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
       expenseGrowthPct: { name: 'expenseGrowthPct', raw: { value: null, displayValue: '-' }, adjusted: { value: 0, displayValue: '0' }, source: 'BANK', adjustments: [] },
     },

@@ -33,6 +33,9 @@ export const EDITABLE_PATHS: readonly string[] = [
   'loan.ioPeriodMonths.adjusted',
   'assumptions.capRate.adjusted',
   'assumptions.terminalCapRate.adjusted',
+  // §14.3 Decision 3 + Delta X: nullable parent on AdjustedAssumptions;
+  // backend setByPath auto-constructs the parent on first analyst write.
+  'assumptions.concludedCapRate.adjusted',
   'assumptions.rentGrowthPct.adjusted',
   'assumptions.expenseGrowthPct.adjusted',
 ];
@@ -58,6 +61,7 @@ const PERCENT_PATHS = new Set<string>([
   'loan.interestRate.adjusted',
   'assumptions.capRate.adjusted',
   'assumptions.terminalCapRate.adjusted',
+  'assumptions.concludedCapRate.adjusted',   // §14.3 Decision 3 — 0..1 fraction
   'assumptions.rentGrowthPct.adjusted',
   'assumptions.expenseGrowthPct.adjusted',
 ]);

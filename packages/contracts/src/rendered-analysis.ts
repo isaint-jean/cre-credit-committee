@@ -10,7 +10,7 @@ import type { ISODateTime } from './versioning.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.3' as const;
+export const RENDER_VERSION = '7.4' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -134,6 +134,14 @@ export interface RenderedLoanSection {
 export interface RenderedAssumptionsSection {
   readonly capRate: RenderedLineItem;              // entry/going-in; 0..1 decimal
   readonly terminalCapRate: RenderedLineItem;      // 0..1 decimal
+  /**
+   * Analyst-judgment concluded cap rate (I9 cell). Nullable because no engine
+   * builder exists (handbook P-III-9 LLM_CONTEXT constraint per SPEC §14.3
+   * Decision 3 + Delta X); null when analyst has not yet set it via
+   * revision-delta override. UI surfaces null as an empty editable cell with
+   * P-III-9 context displayed alongside (per §14.3 Decision 2's (γ) target).
+   */
+  readonly concludedCapRate: RenderedLineItem | null;     // 0..1 decimal; nullable per §14.3 Delta X
   readonly rentGrowthPct: RenderedLineItem;        // 0..1 decimal
   readonly expenseGrowthPct: RenderedLineItem;     // 0..1 decimal
 }

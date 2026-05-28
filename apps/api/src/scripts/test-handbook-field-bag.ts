@@ -183,7 +183,7 @@ const defaultAdjustedInputs: AdjustedInputs = {
     debtServiceAnnual: lineItem(0),
   },
   assumptions: {
-    capRate: lineItem(0), terminalCapRate: lineItem(0),
+    capRate: lineItem(0), terminalCapRate: lineItem(0), concludedCapRate: null,
     rentGrowthPct: lineItem(0), expenseGrowthPct: lineItem(0),
   },
   metrics: {

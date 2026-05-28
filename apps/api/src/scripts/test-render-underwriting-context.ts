@@ -14,7 +14,7 @@
 //   - Determinism: two renders of same input -> byte-identical full output
 //   - rootId passthrough
 //   - metadata.hashedAt mirrors doctrine.analysisAsOfDate (no clock leak)
-//   - metadata.renderVersion === '7.3'
+//   - metadata.renderVersion === '7.4'
 //   - Schema exhaustiveness (test-suite version, per the v1 cut): every cell key
 //     in the output sources from a known UnderwritingContext path
 
@@ -245,7 +245,7 @@ console.log('\nrootId + metadata passthrough (no clock leak, no random):');
   const store = new RecordGraphStore(':memory:');
   const { rootId, rendered } = endToEnd(store);
 
-  assertEqual(rendered.metadata.renderVersion, '7.3', 'metadata.renderVersion === "7.3"');
+  assertEqual(rendered.metadata.renderVersion, '7.4', 'metadata.renderVersion === "7.4"');
   assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'metadata matches RENDER_VERSION constant');
   assertEqual(rendered.metadata.hashedAt, AS_OF, 'metadata.hashedAt mirrors doctrine.analysisAsOfDate');
   assertEqual(rendered.rootId, rootId, 'rootId pass-through');
@@ -533,21 +533,22 @@ console.log('\nD21: loan section is a named-field struct (NOT array) - 7 explici
   store.close();
 }
 
-console.log('\n#24 (7.3): assumptions section projects AdjustedInputs.assumptions (4 named fields):');
+console.log('\n#24 (7.3) + §14.3 (7.4): assumptions section projects AdjustedInputs.assumptions (5 named fields; concludedCapRate nullable):');
 {
   const store = new RecordGraphStore(':memory:');
   const { rendered } = endToEnd(store);
 
-  // Bijection check on the assumptions section keys: exactly the 4 AdjustedAssumptions fields.
+  // Bijection check: exactly the 5 AdjustedAssumptions fields (4 from v12 #24 + 1 from v17 §14.3).
   const assumptionsKeys = Object.keys(rendered.assumptions).sort();
   const expectedAssumptionsKeys = [
-    'capRate', 'expenseGrowthPct', 'rentGrowthPct', 'terminalCapRate',
+    'capRate', 'concludedCapRate', 'expenseGrowthPct', 'rentGrowthPct', 'terminalCapRate',
   ].sort();
   assertEqual(JSON.stringify(assumptionsKeys), JSON.stringify(expectedAssumptionsKeys),
-    'assumptions section has exactly the 4 AdjustedAssumptions fields');
+    'assumptions section has exactly the 5 AdjustedAssumptions fields');
 
-  // Each field is a RenderedLineItem with the correct .name and the producer's typed values.
-  const expectedAssumptionNames: ReadonlyArray<{ key: keyof typeof rendered.assumptions; name: string }> = [
+  // Non-nullable fields have engine builders (capRate, terminalCapRate, rentGrowthPct, expenseGrowthPct) —
+  // always present as RenderedLineItem with the correct .name and the producer's typed values.
+  const expectedAssumptionNames: ReadonlyArray<{ key: 'capRate' | 'terminalCapRate' | 'rentGrowthPct' | 'expenseGrowthPct'; name: string }> = [
     { key: 'capRate', name: 'capRate' },
     { key: 'terminalCapRate', name: 'terminalCapRate' },
     { key: 'rentGrowthPct', name: 'rentGrowthPct' },
@@ -563,6 +564,11 @@ console.log('\n#24 (7.3): assumptions section projects AdjustedInputs.assumption
     assert(typeof li.source === 'string' && li.source.length > 0,
       'assumptions.' + e.name + ': source is non-empty');
   }
+
+  // §14.3 Decision 3 + Delta X: concludedCapRate is nullable. Default endToEnd flow
+  // (no analyst input) produces null. Handbook P-III-9 disallows deterministic threshold.
+  assertEqual(rendered.assumptions.concludedCapRate, null,
+    'assumptions.concludedCapRate === null when no analyst input (per §14.3 Delta S handbook constraint)');
 
   store.close();
 }
