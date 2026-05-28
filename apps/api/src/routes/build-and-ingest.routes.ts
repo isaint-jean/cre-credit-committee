@@ -469,6 +469,7 @@ export function makeBuildAndIngestHandler(
           cfHash: slotHashes.cf,
           rentRollHash: slotHashes.rentRoll,
           asrHash: slotHashes.asr,
+          pcaHash: slotHashes.pca,
           extractorVersions: deps.extractorVersions,
         });
       } catch (e) {

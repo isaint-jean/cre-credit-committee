@@ -300,10 +300,12 @@ export class RecordGraphStore {
       -- cache-hit-with-missing-record edge case (ADR §6) falls through to
       -- re-extract. Keeps the cache append-only.
       --
-      -- cf_hash / rent_roll_hash / asr_hash are nullable per-slot hashes,
-      -- stored for audit / debugging visibility. The cache_key column is
-      -- what the lookup is keyed on; per-slot columns are not in the unique
-      -- constraint.
+      -- cf_hash / rent_roll_hash / asr_hash / pca_hash are nullable per-slot
+      -- hashes, stored for audit / debugging visibility. The cache_key column
+      -- is what the lookup is keyed on; per-slot columns are not in the unique
+      -- constraint. cache_key includes slotHashes.pca in its hash inputs since
+      -- the v9 PCA producer ship (f94d9f2); per-slot pca_hash column added
+      -- in #46 for observability symmetry with the other slot columns.
       CREATE TABLE IF NOT EXISTS extraction_input_cache (
         cache_key TEXT PRIMARY KEY,
         extraction_result_id TEXT NOT NULL,
@@ -316,6 +318,7 @@ export class RecordGraphStore {
         cf_hash TEXT,
         rent_roll_hash TEXT,
         asr_hash TEXT,
+        pca_hash TEXT,
         extractor_versions TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (extraction_result_id) REFERENCES extraction_results(id)
@@ -386,6 +389,9 @@ export class RecordGraphStore {
       const cols = this.db.prepare("PRAGMA table_info('extraction_input_cache')").all() as Array<{ name: string }>;
       if (cols.length > 0 && !cols.find((c) => c.name === 'property_metadata_id')) {
         this.db.exec('ALTER TABLE extraction_input_cache ADD COLUMN property_metadata_id TEXT');
+      }
+      if (cols.length > 0 && !cols.find((c) => c.name === 'pca_hash')) {
+        this.db.exec('ALTER TABLE extraction_input_cache ADD COLUMN pca_hash TEXT');
       }
     } catch { /* table might not exist yet — that's OK, migrate() just created it */ }
   }
@@ -920,13 +926,14 @@ export class RecordGraphStore {
     readonly cfHash: ContentHash | null;
     readonly rentRollHash: ContentHash | null;
     readonly asrHash: ContentHash | null;
+    readonly pcaHash: ContentHash | null;
     readonly extractorVersions: Record<string, string>;
   }): { inserted: boolean } {
     const result = this.db
       .prepare(
         `INSERT INTO extraction_input_cache
-         (cache_key, extraction_result_id, property_metadata_id, cf_hash, rent_roll_hash, asr_hash, extractor_versions, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         (cache_key, extraction_result_id, property_metadata_id, cf_hash, rent_roll_hash, asr_hash, pca_hash, extractor_versions, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(cache_key) DO NOTHING`,
       )
       .run(
@@ -936,6 +943,7 @@ export class RecordGraphStore {
         args.cfHash,
         args.rentRollHash,
         args.asrHash,
+        args.pcaHash,
         JSON.stringify(args.extractorVersions),
         new Date().toISOString(),
       );

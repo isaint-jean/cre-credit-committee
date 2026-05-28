@@ -147,6 +147,7 @@ console.log('\nrecord-graph-store — extraction_input_cache ops:');
     cfHash: HASH_A,
     rentRollHash: null,
     asrHash: null,
+    pcaHash: null,
     extractorVersions: VERSIONS,
   });
   assertEqual(r1.inserted, true, '6.1 first insert reports inserted=true');
@@ -163,6 +164,7 @@ console.log('\nrecord-graph-store — extraction_input_cache ops:');
     cfHash: HASH_A,
     rentRollHash: null,
     asrHash: null,
+    pcaHash: null,
     extractorVersions: VERSIONS,
   });
   assertEqual(r2.inserted, false, '7.1 re-insert of same cache_key → inserted=false');
@@ -179,11 +181,31 @@ console.log('\nrecord-graph-store — extraction_input_cache ops:');
       cacheKey: ('f'.repeat(64)) as ContentHash,
       extractionResultId: ('e'.repeat(64)) as ExtractionResultId,
       propertyMetadataId: null,
-      cfHash: null, rentRollHash: null, asrHash: null,
+      cfHash: null, rentRollHash: null, asrHash: null, pcaHash: null,
       extractorVersions: VERSIONS,
     });
   } catch (e) { threw = e as Error; }
   assert(threw !== null, '9.1 FK violation on unknown extraction_result_id → throws');
+
+  /* 10. Cache-distinguishing-by-PCA-hash invariant (#46 observability claim).
+        cache_key incorporates slotHashes.pca; two requests with identical
+        cf/rentRoll/asr slots but different pca slots must produce different
+        cache keys. This is the load-bearing invariant the v9 PCA producer
+        ship enforced at the cache-key layer; the v17 storage migration adds
+        the per-slot pca_hash column for observability inspection of the
+        same distinguishing data. */
+  const keyWithPcaA = computeExtractionInputKey({
+    slotHashes: { cf: HASH_A, rentRoll: null, asr: null, pca: HASH_A },
+    extractorVersions: VERSIONS,
+  });
+  const keyWithPcaB = computeExtractionInputKey({
+    slotHashes: { cf: HASH_A, rentRoll: null, asr: null, pca: HASH_B },
+    extractorVersions: VERSIONS,
+  });
+  assert(
+    keyWithPcaA !== keyWithPcaB,
+    '10.1 different PCA hashes → different cache keys (observability symmetry with per-slot pca_hash column)',
+  );
 
   store.close();
 }
