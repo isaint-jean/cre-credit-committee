@@ -28,4 +28,9 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // Frozen state: NARRATIVE_SYSTEM_PROMPT + EXECUTIVE_SUMMARY_PROMPT_TEMPLATE
   // from apps/api/src/services/narrative/prompt-templates.ts.
   '1.0': '01b7f1e437c48c394bb3fd09bb6d4b0a28ebf25a9a86713fdbb2b832235544dd' as ContentHash,
+  // Phase 2 (2026-05-29) — red_flag_assessment slot added. Frozen state
+  // additionally includes RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE. Hash
+  // registered via `npm run narrative-engine:print-hash` after the
+  // template + buildNarrativeEngineHashSnapshot widening landed.
+  '1.1': '6018806ab5df6da9f62052467e79454988a0bc8456e9c3b3171f4bfd2b12f900' as ContentHash,
 };

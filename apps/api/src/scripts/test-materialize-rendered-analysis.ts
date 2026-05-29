@@ -22,6 +22,7 @@
 import {
   EXTRACTION_ENGINE_VERSION,
   MANIFESTO_CONTRACT_VERSION,
+  NARRATIVE_ENGINE_VERSION,
   RENDER_VERSION,
   ASSET_TYPES,
 } from '@cre/contracts';
@@ -416,7 +417,7 @@ console.log('\ngetRenderedAnalysisByRoot(rootId, renderVersion, narrativeId) cac
   // evaluateAndNarrate via stubLLM, so a NarrativeEvaluation exists; fetch its
   // id from the bundle's AdjustedInputs.
   const doctrine = store.getDoctrineEvaluation(rootId)!;
-  const narrative = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, '1.0');
+  const narrative = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
   const narrativeId = narrative?.id ?? null;
 
   // Before materialization, lookup returns null

@@ -48,6 +48,8 @@ const HE_ID = 'b'.repeat(64) as HandbookEvaluationId;
 function makeBody(overrides: Partial<{
   executiveSummary: string;
   consumedFlagPrincipleIds: readonly string[];
+  redFlagAssessment: string;
+  redFlagAssessmentConsumedFlagPrincipleIds: readonly string[];
 }> = {}) {
   return {
     analysisAsOfDate: AS_OF,
@@ -55,9 +57,15 @@ function makeBody(overrides: Partial<{
     handbookEvaluationId: HE_ID,
     engineVersion: NARRATIVE_ENGINE_VERSION as NarrativeEngineVersion,
     consumedFlagPrincipleIds: overrides.consumedFlagPrincipleIds ?? ['P-II-3', 'P-II-8'],
+    redFlagAssessmentConsumedFlagPrincipleIds:
+      overrides.redFlagAssessmentConsumedFlagPrincipleIds ??
+      ['P-II-3', 'P-II-8', 'P-IV-OFF-2', 'P-IV-OFF-9'],
     executiveSummary:
       overrides.executiveSummary ??
       'The deal carries critical cash-out refinance risk (P-II-3) at $8.5M, alongside specialty-asset exposure on Medical Office subtype (P-II-8). Both warrant committee scrutiny.',
+    redFlagAssessment:
+      overrides.redFlagAssessment ??
+      '- [P-II-3] Cash-out refinance of $8.5M; equity extraction may signal seller distress.\n- [P-II-8] Medical Office subtype; specialty asset with thinner buyer pool at refinance.\n- [P-IV-OFF-2] Class B office; elevated leasing costs and reduced liquidity.\n- [P-IV-OFF-9] Washington DC submarket showing office distress signals.',
   };
 }
 
@@ -76,8 +84,10 @@ console.log('\n=== NarrativeEvaluation construction ===');
   assertEqual(ne.adjustedInputsId, ADJUSTED_INPUTS_ID, 'adjustedInputsId populated (sibling FK)');
   assertEqual(ne.handbookEvaluationId, HE_ID, 'handbookEvaluationId populated (substrate reference)');
   assertEqual(ne.engineVersion, NARRATIVE_ENGINE_VERSION, 'engineVersion populated from contract constant');
-  assertEqual(ne.consumedFlagPrincipleIds.length, 2, 'consumedFlagPrincipleIds populated');
+  assertEqual(ne.consumedFlagPrincipleIds.length, 2, 'consumedFlagPrincipleIds populated (executive_summary scope)');
+  assertEqual(ne.redFlagAssessmentConsumedFlagPrincipleIds.length, 4, 'redFlagAssessmentConsumedFlagPrincipleIds populated (red_flag_assessment scope)');
   assertEqual(typeof ne.executiveSummary, 'string', 'executiveSummary is string');
+  assertEqual(typeof ne.redFlagAssessment, 'string', 'redFlagAssessment is string (Phase 2)');
   ok('full NarrativeEvaluation literal compiles and constructs');
 })();
 
@@ -114,6 +124,18 @@ console.log('\n=== computeNarrativeEvaluationId — content determinism ===');
   } else {
     ok('different consumedFlagPrincipleIds produces different id');
   }
+  const differentRedFlag = makeBody({ redFlagAssessment: 'Different red-flag prose for Phase 2.' });
+  if (computeNarrativeEvaluationId(body1) === computeNarrativeEvaluationId(differentRedFlag)) {
+    fail('different redFlagAssessment should produce different id');
+  } else {
+    ok('different redFlagAssessment produces different id (Phase 2 slot in content hash)');
+  }
+  const differentRedFlagConsumed = makeBody({ redFlagAssessmentConsumedFlagPrincipleIds: ['P-II-3'] });
+  if (computeNarrativeEvaluationId(body1) === computeNarrativeEvaluationId(differentRedFlagConsumed)) {
+    fail('different redFlagAssessmentConsumedFlagPrincipleIds should produce different id');
+  } else {
+    ok('different redFlagAssessmentConsumedFlagPrincipleIds produces different id');
+  }
 })();
 
 console.log('\n=== Brand type assignability (compile-time check via runtime structural) ===');
@@ -140,6 +162,12 @@ console.log('\n=== JSON round-trip stability ===');
   assertEqual(round.handbookEvaluationId, ne.handbookEvaluationId, 'handbookEvaluationId survives');
   assertEqual(round.engineVersion, ne.engineVersion, 'engineVersion survives');
   assertEqual(round.executiveSummary, ne.executiveSummary, 'executiveSummary survives');
+  assertEqual(round.redFlagAssessment, ne.redFlagAssessment, 'redFlagAssessment survives (Phase 2)');
+  assertEqual(
+    [...round.redFlagAssessmentConsumedFlagPrincipleIds],
+    [...ne.redFlagAssessmentConsumedFlagPrincipleIds],
+    'redFlagAssessmentConsumedFlagPrincipleIds survives',
+  );
 })();
 
 console.log(`\n=== Summary ===`);

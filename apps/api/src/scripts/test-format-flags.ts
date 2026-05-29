@@ -88,6 +88,52 @@ console.log('\n=== mitigation_suggestions filter: keeps only P-II-3 ===');
   assertEqual(mit.map((f) => f.principleId), ['P-II-3'], 'mitigation_suggestions returns the singleton');
 }
 
+console.log('\n=== red_flag_assessment filter + ordering (Phase 2 parallel-depth coverage) ===');
+{
+  // All 4 fixture flags target red_flag_assessment. Severity sort: 1 critical
+  // (P-II-3) + 3 high (P-II-8, P-IV-OFF-2, P-IV-OFF-9). Among 'high',
+  // principleId ascending tiebreak: P-II-8 < P-IV-OFF-2 < P-IV-OFF-9.
+  const rfa = formatFlagsForInjectionPoint(he.firedFlags, 'red_flag_assessment');
+  assertEqual(
+    rfa.map((f) => f.principleId),
+    ['P-II-3', 'P-II-8', 'P-IV-OFF-2', 'P-IV-OFF-9'],
+    'red_flag_assessment ordering: critical first, then high ascending by principleId',
+  );
+  const first = rfa[0];
+  if (!first) {
+    fail('expected at least one formatted flag for red_flag_assessment');
+  } else {
+    assertEqual(first.principleId, 'P-II-3', 'first red-flag formatted is P-II-3 (critical)');
+    assertEqual<Severity>(first.severity, 'critical', 'severity preserved');
+    assertEqual(first.metric, '8500000', 'numeric metricValue stringified');
+  }
+  // P-IV-OFF-2 + P-IV-OFF-9 are red_flag_assessment-only — verify they
+  // surface here but NOT in executive_summary.
+  const execIds = formatFlagsForInjectionPoint(he.firedFlags, 'executive_summary').map((f) => f.principleId);
+  for (const id of ['P-IV-OFF-2', 'P-IV-OFF-9']) {
+    if (execIds.includes(id)) fail(`${id} should NOT appear in executive_summary`);
+    if (!rfa.map((f) => f.principleId).includes(id)) fail(`${id} should appear in red_flag_assessment`);
+  }
+  ok('P-IV-OFF-2 + P-IV-OFF-9 are red_flag_assessment-only (not in executive_summary)');
+}
+
+console.log('\n=== red_flag_assessment FormattedFlag string-metric formatting ===');
+{
+  // P-II-8 has metricValue: 'Medical Office' (string). Verify formatting.
+  const rfa = formatFlagsForInjectionPoint(he.firedFlags, 'red_flag_assessment');
+  const p2_8 = rfa.find((f) => f.principleId === 'P-II-8');
+  if (!p2_8) {
+    fail('expected P-II-8 in red_flag_assessment output');
+  } else {
+    assertEqual(p2_8.metric, 'Medical Office', 'string metricValue passes through to red-flag output');
+    assertEqual(
+      p2_8.message,
+      'Medical Office subtype falls within specialty-assets category.',
+      'red-flag .message mapped from flag_message',
+    );
+  }
+}
+
 console.log('\n=== Sort order: severity then principleId ===');
 {
   // Construct a synthetic mixed-severity input. Two of severity 'high', one

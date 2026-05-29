@@ -23,6 +23,7 @@ import {
 import {
   NARRATIVE_SYSTEM_PROMPT,
   EXECUTIVE_SUMMARY_PROMPT_TEMPLATE,
+  RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE,
 } from '../services/narrative/prompt-templates.js';
 import { computeContentHash } from './content-hash.js';
 
@@ -42,6 +43,7 @@ function buildNarrativeEngineHashSnapshot() {
   return {
     systemPrompt: NARRATIVE_SYSTEM_PROMPT,
     executiveSummaryPromptTemplate: EXECUTIVE_SUMMARY_PROMPT_TEMPLATE,
+    redFlagAssessmentPromptTemplate: RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE,
   };
 }
 

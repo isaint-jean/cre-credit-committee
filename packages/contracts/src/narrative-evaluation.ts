@@ -83,11 +83,18 @@ export interface NarrativeEvaluation {
 
   /**
    * Principle ids of the fired flags that survived the format-flags
-   * filter for the executive_summary injection point and were
-   * therefore embedded in the producer's prompt. Sorted ascending for
+   * filter for the **executive_summary** injection point and were
+   * therefore embedded in that slot's prompt. Sorted ascending for
    * canonicalization stability — replay can recompute this list from
    * the handbook evaluation and verify equality without rerunning the
    * LLM.
+   *
+   * SCOPE NOTE: this field's scope is executive_summary only, per the
+   * additive-widening decision (Phase 2 Q-S3 (γ.2)). Phase 2+ adds
+   * sibling fields per slot rather than collapsing into a map. The
+   * verbose naming is the accepted trade-off; a v2.0 (MAJOR) clean
+   * rename is the planned exit if slot 3 or 4 verbosity becomes
+   * painful.
    *
    * Empty array is valid (no flags fire on executive_summary → the
    * producer composes a no-flags narrative, which is still useful
@@ -96,15 +103,39 @@ export interface NarrativeEvaluation {
   readonly consumedFlagPrincipleIds: readonly string[];
 
   /**
-   * LLM-produced executive-summary prose. Phase 1 survivor; the only
-   * injection-point slot in batch 1. Additional slots (red_flag_
-   * assessment, mitigation_suggestions, committee_recommendation)
-   * land as sibling fields in later Phase 1 sub-batches via MINOR
-   * engine version bump.
+   * Principle ids of the fired flags that survived the format-flags
+   * filter for the **red_flag_assessment** injection point (Phase 2
+   * addition; NARRATIVE_ENGINE_VERSION '1.1'). Sibling to
+   * `consumedFlagPrincipleIds` (which scopes to executive_summary)
+   * per the additive-widening decision Q-S3 (γ.2). Sorted ascending
+   * for canonicalization stability. Empty array is valid.
+   */
+  readonly redFlagAssessmentConsumedFlagPrincipleIds: readonly string[];
+
+  /**
+   * LLM-produced executive-summary prose. Phase 1 survivor; the
+   * first injection-point slot. Sibling slot prose lives in
+   * `redFlagAssessment` (Phase 2) and additional slots will land
+   * here as new sibling fields in subsequent MINOR engine version
+   * bumps.
    *
    * Always present (non-nullable). If the LLM returns an empty
    * response the producer throws — empty prose is a producer bug,
    * not a valid state.
    */
   readonly executiveSummary: string;
+
+  /**
+   * LLM-produced red-flag-assessment prose (Phase 2 addition;
+   * NARRATIVE_ENGINE_VERSION '1.1'). Mirrors `executiveSummary`
+   * shape; required, non-nullable. Producer throws on empty LLM
+   * response.
+   *
+   * Composed by `buildRedFlagAssessment` from the same HE flags
+   * filtered to InjectionPoint='red_flag_assessment'. Slot
+   * independence (Q-S4 (f.1)): if either slot's LLM call fails,
+   * `buildNarrative` throws and the record is not persisted; v23
+   * idempotency-via-content-hash semantics handle retries.
+   */
+  readonly redFlagAssessment: string;
 }

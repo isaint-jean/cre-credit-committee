@@ -209,7 +209,11 @@ function makeHandbookEvaluation(
 function makeNarrative(
   adjustedInputsId: AdjustedInputsId,
   handbookEvaluationId: HandbookEvaluationId,
-  overrides: { executiveSummary?: string; engineVersion?: NarrativeEngineVersion } = {},
+  overrides: {
+    executiveSummary?: string;
+    engineVersion?: NarrativeEngineVersion;
+    redFlagAssessment?: string;
+  } = {},
 ): NarrativeEvaluation {
   const body = {
     analysisAsOfDate: AS_OF,
@@ -217,9 +221,13 @@ function makeNarrative(
     handbookEvaluationId,
     engineVersion: overrides.engineVersion ?? (NARRATIVE_ENGINE_VERSION as NarrativeEngineVersion),
     consumedFlagPrincipleIds: ['P-A-1'],
+    redFlagAssessmentConsumedFlagPrincipleIds: ['P-A-1'],
     executiveSummary:
       overrides.executiveSummary ??
       'Test executive summary prose. The deal has one high-severity flag (P-A-1).',
+    redFlagAssessment:
+      overrides.redFlagAssessment ??
+      '- [P-A-1] Test red-flag assessment for store test (Phase 2).',
   };
   return { id: computeNarrativeEvaluationId(body), ...body };
 }

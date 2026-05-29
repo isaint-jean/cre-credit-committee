@@ -10,7 +10,7 @@ import type { ISODateTime, NarrativeEngineVersion } from './versioning.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.5' as const;
+export const RENDER_VERSION = '7.6' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -146,26 +146,38 @@ export interface RenderedAssumptionsSection {
   readonly expenseGrowthPct: RenderedLineItem;     // 0..1 decimal
 }
 
-// Narrative projection (added in render version 7.5 for Piece A Phase 1).
-// Bijective passthrough of the NarrativeEvaluation sibling record's
-// executive_summary slot. Prose is rendered as plain string (NOT a RenderCell)
-// because narrative is either fully composed or absent — there is no
-// "missing-data sentinel" semantic for LLM-produced prose. The engineVersion
-// + consumedFlagPrincipleIds are passthroughs so the UI can display "composed
-// at version X from N flags" and link back to the source HE if needed.
+// Narrative projection (added in render version 7.5 for Piece A Phase 1;
+// red_flag_assessment slot added in 7.6 for Phase 2). Bijective passthrough
+// of the NarrativeEvaluation sibling record's executive_summary +
+// red_flag_assessment slots. Prose is rendered as plain string (NOT a
+// RenderCell) because narrative is either fully composed or absent — there
+// is no "missing-data sentinel" semantic for LLM-produced prose. The
+// engineVersion + consumedFlagPrincipleIds (per slot) are passthroughs so
+// the UI can display "composed at version X from N flags" and link back to
+// the source HE if needed.
 //
-// EXPLICIT NON-FIELDS (semantic-fidelity discipline at 7.5):
+// EXPLICIT NON-FIELDS (semantic-fidelity discipline at 7.5+):
 //   - NO derived word/character count. UI can compute display lengths if needed.
 //   - NO inference of severity / tone / "headline risk". The producer composes
 //     ordered prose; render preserves it verbatim. Re-ranking or re-summarizing
 //     in render is forbidden.
-//   - NO synthesis of executive_summary when the field is absent. The
-//     `narrative` field on RenderedAnalysis is `| null` for analyses without
-//     a NarrativeEvaluation at NARRATIVE_ENGINE_VERSION.
+//   - NO synthesis of any slot when the field is absent. The `narrative`
+//     field on RenderedAnalysis is `| null` for analyses without a
+//     NarrativeEvaluation at NARRATIVE_ENGINE_VERSION.
+//   - NO cross-slot reconciliation. executive_summary and red_flag_assessment
+//     are independent producer outputs; render must not detect / merge /
+//     reconcile redundancy between them.
+//
+// 7.6 (Phase 2) addition: redFlagAssessment + per-slot consumedIds. Verbose
+// field name `redFlagAssessmentConsumedFlagPrincipleIds` per the additive-
+// widening decision Q-S3 (γ.2). A v2.0 MAJOR clean-rename is the planned
+// exit if slot 3 or 4 verbosity becomes painful.
 export interface RenderedNarrativeSection {
   readonly executiveSummary: string;
+  readonly redFlagAssessment: string;                                  // 7.6 (Phase 2)
   readonly engineVersion: NarrativeEngineVersion;
-  readonly consumedFlagPrincipleIds: readonly string[];
+  readonly consumedFlagPrincipleIds: readonly string[];                // executive_summary slot
+  readonly redFlagAssessmentConsumedFlagPrincipleIds: readonly string[]; // 7.6 (Phase 2)
 }
 
 // Per-component scoring projection (added in render version 6.8 for D09 parity).

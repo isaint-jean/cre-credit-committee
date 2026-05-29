@@ -161,11 +161,25 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-const STUB_OUTPUT_A = 'Test exec summary A — deterministic prose for batch-2 integration test.';
-const STUB_OUTPUT_B = 'Test exec summary B — different prose to verify cache-staleness gate.';
+const STUB_EXEC_A = 'Test exec summary A — deterministic prose for integration test.';
+const STUB_EXEC_B = 'Test exec summary B — different prose to verify cache-staleness gate.';
+const STUB_REDFLAG_A = '- [P-TEST] Test red-flag assessment A — deterministic prose for integration test.';
+const STUB_REDFLAG_B = '- [P-TEST] Test red-flag assessment B — different prose to verify cache-staleness gate.';
 
-function makeStub(output: string): LLMCallFn {
-  return async () => output;
+/**
+ * Per-slot dispatching stub. The orchestrator (Phase 2) makes two
+ * parallel LLM calls — one per slot — and the stub picks the right
+ * output based on a stable marker in the prompt text. The executive-
+ * summary prompt contains the phrase "executive-summary paragraph";
+ * the red-flag-assessment prompt contains "red-flag assessment".
+ */
+function makeStub(execOutput: string, redFlagOutput: string): LLMCallFn {
+  return async ({ messages }) => {
+    const content = messages[0]?.content;
+    const text = typeof content === 'string' ? content : '';
+    if (text.includes('red-flag assessment')) return redFlagOutput;
+    return execOutput;
+  };
 }
 
 /* --------------------------------- run --------------------------------- */
@@ -191,7 +205,7 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_A) },
+    { llmCall: makeStub(STUB_EXEC_A, STUB_REDFLAG_A) },
   );
 
   // 1. HE row persisted
@@ -211,7 +225,27 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
   assertEqual(narrative?.engineVersion, NARRATIVE_ENGINE_VERSION, 'narrative.engineVersion stamped from contract constant');
 
   // 3. Stub output preserved
-  assertEqual(narrative?.executiveSummary, STUB_OUTPUT_A, 'narrative.executiveSummary === stub LLM output');
+  assertEqual(narrative?.executiveSummary, STUB_EXEC_A, 'narrative.executiveSummary === stub LLM output');
+  // Phase 2 — red_flag_assessment slot populated by orchestrator
+  assertEqual(narrative?.redFlagAssessment, STUB_REDFLAG_A, 'narrative.redFlagAssessment === red-flag stub LLM output');
+  if (!narrative) {
+    fail('expected narrative to be present');
+  } else {
+    // Structural shape: per-slot consumed-id field exists, is an array, and is
+    // a superset (set inclusion) of consumedFlagPrincipleIds — because every
+    // flag fired into executive_summary also fires into red_flag_assessment
+    // per the handbook engine (executive_summary is a strict subset of
+    // red_flag_assessment for any deal). Specific ids depend on which
+    // handbook principles fire against this integration test's synthetic deal.
+    const execSet = new Set(narrative.consumedFlagPrincipleIds);
+    const rfaSet = new Set(narrative.redFlagAssessmentConsumedFlagPrincipleIds);
+    const isSuperset = [...execSet].every((id) => rfaSet.has(id));
+    assert(isSuperset, 'redFlagAssessmentConsumedFlagPrincipleIds is a superset of consumedFlagPrincipleIds');
+    assert(
+      Array.isArray(narrative.redFlagAssessmentConsumedFlagPrincipleIds),
+      'redFlagAssessmentConsumedFlagPrincipleIds is an array (structural)',
+    );
+  }
 
   store.close();
 }
@@ -221,7 +255,7 @@ console.log('\nIdempotency — second ingest with same inputs and stub → no-op
   const store = new RecordGraphStore(':memory:');
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const stub = makeStub(STUB_OUTPUT_A);
+  const stub = makeStub(STUB_EXEC_A, STUB_REDFLAG_A);
   const args = {
     extractionResult: makeFullExtraction(),
     propertyType: 'Office' as AssetType,
@@ -262,7 +296,7 @@ console.log('\nDirect call to evaluateAndNarrate exposes wrapper return shape:')
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_A) },
+    { llmCall: makeStub(STUB_EXEC_A, STUB_REDFLAG_A) },
   );
   const doctrine = store.getDoctrineEvaluation(ingest.evaluationId)!;
   const assetProfile = store.getAssetProfile(doctrine.assetProfileId)!;
@@ -282,7 +316,7 @@ console.log('\nDirect call to evaluateAndNarrate exposes wrapper return shape:')
       propertyMetadata: null,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_A) },
+    { llmCall: makeStub(STUB_EXEC_A, STUB_REDFLAG_A) },
   );
   assert(result.evaluation !== undefined, 'wrapper returns evaluation');
   assert(result.handbookEvaluation !== undefined, 'wrapper returns handbookEvaluation');
@@ -308,14 +342,15 @@ console.log('\nmaterialize includes the narrative section:');
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_A) },
+    { llmCall: makeStub(STUB_EXEC_A, STUB_REDFLAG_A) },
   );
 
   const rendered = materializeRenderedAnalysis(ingest.evaluationId, store);
   assert(rendered.narrative !== null, 'RenderedAnalysis.narrative populated');
-  assertEqual(rendered.narrative?.executiveSummary, STUB_OUTPUT_A, 'rendered narrative carries stub prose');
+  assertEqual(rendered.narrative?.executiveSummary, STUB_EXEC_A, 'rendered narrative carries exec-summary stub prose');
+  assertEqual(rendered.narrative?.redFlagAssessment, STUB_REDFLAG_A, 'rendered narrative carries red-flag stub prose (Phase 2)');
   assertEqual(rendered.narrative?.engineVersion, NARRATIVE_ENGINE_VERSION, 'rendered narrative carries engine version');
-  assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'render version is current (7.5)');
+  assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'render version is current (7.6)');
 
   store.close();
 }
@@ -338,10 +373,11 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_A) },
+    { llmCall: makeStub(STUB_EXEC_A, STUB_REDFLAG_A) },
   );
   const renderedA = materializeRenderedAnalysis(ingest.evaluationId, store);
-  assertEqual(renderedA.narrative?.executiveSummary, STUB_OUTPUT_A, 'first materialize: stub A prose');
+  assertEqual(renderedA.narrative?.executiveSummary, STUB_EXEC_A, 'first materialize: exec stub A');
+  assertEqual(renderedA.narrative?.redFlagAssessment, STUB_REDFLAG_A, 'first materialize: red-flag stub A');
 
   // Directly add a SECOND narrative with different prose (stub B) — simulates
   // a re-narrate or LLM re-run. The store's insertNarrative handles distinct
@@ -365,12 +401,13 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
       propertyMetadata: null,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_B) },
+    { llmCall: makeStub(STUB_EXEC_B, STUB_REDFLAG_B) },
   );
 
   // Re-materialize: cache lookup uses the NEW narrativeId → miss → fresh render.
   const renderedB = materializeRenderedAnalysis(ingest.evaluationId, store);
-  assertEqual(renderedB.narrative?.executiveSummary, STUB_OUTPUT_B, 'second materialize: stub B prose (cache-staleness gate fired)');
+  assertEqual(renderedB.narrative?.executiveSummary, STUB_EXEC_B, 'second materialize: exec stub B (cache-staleness gate fired)');
+  assertEqual(renderedB.narrative?.redFlagAssessment, STUB_REDFLAG_B, 'second materialize: red-flag stub B (cache-staleness gate fired)');
   if (renderedA.id === renderedB.id) {
     fail('cache returned stale render: same RenderedAnalysisId despite different narrative');
   } else {
@@ -401,11 +438,11 @@ console.log('\nLast-narrative wins — getLatestNarrative returns newest by crea
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_A) },
+    { llmCall: makeStub(STUB_EXEC_A, STUB_REDFLAG_A) },
   );
   const doctrine = store.getDoctrineEvaluation(ingest.evaluationId)!;
   const firstLatest = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
-  assertEqual(firstLatest?.executiveSummary, STUB_OUTPUT_A, 'first latest = stub A');
+  assertEqual(firstLatest?.executiveSummary, STUB_EXEC_A, 'first latest = exec stub A');
 
   // Compose second narrative with B
   const assetProfile = store.getAssetProfile(doctrine.assetProfileId)!;
@@ -425,10 +462,90 @@ console.log('\nLast-narrative wins — getLatestNarrative returns newest by crea
       propertyMetadata: null,
     },
     store,
-    { llmCall: makeStub(STUB_OUTPUT_B) },
+    { llmCall: makeStub(STUB_EXEC_B, STUB_REDFLAG_B) },
   );
   const secondLatest = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
-  assertEqual(secondLatest?.executiveSummary, STUB_OUTPUT_B, 'second latest = stub B (newest by created_at)');
+  assertEqual(secondLatest?.executiveSummary, STUB_EXEC_B, 'second latest = exec stub B (newest by created_at)');
+  assertEqual(secondLatest?.redFlagAssessment, STUB_REDFLAG_B, 'second latest = red-flag stub B');
+
+  store.close();
+}
+
+console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment slot throws → wrapper rejects, no row written:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const lib = makeSnapshot();
+  store.insertLibrarySnapshot(lib);
+
+  /* Stub that succeeds for executive_summary but rejects on red_flag_assessment.
+     Per Q-S4 (f.1): Promise.all rejection in buildNarrative → evaluateAndNarrate
+     throws → no NarrativeEvaluation row persisted. HE + producer-tail rows DO
+     persist (they ran before the LLM calls, per the v23 inline-insert pattern).
+     Retry with a non-rejecting stub re-runs both slots; ON CONFLICT makes the
+     producer-tail re-inserts no-ops; the narrative composes fresh and persists. */
+  const partialFailureStub: LLMCallFn = async ({ messages }) => {
+    const content = messages[0]?.content;
+    const text = typeof content === 'string' ? content : '';
+    if (text.includes('red-flag assessment')) {
+      throw new Error('Simulated LLM failure on red_flag_assessment slot');
+    }
+    return STUB_EXEC_A;
+  };
+
+  let threwFirst = false;
+  let ingest1;
+  try {
+    ingest1 = await ingestExtractionResult(
+      {
+        extractionResult: makeFullExtraction(),
+        propertyType: 'Office' as AssetType,
+        marketLiquidityHint: 'Primary',
+        librarySnapshotId: lib.id,
+        marketBenchmarks: makeBenchmarks(),
+        creditManifesto: makeManifesto(),
+        analysisAsOfDate: AS_OF,
+      },
+      store,
+      { llmCall: partialFailureStub },
+    );
+  } catch {
+    threwFirst = true;
+  }
+  assert(threwFirst, 'first ingest with partial-failure stub throws');
+  assertEqual(ingest1, undefined, 'first ingest produced no IngestionResult');
+
+  /* Verify no narrative row persisted. HE row DOES persist (producer-tail
+     ran before the LLM calls) — this is v23 idempotency-via-content-hash
+     semantics: re-ingest re-runs producer-tail as no-ops via ON CONFLICT. */
+  const aiRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
+    .db.prepare('SELECT id FROM adjusted_inputs').all() as Array<{ id: string }>;
+  assert(aiRows.length === 1, 'producer-tail persisted AdjustedInputs row even though narrative threw');
+  const narrRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
+    .db.prepare('SELECT id FROM narratives').all() as Array<{ id: string }>;
+  assertEqual(narrRows.length, 0, 'no narrative row written when red-flag slot threw');
+
+  /* Retry with a non-rejecting stub. v23 idempotency: producer-tail
+     re-inserts are no-ops via ON CONFLICT; narrative composes fresh from
+     both slots and persists. */
+  const ingest2 = await ingestExtractionResult(
+    {
+      extractionResult: makeFullExtraction(),
+      propertyType: 'Office' as AssetType,
+      marketLiquidityHint: 'Primary',
+      librarySnapshotId: lib.id,
+      marketBenchmarks: makeBenchmarks(),
+      creditManifesto: makeManifesto(),
+      analysisAsOfDate: AS_OF,
+    },
+    store,
+    { llmCall: makeStub(STUB_EXEC_A, STUB_REDFLAG_A) },
+  );
+  assert(ingest2.rootId !== undefined, 'retry succeeded with non-rejecting stub');
+  const doctrine = store.getDoctrineEvaluation(ingest2.evaluationId)!;
+  const recovered = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
+  assert(recovered !== null, 'narrative persisted on retry');
+  assertEqual(recovered?.executiveSummary, STUB_EXEC_A, 'retry produces exec_summary slot');
+  assertEqual(recovered?.redFlagAssessment, STUB_REDFLAG_A, 'retry produces red_flag_assessment slot');
 
   store.close();
 }

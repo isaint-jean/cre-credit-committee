@@ -1,24 +1,36 @@
 /**
- * buildNarrative — Piece A Phase 1 narrative producer (batch 1).
+ * buildNarrative — Piece A narrative producer. Phase 1 (batch 1) shipped
+ * with single-slot semantics (executive_summary only). Phase 2 promotes
+ * this fn to a **thin orchestrator over per-slot helpers**:
  *
- * One-shot: takes a HandbookEvaluation + AdjustedInputs anchor, runs the
- * format-flags filter for the executive_summary injection point, builds the
- * prompt from prompt-templates, calls the LLM via callAIWithContinuation,
- * and assembles a NarrativeEvaluation record (content-hashed id, ready for
- * store insertion via insertNarrative).
+ *   - `buildExecutiveSummary` (helper) — composes the executive_summary slot
+ *   - `buildRedFlagAssessment` (helper) — composes the red_flag_assessment slot
+ *   - `buildNarrative` (orchestrator, this file's public export) — runs the
+ *     helpers in parallel via `Promise.all`, assembles a full
+ *     NarrativeEvaluation record, returns it ready for store insertion
  *
- * Phase 1 scope (the executive_summary survivor): a single string field on
- * the persisted record. Later Phase 1 sub-batches add sibling fields per
- * additional InjectionPoint and bump NARRATIVE_ENGINE_VERSION accordingly.
+ * Per Phase 2 Q-S1 (b) + Q-S2 (n.1):
+ *   - parallel separate producers: each slot's LLM call is independent;
+ *     `Promise.all` recovers single-call wall-clock latency
+ *   - orchestrator naming: `buildNarrative` remains the public name; per-
+ *     slot helpers live in this file but are not exported
  *
- * Atomicity (v23 reframe): the producer is pure once the LLM call returns —
+ * Per Phase 2 Q-S4 (f.1) partial-failure semantics:
+ *   - `Promise.all` rejects on the first helper rejection. `buildNarrative`
+ *     throws; `evaluateAndNarrate` does NOT call `insertNarrative`; no
+ *     NarrativeEvaluation row is persisted. A retry re-runs both slots; v23
+ *     idempotency-via-content-hash + ON CONFLICT semantics make duplicate
+ *     inserts no-ops, so retries are safe.
+ *
+ * Atomicity (v23 reframe): the producer is pure once both LLM calls return —
  * the content hash of the assembled body determines the record id. The
- * store's ON CONFLICT DO NOTHING handles idempotency. No transactions.
+ * store's ON CONFLICT DO NOTHING handles idempotency.
  *
- * LLM dependency: callAIWithContinuation from the legacy ai-analysis.service
+ * LLM dependency: `callAIWithContinuation` from the legacy ai-analysis.service
  * (the existing primitive — model 'claude-sonnet-4-20250514', auto-
  * continuation on max_tokens). Reuse rather than reinvent per SPEC §14.4
- * v23 Decision 3 (hybrid: new producer + existing LLM primitive).
+ * v23 Decision 3 (hybrid: new producer + existing LLM primitive). DI seam
+ * `deps.llmCall?` lets tests inject a per-slot dispatching stub.
  */
 
 import type {
@@ -37,18 +49,20 @@ import {
 import {
   NARRATIVE_SYSTEM_PROMPT,
   buildExecutiveSummaryPrompt,
+  buildRedFlagAssessmentPrompt,
 } from './prompt-templates.js';
 
 const NARRATIVE_LLM_MODEL = 'claude-sonnet-4-20250514';
 const EXECUTIVE_SUMMARY_MAX_TOKENS = 3000;
+const RED_FLAG_ASSESSMENT_MAX_TOKENS = 3000;
 
 /**
  * DI seam for the LLM primitive. Production callers omit `deps.llmCall`
  * (defaulting to the real `callAIWithContinuation`); tests pass a
- * deterministic stub. Pattern cascades upward through `evaluateAndNarrate`,
- * `ingestExtractionResult`, and `applyRevisionDelta` so the whole write
- * path can be exercised in scripts-based tests without hitting the
- * Anthropic API.
+ * deterministic stub. The stub can dispatch on prompt content (e.g.,
+ * `messages[0].content.includes('red-flag')`) to return different prose
+ * per slot. Pattern cascades upward through `evaluateAndNarrate`,
+ * `ingestExtractionResult`, and `applyRevisionDelta`.
  */
 export type LLMCallFn = typeof callAIWithContinuation;
 
@@ -83,20 +97,18 @@ export class BuildNarrativeError extends Error {
   }
 }
 
-export async function buildNarrative(
+/* ----------------------------- per-slot helpers ----------------------------- */
+
+interface ExecutiveSummaryFragment {
+  readonly executiveSummary: string;
+  readonly consumedFlagPrincipleIds: readonly string[];
+}
+
+async function buildExecutiveSummary(
   input: BuildNarrativeInput,
-  deps: BuildNarrativeDeps = {},
-): Promise<NarrativeEvaluation> {
-  const { handbookEvaluation, adjustedInputsId, analysisAsOfDate } = input;
-  const llm = deps.llmCall ?? callAIWithContinuation;
-
-  if (handbookEvaluation.adjustedInputsId !== adjustedInputsId) {
-    throw new BuildNarrativeError(
-      'ADJUSTED_INPUTS_ID_MISMATCH',
-      `handbookEvaluation.adjustedInputsId (${handbookEvaluation.adjustedInputsId}) does not match input.adjustedInputsId (${adjustedInputsId}). The producer requires both to point at the same AdjustedInputs anchor.`,
-    );
-  }
-
+  llm: LLMCallFn,
+): Promise<ExecutiveSummaryFragment> {
+  const { handbookEvaluation } = input;
   const formattedFlags = formatFlagsForInjectionPoint(
     handbookEvaluation.firedFlags,
     'executive_summary',
@@ -107,7 +119,6 @@ export async function buildNarrative(
   );
 
   const prompt = buildExecutiveSummaryPrompt(formattedFlags);
-
   const llmOutput = await llm({
     model: NARRATIVE_LLM_MODEL,
     max_tokens: EXECUTIVE_SUMMARY_MAX_TOKENS,
@@ -123,13 +134,81 @@ export async function buildNarrative(
     );
   }
 
+  return { executiveSummary, consumedFlagPrincipleIds };
+}
+
+interface RedFlagAssessmentFragment {
+  readonly redFlagAssessment: string;
+  readonly redFlagAssessmentConsumedFlagPrincipleIds: readonly string[];
+}
+
+async function buildRedFlagAssessment(
+  input: BuildNarrativeInput,
+  llm: LLMCallFn,
+): Promise<RedFlagAssessmentFragment> {
+  const { handbookEvaluation } = input;
+  const formattedFlags = formatFlagsForInjectionPoint(
+    handbookEvaluation.firedFlags,
+    'red_flag_assessment',
+  );
+  const redFlagAssessmentConsumedFlagPrincipleIds = consumedPrincipleIdsForInjectionPoint(
+    handbookEvaluation.firedFlags,
+    'red_flag_assessment',
+  );
+
+  const prompt = buildRedFlagAssessmentPrompt(formattedFlags);
+  const llmOutput = await llm({
+    model: NARRATIVE_LLM_MODEL,
+    max_tokens: RED_FLAG_ASSESSMENT_MAX_TOKENS,
+    system: NARRATIVE_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const redFlagAssessment = llmOutput.trim();
+
+  if (redFlagAssessment.length === 0) {
+    throw new BuildNarrativeError(
+      'LLM_EMPTY_RESPONSE',
+      `LLM returned empty prose for red_flag_assessment (handbookEvaluationId=${handbookEvaluation.id}). Empty prose is not a valid state for the producer.`,
+    );
+  }
+
+  return { redFlagAssessment, redFlagAssessmentConsumedFlagPrincipleIds };
+}
+
+/* ----------------------------- orchestrator (public) ----------------------- */
+
+export async function buildNarrative(
+  input: BuildNarrativeInput,
+  deps: BuildNarrativeDeps = {},
+): Promise<NarrativeEvaluation> {
+  const { handbookEvaluation, adjustedInputsId, analysisAsOfDate } = input;
+  const llm = deps.llmCall ?? callAIWithContinuation;
+
+  if (handbookEvaluation.adjustedInputsId !== adjustedInputsId) {
+    throw new BuildNarrativeError(
+      'ADJUSTED_INPUTS_ID_MISMATCH',
+      `handbookEvaluation.adjustedInputsId (${handbookEvaluation.adjustedInputsId}) does not match input.adjustedInputsId (${adjustedInputsId}). The producer requires both to point at the same AdjustedInputs anchor.`,
+    );
+  }
+
+  // Promise.all: parallel LLM calls (one per slot). If either rejects, the
+  // wrapper rejects — per Q-S4 (f.1) partial-failure semantics. No partial
+  // NarrativeEvaluation row is persisted; v23 idempotency-via-content-hash
+  // makes the retry safe.
+  const [execSummary, redFlag] = await Promise.all([
+    buildExecutiveSummary(input, llm),
+    buildRedFlagAssessment(input, llm),
+  ]);
+
   const body = {
     analysisAsOfDate,
     adjustedInputsId,
     handbookEvaluationId: handbookEvaluation.id,
     engineVersion: NARRATIVE_ENGINE_VERSION,
-    consumedFlagPrincipleIds,
-    executiveSummary,
+    consumedFlagPrincipleIds: execSummary.consumedFlagPrincipleIds,
+    redFlagAssessmentConsumedFlagPrincipleIds: redFlag.redFlagAssessmentConsumedFlagPrincipleIds,
+    executiveSummary: execSummary.executiveSummary,
+    redFlagAssessment: redFlag.redFlagAssessment,
   };
 
   return {
