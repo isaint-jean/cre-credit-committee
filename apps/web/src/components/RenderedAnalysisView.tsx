@@ -27,6 +27,7 @@ import type {
   RenderBadgeSeverity,
   RenderedFinding,
   RenderedLineItem,
+  RenderedNarrativeSection,
   RenderedStressScenario,
   SkippedPrinciple,
 } from '@cre/contracts';
@@ -256,6 +257,65 @@ function HandbookEvaluationSection(
         Evaluated against handbook v{evaluation.handbookVersion} (engine {evaluation.engineVersion})
         {' · '}
         {new Date(evaluation.analysisAsOfDate).toISOString().slice(0, 10)}
+      </p>
+    </section>
+  );
+}
+
+// Piece A narrative output. Bijective passthrough of RenderedAnalysis.narrative —
+// four slots composed by the narrative engine: executive_summary, red_flag_assessment,
+// mitigation_suggestions, committee_recommendation. Renders nothing when the analysis
+// has no narrative attached (pre-Piece-A deals or composition failure).
+//
+// `whitespace-pre-line` preserves the \n separators in bulleted slot prose
+// (red_flag_assessment / mitigation_suggestions ship as "- [P-XX] …\n- …" strings;
+// executive_summary / committee_recommendation are paragraph form). Render must NOT
+// re-format, re-rank, or merge slots per the RD2 / read-pole discipline.
+function NarrativeSection(
+  { narrative }: { narrative: RenderedNarrativeSection | null },
+): React.ReactElement | null {
+  if (narrative === null) return null;
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">
+        Narrative
+      </h2>
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-xs uppercase tracking-wide font-semibold text-gray-500">
+            Executive Summary
+          </h3>
+          <p className="text-sm text-gray-700 whitespace-pre-line">
+            {narrative.executiveSummary}
+          </p>
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-xs uppercase tracking-wide font-semibold text-gray-500">
+            Red Flag Assessment
+          </h3>
+          <p className="text-sm text-gray-700 whitespace-pre-line">
+            {narrative.redFlagAssessment}
+          </p>
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-xs uppercase tracking-wide font-semibold text-gray-500">
+            Mitigation Suggestions
+          </h3>
+          <p className="text-sm text-gray-700 whitespace-pre-line">
+            {narrative.mitigationSuggestions}
+          </p>
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-xs uppercase tracking-wide font-semibold text-gray-500">
+            Committee Recommendation
+          </h3>
+          <p className="text-sm text-gray-700 whitespace-pre-line">
+            {narrative.committeeRecommendation}
+          </p>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400">
+        Composed by narrative engine v{narrative.engineVersion}
       </p>
     </section>
   );
@@ -760,6 +820,8 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
       {handbookEvaluation !== undefined && handbookEvaluation !== null && (
         <HandbookEvaluationSection evaluation={handbookEvaluation} />
       )}
+
+      <NarrativeSection narrative={data.narrative} />
 
       {data.doctrine.components.length > 0 ? (
         <section className="space-y-3">
