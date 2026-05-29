@@ -5,7 +5,7 @@
  * SPEC anchor: docs/specs/uw-template-populator/SPEC.md §14.4 (v17 through
  * v23 amendment chain). Phase 1 ships the executive_summary survivor only;
  * additional injection-point slots land in subsequent Phase 1 sub-batches
- * via MINOR version bump (NARRATIVE_ENGINE_VERSION '1.0' → '1.1' …).
+ * via MINOR version bump (NARRATIVE_ENGINE_VERSION '1.0' → '1.1' → '1.2' …).
  *
  * Sibling-record architecture (matches HandbookEvaluation precedent):
  *   - FK is `adjustedInputsId: AdjustedInputsId` only (not
@@ -113,11 +113,27 @@ export interface NarrativeEvaluation {
   readonly redFlagAssessmentConsumedFlagPrincipleIds: readonly string[];
 
   /**
+   * Principle ids of the fired flags that survived the format-flags
+   * filter for the **mitigation_suggestions** injection point
+   * (Phase 3 addition; NARRATIVE_ENGINE_VERSION '1.2'). Third
+   * sibling consumed-IDs field per Q-S3 (γ.2) additive-widening.
+   * Sorted ascending for canonicalization stability. Empty array
+   * is valid.
+   *
+   * Semantic relationship to other slots is NOT guaranteed by the
+   * handbook engine — each principle declares its own
+   * `injectionPoints` array; mitigation could include flags not in
+   * executive_summary or red_flag_assessment. Consumers must not
+   * assume subset / superset relationships between slot scopes.
+   */
+  readonly mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[];
+
+  /**
    * LLM-produced executive-summary prose. Phase 1 survivor; the
    * first injection-point slot. Sibling slot prose lives in
-   * `redFlagAssessment` (Phase 2) and additional slots will land
-   * here as new sibling fields in subsequent MINOR engine version
-   * bumps.
+   * `redFlagAssessment` (Phase 2), `mitigationSuggestions` (Phase 3),
+   * and additional slots will land here as new sibling fields in
+   * subsequent MINOR engine version bumps.
    *
    * Always present (non-nullable). If the LLM returns an empty
    * response the producer throws — empty prose is a producer bug,
@@ -133,9 +149,23 @@ export interface NarrativeEvaluation {
    *
    * Composed by `buildRedFlagAssessment` from the same HE flags
    * filtered to InjectionPoint='red_flag_assessment'. Slot
-   * independence (Q-S4 (f.1)): if either slot's LLM call fails,
+   * independence (Q-S4 (f.1)): if any slot's LLM call fails,
    * `buildNarrative` throws and the record is not persisted; v23
    * idempotency-via-content-hash semantics handle retries.
    */
   readonly redFlagAssessment: string;
+
+  /**
+   * LLM-produced mitigation-suggestions prose (Phase 3 addition;
+   * NARRATIVE_ENGINE_VERSION '1.2'). Mirrors prior slot shapes;
+   * required, non-nullable. Producer throws on empty LLM response.
+   *
+   * Composed by `buildMitigationSuggestions` from the same HE
+   * flags filtered to InjectionPoint='mitigation_suggestions'.
+   * Intent differs from prior slots: each bullet pairs a fired
+   * flag with a concrete recommended action (escrow, reserve,
+   * covenant, structure adjustment). The prompt template is the
+   * design surface for that intent.
+   */
+  readonly mitigationSuggestions: string;
 }

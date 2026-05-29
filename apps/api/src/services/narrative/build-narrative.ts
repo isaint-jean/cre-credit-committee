@@ -1,10 +1,12 @@
 /**
  * buildNarrative — Piece A narrative producer. Phase 1 (batch 1) shipped
- * with single-slot semantics (executive_summary only). Phase 2 promotes
- * this fn to a **thin orchestrator over per-slot helpers**:
+ * with single-slot semantics (executive_summary only). Phase 2 promoted
+ * this fn to a thin orchestrator over per-slot helpers; Phase 3 extends
+ * to 3 slots:
  *
  *   - `buildExecutiveSummary` (helper) — composes the executive_summary slot
  *   - `buildRedFlagAssessment` (helper) — composes the red_flag_assessment slot
+ *   - `buildMitigationSuggestions` (helper) — composes the mitigation_suggestions slot
  *   - `buildNarrative` (orchestrator, this file's public export) — runs the
  *     helpers in parallel via `Promise.all`, assembles a full
  *     NarrativeEvaluation record, returns it ready for store insertion
@@ -50,11 +52,13 @@ import {
   NARRATIVE_SYSTEM_PROMPT,
   buildExecutiveSummaryPrompt,
   buildRedFlagAssessmentPrompt,
+  buildMitigationSuggestionsPrompt,
 } from './prompt-templates.js';
 
 const NARRATIVE_LLM_MODEL = 'claude-sonnet-4-20250514';
 const EXECUTIVE_SUMMARY_MAX_TOKENS = 3000;
 const RED_FLAG_ASSESSMENT_MAX_TOKENS = 3000;
+const MITIGATION_SUGGESTIONS_MAX_TOKENS = 3000;
 
 /**
  * DI seam for the LLM primitive. Production callers omit `deps.llmCall`
@@ -175,6 +179,44 @@ async function buildRedFlagAssessment(
   return { redFlagAssessment, redFlagAssessmentConsumedFlagPrincipleIds };
 }
 
+interface MitigationSuggestionsFragment {
+  readonly mitigationSuggestions: string;
+  readonly mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[];
+}
+
+async function buildMitigationSuggestions(
+  input: BuildNarrativeInput,
+  llm: LLMCallFn,
+): Promise<MitigationSuggestionsFragment> {
+  const { handbookEvaluation } = input;
+  const formattedFlags = formatFlagsForInjectionPoint(
+    handbookEvaluation.firedFlags,
+    'mitigation_suggestions',
+  );
+  const mitigationSuggestionsConsumedFlagPrincipleIds = consumedPrincipleIdsForInjectionPoint(
+    handbookEvaluation.firedFlags,
+    'mitigation_suggestions',
+  );
+
+  const prompt = buildMitigationSuggestionsPrompt(formattedFlags);
+  const llmOutput = await llm({
+    model: NARRATIVE_LLM_MODEL,
+    max_tokens: MITIGATION_SUGGESTIONS_MAX_TOKENS,
+    system: NARRATIVE_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const mitigationSuggestions = llmOutput.trim();
+
+  if (mitigationSuggestions.length === 0) {
+    throw new BuildNarrativeError(
+      'LLM_EMPTY_RESPONSE',
+      `LLM returned empty prose for mitigation_suggestions (handbookEvaluationId=${handbookEvaluation.id}). Empty prose is not a valid state for the producer.`,
+    );
+  }
+
+  return { mitigationSuggestions, mitigationSuggestionsConsumedFlagPrincipleIds };
+}
+
 /* ----------------------------- orchestrator (public) ----------------------- */
 
 export async function buildNarrative(
@@ -191,13 +233,14 @@ export async function buildNarrative(
     );
   }
 
-  // Promise.all: parallel LLM calls (one per slot). If either rejects, the
+  // Promise.all: parallel LLM calls (one per slot). If any rejects, the
   // wrapper rejects — per Q-S4 (f.1) partial-failure semantics. No partial
   // NarrativeEvaluation row is persisted; v23 idempotency-via-content-hash
   // makes the retry safe.
-  const [execSummary, redFlag] = await Promise.all([
+  const [execSummary, redFlag, mitigation] = await Promise.all([
     buildExecutiveSummary(input, llm),
     buildRedFlagAssessment(input, llm),
+    buildMitigationSuggestions(input, llm),
   ]);
 
   const body = {
@@ -207,8 +250,10 @@ export async function buildNarrative(
     engineVersion: NARRATIVE_ENGINE_VERSION,
     consumedFlagPrincipleIds: execSummary.consumedFlagPrincipleIds,
     redFlagAssessmentConsumedFlagPrincipleIds: redFlag.redFlagAssessmentConsumedFlagPrincipleIds,
+    mitigationSuggestionsConsumedFlagPrincipleIds: mitigation.mitigationSuggestionsConsumedFlagPrincipleIds,
     executiveSummary: execSummary.executiveSummary,
     redFlagAssessment: redFlag.redFlagAssessment,
+    mitigationSuggestions: mitigation.mitigationSuggestions,
   };
 
   return {

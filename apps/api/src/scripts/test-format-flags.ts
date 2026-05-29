@@ -82,10 +82,34 @@ console.log('\n=== executive_summary filter: drops P-IV-OFF-2 + P-IV-OFF-9 ===')
   assertEqual(ids, ['P-II-3', 'P-II-8'], 'executive_summary keeps only flags whose injectionPoints include it');
 }
 
-console.log('\n=== mitigation_suggestions filter: keeps only P-II-3 ===');
+console.log('\n=== mitigation_suggestions filter: keeps only P-II-3 (Phase 3 parallel-depth coverage) ===');
 {
+  // Fixture: only P-II-3 declares mitigation_suggestions in its injectionPoints
+  // (the universal critical cash-out flag). P-II-8 + P-IV-OFF-2 + P-IV-OFF-9
+  // are NOT in mitigation_suggestions.
   const mit = formatFlagsForInjectionPoint(he.firedFlags, 'mitigation_suggestions');
   assertEqual(mit.map((f) => f.principleId), ['P-II-3'], 'mitigation_suggestions returns the singleton');
+
+  const only = mit[0];
+  if (!only) {
+    fail('expected P-II-3 in mitigation_suggestions output');
+  } else {
+    assertEqual(only.principleId, 'P-II-3', 'singleton is P-II-3');
+    assertEqual<Severity>(only.severity, 'critical', 'severity preserved');
+    assertEqual(only.metric, '8500000', 'numeric metricValue stringified');
+    assertEqual(
+      only.message,
+      'Cash-out refinance of $8.5M elevates risk; scrutiny warranted.',
+      'flag_message mapped to .message',
+    );
+  }
+
+  // Verify exclusion: the other 3 flags must NOT appear in mitigation_suggestions.
+  const mitIds = new Set(mit.map((f) => f.principleId));
+  for (const excluded of ['P-II-8', 'P-IV-OFF-2', 'P-IV-OFF-9']) {
+    if (mitIds.has(excluded)) fail(`${excluded} should NOT appear in mitigation_suggestions`);
+  }
+  ok('P-II-8 + P-IV-OFF-2 + P-IV-OFF-9 correctly excluded from mitigation_suggestions');
 }
 
 console.log('\n=== red_flag_assessment filter + ordering (Phase 2 parallel-depth coverage) ===');

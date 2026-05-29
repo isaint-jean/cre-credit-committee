@@ -50,6 +50,8 @@ function makeBody(overrides: Partial<{
   consumedFlagPrincipleIds: readonly string[];
   redFlagAssessment: string;
   redFlagAssessmentConsumedFlagPrincipleIds: readonly string[];
+  mitigationSuggestions: string;
+  mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[];
 }> = {}) {
   return {
     analysisAsOfDate: AS_OF,
@@ -60,12 +62,17 @@ function makeBody(overrides: Partial<{
     redFlagAssessmentConsumedFlagPrincipleIds:
       overrides.redFlagAssessmentConsumedFlagPrincipleIds ??
       ['P-II-3', 'P-II-8', 'P-IV-OFF-2', 'P-IV-OFF-9'],
+    mitigationSuggestionsConsumedFlagPrincipleIds:
+      overrides.mitigationSuggestionsConsumedFlagPrincipleIds ?? ['P-II-3'],
     executiveSummary:
       overrides.executiveSummary ??
       'The deal carries critical cash-out refinance risk (P-II-3) at $8.5M, alongside specialty-asset exposure on Medical Office subtype (P-II-8). Both warrant committee scrutiny.',
     redFlagAssessment:
       overrides.redFlagAssessment ??
       '- [P-II-3] Cash-out refinance of $8.5M; equity extraction may signal seller distress.\n- [P-II-8] Medical Office subtype; specialty asset with thinner buyer pool at refinance.\n- [P-IV-OFF-2] Class B office; elevated leasing costs and reduced liquidity.\n- [P-IV-OFF-9] Washington DC submarket showing office distress signals.',
+    mitigationSuggestions:
+      overrides.mitigationSuggestions ??
+      '- [P-II-3] Given cash-out amount of 8500000, require $5M upfront reserve plus minimum DSCR covenant at 1.25x with cash sweep above debt yield 11%.',
   };
 }
 
@@ -86,8 +93,10 @@ console.log('\n=== NarrativeEvaluation construction ===');
   assertEqual(ne.engineVersion, NARRATIVE_ENGINE_VERSION, 'engineVersion populated from contract constant');
   assertEqual(ne.consumedFlagPrincipleIds.length, 2, 'consumedFlagPrincipleIds populated (executive_summary scope)');
   assertEqual(ne.redFlagAssessmentConsumedFlagPrincipleIds.length, 4, 'redFlagAssessmentConsumedFlagPrincipleIds populated (red_flag_assessment scope)');
+  assertEqual(ne.mitigationSuggestionsConsumedFlagPrincipleIds.length, 1, 'mitigationSuggestionsConsumedFlagPrincipleIds populated (mitigation_suggestions scope)');
   assertEqual(typeof ne.executiveSummary, 'string', 'executiveSummary is string');
   assertEqual(typeof ne.redFlagAssessment, 'string', 'redFlagAssessment is string (Phase 2)');
+  assertEqual(typeof ne.mitigationSuggestions, 'string', 'mitigationSuggestions is string (Phase 3)');
   ok('full NarrativeEvaluation literal compiles and constructs');
 })();
 
@@ -136,6 +145,18 @@ console.log('\n=== computeNarrativeEvaluationId — content determinism ===');
   } else {
     ok('different redFlagAssessmentConsumedFlagPrincipleIds produces different id');
   }
+  const differentMitigation = makeBody({ mitigationSuggestions: 'Different mitigation prose for Phase 3.' });
+  if (computeNarrativeEvaluationId(body1) === computeNarrativeEvaluationId(differentMitigation)) {
+    fail('different mitigationSuggestions should produce different id');
+  } else {
+    ok('different mitigationSuggestions produces different id (Phase 3 slot in content hash)');
+  }
+  const differentMitigationConsumed = makeBody({ mitigationSuggestionsConsumedFlagPrincipleIds: ['P-II-8'] });
+  if (computeNarrativeEvaluationId(body1) === computeNarrativeEvaluationId(differentMitigationConsumed)) {
+    fail('different mitigationSuggestionsConsumedFlagPrincipleIds should produce different id');
+  } else {
+    ok('different mitigationSuggestionsConsumedFlagPrincipleIds produces different id');
+  }
 })();
 
 console.log('\n=== Brand type assignability (compile-time check via runtime structural) ===');
@@ -167,6 +188,12 @@ console.log('\n=== JSON round-trip stability ===');
     [...round.redFlagAssessmentConsumedFlagPrincipleIds],
     [...ne.redFlagAssessmentConsumedFlagPrincipleIds],
     'redFlagAssessmentConsumedFlagPrincipleIds survives',
+  );
+  assertEqual(round.mitigationSuggestions, ne.mitigationSuggestions, 'mitigationSuggestions survives (Phase 3)');
+  assertEqual(
+    [...round.mitigationSuggestionsConsumedFlagPrincipleIds],
+    [...ne.mitigationSuggestionsConsumedFlagPrincipleIds],
+    'mitigationSuggestionsConsumedFlagPrincipleIds survives',
   );
 })();
 

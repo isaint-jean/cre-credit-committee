@@ -213,6 +213,7 @@ function makeNarrative(
     executiveSummary?: string;
     engineVersion?: NarrativeEngineVersion;
     redFlagAssessment?: string;
+    mitigationSuggestions?: string;
   } = {},
 ): NarrativeEvaluation {
   const body = {
@@ -222,12 +223,16 @@ function makeNarrative(
     engineVersion: overrides.engineVersion ?? (NARRATIVE_ENGINE_VERSION as NarrativeEngineVersion),
     consumedFlagPrincipleIds: ['P-A-1'],
     redFlagAssessmentConsumedFlagPrincipleIds: ['P-A-1'],
+    mitigationSuggestionsConsumedFlagPrincipleIds: ['P-A-1'],
     executiveSummary:
       overrides.executiveSummary ??
       'Test executive summary prose. The deal has one high-severity flag (P-A-1).',
     redFlagAssessment:
       overrides.redFlagAssessment ??
       '- [P-A-1] Test red-flag assessment for store test (Phase 2).',
+    mitigationSuggestions:
+      overrides.mitigationSuggestions ??
+      '- [P-A-1] Test mitigation suggestion for store test (Phase 3).',
   };
   return { id: computeNarrativeEvaluationId(body), ...body };
 }

@@ -61,12 +61,12 @@ import {
 } from './render-sentinels.js';
 import { computeRenderedAnalysisId } from '../util/content-hash.js';
 
-// 7.5 (Piece A Phase 1) + 7.6 (Phase 2 red_flag_assessment) helper —
-// bijective passthrough of the NarrativeEvaluation sibling. Reads the
-// executive_summary + red_flag_assessment slots + producer metadata;
-// render adds nothing of its own. Returning null when the narrative is
-// absent surfaces the "no narrative composed" state truthfully
-// (RA.narrative is `| null`).
+// 7.5 (Phase 1) + 7.6 (Phase 2 red_flag_assessment) + 7.7 (Phase 3
+// mitigation_suggestions) helper — bijective passthrough of the
+// NarrativeEvaluation sibling. Reads all three slots' prose + producer
+// metadata; render adds nothing of its own. Returning null when the
+// narrative is absent surfaces the "no narrative composed" state
+// truthfully (RA.narrative is `| null`).
 function renderNarrativeSection(
   narrative: NarrativeEvaluation | null,
 ): RenderedNarrativeSection | null {
@@ -74,10 +74,13 @@ function renderNarrativeSection(
   return {
     executiveSummary: narrative.executiveSummary,
     redFlagAssessment: narrative.redFlagAssessment,
+    mitigationSuggestions: narrative.mitigationSuggestions,
     engineVersion: narrative.engineVersion,
     consumedFlagPrincipleIds: narrative.consumedFlagPrincipleIds,
     redFlagAssessmentConsumedFlagPrincipleIds:
       narrative.redFlagAssessmentConsumedFlagPrincipleIds,
+    mitigationSuggestionsConsumedFlagPrincipleIds:
+      narrative.mitigationSuggestionsConsumedFlagPrincipleIds,
   };
 }
 

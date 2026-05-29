@@ -33,4 +33,8 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // registered via `npm run narrative-engine:print-hash` after the
   // template + buildNarrativeEngineHashSnapshot widening landed.
   '1.1': '6018806ab5df6da9f62052467e79454988a0bc8456e9c3b3171f4bfd2b12f900' as ContentHash,
+  // Phase 3 (2026-05-29) — mitigation_suggestions slot added. Frozen
+  // state additionally includes MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE.
+  // Hash registered via `npm run narrative-engine:print-hash`.
+  '1.2': '334392e9cdeecabc732dfa10408716132aa8aa543033e2b2a1dbcfd71bde295d' as ContentHash,
 };

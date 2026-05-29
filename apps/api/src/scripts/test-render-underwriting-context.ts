@@ -14,7 +14,7 @@
 //   - Determinism: two renders of same input -> byte-identical full output
 //   - rootId passthrough
 //   - metadata.hashedAt mirrors doctrine.analysisAsOfDate (no clock leak)
-//   - metadata.renderVersion === '7.6'
+//   - metadata.renderVersion === '7.7'
 //   - Schema exhaustiveness (test-suite version, per the v1 cut): every cell key
 //     in the output sources from a known UnderwritingContext path
 
@@ -249,7 +249,7 @@ console.log('\nrootId + metadata passthrough (no clock leak, no random):');
   const store = new RecordGraphStore(':memory:');
   const { rootId, rendered } = await endToEnd(store);
 
-  assertEqual(rendered.metadata.renderVersion, '7.6', 'metadata.renderVersion === "7.6"');
+  assertEqual(rendered.metadata.renderVersion, '7.7', 'metadata.renderVersion === "7.7"');
   assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'metadata matches RENDER_VERSION constant');
   assertEqual(rendered.metadata.hashedAt, AS_OF, 'metadata.hashedAt mirrors doctrine.analysisAsOfDate');
   assertEqual(rendered.rootId, rootId, 'rootId pass-through');
