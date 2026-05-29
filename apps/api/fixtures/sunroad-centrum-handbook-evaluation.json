@@ -1,0 +1,86 @@
+{
+  "id": "3d9c89d262c8f015da075f9ff0b2ee931ccf96aa66edfecb65ee7904e2664570",
+  "analysisAsOfDate": "2026-06-13T00:00:00.000Z",
+  "adjustedInputsId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "handbookVersion": "2026.1",
+  "engineVersion": "1.0.0",
+  "firedFlags": [
+    {
+      "principleId": "P-II-3",
+      "severity": "critical",
+      "flag_message": "Cash-out refinance of $8.5M elevates risk; scrutiny warranted.",
+      "metricValue": 8500000,
+      "groupIndex": 0,
+      "bandIndex": 0,
+      "injectionPoints": [
+        "executive_summary",
+        "red_flag_assessment",
+        "mitigation_suggestions",
+        "committee_recommendation"
+      ]
+    },
+    {
+      "principleId": "P-II-8",
+      "severity": "high",
+      "flag_message": "Medical Office subtype falls within specialty-assets category.",
+      "metricValue": "Medical Office",
+      "groupIndex": 0,
+      "bandIndex": 0,
+      "injectionPoints": [
+        "executive_summary",
+        "red_flag_assessment",
+        "committee_recommendation"
+      ]
+    },
+    {
+      "principleId": "P-IV-OFF-2",
+      "severity": "high",
+      "flag_message": "Class B office; elevated leasing costs and liquidity risk.",
+      "metricValue": "B",
+      "groupIndex": 0,
+      "bandIndex": 0,
+      "injectionPoints": [
+        "red_flag_assessment",
+        "committee_recommendation"
+      ]
+    },
+    {
+      "principleId": "P-IV-OFF-9",
+      "severity": "high",
+      "flag_message": "Washington DC submarket showing office distress signals.",
+      "metricValue": "Washington DC",
+      "groupIndex": 0,
+      "bandIndex": 0,
+      "injectionPoints": [
+        "red_flag_assessment",
+        "committee_recommendation"
+      ]
+    }
+  ],
+  "skippedPrinciples": [],
+  "fieldBagSnapshot": {
+    "asset_type": "Office",
+    "dscr": 1.4226652108976134,
+    "debt_yield": 0.11358032575377598,
+    "loan_amount": 75000000,
+    "capex_projection": [
+      100000,
+      105000,
+      110000,
+      115000,
+      120000,
+      125000,
+      130000,
+      135000,
+      140000,
+      145000,
+      150000,
+      155000
+    ],
+    "reserves": 0,
+    "cash_out_amount": 8500000,
+    "property_sub_type": "Medical Office",
+    "building_class": "B",
+    "msa": "Washington DC"
+  }
+}
