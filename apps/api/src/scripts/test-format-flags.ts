@@ -112,6 +112,38 @@ console.log('\n=== mitigation_suggestions filter: keeps only P-II-3 (Phase 3 par
   ok('P-II-8 + P-IV-OFF-2 + P-IV-OFF-9 correctly excluded from mitigation_suggestions');
 }
 
+console.log('\n=== committee_recommendation filter: all 4 flags (Phase 4 parallel-depth coverage) ===');
+{
+  // Fixture: all 4 fired flags include committee_recommendation in their
+  // injectionPoints arrays — committee_recommendation matches red_flag_assessment
+  // in count (4 flags). Severity sort: 1 critical + 3 high; high tiebroken by
+  // principleId ascending.
+  const comm = formatFlagsForInjectionPoint(he.firedFlags, 'committee_recommendation');
+  assertEqual(
+    comm.map((f) => f.principleId),
+    ['P-II-3', 'P-II-8', 'P-IV-OFF-2', 'P-IV-OFF-9'],
+    'committee_recommendation ordering: critical first, then high ascending by principleId',
+  );
+
+  const first = comm[0];
+  if (!first) {
+    fail('expected at least one formatted flag for committee_recommendation');
+  } else {
+    assertEqual(first.principleId, 'P-II-3', 'first formatted flag is P-II-3 (critical)');
+    assertEqual<Severity>(first.severity, 'critical', 'severity preserved');
+    assertEqual(first.metric, '8500000', 'numeric metricValue stringified');
+  }
+
+  // Spot-check string + non-overlapping principle ids that the prior 3 slots
+  // partition differently — P-IV-OFF-2 appears in red_flag + committee but
+  // NOT in executive_summary or mitigation_suggestions. This confirms
+  // committee_recommendation's distinct membership shape.
+  const commIds = new Set(comm.map((f) => f.principleId));
+  if (!commIds.has('P-IV-OFF-2')) fail('P-IV-OFF-2 should appear in committee_recommendation');
+  if (!commIds.has('P-IV-OFF-9')) fail('P-IV-OFF-9 should appear in committee_recommendation');
+  ok('committee_recommendation includes P-IV-OFF-2 + P-IV-OFF-9 (red_flag overlap; not in exec_summary or mitigation)');
+}
+
 console.log('\n=== red_flag_assessment filter + ordering (Phase 2 parallel-depth coverage) ===');
 {
   // All 4 fixture flags target red_flag_assessment. Severity sort: 1 critical

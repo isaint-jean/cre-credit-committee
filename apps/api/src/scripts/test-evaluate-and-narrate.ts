@@ -167,29 +167,35 @@ const STUB_REDFLAG_A = '- [P-TEST] Test red-flag assessment A — deterministic 
 const STUB_REDFLAG_B = '- [P-TEST] Test red-flag assessment B — different prose to verify cache-staleness gate.';
 const STUB_MITIGATION_A = '- [P-TEST] Test mitigation suggestion A — require $5M reserve plus DSCR covenant at 1.25x.';
 const STUB_MITIGATION_B = '- [P-TEST] Test mitigation suggestion B — different prose to verify cache-staleness gate.';
+const STUB_COMMITTEE_A = 'Recommend conditional approval A — subject to reserves and DSCR covenant per mitigations section.';
+const STUB_COMMITTEE_B = 'Recommend conditional approval B — different prose to verify cache-staleness gate.';
 
 /**
- * Per-slot dispatching stub (Phase 3: 3-slot object-bag — Q-T1 (b)).
- * The orchestrator makes parallel LLM calls — one per slot — and the
- * stub picks the right output based on a stable marker in the prompt
- * text:
+ * Per-slot dispatching stub (Phase 4: 4-slot object-bag — Q-T1 (b)
+ * extended). The orchestrator makes 4 parallel LLM calls — one per
+ * slot — and the stub picks the right output based on a stable
+ * marker in the prompt text:
+ *   - committee_recommendation prompt contains "committee recommendation"
  *   - mitigation_suggestions prompt contains "mitigation-suggestions list"
  *   - red_flag_assessment prompt contains "red-flag assessment"
  *   - executive_summary prompt is the default fall-through
  *
  * Marker order matters: most-specific marker checked first. The
- * 'mitigation' check comes before 'red-flag' because no prompt
+ * committee check goes first (no other prompt mentions 'committee');
+ * the mitigation check comes before red-flag because no prompt
  * template mentions both phrases, but the convention guards against
  * future overlap.
  */
-function makeStub({ exec, redFlag, mitigation }: {
+function makeStub({ exec, redFlag, mitigation, committee }: {
   exec: string;
   redFlag: string;
   mitigation: string;
+  committee: string;
 }): LLMCallFn {
   return async ({ messages }) => {
     const content = messages[0]?.content;
     const text = typeof content === 'string' ? content : '';
+    if (text.includes('committee recommendation')) return committee;
     if (text.includes('mitigation-suggestions list')) return mitigation;
     if (text.includes('red-flag assessment')) return redFlag;
     return exec;
@@ -219,7 +225,7 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
 
   // 1. HE row persisted
@@ -243,6 +249,7 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
   // Phase 2 — red_flag_assessment slot populated by orchestrator
   assertEqual(narrative?.redFlagAssessment, STUB_REDFLAG_A, 'narrative.redFlagAssessment === red-flag stub LLM output');
   assertEqual(narrative?.mitigationSuggestions, STUB_MITIGATION_A, 'narrative.mitigationSuggestions === mitigation stub LLM output (Phase 3)');
+  assertEqual(narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'narrative.committeeRecommendation === committee stub LLM output (Phase 4)');
   if (!narrative) {
     fail('expected narrative to be present');
   } else {
@@ -268,6 +275,12 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
       Array.isArray(narrative.mitigationSuggestionsConsumedFlagPrincipleIds),
       'mitigationSuggestionsConsumedFlagPrincipleIds is an array (structural)',
     );
+    // Phase 4: committee_recommendation likewise has NO guaranteed
+    // subset/superset relationship to other slots. Structural-only assertion.
+    assert(
+      Array.isArray(narrative.committeeRecommendationConsumedFlagPrincipleIds),
+      'committeeRecommendationConsumedFlagPrincipleIds is an array (structural)',
+    );
   }
 
   store.close();
@@ -278,7 +291,7 @@ console.log('\nIdempotency — second ingest with same inputs and stub → no-op
   const store = new RecordGraphStore(':memory:');
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const stub = makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A });
+  const stub = makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A });
   const args = {
     extractionResult: makeFullExtraction(),
     propertyType: 'Office' as AssetType,
@@ -319,7 +332,7 @@ console.log('\nDirect call to evaluateAndNarrate exposes wrapper return shape:')
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
   const doctrine = store.getDoctrineEvaluation(ingest.evaluationId)!;
   const assetProfile = store.getAssetProfile(doctrine.assetProfileId)!;
@@ -339,7 +352,7 @@ console.log('\nDirect call to evaluateAndNarrate exposes wrapper return shape:')
       propertyMetadata: null,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
   assert(result.evaluation !== undefined, 'wrapper returns evaluation');
   assert(result.handbookEvaluation !== undefined, 'wrapper returns handbookEvaluation');
@@ -365,7 +378,7 @@ console.log('\nmaterialize includes the narrative section:');
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
 
   const rendered = materializeRenderedAnalysis(ingest.evaluationId, store);
@@ -373,8 +386,9 @@ console.log('\nmaterialize includes the narrative section:');
   assertEqual(rendered.narrative?.executiveSummary, STUB_EXEC_A, 'rendered narrative carries exec-summary stub prose');
   assertEqual(rendered.narrative?.redFlagAssessment, STUB_REDFLAG_A, 'rendered narrative carries red-flag stub prose (Phase 2)');
   assertEqual(rendered.narrative?.mitigationSuggestions, STUB_MITIGATION_A, 'rendered narrative carries mitigation stub prose (Phase 3)');
+  assertEqual(rendered.narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'rendered narrative carries committee stub prose (Phase 4)');
   assertEqual(rendered.narrative?.engineVersion, NARRATIVE_ENGINE_VERSION, 'rendered narrative carries engine version');
-  assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'render version is current (7.7)');
+  assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'render version is current (7.8)');
 
   store.close();
 }
@@ -397,12 +411,13 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
   const renderedA = materializeRenderedAnalysis(ingest.evaluationId, store);
   assertEqual(renderedA.narrative?.executiveSummary, STUB_EXEC_A, 'first materialize: exec stub A');
   assertEqual(renderedA.narrative?.redFlagAssessment, STUB_REDFLAG_A, 'first materialize: red-flag stub A');
   assertEqual(renderedA.narrative?.mitigationSuggestions, STUB_MITIGATION_A, 'first materialize: mitigation stub A (Phase 3)');
+  assertEqual(renderedA.narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'first materialize: committee stub A (Phase 4)');
 
   // Directly add a SECOND narrative with different prose (stub B) — simulates
   // a re-narrate or LLM re-run. The store's insertNarrative handles distinct
@@ -426,7 +441,7 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
       propertyMetadata: null,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_B, redFlag: STUB_REDFLAG_B, mitigation: STUB_MITIGATION_B }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_B, redFlag: STUB_REDFLAG_B, mitigation: STUB_MITIGATION_B, committee: STUB_COMMITTEE_B }) },
   );
 
   // Re-materialize: cache lookup uses the NEW narrativeId → miss → fresh render.
@@ -434,6 +449,7 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
   assertEqual(renderedB.narrative?.executiveSummary, STUB_EXEC_B, 'second materialize: exec stub B (cache-staleness gate fired)');
   assertEqual(renderedB.narrative?.redFlagAssessment, STUB_REDFLAG_B, 'second materialize: red-flag stub B (cache-staleness gate fired)');
   assertEqual(renderedB.narrative?.mitigationSuggestions, STUB_MITIGATION_B, 'second materialize: mitigation stub B (cache-staleness gate fired)');
+  assertEqual(renderedB.narrative?.committeeRecommendation, STUB_COMMITTEE_B, 'second materialize: committee stub B (cache-staleness gate fired)');
   if (renderedA.id === renderedB.id) {
     fail('cache returned stale render: same RenderedAnalysisId despite different narrative');
   } else {
@@ -464,7 +480,7 @@ console.log('\nLast-narrative wins — getLatestNarrative returns newest by crea
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
   const doctrine = store.getDoctrineEvaluation(ingest.evaluationId)!;
   const firstLatest = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
@@ -488,12 +504,13 @@ console.log('\nLast-narrative wins — getLatestNarrative returns newest by crea
       propertyMetadata: null,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_B, redFlag: STUB_REDFLAG_B, mitigation: STUB_MITIGATION_B }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_B, redFlag: STUB_REDFLAG_B, mitigation: STUB_MITIGATION_B, committee: STUB_COMMITTEE_B }) },
   );
   const secondLatest = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
   assertEqual(secondLatest?.executiveSummary, STUB_EXEC_B, 'second latest = exec stub B (newest by created_at)');
   assertEqual(secondLatest?.redFlagAssessment, STUB_REDFLAG_B, 'second latest = red-flag stub B');
   assertEqual(secondLatest?.mitigationSuggestions, STUB_MITIGATION_B, 'second latest = mitigation stub B (Phase 3)');
+  assertEqual(secondLatest?.committeeRecommendation, STUB_COMMITTEE_B, 'second latest = committee stub B (Phase 4)');
 
   store.close();
 }
@@ -565,7 +582,7 @@ console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment sl
       analysisAsOfDate: AS_OF,
     },
     store,
-    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A }) },
+    { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
   assert(ingest2.rootId !== undefined, 'retry succeeded with non-rejecting stub');
   const doctrine = store.getDoctrineEvaluation(ingest2.evaluationId)!;
@@ -574,6 +591,7 @@ console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment sl
   assertEqual(recovered?.executiveSummary, STUB_EXEC_A, 'retry produces exec_summary slot');
   assertEqual(recovered?.redFlagAssessment, STUB_REDFLAG_A, 'retry produces red_flag_assessment slot');
   assertEqual(recovered?.mitigationSuggestions, STUB_MITIGATION_A, 'retry produces mitigation_suggestions slot (Phase 3)');
+  assertEqual(recovered?.committeeRecommendation, STUB_COMMITTEE_A, 'retry produces committee_recommendation slot (Phase 4)');
 
   store.close();
 }
@@ -621,6 +639,55 @@ console.log('\nPartial-failure (Phase 3) — mitigation_suggestions slot throws 
   const narrRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
     .db.prepare('SELECT id FROM narratives').all() as Array<{ id: string }>;
   assertEqual(narrRows.length, 0, 'no narrative row written when mitigation slot threw');
+
+  store.close();
+}
+
+console.log('\nPartial-failure (Phase 4) — committee_recommendation slot throws → wrapper rejects:');
+{
+  /* Final partial-failure block: verifies Q-S4 (f.1) symmetry for the 4th
+     slot. Confirms the 4-slot Promise.all extension preserves atomicity
+     semantics for the new committee_recommendation slot. With this test
+     all 4 slots have a Q-S4 symmetry verifier; the orchestrator's
+     fail-on-any-slot semantic is comprehensively exercised. */
+  const store = new RecordGraphStore(':memory:');
+  const lib = makeSnapshot();
+  store.insertLibrarySnapshot(lib);
+
+  const committeeFailureStub: LLMCallFn = async ({ messages }) => {
+    const content = messages[0]?.content;
+    const text = typeof content === 'string' ? content : '';
+    if (text.includes('committee recommendation')) {
+      throw new Error('Simulated LLM failure on committee_recommendation slot');
+    }
+    if (text.includes('mitigation-suggestions list')) return STUB_MITIGATION_A;
+    if (text.includes('red-flag assessment')) return STUB_REDFLAG_A;
+    return STUB_EXEC_A;
+  };
+
+  let threwCommittee = false;
+  try {
+    await ingestExtractionResult(
+      {
+        extractionResult: makeFullExtraction(),
+        propertyType: 'Office' as AssetType,
+        marketLiquidityHint: 'Primary',
+        librarySnapshotId: lib.id,
+        marketBenchmarks: makeBenchmarks(),
+        creditManifesto: makeManifesto(),
+        analysisAsOfDate: AS_OF,
+      },
+      store,
+      { llmCall: committeeFailureStub },
+    );
+  } catch {
+    threwCommittee = true;
+  }
+  assert(threwCommittee, 'ingest with committee-failing stub throws (Q-S4 symmetry for slot 4)');
+
+  const narrRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
+    .db.prepare('SELECT id FROM narratives').all() as Array<{ id: string }>;
+  assertEqual(narrRows.length, 0, 'no narrative row written when committee slot threw');
 
   store.close();
 }

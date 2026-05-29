@@ -52,6 +52,8 @@ function makeBody(overrides: Partial<{
   redFlagAssessmentConsumedFlagPrincipleIds: readonly string[];
   mitigationSuggestions: string;
   mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[];
+  committeeRecommendation: string;
+  committeeRecommendationConsumedFlagPrincipleIds: readonly string[];
 }> = {}) {
   return {
     analysisAsOfDate: AS_OF,
@@ -64,6 +66,9 @@ function makeBody(overrides: Partial<{
       ['P-II-3', 'P-II-8', 'P-IV-OFF-2', 'P-IV-OFF-9'],
     mitigationSuggestionsConsumedFlagPrincipleIds:
       overrides.mitigationSuggestionsConsumedFlagPrincipleIds ?? ['P-II-3'],
+    committeeRecommendationConsumedFlagPrincipleIds:
+      overrides.committeeRecommendationConsumedFlagPrincipleIds ??
+      ['P-II-3', 'P-II-8', 'P-IV-OFF-2', 'P-IV-OFF-9'],
     executiveSummary:
       overrides.executiveSummary ??
       'The deal carries critical cash-out refinance risk (P-II-3) at $8.5M, alongside specialty-asset exposure on Medical Office subtype (P-II-8). Both warrant committee scrutiny.',
@@ -73,6 +78,9 @@ function makeBody(overrides: Partial<{
     mitigationSuggestions:
       overrides.mitigationSuggestions ??
       '- [P-II-3] Given cash-out amount of 8500000, require $5M upfront reserve plus minimum DSCR covenant at 1.25x with cash sweep above debt yield 11%.',
+    committeeRecommendation:
+      overrides.committeeRecommendation ??
+      'Recommend conditional approval subject to $5M upfront reserve (P-II-3 cash-out exposure), minimum DSCR covenant at 1.25x with cash sweep above debt yield 11% (P-II-3), and specialty-asset risk premium of 50bps on the spread (P-II-8 Medical Office subtype). Residual Class B + DC submarket concerns (P-IV-OFF-2, P-IV-OFF-9) are acceptable at the proposed terms given DSCR of 1.42x.',
   };
 }
 
@@ -94,10 +102,12 @@ console.log('\n=== NarrativeEvaluation construction ===');
   assertEqual(ne.consumedFlagPrincipleIds.length, 2, 'consumedFlagPrincipleIds populated (executive_summary scope)');
   assertEqual(ne.redFlagAssessmentConsumedFlagPrincipleIds.length, 4, 'redFlagAssessmentConsumedFlagPrincipleIds populated (red_flag_assessment scope)');
   assertEqual(ne.mitigationSuggestionsConsumedFlagPrincipleIds.length, 1, 'mitigationSuggestionsConsumedFlagPrincipleIds populated (mitigation_suggestions scope)');
+  assertEqual(ne.committeeRecommendationConsumedFlagPrincipleIds.length, 4, 'committeeRecommendationConsumedFlagPrincipleIds populated (committee_recommendation scope)');
   assertEqual(typeof ne.executiveSummary, 'string', 'executiveSummary is string');
   assertEqual(typeof ne.redFlagAssessment, 'string', 'redFlagAssessment is string (Phase 2)');
   assertEqual(typeof ne.mitigationSuggestions, 'string', 'mitigationSuggestions is string (Phase 3)');
-  ok('full NarrativeEvaluation literal compiles and constructs');
+  assertEqual(typeof ne.committeeRecommendation, 'string', 'committeeRecommendation is string (Phase 4)');
+  ok('full NarrativeEvaluation literal compiles and constructs (4-slot complete)');
 })();
 
 console.log('\n=== consumedFlagPrincipleIds preserves order ===');
@@ -157,6 +167,18 @@ console.log('\n=== computeNarrativeEvaluationId — content determinism ===');
   } else {
     ok('different mitigationSuggestionsConsumedFlagPrincipleIds produces different id');
   }
+  const differentCommittee = makeBody({ committeeRecommendation: 'Different committee prose for Phase 4.' });
+  if (computeNarrativeEvaluationId(body1) === computeNarrativeEvaluationId(differentCommittee)) {
+    fail('different committeeRecommendation should produce different id');
+  } else {
+    ok('different committeeRecommendation produces different id (Phase 4 slot in content hash)');
+  }
+  const differentCommitteeConsumed = makeBody({ committeeRecommendationConsumedFlagPrincipleIds: ['P-II-3'] });
+  if (computeNarrativeEvaluationId(body1) === computeNarrativeEvaluationId(differentCommitteeConsumed)) {
+    fail('different committeeRecommendationConsumedFlagPrincipleIds should produce different id');
+  } else {
+    ok('different committeeRecommendationConsumedFlagPrincipleIds produces different id');
+  }
 })();
 
 console.log('\n=== Brand type assignability (compile-time check via runtime structural) ===');
@@ -194,6 +216,12 @@ console.log('\n=== JSON round-trip stability ===');
     [...round.mitigationSuggestionsConsumedFlagPrincipleIds],
     [...ne.mitigationSuggestionsConsumedFlagPrincipleIds],
     'mitigationSuggestionsConsumedFlagPrincipleIds survives',
+  );
+  assertEqual(round.committeeRecommendation, ne.committeeRecommendation, 'committeeRecommendation survives (Phase 4)');
+  assertEqual(
+    [...round.committeeRecommendationConsumedFlagPrincipleIds],
+    [...ne.committeeRecommendationConsumedFlagPrincipleIds],
+    'committeeRecommendationConsumedFlagPrincipleIds survives',
   );
 })();
 

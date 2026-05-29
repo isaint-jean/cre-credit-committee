@@ -62,11 +62,12 @@ import {
 import { computeRenderedAnalysisId } from '../util/content-hash.js';
 
 // 7.5 (Phase 1) + 7.6 (Phase 2 red_flag_assessment) + 7.7 (Phase 3
-// mitigation_suggestions) helper — bijective passthrough of the
-// NarrativeEvaluation sibling. Reads all three slots' prose + producer
-// metadata; render adds nothing of its own. Returning null when the
-// narrative is absent surfaces the "no narrative composed" state
-// truthfully (RA.narrative is `| null`).
+// mitigation_suggestions) + 7.8 (Phase 4 committee_recommendation) helper.
+// Phase 4 closes the slot set — all 4 InjectionPoint slots projected.
+// Bijective passthrough of the NarrativeEvaluation sibling. Reads all four
+// slots' prose + producer metadata; render adds nothing of its own. Returning
+// null when the narrative is absent surfaces the "no narrative composed"
+// state truthfully (RA.narrative is `| null`).
 function renderNarrativeSection(
   narrative: NarrativeEvaluation | null,
 ): RenderedNarrativeSection | null {
@@ -75,12 +76,15 @@ function renderNarrativeSection(
     executiveSummary: narrative.executiveSummary,
     redFlagAssessment: narrative.redFlagAssessment,
     mitigationSuggestions: narrative.mitigationSuggestions,
+    committeeRecommendation: narrative.committeeRecommendation,
     engineVersion: narrative.engineVersion,
     consumedFlagPrincipleIds: narrative.consumedFlagPrincipleIds,
     redFlagAssessmentConsumedFlagPrincipleIds:
       narrative.redFlagAssessmentConsumedFlagPrincipleIds,
     mitigationSuggestionsConsumedFlagPrincipleIds:
       narrative.mitigationSuggestionsConsumedFlagPrincipleIds,
+    committeeRecommendationConsumedFlagPrincipleIds:
+      narrative.committeeRecommendationConsumedFlagPrincipleIds,
   };
 }
 

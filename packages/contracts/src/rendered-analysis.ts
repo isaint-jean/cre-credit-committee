@@ -10,7 +10,7 @@ import type { ISODateTime, NarrativeEngineVersion } from './versioning.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.7' as const;
+export const RENDER_VERSION = '7.8' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -146,16 +146,17 @@ export interface RenderedAssumptionsSection {
   readonly expenseGrowthPct: RenderedLineItem;     // 0..1 decimal
 }
 
-// Narrative projection (added in render version 7.5 for Piece A Phase 1;
-// red_flag_assessment slot added in 7.6 for Phase 2; mitigation_suggestions
-// slot added in 7.7 for Phase 3). Bijective passthrough of the
-// NarrativeEvaluation sibling record's per-slot prose + per-slot consumed-id
-// arrays. Prose is rendered as plain string (NOT a RenderCell) because
-// narrative is either fully composed or absent — there is no
-// "missing-data sentinel" semantic for LLM-produced prose. The engineVersion
-// + per-slot consumedFlagPrincipleIds are passthroughs so the UI can display
-// "composed at version X from N flags per slot" and link back to the source
-// HE if needed.
+// Narrative projection. Added in render version 7.5 (Phase 1 executive_summary),
+// extended at 7.6 (Phase 2 red_flag_assessment), 7.7 (Phase 3 mitigation_
+// suggestions), and 7.8 (Phase 4 committee_recommendation). With 7.8 the
+// slot set is complete — all 4 InjectionPoints have producers. Bijective
+// passthrough of the NarrativeEvaluation sibling record's per-slot prose +
+// per-slot consumed-id arrays. Prose is rendered as plain string (NOT a
+// RenderCell) because narrative is either fully composed or absent — there
+// is no "missing-data sentinel" semantic for LLM-produced prose. The
+// engineVersion + per-slot consumedFlagPrincipleIds are passthroughs so the
+// UI can display "composed at version X from N flags per slot" and link
+// back to the source HE if needed.
 //
 // EXPLICIT NON-FIELDS (semantic-fidelity discipline at 7.5+):
 //   - NO derived word/character count. UI can compute display lengths if needed.
@@ -165,23 +166,26 @@ export interface RenderedAssumptionsSection {
 //   - NO synthesis of any slot when the field is absent. The `narrative`
 //     field on RenderedAnalysis is `| null` for analyses without a
 //     NarrativeEvaluation at NARRATIVE_ENGINE_VERSION.
-//   - NO cross-slot reconciliation. executive_summary, red_flag_assessment,
-//     and mitigation_suggestions are independent producer outputs; render
-//     must not detect / merge / reconcile redundancy between them.
+//   - NO cross-slot reconciliation. All four slots are independent producer
+//     outputs; render must not detect / merge / reconcile redundancy.
 //
-// 7.6 (Phase 2) addition: redFlagAssessment + per-slot consumedIds.
-// 7.7 (Phase 3) addition: mitigationSuggestions + per-slot consumedIds.
-// Verbose field names per the additive-widening decision Q-S3 (γ.2).
-// A v2.0 MAJOR clean-rename is the planned exit if slot 4 verbosity
-// becomes painful (third datapoint reassess per Q-C Phase 3).
+// 7.6 (Phase 2): redFlagAssessment + per-slot consumedIds.
+// 7.7 (Phase 3): mitigationSuggestions + per-slot consumedIds.
+// 7.8 (Phase 4): committeeRecommendation + per-slot consumedIds — closes
+//                the slot set.
+// Verbose field names per the additive-widening decision Q-S3 (γ.2);
+// continued through Phase 4 per Decision A. v2.0 MAJOR clean-rename
+// remains the documented exit if a Phase 5+ slot ever lands.
 export interface RenderedNarrativeSection {
   readonly executiveSummary: string;
   readonly redFlagAssessment: string;                                  // 7.6 (Phase 2)
   readonly mitigationSuggestions: string;                              // 7.7 (Phase 3)
+  readonly committeeRecommendation: string;                            // 7.8 (Phase 4)
   readonly engineVersion: NarrativeEngineVersion;
   readonly consumedFlagPrincipleIds: readonly string[];                // executive_summary slot
   readonly redFlagAssessmentConsumedFlagPrincipleIds: readonly string[]; // 7.6 (Phase 2)
   readonly mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[]; // 7.7 (Phase 3)
+  readonly committeeRecommendationConsumedFlagPrincipleIds: readonly string[]; // 7.8 (Phase 4)
 }
 
 // Per-component scoring projection (added in render version 6.8 for D09 parity).

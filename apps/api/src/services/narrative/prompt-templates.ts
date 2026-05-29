@@ -4,8 +4,8 @@
  * Phase 1 (NARRATIVE_ENGINE_VERSION '1.0') shipped the executive_summary
  * survivor. Phase 2 (NARRATIVE_ENGINE_VERSION '1.1') added the
  * red_flag_assessment slot. Phase 3 (NARRATIVE_ENGINE_VERSION '1.2')
- * adds the mitigation_suggestions slot. The final committee_recommendation
- * slot lands in Phase 4 via the same MINOR-bump cadence.
+ * added the mitigation_suggestions slot. Phase 4 (NARRATIVE_ENGINE_VERSION
+ * '1.3') closes the slot set with committee_recommendation.
  *
  * The narrative-engine boot check hashes these strings + the version
  * constant; any edit to a constant without a coordinated
@@ -147,6 +147,52 @@ Output the bulleted list and nothing else (no preamble, no headers, no follow-up
  */
 export function buildMitigationSuggestionsPrompt(flags: readonly FormattedFlag[]): string {
   return MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE
+    .replace('{{flag_count}}', flags.length.toString())
+    .replace('{{flags}}', renderFlagList(flags));
+}
+
+/**
+ * Frozen prompt template for the committee_recommendation injection-
+ * point slot (Phase 4, NARRATIVE_ENGINE_VERSION '1.3'). Intent
+ * differs from the prior three slots: where executive_summary frames
+ * the deal, red_flag_assessment enumerates risks, and
+ * mitigation_suggestions proposes structural actions,
+ * committee_recommendation synthesizes the deal-level RECOMMENDATION
+ * (approve / conditional approve with conditions inline / reject)
+ * the committee acts on. Structural form is a 1-2 paragraph
+ * synthesis — closer to executive_summary's prose than the bulleted
+ * lists of the middle two slots. This is the slot the committee
+ * reads last.
+ *
+ * The "committee recommendation" phrase appears in the directive
+ * below; the integration test's makeStub uses this phrase as the
+ * dispatch marker (most-specific marker first in the if-chain).
+ */
+export const COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE = `Compose a committee recommendation for this deal. Synthesize the flagged risks into a deal-level conclusion the credit committee can act on.
+
+Requirements:
+- Output a 1-2 paragraph synthesis (NOT a bulleted list — that's the other slots' job).
+- Lead with the headline recommendation: "Recommend approval," "Recommend conditional approval subject to [X, Y, Z]," or "Recommend declination."
+- If recommending CONDITIONAL APPROVAL: state the load-bearing conditions inline (e.g., "subject to $5M upfront reserve, minimum DSCR covenant at 1.25x, and recourse carve-out for the cash-out portion"). Reference the principle ids that motivate each condition.
+- If recommending DECLINATION: state the primary disqualifying risk concisely with the principle id.
+- If recommending APPROVAL (rare given fired flags): note that the residual risks are acceptable at standard terms.
+- Cite metric values verbatim when relevant (e.g., "DSCR of 1.42x," "cash-out amount of 8500000").
+- Do NOT re-enumerate every flag — assume the reader has the red-flag-assessment and mitigation-suggestions sections. Stay at the synthesis level.
+- If the flag list is empty, output: \`No flagged risks identified; recommend approval per standard terms.\`
+
+Handbook flags ({{flag_count}} total, severity-sorted):
+{{flags}}
+
+Output the recommendation paragraph(s) and nothing else (no headers, no bullet lists, no follow-up commentary).`;
+
+/**
+ * Substitute `{{flags}}` and `{{flag_count}}` placeholders in the
+ * committee-recommendation template. Same substitution pattern as
+ * the prior three slot helpers; substitution outside the hashed
+ * template constant keeps the boot-check hash stable across deals.
+ */
+export function buildCommitteeRecommendationPrompt(flags: readonly FormattedFlag[]): string {
+  return COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE
     .replace('{{flag_count}}', flags.length.toString())
     .replace('{{flags}}', renderFlagList(flags));
 }

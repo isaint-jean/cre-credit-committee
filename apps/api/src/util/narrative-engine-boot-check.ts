@@ -25,6 +25,7 @@ import {
   EXECUTIVE_SUMMARY_PROMPT_TEMPLATE,
   RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE,
   MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE,
+  COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE,
 } from '../services/narrative/prompt-templates.js';
 import { computeContentHash } from './content-hash.js';
 
@@ -46,6 +47,7 @@ function buildNarrativeEngineHashSnapshot() {
     executiveSummaryPromptTemplate: EXECUTIVE_SUMMARY_PROMPT_TEMPLATE,
     redFlagAssessmentPromptTemplate: RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE,
     mitigationSuggestionsPromptTemplate: MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE,
+    committeeRecommendationPromptTemplate: COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE,
   };
 }
 

@@ -5,7 +5,8 @@
  * SPEC anchor: docs/specs/uw-template-populator/SPEC.md §14.4 (v17 through
  * v23 amendment chain). Phase 1 ships the executive_summary survivor only;
  * additional injection-point slots land in subsequent Phase 1 sub-batches
- * via MINOR version bump (NARRATIVE_ENGINE_VERSION '1.0' → '1.1' → '1.2' …).
+ * via MINOR version bump (NARRATIVE_ENGINE_VERSION '1.0' → '1.1' → '1.2' → '1.3').
+ * Phase 4 ('1.3') closes the slot set — all 4 InjectionPoints have producers.
  *
  * Sibling-record architecture (matches HandbookEvaluation precedent):
  *   - FK is `adjustedInputsId: AdjustedInputsId` only (not
@@ -129,11 +130,24 @@ export interface NarrativeEvaluation {
   readonly mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[];
 
   /**
+   * Principle ids of the fired flags that survived the format-flags
+   * filter for the **committee_recommendation** injection point
+   * (Phase 4 addition; NARRATIVE_ENGINE_VERSION '1.3'). Fourth and
+   * final sibling consumed-IDs field — closes the 4-slot set per
+   * v20 D5 shipping order. Sorted ascending. Empty array is valid.
+   *
+   * Same no-cross-slot-guarantee discipline as the prior consumed-
+   * IDs fields: NO subset / superset relationship asserted; each
+   * principle declares its own injectionPoints.
+   */
+  readonly committeeRecommendationConsumedFlagPrincipleIds: readonly string[];
+
+  /**
    * LLM-produced executive-summary prose. Phase 1 survivor; the
    * first injection-point slot. Sibling slot prose lives in
    * `redFlagAssessment` (Phase 2), `mitigationSuggestions` (Phase 3),
-   * and additional slots will land here as new sibling fields in
-   * subsequent MINOR engine version bumps.
+   * and `committeeRecommendation` (Phase 4). With Phase 4 the slot
+   * set is complete — all 4 InjectionPoints have producers.
    *
    * Always present (non-nullable). If the LLM returns an empty
    * response the producer throws — empty prose is a producer bug,
@@ -168,4 +182,20 @@ export interface NarrativeEvaluation {
    * design surface for that intent.
    */
   readonly mitigationSuggestions: string;
+
+  /**
+   * LLM-produced committee-recommendation prose (Phase 4 addition;
+   * NARRATIVE_ENGINE_VERSION '1.3'). Final slot in the v20 D5
+   * shipping order. Mirrors prior slot shapes; required, non-
+   * nullable. Producer throws on empty LLM response.
+   *
+   * Composed by `buildCommitteeRecommendation` from HE flags
+   * filtered to InjectionPoint='committee_recommendation'. Intent
+   * differs from the prior 3 slots: synthesizes the deal-level
+   * recommendation (approve / conditional approve / reject) with
+   * the conditions inline. Structural form likely a synthesized
+   * paragraph rather than a bulleted list — this is the slot the
+   * committee reads last and acts on.
+   */
+  readonly committeeRecommendation: string;
 }

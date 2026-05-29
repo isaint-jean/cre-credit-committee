@@ -37,4 +37,8 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // state additionally includes MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE.
   // Hash registered via `npm run narrative-engine:print-hash`.
   '1.2': '334392e9cdeecabc732dfa10408716132aa8aa543033e2b2a1dbcfd71bde295d' as ContentHash,
+  // Phase 4 (2026-05-29) — committee_recommendation slot added; closes the
+  // slot set (4 of 4 InjectionPoints have producers). Frozen state
+  // additionally includes COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE.
+  '1.3': 'c5deb3cf9c6d9e80df6d3999e65f55f3af608669fff23e48624ee57c41f91a1a' as ContentHash,
 };

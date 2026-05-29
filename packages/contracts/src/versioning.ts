@@ -44,7 +44,7 @@ export const HANDBOOK_ENGINE_VERSION = '1.0.0' as const;
  * Historical-replay union extends as new versions ship — see
  * `NARRATIVE_ENGINE_MANIFEST` (mirror of the judgment-engine manifest pattern).
  */
-export const NARRATIVE_ENGINE_VERSION = '1.2' as const;
+export const NARRATIVE_ENGINE_VERSION = '1.3' as const;
 
 export type DoctrineVersion = typeof DOCTRINE_VERSION;
 /**
@@ -66,7 +66,7 @@ export type HandbookEngineVersion = typeof HANDBOOK_ENGINE_VERSION;
  * the `NARRATIVE_ENGINE_VERSION` constant and EXTEND this union (do not replace)
  * when adding a new narrative-engine revision.
  */
-export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2';
+export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3';
 
 /**
  * ISO 8601 UTC timestamp, frozen at extraction time. Used as `analysisAsOfDate` everywhere a

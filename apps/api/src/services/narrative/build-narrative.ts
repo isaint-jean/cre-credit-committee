@@ -1,14 +1,16 @@
 /**
  * buildNarrative — Piece A narrative producer. Phase 1 (batch 1) shipped
  * with single-slot semantics (executive_summary only). Phase 2 promoted
- * this fn to a thin orchestrator over per-slot helpers; Phase 3 extends
- * to 3 slots:
+ * this fn to a thin orchestrator over per-slot helpers; Phase 3 extended
+ * to 3 slots; Phase 4 closes the slot set with the 4th and final
+ * InjectionPoint helper:
  *
  *   - `buildExecutiveSummary` (helper) — composes the executive_summary slot
  *   - `buildRedFlagAssessment` (helper) — composes the red_flag_assessment slot
  *   - `buildMitigationSuggestions` (helper) — composes the mitigation_suggestions slot
+ *   - `buildCommitteeRecommendation` (helper) — composes the committee_recommendation slot
  *   - `buildNarrative` (orchestrator, this file's public export) — runs the
- *     helpers in parallel via `Promise.all`, assembles a full
+ *     four helpers in parallel via `Promise.all`, assembles a full
  *     NarrativeEvaluation record, returns it ready for store insertion
  *
  * Per Phase 2 Q-S1 (b) + Q-S2 (n.1):
@@ -53,12 +55,14 @@ import {
   buildExecutiveSummaryPrompt,
   buildRedFlagAssessmentPrompt,
   buildMitigationSuggestionsPrompt,
+  buildCommitteeRecommendationPrompt,
 } from './prompt-templates.js';
 
 const NARRATIVE_LLM_MODEL = 'claude-sonnet-4-20250514';
 const EXECUTIVE_SUMMARY_MAX_TOKENS = 3000;
 const RED_FLAG_ASSESSMENT_MAX_TOKENS = 3000;
 const MITIGATION_SUGGESTIONS_MAX_TOKENS = 3000;
+const COMMITTEE_RECOMMENDATION_MAX_TOKENS = 3000;
 
 /**
  * DI seam for the LLM primitive. Production callers omit `deps.llmCall`
@@ -217,6 +221,44 @@ async function buildMitigationSuggestions(
   return { mitigationSuggestions, mitigationSuggestionsConsumedFlagPrincipleIds };
 }
 
+interface CommitteeRecommendationFragment {
+  readonly committeeRecommendation: string;
+  readonly committeeRecommendationConsumedFlagPrincipleIds: readonly string[];
+}
+
+async function buildCommitteeRecommendation(
+  input: BuildNarrativeInput,
+  llm: LLMCallFn,
+): Promise<CommitteeRecommendationFragment> {
+  const { handbookEvaluation } = input;
+  const formattedFlags = formatFlagsForInjectionPoint(
+    handbookEvaluation.firedFlags,
+    'committee_recommendation',
+  );
+  const committeeRecommendationConsumedFlagPrincipleIds = consumedPrincipleIdsForInjectionPoint(
+    handbookEvaluation.firedFlags,
+    'committee_recommendation',
+  );
+
+  const prompt = buildCommitteeRecommendationPrompt(formattedFlags);
+  const llmOutput = await llm({
+    model: NARRATIVE_LLM_MODEL,
+    max_tokens: COMMITTEE_RECOMMENDATION_MAX_TOKENS,
+    system: NARRATIVE_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const committeeRecommendation = llmOutput.trim();
+
+  if (committeeRecommendation.length === 0) {
+    throw new BuildNarrativeError(
+      'LLM_EMPTY_RESPONSE',
+      `LLM returned empty prose for committee_recommendation (handbookEvaluationId=${handbookEvaluation.id}). Empty prose is not a valid state for the producer.`,
+    );
+  }
+
+  return { committeeRecommendation, committeeRecommendationConsumedFlagPrincipleIds };
+}
+
 /* ----------------------------- orchestrator (public) ----------------------- */
 
 export async function buildNarrative(
@@ -236,11 +278,12 @@ export async function buildNarrative(
   // Promise.all: parallel LLM calls (one per slot). If any rejects, the
   // wrapper rejects — per Q-S4 (f.1) partial-failure semantics. No partial
   // NarrativeEvaluation row is persisted; v23 idempotency-via-content-hash
-  // makes the retry safe.
-  const [execSummary, redFlag, mitigation] = await Promise.all([
+  // makes the retry safe. 4-slot final form per Phase 4 ship.
+  const [execSummary, redFlag, mitigation, committee] = await Promise.all([
     buildExecutiveSummary(input, llm),
     buildRedFlagAssessment(input, llm),
     buildMitigationSuggestions(input, llm),
+    buildCommitteeRecommendation(input, llm),
   ]);
 
   const body = {
@@ -251,9 +294,11 @@ export async function buildNarrative(
     consumedFlagPrincipleIds: execSummary.consumedFlagPrincipleIds,
     redFlagAssessmentConsumedFlagPrincipleIds: redFlag.redFlagAssessmentConsumedFlagPrincipleIds,
     mitigationSuggestionsConsumedFlagPrincipleIds: mitigation.mitigationSuggestionsConsumedFlagPrincipleIds,
+    committeeRecommendationConsumedFlagPrincipleIds: committee.committeeRecommendationConsumedFlagPrincipleIds,
     executiveSummary: execSummary.executiveSummary,
     redFlagAssessment: redFlag.redFlagAssessment,
     mitigationSuggestions: mitigation.mitigationSuggestions,
+    committeeRecommendation: committee.committeeRecommendation,
   };
 
   return {
