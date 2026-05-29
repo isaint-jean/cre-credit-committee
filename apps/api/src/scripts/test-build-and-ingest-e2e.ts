@@ -18,6 +18,12 @@
  * real AI pipeline end-to-end. Mirrors test-asr-adapter-integration.ts
  * case 5.
  *
+ * PCA_E2E=1 mode: adds case 10 that uploads sunroad-centrum-pca.pdf and
+ * runs the real PCA pipeline (Call A AI extraction + Call B deterministic
+ * pdfjs schedule extraction). ~30-60s per run; LLM cost $$; 44 MB fixture
+ * upload. Gated separately from ASR_E2E so each adapter pays its own cost
+ * envelope.
+ *
  *   tsx src/scripts/test-build-and-ingest-e2e.ts
  *
  * Fixture builders (LibrarySnapshot, MarketBenchmarks, CreditManifesto) are
@@ -80,6 +86,7 @@ function assertEqual<T>(a: T, b: T, m: string): void {
 
 const AS_OF = '2026-05-20T00:00:00Z' as ISODateTime;
 const E2E_ENABLED = process.env.ASR_E2E === '1' || process.env.ASR_E2E === 'true';
+const PCA_E2E_ENABLED = process.env.PCA_E2E === '1' || process.env.PCA_E2E === 'true';
 
 /* -------------- inline fixture builders (from test-ingest-pipeline.ts) ---- */
 
@@ -200,6 +207,7 @@ function makeFormData(fields: Record<string, string>): FormData {
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CF_FIXTURE = path.resolve(SCRIPT_DIR, '../../fixtures/sunroad-centrum-cf.xlsx');
 const ASR_FIXTURE = path.resolve(SCRIPT_DIR, '../../fixtures/asr-minimal.pdf');
+const PCA_FIXTURE = path.resolve(SCRIPT_DIR, '../../fixtures/sunroad-centrum-pca.pdf');
 
 /** Append a file from disk to a FormData under the given field name. Uses
  *  Blob with the original filename (Node 25 FormData + fetch support this
@@ -579,6 +587,104 @@ function appendFile(fd: FormData, field: string, filePath: string, mimeType: str
       const afterCount = composerCallCount;
       assertEqual(afterCount - beforeCount, 1, '9.3 composer called exactly once across two identical uploads (cache hit on 2nd)');
       assertEqual(body1.extractionResultId, body2.extractionResultId, '9.4 same extractionResultId returned from both uploads');
+    }
+
+    /* Case 10 — Full-stack PCA upload with PCA_E2E=1 (#51 closure).
+     *
+     * When PCA_E2E=1: upload sunroad-centrum-pca.pdf + seller_cf + loanTerms
+     * form field. The PCA adapter runs end-to-end:
+     *   - Call A: AI extraction of scalars + narratives (non-deterministic)
+     *   - Call B: deterministic capex-schedule extraction via pdfjs-dist's
+     *     positional API (since PCA_ADAPTER_VERSION '1.1' / #44 closure)
+     *
+     * Default-mode skip: PCA_E2E=0 (the default) skips with a cost-explainer.
+     * The 44 MB fixture + LLM cost + ~30-60s runtime make this an explicit
+     * opt-in path, gated parallel to ASR_E2E for the same reason.
+     *
+     * Assertions are STRUCTURAL-ONLY per the Phase 2 catch #2 lesson (non-
+     * deterministic LLM output → exact-match assertions are brittle):
+     *   - Call A scalars: `typeof === 'number' || === null` (each field
+     *     independently nullable when the AI couldn't extract)
+     *   - Call B arrays: `Array.isArray` + `length > 0` + `typeof first ===
+     *     'number'` (deterministic at array-shape level; we do NOT assert
+     *     exact values so fixture regeneration or pdfjs upstream changes
+     *     don't break this test) */
+    console.log('\n10. PCA_E2E full-stack upload — real PCA adapter runs');
+    if (!PCA_E2E_ENABLED) {
+      console.log('  skip  10.* PCA_E2E disabled (set PCA_E2E=1 to enable; caller pays for AI calls; ~30-60s/run; 44 MB upload)');
+    } else {
+      const fd = makeFormData(validForm(/*includeLoanTerms=*/ true));
+      appendFile(fd, 'seller_cf', CF_FIXTURE, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      appendFile(fd, 'pca', PCA_FIXTURE, 'application/pdf');
+      const r = await fetch(`${baseUrl}/api/build-and-ingest`, {
+        method: 'POST',
+        body: fd,
+        headers: { authorization: AUTH_HEADER },
+      });
+      if (r.status !== 201) {
+        const debugBody = await r.clone().text();
+        console.error(`  DEBUG: response status=${r.status}, body=${debugBody}`);
+      }
+      assertEqual(r.status, 201, '10.1 HTTP 201');
+      const body = await r.json() as {
+        extractionResultId: string;
+        buildReport: { slots: Record<string, { status: string }> };
+      };
+      assertEqual(body.buildReport.slots.pcaPdf.status, 'ok', '10.2 pca slot ok (Call A + Call B both completed; SourceDocumentRef of kind pca attached)');
+      assertEqual(body.buildReport.slots.sellerCfXlsx.status, 'ok', '10.3 cf slot ok (companion)');
+
+      const fetched = testStore.getExtractionResult(body.extractionResultId as never);
+      assert(fetched !== null, '10.4 ExtractionResult persisted in store');
+      const pca = fetched?.pca ?? null;
+      assert(pca !== null, '10.5 ExtractionResult.pca present (extractPca returned non-null PCAExtraction)');
+
+      if (pca !== null) {
+        // Call A — AI-extracted scalars + narratives. Non-deterministic.
+        // Structural-only: each field is either a number or null (the AI's
+        // null gate is per-field; a partial extraction is valid).
+        assert(typeof pca.immediateRepairs === 'number' || pca.immediateRepairs === null,
+          '10.6 immediateRepairs is number or null (Call A AI scalar)');
+        assert(typeof pca.shortTermRepairs === 'number' || pca.shortTermRepairs === null,
+          '10.7 shortTermRepairs is number or null (Call A AI scalar)');
+        assert(typeof pca.evaluationPeriodYears === 'number' || pca.evaluationPeriodYears === null,
+          '10.8 evaluationPeriodYears is number or null (Call A AI scalar)');
+        assert(typeof pca.inflationRate === 'number' || pca.inflationRate === null,
+          '10.9 inflationRate is number or null (Call A AI scalar)');
+        assert(typeof pca.replacementReservesPerSfPerYearInflated === 'number' || pca.replacementReservesPerSfPerYearInflated === null,
+          '10.10 replacementReservesPerSfPerYearInflated is number or null');
+        assert(typeof pca.replacementReservesPerSfPerYearUninflated === 'number' || pca.replacementReservesPerSfPerYearUninflated === null,
+          '10.11 replacementReservesPerSfPerYearUninflated is number or null');
+
+        // Call A — structural narrative object. Nullable when AI couldn't
+        // identify the 4 component grades. When present, it's a typed object;
+        // we do NOT assert specific grade values.
+        if (pca.structural !== null) {
+          assert(typeof pca.structural === 'object',
+            '10.12 structural is object when present (Call A AI narrative)');
+        }
+
+        // Call B — deterministic schedule arrays from pdfjs-dist positional
+        // API. Structural-only at array-shape level: array existence,
+        // non-empty, numeric entries. Specific values intentionally
+        // unasserted so the test stays stable under fixture regeneration or
+        // pdfjs upstream changes.
+        if (pca.capexScheduleInflated !== null) {
+          assert(Array.isArray(pca.capexScheduleInflated),
+            '10.13 capexScheduleInflated is array (Call B deterministic)');
+          assert(pca.capexScheduleInflated.length > 0,
+            '10.14 capexScheduleInflated non-empty');
+          assert(typeof pca.capexScheduleInflated[0] === 'number',
+            '10.15 capexScheduleInflated entries are numbers');
+        }
+        if (pca.capexScheduleUninflated !== null) {
+          assert(Array.isArray(pca.capexScheduleUninflated),
+            '10.16 capexScheduleUninflated is array (Call B deterministic)');
+          assert(pca.capexScheduleUninflated.length > 0,
+            '10.17 capexScheduleUninflated non-empty');
+          assert(typeof pca.capexScheduleUninflated[0] === 'number',
+            '10.18 capexScheduleUninflated entries are numbers');
+        }
+      }
     }
 
     console.log(`\n${passed} passed, ${failed} failed`);
