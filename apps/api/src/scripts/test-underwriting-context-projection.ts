@@ -39,6 +39,7 @@ import {
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import { hydrateRecordGraph } from '../services/hydrate-record-graph.js';
 import { buildUnderwritingContextProjection } from '../services/build-underwriting-context-projection.js';
 
@@ -149,10 +150,10 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId; bundle: HydratedRecordGraph } {
+async function ingestSeed(store: RecordGraphStore): Promise<{ rootId: DoctrineEvaluationId; bundle: HydratedRecordGraph }> {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     {
       extractionResult: makeFullExtraction(),
       propertyType: 'Office' as AssetType,
@@ -163,6 +164,7 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId; bu
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
   // Post-#20: hydrate / projection anchor on the DoctrineEvaluationId, exposed
   // as result.evaluationId. result.rootId is the public AnalysisId (RevisionId).
@@ -172,10 +174,12 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId; bu
 
 // --------------------------------- run ---------------------------------
 
+(async () => {
+
 console.log('Round-trip: ingest -> hydrate -> project -> 9 records present:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
 
@@ -195,7 +199,7 @@ console.log('Round-trip: ingest -> hydrate -> project -> 9 records present:');
 console.log('\nrootId passthrough:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
   assertEqual(ctx.rootId, rootId, 'ctx.rootId === input rootId');
@@ -206,7 +210,7 @@ console.log('\nrootId passthrough:');
 console.log('\nPJ5 identity passthrough: each output record === input record (no clone):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
 
@@ -226,7 +230,7 @@ console.log('\nPJ5 identity passthrough: each output record === input record (no
 console.log('\nmetadata.hydratedAt mirrors doctrineEvaluation.analysisAsOfDate (passthrough):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
   assertEqual(ctx.metadata.hydratedAt, bundle.doctrineEvaluation.analysisAsOfDate,
@@ -238,7 +242,7 @@ console.log('\nmetadata.hydratedAt mirrors doctrineEvaluation.analysisAsOfDate (
 console.log('\nmetadata.projectionVersion is the literal "6.6":');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
   assertEqual(ctx.metadata.projectionVersion, '6.6', 'projectionVersion === "6.6"');
@@ -250,7 +254,7 @@ console.log('\nmetadata.projectionVersion is the literal "6.6":');
 console.log('\nPJ4 determinism: same input -> byte-identical output:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   const a = buildUnderwritingContextProjection({ rootId, graph: bundle });
   const b = buildUnderwritingContextProjection({ rootId, graph: bundle });
@@ -260,7 +264,7 @@ console.log('\nPJ4 determinism: same input -> byte-identical output:');
 console.log('\nPJ1 bijection: output has exactly the spec keys:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
   const keys = Object.keys(ctx).sort();
@@ -290,7 +294,7 @@ console.log('\nPJ1 bijection: output has exactly the spec keys:');
 console.log('\nPJ3 no fallback synthesis: empty CrossCheckResult passes through unchanged:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
 
   // Ingestion v1 emits an empty CrossCheckResult; projection must not synthesize anything
   // to "fix" that - it passes through whatever the bundle holds.
@@ -310,7 +314,7 @@ console.log('\nPJ2 mode-invariance: signature is (input) only - no mode paramete
 console.log('\n9 contract record types tracked (record-count regression check):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, bundle } = ingestSeed(store);
+  const { rootId, bundle } = await ingestSeed(store);
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
 
   const recordKeys: (keyof UnderwritingContext)[] = [
@@ -337,3 +341,5 @@ console.log('\n9 contract record types tracked (record-count regression check):'
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);
+
+})().catch((e) => { console.error(e); process.exit(1); });

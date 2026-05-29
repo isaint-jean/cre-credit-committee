@@ -42,6 +42,7 @@ import {
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import { analysisRoutes, handleGraphRevision } from '../routes/analysis.routes.js';
 
 const AS_OF = '2026-05-22T00:00:00Z';
@@ -99,30 +100,30 @@ function makeRes(): MockRes {
 }
 
 /** Walk analysisRoutes for the matching method+path and invoke its handler chain. */
-function dispatch(req: MockReq, res: MockRes): void {
+async function dispatch(req: MockReq, res: MockRes): Promise<void> {
   const stack = (analysisRoutes as unknown as { stack: unknown[] }).stack;
   for (const layer of stack) {
     const route = (layer as { route?: { path?: string; methods?: Record<string, boolean>; stack?: unknown[] } }).route;
     if (!route) continue;
     if (route.path !== req.path) continue;
     if (!route.methods?.[req.method.toLowerCase()]) continue;
-    runChain(req, res, route.stack ?? [], 0);
+    await runChain(req, res, route.stack ?? [], 0);
     return;
   }
   res.status(404).json({ error: 'NO_MATCH' });
 }
 
-function runChain(req: MockReq, res: MockRes, handlers: unknown[], i: number): void {
+async function runChain(req: MockReq, res: MockRes, handlers: unknown[], i: number): Promise<void> {
   if (i >= handlers.length) return;
-  const layer = handlers[i] as { handle?: ((req: unknown, res: unknown, next: () => void) => void) & { name?: string } };
+  const layer = handlers[i] as { handle?: ((req: unknown, res: unknown, next: () => void) => void | Promise<void>) & { name?: string } };
   const handle = layer.handle;
   if (!handle) return;
   // Skip the real requireAuth middleware when test pre-populates req.user.
   if (handle.name === 'requireAuth' && req.user !== undefined) {
-    runChain(req, res, handlers, i + 1);
+    await runChain(req, res, handlers, i + 1);
     return;
   }
-  handle(req as never, res as never, () => runChain(req, res, handlers, i + 1));
+  await handle(req as never, res as never, () => { void runChain(req, res, handlers, i + 1); });
 }
 
 function makeAuth(role: string, email: string = 'user@example.com'): AuthPayload {
@@ -209,7 +210,7 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function seedRoot(store: RecordGraphStore) {
+async function seedRoot(store: RecordGraphStore) {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
   return ingestExtractionResult(
@@ -223,6 +224,7 @@ function seedRoot(store: RecordGraphStore) {
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
 }
 
@@ -231,11 +233,13 @@ const SOME_GRAPH_ID = 'a'.repeat(64);
 
 /* =============================== TESTS ================================== */
 
+(async () => {
+
 console.log('Auth — unauthenticated request → 401:');
 {
   const req = makeReq({ path: '/:id/revisions', params: { id: SOME_GRAPH_ID }, body: {} });
   const res = makeRes();
-  dispatch(req, res);
+  await dispatch(req, res);
   assertEqual(res.statusCode, 401, 'unauthenticated -> 401');
 }
 
@@ -248,7 +252,7 @@ console.log('\nPermission — VIEWER on graph id → 403:');
     user: makeAuth('VIEWER'),
   });
   const res = makeRes();
-  dispatch(req, res);
+  await dispatch(req, res);
   assertEqual(res.statusCode, 403, 'VIEWER on graph -> 403');
   assertEqual((res.body as { error: string }).error, 'PERMISSION_DENIED', 'PERMISSION_DENIED token');
 }
@@ -262,7 +266,7 @@ console.log('\nPermission — VIEWER on legacy uuid id → 403 (uniform gating):
     user: makeAuth('VIEWER'),
   });
   const res = makeRes();
-  dispatch(req, res);
+  await dispatch(req, res);
   assertEqual(res.statusCode, 403, 'VIEWER on legacy uuid -> 403 (permission gate applies before dispatch)');
 }
 
@@ -275,7 +279,7 @@ console.log('\nPermission — COMMITTEE_MEMBER explicitly denied (separation of 
     user: makeAuth('COMMITTEE_MEMBER'),
   });
   const res = makeRes();
-  dispatch(req, res);
+  await dispatch(req, res);
   assertEqual(res.statusCode, 403, 'COMMITTEE_MEMBER -> 403 (does not hold analysis:revise)');
 }
 
@@ -288,7 +292,7 @@ console.log('\nDispatch — malformed id → 400 MALFORMED_ANALYSIS_ID:');
     user: makeAuth('ANALYST'),
   });
   const res = makeRes();
-  dispatch(req, res);
+  await dispatch(req, res);
   assertEqual(res.statusCode, 400, 'malformed id -> 400');
   assertEqual((res.body as { error: string }).error, 'MALFORMED_ANALYSIS_ID', 'MALFORMED_ANALYSIS_ID token');
 }
@@ -306,7 +310,7 @@ console.log('\nDispatch — uuid v4 falls through to legacy handler (not blocked
     user: makeAuth('ANALYST'),
   });
   const res = makeRes();
-  dispatch(req, res);
+  await dispatch(req, res);
   assert(res.statusCode !== 403, 'ANALYST + legacy uuid does NOT 403');
   assert(res.statusCode !== 400 || (res.body as { error: string }).error !== 'MALFORMED_ANALYSIS_ID',
     'ANALYST + legacy uuid does NOT 400 MALFORMED (dispatched into legacy branch)');
@@ -317,7 +321,7 @@ console.log('\nDispatch — uuid v4 falls through to legacy handler (not blocked
 console.log('\nHappy path — ANALYST + graph id + valid delta → 201 with response shape:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req = makeReq({
     path: '/:id/revisions',
     params: { id: root.rootId as string },
@@ -330,7 +334,7 @@ console.log('\nHappy path — ANALYST + graph id + valid delta → 201 with resp
     },
   });
   const res = makeRes();
-  handleGraphRevision(req as never, res as never, store);
+  await handleGraphRevision(req as never, res as never, store);
 
   assertEqual(res.statusCode, 201, 'status 201');
   const body = res.body as {
@@ -365,7 +369,7 @@ console.log('\nHappy path — CREDIT_OFFICER also permitted (router-level):');
     user: makeAuth('CREDIT_OFFICER'),
   });
   const res = makeRes();
-  dispatch(req, res);
+  await dispatch(req, res);
   assert(res.statusCode !== 403, 'CREDIT_OFFICER does NOT 403');
   assertEqual(res.statusCode, 404, 'CREDIT_OFFICER + unknown lineage root -> 404 PARENT_REVISION_NOT_FOUND');
   assertEqual((res.body as { error: string }).error, 'PARENT_REVISION_NOT_FOUND', 'PARENT_REVISION_NOT_FOUND token');
@@ -374,10 +378,10 @@ console.log('\nHappy path — CREDIT_OFFICER also permitted (router-level):');
 console.log('\nBody validation — missing delta → 400 INVALID_BODY:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req = makeReq({ path: '/:id/revisions', params: { id: root.rootId as string }, body: { /* missing delta */ } });
   const res = makeRes();
-  handleGraphRevision(req as never, res as never, store);
+  await handleGraphRevision(req as never, res as never, store);
   assertEqual(res.statusCode, 400, 'missing delta -> 400');
   assertEqual((res.body as { error: string }).error, 'INVALID_BODY', 'INVALID_BODY token');
 }
@@ -385,14 +389,14 @@ console.log('\nBody validation — missing delta → 400 INVALID_BODY:');
 console.log('\nBody validation — delta with wrong kind → 400 INVALID_BODY:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req = makeReq({
     path: '/:id/revisions',
     params: { id: root.rootId as string },
     body: { delta: { kind: 'something-else', overrides: [] } },
   });
   const res = makeRes();
-  handleGraphRevision(req as never, res as never, store);
+  await handleGraphRevision(req as never, res as never, store);
   assertEqual(res.statusCode, 400, 'wrong kind -> 400');
   assertEqual((res.body as { error: string }).error, 'INVALID_BODY', 'INVALID_BODY token');
 }
@@ -407,7 +411,7 @@ console.log('\nUnknown lineage root → 404 PARENT_REVISION_NOT_FOUND:');
     body: { delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: 0.08 }] } },
   });
   const res = makeRes();
-  handleGraphRevision(req as never, res as never, store);
+  await handleGraphRevision(req as never, res as never, store);
   assertEqual(res.statusCode, 404, 'unknown lineage root -> 404');
   assertEqual((res.body as { error: string }).error, 'PARENT_REVISION_NOT_FOUND', 'PARENT_REVISION_NOT_FOUND token');
 }
@@ -415,14 +419,14 @@ console.log('\nUnknown lineage root → 404 PARENT_REVISION_NOT_FOUND:');
 console.log('\nInvalidDeltaError — non-editable path → 400 INVALID_DELTA with code:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req = makeReq({
     path: '/:id/revisions',
     params: { id: root.rootId as string },
     body: { delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'metrics.dscr', value: 1.5 }] } },
   });
   const res = makeRes();
-  handleGraphRevision(req as never, res as never, store);
+  await handleGraphRevision(req as never, res as never, store);
   assertEqual(res.statusCode, 400, 'non-editable path -> 400');
   const body = res.body as { error: string; code: string; path: string };
   assertEqual(body.error, 'INVALID_DELTA', 'INVALID_DELTA token');
@@ -433,14 +437,14 @@ console.log('\nInvalidDeltaError — non-editable path → 400 INVALID_DELTA wit
 console.log('\nInvalidDeltaError — vacancy+concessions > 1 → 400 with VACANCY_PLUS_CONCESSIONS_OUT_OF_RANGE:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req = makeReq({
     path: '/:id/revisions',
     params: { id: root.rootId as string },
     body: { delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: 1.5 }] } },
   });
   const res = makeRes();
-  handleGraphRevision(req as never, res as never, store);
+  await handleGraphRevision(req as never, res as never, store);
   assertEqual(res.statusCode, 400, 'vacancy>1 -> 400');
   const body = res.body as { error: string; code: string };
   assertEqual(body.error, 'INVALID_DELTA', 'INVALID_DELTA token');
@@ -450,14 +454,14 @@ console.log('\nInvalidDeltaError — vacancy+concessions > 1 → 400 with VACANC
 console.log('\nInvalidDeltaError — NaN value → 400 with BAD_VALUE_TYPE:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req = makeReq({
     path: '/:id/revisions',
     params: { id: root.rootId as string },
     body: { delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: Number.NaN }] } },
   });
   const res = makeRes();
-  handleGraphRevision(req as never, res as never, store);
+  await handleGraphRevision(req as never, res as never, store);
   assertEqual(res.statusCode, 400, 'NaN -> 400');
   assertEqual((res.body as { code: string }).code, 'BAD_VALUE_TYPE', 'code === BAD_VALUE_TYPE');
 }
@@ -465,16 +469,16 @@ console.log('\nInvalidDeltaError — NaN value → 400 with BAD_VALUE_TYPE:');
 console.log('\nIdempotency — same body twice → both 201, same revisionId:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const body = { delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: 0.08 }] } };
 
   const req1 = makeReq({ path: '/:id/revisions', params: { id: root.rootId as string }, body });
   const res1 = makeRes();
-  handleGraphRevision(req1 as never, res1 as never, store);
+  await handleGraphRevision(req1 as never, res1 as never, store);
 
   const req2 = makeReq({ path: '/:id/revisions', params: { id: root.rootId as string }, body });
   const res2 = makeRes();
-  handleGraphRevision(req2 as never, res2 as never, store);
+  await handleGraphRevision(req2 as never, res2 as never, store);
 
   assertEqual(res1.statusCode, 201, 'first call -> 201');
   assertEqual(res2.statusCode, 201, 'second call -> 201 (idempotent)');
@@ -487,3 +491,5 @@ console.log('\nIdempotency — same body twice → both 201, same revisionId:');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
+
+})().catch((e) => { console.error(e); process.exit(1); });

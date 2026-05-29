@@ -38,6 +38,7 @@
 // ============================================================================
 
 import type {
+  NarrativeEvaluation,
   RenderBadge,
   RenderedAdjustment,
   RenderedAnalysis,
@@ -46,6 +47,7 @@ import type {
   RenderedFinding,
   RenderedLineItem,
   RenderedLoanSection,
+  RenderedNarrativeSection,
   RenderedStressScenario,
   RenderedStressSection,
   UnderwritingContext,
@@ -58,6 +60,21 @@ import {
   badgeFromFlag,
 } from './render-sentinels.js';
 import { computeRenderedAnalysisId } from '../util/content-hash.js';
+
+// 7.5 (Piece A Phase 1) helper — bijective passthrough of the NarrativeEvaluation
+// sibling. Reads the executive_summary slot + producer metadata; render adds
+// nothing of its own. Returning null when the narrative is absent surfaces the
+// "no narrative composed" state truthfully (RA.narrative is `| null`).
+function renderNarrativeSection(
+  narrative: NarrativeEvaluation | null,
+): RenderedNarrativeSection | null {
+  if (narrative === null) return null;
+  return {
+    executiveSummary: narrative.executiveSummary,
+    engineVersion: narrative.engineVersion,
+    consumedFlagPrincipleIds: narrative.consumedFlagPrincipleIds,
+  };
+}
 
 // 6.9 D16/D17 helper - bijective passthrough of one AdjustedLineItem.
 // NOT a derivation: every numeric value is read directly from the producer's record;
@@ -76,7 +93,10 @@ function projectLineItem(name: string, item: AdjustedLineItem): RenderedLineItem
   };
 }
 
-export function renderUnderwritingContext(ctx: UnderwritingContext): RenderedAnalysis {
+export function renderUnderwritingContext(
+  ctx: UnderwritingContext,
+  narrative: NarrativeEvaluation | null = null,
+): RenderedAnalysis {
   const {
     rootId,
     adjustedInputs,
@@ -260,6 +280,7 @@ export function renderUnderwritingContext(ctx: UnderwritingContext): RenderedAna
     assumptions,
     stress,
     findings,
+    narrative: renderNarrativeSection(narrative),
 
     metadata: {
       hashedAt: doctrineEvaluation.analysisAsOfDate,

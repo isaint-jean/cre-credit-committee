@@ -47,6 +47,7 @@ import {
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import { hydrateRecordGraph } from '../services/hydrate-record-graph.js';
 import { buildUnderwritingContextProjection } from '../services/build-underwriting-context-projection.js';
 import { renderUnderwritingContext } from '../services/render-underwriting-context.js';
@@ -160,10 +161,10 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function ingestRender(store: RecordGraphStore): { rootId: DoctrineEvaluationId; rendered: RenderedAnalysis } {
+async function ingestRender(store: RecordGraphStore): Promise<{ rootId: DoctrineEvaluationId; rendered: RenderedAnalysis }> {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     {
       extractionResult: makeFullExtraction(),
       propertyType: 'Office' as AssetType,
@@ -174,6 +175,7 @@ function ingestRender(store: RecordGraphStore): { rootId: DoctrineEvaluationId; 
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
   // Post-#20: hydrate/projection anchor on the DoctrineEvaluationId; result.rootId is the
   // public AnalysisId (RevisionId). Internal pipeline uses result.evaluationId.
@@ -245,10 +247,12 @@ function makeExportContext(purpose: string = 'committee-q2-2026'): ExportContext
 
 /* --------------------------------- run ---------------------------------- */
 
+(async () => {
+
 console.log('SX1 read-only: inputs are not mutated by the builder:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = ingestRender(store);
+  const { rendered } = await ingestRender(store);
   const overlay = makeOverlayWithPatches(rendered);
   const exportContext = makeExportContext();
 
@@ -269,7 +273,7 @@ console.log('SX1 read-only: inputs are not mutated by the builder:');
 console.log('\nSX2 bijection: same inputs -> same snapshot id:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = ingestRender(store);
+  const { rendered } = await ingestRender(store);
   const overlay = makeOverlayWithPatches(rendered);
   const exportContext = makeExportContext();
 
@@ -285,7 +289,7 @@ console.log('\nSX2 bijection: same inputs -> same snapshot id:');
 console.log('\nSX3 no recomputation: snapshot embeds inputs unchanged:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = ingestRender(store);
+  const { rendered } = await ingestRender(store);
   const overlay = makeOverlayWithPatches(rendered);
   const exportContext = makeExportContext();
 
@@ -309,7 +313,7 @@ console.log('\nSX3 no recomputation: snapshot embeds inputs unchanged:');
 console.log('\nexportContext is in identity: different export contexts -> different snapshot ids:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = ingestRender(store);
+  const { rendered } = await ingestRender(store);
   const overlay = makeOverlayWithPatches(rendered);
 
   const a = buildCommitteeSnapshot({
@@ -333,7 +337,7 @@ console.log('\nexportContext is in identity: different export contexts -> differ
 console.log('\noverlay null vs present: both valid; ids differ:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = ingestRender(store);
+  const { rendered } = await ingestRender(store);
   const overlay = makeOverlayWithPatches(rendered);
   const exportContext = makeExportContext();
 
@@ -355,7 +359,7 @@ console.log('\noverlay null vs present: both valid; ids differ:');
 console.log('\nSnapshot shape: top-level keys match contract:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = ingestRender(store);
+  const { rendered } = await ingestRender(store);
   const exportContext = makeExportContext();
   const snap = buildCommitteeSnapshot({ renderedAnalysis: rendered, overlay: null, exportContext });
 
@@ -375,7 +379,7 @@ console.log('\nEnd-to-end: ingest -> render -> overlay-construction -> snapshot:
   // (not just hand-built fixtures), without any producer reach-back from the builder
   // itself.
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = ingestRender(store);
+  const { rendered } = await ingestRender(store);
   const overlay = makeOverlayWithPatches(rendered);
   const exportContext = makeExportContext('committee-end-to-end');
 
@@ -400,8 +404,8 @@ console.log('\nDeterminism across stores: same inputs -> same snap.id from indep
 {
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const a = ingestRender(storeA);
-  const b = ingestRender(storeB);
+  const a = await ingestRender(storeA);
+  const b = await ingestRender(storeB);
 
   assertEqual(a.rendered.id, b.rendered.id, 'rendered ids match across stores');
 
@@ -420,3 +424,5 @@ console.log('\nDeterminism across stores: same inputs -> same snap.id from indep
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);
+
+})().catch((e) => { console.error(e); process.exit(1); });

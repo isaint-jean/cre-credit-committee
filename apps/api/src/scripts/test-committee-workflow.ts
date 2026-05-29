@@ -157,6 +157,7 @@ function makeMinimalRendered(): RenderedAnalysis {
     },
     stress: { method: 'DEFAULT', scenarios: [] },
     findings: [],
+    narrative: null,
     metadata: { hashedAt: T0, renderVersion: RENDER_VERSION },
   };
   return { id: computeRenderedAnalysisId(body), ...body } as RenderedAnalysis;

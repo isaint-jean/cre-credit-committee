@@ -6,11 +6,11 @@
 // for presentation; nothing here mutates upstream state or recomputes producer outputs.
 
 import type { DoctrineEvaluationId, RenderedAnalysisId } from './identity.js';
-import type { ISODateTime } from './versioning.js';
+import type { ISODateTime, NarrativeEngineVersion } from './versioning.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.4' as const;
+export const RENDER_VERSION = '7.5' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -146,6 +146,28 @@ export interface RenderedAssumptionsSection {
   readonly expenseGrowthPct: RenderedLineItem;     // 0..1 decimal
 }
 
+// Narrative projection (added in render version 7.5 for Piece A Phase 1).
+// Bijective passthrough of the NarrativeEvaluation sibling record's
+// executive_summary slot. Prose is rendered as plain string (NOT a RenderCell)
+// because narrative is either fully composed or absent — there is no
+// "missing-data sentinel" semantic for LLM-produced prose. The engineVersion
+// + consumedFlagPrincipleIds are passthroughs so the UI can display "composed
+// at version X from N flags" and link back to the source HE if needed.
+//
+// EXPLICIT NON-FIELDS (semantic-fidelity discipline at 7.5):
+//   - NO derived word/character count. UI can compute display lengths if needed.
+//   - NO inference of severity / tone / "headline risk". The producer composes
+//     ordered prose; render preserves it verbatim. Re-ranking or re-summarizing
+//     in render is forbidden.
+//   - NO synthesis of executive_summary when the field is absent. The
+//     `narrative` field on RenderedAnalysis is `| null` for analyses without
+//     a NarrativeEvaluation at NARRATIVE_ENGINE_VERSION.
+export interface RenderedNarrativeSection {
+  readonly executiveSummary: string;
+  readonly engineVersion: NarrativeEngineVersion;
+  readonly consumedFlagPrincipleIds: readonly string[];
+}
+
 // Per-component scoring projection (added in render version 6.8 for D09 parity).
 // Bijective passthrough of DoctrineEvaluation.componentScores[i]: same field names
 // (renamed `componentId` -> `name` for display friendliness), numeric values wrapped
@@ -229,6 +251,12 @@ export interface RenderedAnalysis {
   // exactly; ordering is preserved exactly; render synthesizes nothing. See
   // RenderedFinding for the full discipline spec.
   readonly findings: readonly RenderedFinding[];
+
+  // 7.5 (Piece A Phase 1): narrative projection from the NarrativeEvaluation
+  // sibling at NARRATIVE_ENGINE_VERSION. null when no NarrativeEvaluation
+  // exists for the AdjustedInputs at the current engine version (pre-Phase-1
+  // deals or narrative-build failed). Nullable per SPEC §14.4 Q-R2.
+  readonly narrative: RenderedNarrativeSection | null;
 
   readonly metadata: RenderedAnalysisMetadata;
 }

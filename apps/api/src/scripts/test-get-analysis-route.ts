@@ -41,6 +41,7 @@ import {
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
 import { applyRevisionDelta } from '../services/apply-revision-delta.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import { analysisRoutes, handleGraphRead } from '../routes/analysis.routes.js';
 
 const AS_OF = '2026-05-22T00:00:00Z';
@@ -202,7 +203,7 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function seedRoot(store: RecordGraphStore) {
+async function seedRoot(store: RecordGraphStore) {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
   return ingestExtractionResult(
@@ -216,6 +217,7 @@ function seedRoot(store: RecordGraphStore) {
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
 }
 
@@ -223,6 +225,8 @@ const SOME_GRAPH_ID = 'a'.repeat(64);
 const LEGACY_UUID = '00000000-0000-4000-8000-000000000001';
 
 /* =============================== TESTS ================================== */
+
+(async () => {
 
 console.log('Dispatch — malformed id → 400 MALFORMED_ANALYSIS_ID:');
 {
@@ -260,7 +264,7 @@ console.log('\nGraph 404 — unknown lineage root → 404 ANALYSIS_NOT_FOUND:');
 console.log('\nHappy path — ingest root, GET with rootId → 200 + lineageRootId + revisionOrdinal=0:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req = makeReq({ path: '/:id', params: { id: root.rootId as string } });
   const res = makeRes();
   handleGraphRead(req as never, res as never, store);
@@ -283,7 +287,7 @@ console.log('\nHappy path — ingest root, GET with rootId → 200 + lineageRoot
 console.log('\nLatest-by-lineage — after a revision, GET returns the CHILD\'s rendered:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
 
   // Snapshot the root's rendered view first.
   const reqRoot = makeReq({ path: '/:id', params: { id: root.rootId as string } });
@@ -292,13 +296,14 @@ console.log('\nLatest-by-lineage — after a revision, GET returns the CHILD\'s 
   const rootBody = resRoot.body as { id: string; rootId: string; revisionOrdinal: number };
 
   // Apply a revision (vacancy stress).
-  const rev = applyRevisionDelta(
+  const rev = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: 0.08 }] },
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
 
   // GET with the SAME lineageRootId. Must resolve to the child, not the root.
@@ -323,7 +328,7 @@ console.log('\nLatest-by-lineage — after a revision, GET returns the CHILD\'s 
 console.log('\nCache behavior — second GET on the same lineage is a cache hit:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const req1 = makeReq({ path: '/:id', params: { id: root.rootId as string } });
   const res1 = makeRes();
   handleGraphRead(req1 as never, res1 as never, store);
@@ -345,3 +350,5 @@ console.log('\nCache behavior — second GET on the same lineage is a cache hit:
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
+
+})().catch((e) => { console.error(e); process.exit(1); });

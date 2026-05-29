@@ -48,6 +48,7 @@ import {
   RecordIdMismatchError,
 } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import {
   materializeRenderedAnalysis,
   materializeRenderedAnalysisWithMeta,
@@ -171,10 +172,10 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId } {
+async function ingestSeed(store: RecordGraphStore): Promise<{ rootId: DoctrineEvaluationId }> {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     {
       extractionResult: makeFullExtraction(),
       propertyType: 'Office' as AssetType,
@@ -185,6 +186,7 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId } {
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
   // Post-#20: materialization anchors on the DoctrineEvaluationId (cache key axis).
   // result.rootId is the public AnalysisId (RevisionId) and is not consumable here.
@@ -200,10 +202,12 @@ function countRenderedAnalyses(store: RecordGraphStore): number {
 
 // --------------------------------- run ---------------------------------
 
+(async () => {
+
 console.log('Cold path: first call computes + persists:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
   assertEqual(countRenderedAnalyses(store), 0, 'rendered_analyses table empty before first call');
 
   const meta = materializeRenderedAnalysisWithMeta(rootId, store);
@@ -218,7 +222,7 @@ console.log('Cold path: first call computes + persists:');
 console.log('\nWarm path: second call hits cache (no new row):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
   const first = materializeRenderedAnalysisWithMeta(rootId, store);
   const rowsAfterFirst = countRenderedAnalyses(store);
 
@@ -237,7 +241,7 @@ console.log('\nDeterminism: cold and warm produce content-equivalent output:');
   // ordering but content-hash equality proves canonical equivalence (which is what
   // matters for replay / cache correctness). Field-level checks confirm payload parity.
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
 
   const cold = materializeRenderedAnalysis(rootId, store);
   const warm = materializeRenderedAnalysis(rootId, store);
@@ -259,7 +263,7 @@ console.log('\nDeterminism: cold and warm produce content-equivalent output:');
 console.log('\nMany calls: still exactly one row in cache:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
 
   for (let i = 0; i < 5; i++) materializeRenderedAnalysis(rootId, store);
   assertEqual(countRenderedAnalyses(store), 1, '5 calls -> 1 cached row (idempotent)');
@@ -271,8 +275,8 @@ console.log('\nDeterminism across stores (no env / clock / random leaks):');
 {
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const { rootId: rootA } = ingestSeed(storeA);
-  const { rootId: rootB } = ingestSeed(storeB);
+  const { rootId: rootA } = await ingestSeed(storeA);
+  const { rootId: rootB } = await ingestSeed(storeB);
 
   // Same fixture in both stores -> same rootId, same RenderedAnalysisId
   assertEqual(rootA, rootB, 'identical fixtures produce identical rootId in fresh stores');
@@ -343,6 +347,7 @@ console.log('\nFK enforcement: cannot insert RenderedAnalysis with non-existent 
     },
     stress: { method: 'DEFAULT', scenarios: [] },
     findings: [],
+    narrative: null,
     metadata: { hashedAt: AS_OF, renderVersion: RENDER_VERSION },
   };
   // Compute a valid id for this body so we don't trip RecordIdMismatchError
@@ -361,7 +366,7 @@ console.log('\nFK enforcement: cannot insert RenderedAnalysis with non-existent 
 console.log('\nContent-hash mismatch detection (RecordIdMismatchError):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
   const cold = materializeRenderedAnalysis(rootId, store);
 
   // Tamper with the body without recomputing the id.
@@ -384,7 +389,7 @@ console.log('\nContent-hash mismatch detection (RecordIdMismatchError):');
 console.log('\ngetRenderedAnalysis(id) round-trip:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
   const cold = materializeRenderedAnalysis(rootId, store);
 
   const fetched = store.getRenderedAnalysis(cold.id);
@@ -402,24 +407,36 @@ console.log('\ngetRenderedAnalysis(id) round-trip:');
   store.close();
 }
 
-console.log('\ngetRenderedAnalysisByRoot(rootId, renderVersion) cache-key lookup:');
+console.log('\ngetRenderedAnalysisByRoot(rootId, renderVersion, narrativeId) cache-key lookup:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
+
+  // Lookup under the same narrativeId materialize will use. ingestSeed runs
+  // evaluateAndNarrate via stubLLM, so a NarrativeEvaluation exists; fetch its
+  // id from the bundle's AdjustedInputs.
+  const doctrine = store.getDoctrineEvaluation(rootId)!;
+  const narrative = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, '1.0');
+  const narrativeId = narrative?.id ?? null;
 
   // Before materialization, lookup returns null
-  const cold = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION);
+  const cold = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId);
   assertEqual(cold, null, 'lookup before materialization -> null');
 
   // After materialization, lookup returns the cached record
   materializeRenderedAnalysis(rootId, store);
-  const warm = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION);
+  const warm = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId);
   assert(warm !== null, 'lookup after materialization returns the cached record');
   assertEqual(warm?.rootId, rootId, 'cached record rootId matches');
 
   // Wrong version -> null (forward-compatibility for future render-version bumps)
-  const wrongVersion = store.getRenderedAnalysisByRoot(rootId, '99.99' as never);
+  const wrongVersion = store.getRenderedAnalysisByRoot(rootId, '99.99' as never, narrativeId);
   assertEqual(wrongVersion, null, 'lookup at non-existent render version -> null');
+
+  // Wrong narrativeId -> null (cache-key discriminator works)
+  const otherNarrative = 'a'.repeat(64) as never;
+  const wrongNarrative = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, otherNarrative);
+  assertEqual(wrongNarrative, null, 'lookup with different narrativeId -> null (cache-key staleness gate)');
 
   store.close();
 }
@@ -428,3 +445,5 @@ console.log('\ngetRenderedAnalysisByRoot(rootId, renderVersion) cache-key lookup
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);
+
+})().catch((e) => { console.error(e); process.exit(1); });

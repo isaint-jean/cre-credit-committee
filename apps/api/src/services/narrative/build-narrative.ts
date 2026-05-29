@@ -42,6 +42,20 @@ import {
 const NARRATIVE_LLM_MODEL = 'claude-sonnet-4-20250514';
 const EXECUTIVE_SUMMARY_MAX_TOKENS = 3000;
 
+/**
+ * DI seam for the LLM primitive. Production callers omit `deps.llmCall`
+ * (defaulting to the real `callAIWithContinuation`); tests pass a
+ * deterministic stub. Pattern cascades upward through `evaluateAndNarrate`,
+ * `ingestExtractionResult`, and `applyRevisionDelta` so the whole write
+ * path can be exercised in scripts-based tests without hitting the
+ * Anthropic API.
+ */
+export type LLMCallFn = typeof callAIWithContinuation;
+
+export interface BuildNarrativeDeps {
+  readonly llmCall?: LLMCallFn;
+}
+
 export interface BuildNarrativeInput {
   readonly handbookEvaluation: HandbookEvaluation;
   /**
@@ -71,8 +85,10 @@ export class BuildNarrativeError extends Error {
 
 export async function buildNarrative(
   input: BuildNarrativeInput,
+  deps: BuildNarrativeDeps = {},
 ): Promise<NarrativeEvaluation> {
   const { handbookEvaluation, adjustedInputsId, analysisAsOfDate } = input;
+  const llm = deps.llmCall ?? callAIWithContinuation;
 
   if (handbookEvaluation.adjustedInputsId !== adjustedInputsId) {
     throw new BuildNarrativeError(
@@ -92,7 +108,7 @@ export async function buildNarrative(
 
   const prompt = buildExecutiveSummaryPrompt(formattedFlags);
 
-  const llmOutput = await callAIWithContinuation({
+  const llmOutput = await llm({
     model: NARRATIVE_LLM_MODEL,
     max_tokens: EXECUTIVE_SUMMARY_MAX_TOKENS,
     system: NARRATIVE_SYSTEM_PROMPT,

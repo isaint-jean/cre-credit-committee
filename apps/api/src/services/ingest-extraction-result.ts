@@ -59,9 +59,21 @@ import type {
 import { applyJudgmentAdjustments } from './judgment/apply-judgment-adjustments.js';
 import { buildNarrativeFacts } from './narrative-facts.service.js';
 import { classifyAssetProfile } from './asset-profiler.service.js';
-import { evaluateFromAdjustedInputs } from './evaluate-from-adjusted-inputs.js';
+import { evaluateAndNarrate } from './evaluate-and-narrate.js';
+import type { LLMCallFn } from './narrative/build-narrative.js';
 import { computeRevisionId } from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
+
+/**
+ * Optional dependencies for the orchestrator. The LLM-call seam cascades
+ * through `evaluateAndNarrate` to `buildNarrative` so tests can supply a
+ * deterministic stub instead of hitting the Anthropic API. Production
+ * callers omit `deps` (or pass `{}`) and the real `callAIWithContinuation`
+ * is used.
+ */
+export interface IngestExtractionResultDeps {
+  readonly llmCall?: LLMCallFn;
+}
 
 /* ------------------------------- error type -------------------------------- */
 
@@ -126,10 +138,11 @@ export interface IngestionResult {
 
 /* ----------------------------- orchestration ------------------------------ */
 
-export function ingestExtractionResult(
+export async function ingestExtractionResult(
   args: IngestExtractionResultArgs,
   store: RecordGraphStore,
-): IngestionResult {
+  deps: IngestExtractionResultDeps = {},
+): Promise<IngestionResult> {
   const {
     extractionResult,
     propertyType,
@@ -225,10 +238,11 @@ export function ingestExtractionResult(
      was produced or persisted for this extraction. */
   const propertyMetadata = store.getPropertyMetadataByExtractionResultId(extractionResult.id);
 
-  /* Stages 4-8 (AI insert through DoctrineEvaluation insert) delegated to the
-     shared pipeline tail. The same tail is used by applyRevisionDelta (issue #20,
-     step 8.5) so root and non-root paths share one evaluation flow. */
-  const { evaluation } = evaluateFromAdjustedInputs(
+  /* Stages 4-8 + narrative composition delegated to the coupled
+     `evaluateAndNarrate` wrapper (Piece A Phase 1 batch 2). This composes
+     the shared pipeline tail (used by applyRevisionDelta too) with the
+     narrative producer so HE+narrative are always atomic per v22/v23. */
+  const { evaluation } = await evaluateAndNarrate(
     {
       adjustedInputs,
       assetProfile,
@@ -239,6 +253,7 @@ export function ingestExtractionResult(
       propertyMetadata,
     },
     store,
+    { llmCall: deps.llmCall },
   );
 
   /* Stage 9 — Root revision envelope + provenance (Option C / issue #20).

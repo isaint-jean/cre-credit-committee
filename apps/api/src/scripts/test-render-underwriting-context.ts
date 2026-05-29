@@ -14,7 +14,7 @@
 //   - Determinism: two renders of same input -> byte-identical full output
 //   - rootId passthrough
 //   - metadata.hashedAt mirrors doctrine.analysisAsOfDate (no clock leak)
-//   - metadata.renderVersion === '7.4'
+//   - metadata.renderVersion === '7.5'
 //   - Schema exhaustiveness (test-suite version, per the v1 cut): every cell key
 //     in the output sources from a known UnderwritingContext path
 
@@ -42,6 +42,7 @@ import {
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import { hydrateRecordGraph } from '../services/hydrate-record-graph.js';
 import { buildUnderwritingContextProjection } from '../services/build-underwriting-context-projection.js';
 import { renderUnderwritingContext } from '../services/render-underwriting-context.js';
@@ -154,10 +155,10 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function endToEnd(store: RecordGraphStore): { rootId: DoctrineEvaluationId; rendered: RenderedAnalysis } {
+async function endToEnd(store: RecordGraphStore): Promise<{ rootId: DoctrineEvaluationId; rendered: RenderedAnalysis }> {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const ingest = ingestExtractionResult(
+  const ingest = await ingestExtractionResult(
     {
       extractionResult: makeFullExtraction(),
       propertyType: 'Office' as AssetType,
@@ -168,6 +169,7 @@ function endToEnd(store: RecordGraphStore): { rootId: DoctrineEvaluationId; rend
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
   // hydrate / projection anchor on DoctrineEvaluationId (rendering cache key).
   // After Option C / #20, ingest.rootId is the public AnalysisId (a RevisionId);
@@ -180,10 +182,12 @@ function endToEnd(store: RecordGraphStore): { rootId: DoctrineEvaluationId; rend
 
 // --------------------------------- run ---------------------------------
 
+(async () => {
+
 console.log('End-to-end: ingest -> hydrate -> project -> render:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, rendered } = endToEnd(store);
+  const { rootId, rendered } = await endToEnd(store);
 
   assert(/^[0-9a-f]{64}$/.test(rendered.id), 'rendered.id is 64-char content hash');
   assertEqual(rendered.rootId, rootId, 'rendered.rootId === ingest rootId');
@@ -200,12 +204,12 @@ console.log('End-to-end: ingest -> hydrate -> project -> render:');
 console.log('\nSection-keyed shape (PJ1-style bijection check):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   const topKeys = Object.keys(rendered).sort();
   const expected = [
     'assumptions', 'dataQuality', 'doctrine', 'expenseLines', 'findings', 'id',
-    'incomeLines', 'loan', 'metadata', 'metrics', 'rootId', 'stress', 'summary',
+    'incomeLines', 'loan', 'metadata', 'metrics', 'narrative', 'rootId', 'stress', 'summary',
     'valuation',
   ].sort();
   assertEqual(JSON.stringify(topKeys), JSON.stringify(expected), 'top-level keys match contract');
@@ -216,7 +220,7 @@ console.log('\nSection-keyed shape (PJ1-style bijection check):');
 console.log('\nRD5 cell completeness: every leaf cell has a non-empty displayValue:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   // Walk each section's RenderCell entries
   const cells: ReadonlyArray<{ path: string; value: unknown; displayValue: string }> = [
@@ -243,9 +247,9 @@ console.log('\nRD5 cell completeness: every leaf cell has a non-empty displayVal
 console.log('\nrootId + metadata passthrough (no clock leak, no random):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, rendered } = endToEnd(store);
+  const { rootId, rendered } = await endToEnd(store);
 
-  assertEqual(rendered.metadata.renderVersion, '7.4', 'metadata.renderVersion === "7.4"');
+  assertEqual(rendered.metadata.renderVersion, '7.5', 'metadata.renderVersion === "7.5"');
   assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'metadata matches RENDER_VERSION constant');
   assertEqual(rendered.metadata.hashedAt, AS_OF, 'metadata.hashedAt mirrors doctrine.analysisAsOfDate');
   assertEqual(rendered.rootId, rootId, 'rootId pass-through');
@@ -257,8 +261,8 @@ console.log('\nIdempotency (RD4): same input -> byte-identical output:');
 {
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const a = endToEnd(storeA);
-  const b = endToEnd(storeB);
+  const a = await endToEnd(storeA);
+  const b = await endToEnd(storeB);
 
   assertEqual(a.rootId, b.rootId, 'identical inputs -> identical rootId');
   assertEqual(a.rendered.id, b.rendered.id, 'identical inputs -> identical RenderedAnalysisId');
@@ -272,7 +276,7 @@ console.log('\nIdempotency (RD4): same input -> byte-identical output:');
 console.log('\nDeterminism: two render() calls on same context -> identical:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, rendered } = endToEnd(store);
+  const { rootId, rendered } = await endToEnd(store);
   const bundle = hydrateRecordGraph(rootId, store);
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
 
@@ -289,7 +293,7 @@ console.log('\nDeterminism: two render() calls on same context -> identical:');
 console.log('\ndataQualityFlags surface as RenderBadges (severity = info):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   // The synthetic fixture has minimal extraction context, so judgment-engine emits
   // some dataQualityFlags. Those should surface as info badges.
@@ -305,7 +309,7 @@ console.log('\ndataQualityFlags surface as RenderBadges (severity = info):');
 console.log('\ndoctrine.flags surface as RenderBadges (severity = warning):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   for (const badge of rendered.doctrine.flags) {
     assertEqual(badge.severity, 'warning', 'doctrine badge ' + badge.code + ' severity = warning');
@@ -318,7 +322,7 @@ console.log('\ndoctrine.flags surface as RenderBadges (severity = warning):');
 console.log('\nD09: doctrine.components projects DoctrineEvaluation.componentScores:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   // The synthetic fixture exercises the full doctrine pipeline; expect at least one
   // component (the producer scores 7+ components for any complete evaluation).
@@ -351,8 +355,8 @@ console.log('\nD09: components round-trip via cache (cache key partitions on ren
   // both return identity-equal components arrays.
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const a = endToEnd(storeA);
-  const b = endToEnd(storeB);
+  const a = await endToEnd(storeA);
+  const b = await endToEnd(storeB);
 
   assertEqual(a.rendered.id, b.rendered.id, 'identical inputs -> identical RenderedAnalysisId at 6.8');
   assertEqual(a.rendered.doctrine.components.length, b.rendered.doctrine.components.length,
@@ -375,7 +379,7 @@ console.log('\nNull metric -> sentinel display:');
 {
   // Construct a context where a metric is null, verify sentinel.
   const store = new RecordGraphStore(':memory:');
-  const { rootId, rendered } = endToEnd(store);
+  const { rootId, rendered } = await endToEnd(store);
 
   // Verify that null values consistently produce NULL_SENTINEL
   const pairs = [
@@ -399,7 +403,7 @@ console.log('\nNull metric -> sentinel display:');
 console.log('\nD16: incomeLines projects AdjustedInputs.income (5 entries, fixed order):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   const expectedNames: ReadonlyArray<string> = [
     'grossRentalIncome', 'otherIncome', 'vacancyPct', 'concessionsPct', 'effectiveGrossIncome',
@@ -427,7 +431,7 @@ console.log('\nD16: incomeLines projects AdjustedInputs.income (5 entries, fixed
 console.log('\nD17: expenseLines projects AdjustedInputs.expenses (8 entries, fixed order):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   const expectedNames: ReadonlyArray<string> = [
     'realEstateTaxes', 'insurance', 'utilities', 'managementFee',
@@ -452,7 +456,7 @@ console.log('\nD16/D17 RD2 spirit: render does not re-derive adjusted from raw +
   // render passes it through. The test verifies that adjusted.value === producer-emitted value
   // by checking that the rendered cell is identity-equal to a fresh fixture-side projection.
   const store = new RecordGraphStore(':memory:');
-  const { rootId, rendered } = endToEnd(store);
+  const { rootId, rendered } = await endToEnd(store);
   void rootId;
 
   // The synthetic fixture has known values; producer's adjusted for grossRentalIncome should
@@ -475,8 +479,8 @@ console.log('\nD16/D17 cross-store determinism (cache partition continuity at 6.
 {
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const a = endToEnd(storeA);
-  const b = endToEnd(storeB);
+  const a = await endToEnd(storeA);
+  const b = await endToEnd(storeB);
 
   assertEqual(a.rendered.id, b.rendered.id, 'identical inputs -> identical RenderedAnalysisId at 6.9');
   assertEqual(a.rendered.incomeLines.length, b.rendered.incomeLines.length, 'incomeLines length identical');
@@ -498,7 +502,7 @@ console.log('\nD16/D17 cross-store determinism (cache partition continuity at 6.
 console.log('\nD21: loan section is a named-field struct (NOT array) - 7 explicit fields:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   // Bijection check on the loan section keys: must be exactly the seven AdjustedLoan fields.
   // No more, no fewer; explicit names, not introspected.
@@ -536,7 +540,7 @@ console.log('\nD21: loan section is a named-field struct (NOT array) - 7 explici
 console.log('\n#24 (7.3) + §14.3 (7.4): assumptions section projects AdjustedInputs.assumptions (5 named fields; concludedCapRate nullable):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   // Bijection check: exactly the 5 AdjustedAssumptions fields (4 from v12 #24 + 1 from v17 §14.3).
   const assumptionsKeys = Object.keys(rendered.assumptions).sort();
@@ -579,7 +583,7 @@ console.log('\nD21 RD2 spirit: render does not recompute debtService from rate+t
   // a numeric value. Render reads it directly. Verify the displayValue matches the raw
   // String() conversion of the producer's number - no formatting layer interjected.
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   const ds = rendered.loan.debtServiceAnnual;
   if (ds.adjusted.value !== null) {
@@ -600,8 +604,8 @@ console.log('\nD21 cross-store determinism (cache partition continuity at 7.0):'
 {
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const a = endToEnd(storeA);
-  const b = endToEnd(storeB);
+  const a = await endToEnd(storeA);
+  const b = await endToEnd(storeB);
 
   assertEqual(a.rendered.id, b.rendered.id, 'identical inputs -> identical RenderedAnalysisId at 7.0');
   // Field-by-field check on the loan section across stores.
@@ -625,7 +629,7 @@ console.log('\nD21 cross-store determinism (cache partition continuity at 7.0):'
 console.log('\nD20: stress section projects StressOutputs (method + scenarios[]):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   // method is a passthrough of StressMethod (closed enum DEFAULT|TENANT_REMOVAL|OCC_RENT_CONCESSION).
   const validMethods = ['DEFAULT', 'TENANT_REMOVAL', 'OCC_RENT_CONCESSION'];
@@ -666,7 +670,7 @@ console.log('\nD20 RD2 spirit: render does not recompute breach outcomes:');
   // logic, no re-classification. Verify the badge code strings exactly match the
   // producer-emitted enum values (DSCR | LTV | DEBT_YIELD).
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   const validBreachCodes = ['DSCR', 'LTV', 'DEBT_YIELD'];
   for (const s of rendered.stress.scenarios) {
@@ -693,8 +697,8 @@ console.log('\nD20 cross-store determinism (cache partition continuity at 7.1):'
 {
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const a = endToEnd(storeA);
-  const b = endToEnd(storeB);
+  const a = await endToEnd(storeA);
+  const b = await endToEnd(storeB);
 
   assertEqual(a.rendered.id, b.rendered.id, 'identical inputs -> identical RenderedAnalysisId at 7.1');
   assertEqual(a.rendered.stress.method, b.rendered.stress.method, 'stress.method identical');
@@ -718,7 +722,7 @@ console.log('\nD20 cross-store determinism (cache partition continuity at 7.1):'
 console.log('\nD04: findings projects DoctrineEvaluation.reasons[] (bijective passthrough):');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId, rendered } = endToEnd(store);
+  const { rootId, rendered } = await endToEnd(store);
 
   // Re-fetch the doctrine evaluation directly from the store to compare against the
   // rendered findings. Both should reference the same producer-emitted reasons[].
@@ -764,7 +768,7 @@ console.log('\nD04 producer-side fidelity: rendered findings equal producer reas
   // -> same projection -> same JSON. Any deviation indicates render-side mutation,
   // synthesis, or reordering - all forbidden.
   const store = new RecordGraphStore(':memory:');
-  const { rootId, rendered } = endToEnd(store);
+  const { rootId, rendered } = await endToEnd(store);
   const fetched = store.getDoctrineEvaluation(rootId);
   if (fetched !== null) {
     const producerJson = JSON.stringify(
@@ -783,8 +787,8 @@ console.log('\nD04 cross-store determinism (cache partition continuity at 7.2):'
 {
   const storeA = new RecordGraphStore(':memory:');
   const storeB = new RecordGraphStore(':memory:');
-  const a = endToEnd(storeA);
-  const b = endToEnd(storeB);
+  const a = await endToEnd(storeA);
+  const b = await endToEnd(storeB);
 
   assertEqual(a.rendered.id, b.rendered.id, 'identical inputs -> identical RenderedAnalysisId at 7.2');
   assertEqual(a.rendered.findings.length, b.rendered.findings.length,
@@ -807,7 +811,7 @@ console.log('\nSchema-exhaustiveness (v1, test-suite form):');
   // accidental cell drops or additions across rebases. The boot-time architecture-D3
   // check is deferred to a follow-up batch (full bidirectional with @internal annotations).
   const store = new RecordGraphStore(':memory:');
-  const { rendered } = endToEnd(store);
+  const { rendered } = await endToEnd(store);
 
   const expectedCells: ReadonlyArray<string> = [
     'summary.ratingBand', 'summary.finalScore',
@@ -845,3 +849,5 @@ console.log('\nSchema-exhaustiveness (v1, test-suite form):');
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);
+
+})().catch((e) => { console.error(e); process.exit(1); });

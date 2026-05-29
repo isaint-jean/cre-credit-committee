@@ -39,6 +39,7 @@ import type {
   CrossCheckResult,
   DoctrineEvaluation,
   ExtractionResultId,
+  HandbookEvaluation,
   ISODateTime,
   LibrarySnapshot,
   NarrativeFacts,
@@ -70,6 +71,13 @@ export interface EvaluateFromAdjustedInputsArgs {
 
 export interface EvaluateFromAdjustedInputsResult {
   readonly evaluation: DoctrineEvaluation;
+  /**
+   * The HandbookEvaluation built and persisted at Stage 6.5. Returned so
+   * the coupled `evaluateAndNarrate` wrapper (Piece A Phase 1 batch 2)
+   * can hand the HE to the narrative producer without re-reading it from
+   * the store. Other callers may ignore this field.
+   */
+  readonly handbookEvaluation: HandbookEvaluation;
 }
 
 export function evaluateFromAdjustedInputs(
@@ -148,5 +156,5 @@ export function evaluateFromAdjustedInputs(
   });
   store.insertDoctrineEvaluation(evaluation);
 
-  return { evaluation };
+  return { evaluation, handbookEvaluation };
 }

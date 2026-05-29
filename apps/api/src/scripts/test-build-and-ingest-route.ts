@@ -230,7 +230,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       };
       return o.composerReturn !== undefined ? o.composerReturn : defaultReturn;
     },
-    ingestExtractionResult: () => {
+    ingestExtractionResult: async () => {
       if (o.ingestThrow !== undefined) throw o.ingestThrow;
       return o.ingestReturn !== undefined ? o.ingestReturn : makeIngestionResult();
     },
@@ -501,7 +501,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
     const deps = makeDeps();
     const patched: BuildAndIngestDeps = {
       ...deps,
-      ingestExtractionResult: (args, store) => {
+      ingestExtractionResult: async (args, store) => {
         observedArgs = args as { marketBenchmarksId?: string; marketBenchmarks?: unknown };
         return deps.ingestExtractionResult(args, store);
       },
@@ -555,7 +555,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
     const deps = makeDeps();
     const patched: BuildAndIngestDeps = {
       ...deps,
-      ingestExtractionResult: (args, store) => {
+      ingestExtractionResult: async (args, store) => {
         observedArgs = args as { creditManifestoId?: string; creditManifesto?: unknown };
         return deps.ingestExtractionResult(args, store);
       },

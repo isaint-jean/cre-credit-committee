@@ -38,6 +38,7 @@ import {
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import {
   hydrateRecordGraph,
   HydrationError,
@@ -162,10 +163,10 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId } {
+async function ingestSeed(store: RecordGraphStore): Promise<{ rootId: DoctrineEvaluationId }> {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     {
       extractionResult: makeFullExtraction(),
       propertyType: 'Office' as AssetType,
@@ -176,6 +177,7 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId } {
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
   // Post-#20: hydration anchors on the DoctrineEvaluationId, exposed as result.evaluationId.
   // result.rootId is the public AnalysisId (RevisionId), not consumable by hydrateRecordGraph.
@@ -184,10 +186,12 @@ function ingestSeed(store: RecordGraphStore): { rootId: DoctrineEvaluationId } {
 
 /* ----------------------------------- run ---------------------------------- */
 
+(async () => {
+
 console.log('Round-trip — bundle contains all 9 records reachable from root:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
 
   const bundle = hydrateRecordGraph(rootId, store);
 
@@ -219,7 +223,7 @@ console.log('Round-trip — bundle contains all 9 records reachable from root:')
 console.log('\nDeterminism (HY6) — same root, byte-identical bundle:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
 
   const a = hydrateRecordGraph(rootId, store);
   const b = hydrateRecordGraph(rootId, store);
@@ -233,7 +237,7 @@ console.log('\nDeterminism (HY6) — same root, byte-identical bundle:');
 console.log('\nPure read (HY5) — hydration does not mutate the store:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
 
   // Snapshot id of every record before hydration
   const before = hydrateRecordGraph(rootId, store);
@@ -312,7 +316,7 @@ console.log('\nDANGLING_FK_* — each FK miss produces the right error code (HY3
 
   for (const c of cases) {
     const store = new RecordGraphStore(':memory:');
-    const { rootId } = ingestSeed(store);
+    const { rootId } = await ingestSeed(store);
     const bundleBefore = hydrateRecordGraph(rootId, store);
     const missingId = bundleBefore.doctrineEvaluation[c.fk] as string;
 
@@ -331,7 +335,7 @@ console.log('\nDANGLING_FK_* — each FK miss produces the right error code (HY3
 console.log('\nHY3 — hydration NEVER synthesizes a missing row:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
   const bundleBefore = hydrateRecordGraph(rootId, store);
 
   // Delete narrative_facts row out from under the doctrine root
@@ -352,7 +356,7 @@ console.log('\nHY3 — hydration NEVER synthesizes a missing row:');
 console.log('\nHY7 — hydrator signature is (rootId, store) only; no mode parameter:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = ingestSeed(store);
+  const { rootId } = await ingestSeed(store);
   // If hydrateRecordGraph accepted a mode arg, the type system would complain — but tsx
   // skips types. Functional check: it accepts exactly two args, returns the bundle.
   assertEqual(hydrateRecordGraph.length, 2, 'hydrateRecordGraph arity is 2 (rootId, store)');
@@ -365,3 +369,5 @@ console.log('\nHY7 — hydrator signature is (rootId, store) only; no mode param
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
+
+})().catch((e) => { console.error(e); process.exit(1); });

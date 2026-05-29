@@ -27,6 +27,7 @@
 //     for previous versions; can be GC'd later if storage growth becomes an issue).
 
 import {
+  NARRATIVE_ENGINE_VERSION,
   RENDER_VERSION,
   type DoctrineEvaluationId,
   type RenderedAnalysis,
@@ -59,15 +60,28 @@ export function materializeRenderedAnalysisWithMeta(
   rootId: DoctrineEvaluationId,
   store: RecordGraphStore,
 ): MaterializationResult {
-  const cached = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION);
+  /* Narrative fetch first (Piece A Phase 1 batch 2 / Q-R2' (iii) + Q-R3 (p)).
+     The HRG bundle FK-closes the doctrine + 8 spine records but NOT the
+     NarrativeEvaluation sibling; we pull the latest narrative for the
+     bundle's AdjustedInputs at the current NARRATIVE_ENGINE_VERSION and
+     use its id as part of the cache lookup key. Different narrative content
+     → different RenderedAnalysisId → cache miss → fresh render with the new
+     prose. */
+  const bundle = hydrateRecordGraph(rootId, store);
+  const narrative = store.getLatestNarrativeForAdjustedInputs(
+    bundle.adjustedInputs.id,
+    NARRATIVE_ENGINE_VERSION,
+  );
+  const narrativeId = narrative?.id ?? null;
+
+  const cached = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId);
   if (cached !== null) {
     return { rendered: cached, cacheHit: true };
   }
 
-  // Cold path: full read-pole pipeline.
-  const bundle = hydrateRecordGraph(rootId, store);
+  // Cold path: project + render (passing narrative through to renderUnderwritingContext).
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
-  const rendered = renderUnderwritingContext(ctx);
-  store.insertRenderedAnalysis(rendered);
+  const rendered = renderUnderwritingContext(ctx, narrative);
+  store.insertRenderedAnalysis(rendered, narrativeId);
   return { rendered, cacheHit: false };
 }

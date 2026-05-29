@@ -60,7 +60,7 @@ function isPresent(v: unknown): boolean {
   return v !== undefined && v !== null && v !== '';
 }
 
-ingestRoutes.post('/', (req: Request, res: Response) => {
+ingestRoutes.post('/', async (req: Request, res: Response) => {
   const body = (req.body ?? {}) as IngestRequestBody;
 
   /* Shape-only validation. Producers own semantic validation. */
@@ -101,7 +101,7 @@ ingestRoutes.post('/', (req: Request, res: Response) => {
   }
 
   try {
-    const result = ingestExtractionResult(
+    const result = await ingestExtractionResult(
       {
         extractionResult: body.extractionResult as never,
         propertyType: body.propertyType as never,

@@ -42,6 +42,7 @@ import {
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 import {
   applyRevisionDelta,
   recomputeDerivedFields,
@@ -68,14 +69,14 @@ function assertClose(a: number | null, b: number, eps: number, m: string): void 
     ? ok(m)
     : fail(`${m} (actual=${a}, expected≈${b}, diff=${Math.abs(a - b)})`);
 }
-function assertThrowsInstance<E extends Error>(
+async function assertThrowsInstance<E extends Error>(
   fn: () => unknown,
   ctor: new (...args: never[]) => E,
   message: string,
   predicate?: (e: E) => boolean,
-): void {
+): Promise<void> {
   try {
-    fn();
+    await fn();
     fail(`${message} (did not throw)`);
   } catch (e) {
     if (!(e instanceof ctor)) {
@@ -186,10 +187,10 @@ function makeManifesto(asOf: string = AS_OF): CreditManifesto {
 }
 
 /** Seed a root revision via the standard ingest path and return the resulting record graph state. */
-function seedRoot(store: RecordGraphStore) {
+async function seedRoot(store: RecordGraphStore) {
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const ingest = ingestExtractionResult(
+  const ingest = await ingestExtractionResult(
     {
       extractionResult: makeFullExtraction(),
       propertyType: 'Office' as AssetType,
@@ -200,21 +201,24 @@ function seedRoot(store: RecordGraphStore) {
       analysisAsOfDate: AS_OF,
     },
     store,
+    STUB_LLM_DEPS,
   );
   return ingest;
 }
 
 /* ----------------------------------- tests --------------------------------- */
 
+(async () => {
+
 console.log('Happy path — single override on root:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const rootEnvelope = store.getRevisionEnvelope(root.rootId)!;
   const rootAi = store.getAdjustedInputs(rootEnvelope.adjustedInputsId)!;
   const newVacancy = rootAi.income.vacancyPct.adjusted + 0.02;
 
-  const result = applyRevisionDelta(
+  const result = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: {
@@ -225,6 +229,7 @@ console.log('Happy path — single override on root:');
       adjustmentOrigin: ['manual: vacancy stress'],
     },
     store,
+    STUB_LLM_DEPS,
   );
 
   assert(/^[0-9a-f]{64}$/.test(result.envelope.revisionId), 'child revisionId is 64-hex');
@@ -239,8 +244,8 @@ console.log('Happy path — single override on root:');
 console.log('\nEnvelope shape — child wired to root:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
-  const result = applyRevisionDelta(
+  const root = await seedRoot(store);
+  const result = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: {
@@ -250,6 +255,7 @@ console.log('\nEnvelope shape — child wired to root:');
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
 
   assertEqual(result.envelope.parentRevisionId, root.rootId, 'child parentRevisionId === root.rootId');
@@ -265,9 +271,9 @@ console.log('\nEnvelope shape — child wired to root:');
 console.log('\nProvenance shape — diff carries the override path:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const rootEnvelope = store.getRevisionEnvelope(root.rootId)!;
-  const result = applyRevisionDelta(
+  const result = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: {
@@ -278,6 +284,7 @@ console.log('\nProvenance shape — diff carries the override path:');
       adjustmentOrigin: ['rate stress to 8%'],
     },
     store,
+    STUB_LLM_DEPS,
   );
 
   assertEqual(result.provenance.triggerSource, 'USER_EDIT', 'triggerSource preserved');
@@ -294,10 +301,10 @@ console.log('\nProvenance shape — diff carries the override path:');
 console.log('\n§14.3 — concludedCapRate null-intermediate auto-construct (Delta X resolution):');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   // Seed root has concludedCapRate: null (default per §14.3 Decision 3 — no engine builder).
   // Verify the editable path auto-constructs the AdjustedLineItem parent on first analyst write.
-  const result = applyRevisionDelta(
+  const result = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: {
@@ -307,6 +314,7 @@ console.log('\n§14.3 — concludedCapRate null-intermediate auto-construct (Del
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
 
   const child = store.getAdjustedInputs(result.envelope.adjustedInputsId);
@@ -324,9 +332,9 @@ console.log('\n§14.3 — concludedCapRate null-intermediate auto-construct (Del
 console.log('\nLineage walk — chain grows from 1 to 2:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   assertEqual(store.walkLineageChain(root.rootId).length, 1, 'chain length is 1 before delta');
-  const result = applyRevisionDelta(
+  const result = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: {
@@ -336,6 +344,7 @@ console.log('\nLineage walk — chain grows from 1 to 2:');
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
   const chain = store.walkLineageChain(root.rootId);
   assertEqual(chain.length, 2, 'chain length is 2 after delta');
@@ -348,7 +357,7 @@ console.log('\nLineage walk — chain grows from 1 to 2:');
 console.log('\nDeterminism + idempotency — same args twice → same child:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const args = {
     parentRevisionId: root.rootId,
     delta: {
@@ -357,8 +366,8 @@ console.log('\nDeterminism + idempotency — same args twice → same child:');
     },
     triggerSource: 'USER_EDIT' as const,
   };
-  const r1 = applyRevisionDelta(args, store);
-  const r2 = applyRevisionDelta(args, store);
+  const r1 = await applyRevisionDelta(args, store, STUB_LLM_DEPS);
+  const r2 = await applyRevisionDelta(args, store, STUB_LLM_DEPS);
   assertEqual(r1.envelope.revisionId, r2.envelope.revisionId, 'identical args → identical childRevisionId');
   assertEqual(r1.evaluation.id, r2.evaluation.id, 'identical args → identical child evaluation.id');
   assertEqual(store.walkLineageChain(root.rootId).length, 2, 'chain stays length 2 (second call no-op)');
@@ -367,18 +376,19 @@ console.log('\nDeterminism + idempotency — same args twice → same child:');
 console.log('\nLinear-chain guard — applying to non-latest parent throws:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   // First delta — root → child1.
-  const child1 = applyRevisionDelta(
+  const child1 = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: 0.08 }] },
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
   // Second delta against root (not latest) — must throw.
-  assertThrowsInstance(
+  await assertThrowsInstance(
     () => applyRevisionDelta(
       {
         parentRevisionId: root.rootId,
@@ -386,19 +396,21 @@ console.log('\nLinear-chain guard — applying to non-latest parent throws:');
         triggerSource: 'USER_EDIT',
       },
       store,
+      STUB_LLM_DEPS,
     ),
     NotLatestRevisionError,
     'delta against non-latest parent throws NotLatestRevisionError',
     (e) => e.currentLatestRevisionId === (child1.envelope.revisionId as string),
   );
   // Delta against latest succeeds.
-  const child2 = applyRevisionDelta(
+  const child2 = await applyRevisionDelta(
     {
       parentRevisionId: child1.envelope.revisionId,
       delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: 0.09 }] },
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
   assertEqual(child2.envelope.revisionOrdinal, 2, 'chain extends linearly: root → child1 → child2 (ordinal 2)');
 }
@@ -419,7 +431,7 @@ console.log('\nDrift protection — recompute matches engine formulas where cons
   //     β.1 recompute returns uncapped EGI - totalOpEx. NOT compared to engine here.
   //   - metrics.{value,dscr,debtYield}: derived from NOI, inherit the cap divergence above.
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const rootEnvelope = store.getRevisionEnvelope(root.rootId)!;
   const rootAi = store.getAdjustedInputs(rootEnvelope.adjustedInputsId)!;
   const narrativeFacts = store.getNarrativeFacts(root.evaluation.narrativeFactsId)!;
@@ -448,7 +460,7 @@ console.log('\nBehavior-locking — recompute formula self-consistency (hand-rol
   // Hand-built body bypasses the engine entirely. Asserts the recompute formulas produce
   // the exact arithmetic documented in apply-revision-delta.ts.
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const rootEnvelope = store.getRevisionEnvelope(root.rootId)!;
   const rootAi = store.getAdjustedInputs(rootEnvelope.adjustedInputsId)!;
   const narrativeFacts = store.getNarrativeFacts(root.evaluation.narrativeFactsId)!;
@@ -514,25 +526,27 @@ console.log('\nMetrics chain — sequential child deltas show recompute is monot
   // been engine-floored/capped; child β.1 metrics never are. Child-vs-child eliminates that
   // confound, so the differential cleanly tracks the recompute's arithmetic response to vacancy.
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const rootEnvelope = store.getRevisionEnvelope(root.rootId)!;
   const rootAi = store.getAdjustedInputs(rootEnvelope.adjustedInputsId)!;
 
-  const childA = applyRevisionDelta(
+  const childA = await applyRevisionDelta(
     {
       parentRevisionId: root.rootId,
       delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: rootAi.income.vacancyPct.adjusted + 0.01 }] },
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
-  const childB = applyRevisionDelta(
+  const childB = await applyRevisionDelta(
     {
       parentRevisionId: childA.envelope.revisionId,
       delta: { kind: 'adjusted-input-overrides', overrides: [{ path: 'income.vacancyPct.adjusted', value: rootAi.income.vacancyPct.adjusted + 0.10 }] },
       triggerSource: 'USER_EDIT',
     },
     store,
+    STUB_LLM_DEPS,
   );
   const aAi = store.getAdjustedInputs(childA.evaluation.adjustedInputsId)!;
   const bAi = store.getAdjustedInputs(childB.evaluation.adjustedInputsId)!;
@@ -551,7 +565,7 @@ console.log('\nError — parent revision not found:');
   const store = new RecordGraphStore(':memory:');
   seedRoot(store);
   const ghost = ('f'.repeat(64)) as RevisionId;
-  assertThrowsInstance(
+  await assertThrowsInstance(
     () => applyRevisionDelta(
       {
         parentRevisionId: ghost,
@@ -559,6 +573,7 @@ console.log('\nError — parent revision not found:');
         triggerSource: 'USER_EDIT',
       },
       store,
+      STUB_LLM_DEPS,
     ),
     ParentRevisionNotFoundError,
     'unknown parent revisionId throws ParentRevisionNotFoundError',
@@ -568,8 +583,8 @@ console.log('\nError — parent revision not found:');
 console.log('\nError — non-editable path:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
-  assertThrowsInstance(
+  const root = await seedRoot(store);
+  await assertThrowsInstance(
     () => applyRevisionDelta(
       {
         parentRevisionId: root.rootId,
@@ -577,6 +592,7 @@ console.log('\nError — non-editable path:');
         triggerSource: 'USER_EDIT',
       },
       store,
+      STUB_LLM_DEPS,
     ),
     InvalidDeltaError,
     'editing metrics.dscr throws InvalidDeltaError(NON_EDITABLE_PATH)',
@@ -587,9 +603,9 @@ console.log('\nError — non-editable path:');
 console.log('\nError — editable path that doesn\'t resolve on parent body:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   // A typo'd path that ISN'T in the whitelist — caught by NON_EDITABLE_PATH first.
-  assertThrowsInstance(
+  await assertThrowsInstance(
     () => applyRevisionDelta(
       {
         parentRevisionId: root.rootId,
@@ -597,6 +613,7 @@ console.log('\nError — editable path that doesn\'t resolve on parent body:');
         triggerSource: 'USER_EDIT',
       },
       store,
+      STUB_LLM_DEPS,
     ),
     InvalidDeltaError,
     'typo path throws InvalidDeltaError(NON_EDITABLE_PATH)',
@@ -607,11 +624,11 @@ console.log('\nError — editable path that doesn\'t resolve on parent body:');
 console.log('\nError — vacancy + concessions out of range (mirrored engine validation):');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const rootAi = store.getAdjustedInputs(store.getRevisionEnvelope(root.rootId)!.adjustedInputsId)!;
   // Push vacancy + (parent concessions) above 1 to trigger the mirror.
   const badVacancy = 1.5 - rootAi.income.concessionsPct.adjusted;
-  assertThrowsInstance(
+  await assertThrowsInstance(
     () => applyRevisionDelta(
       {
         parentRevisionId: root.rootId,
@@ -619,6 +636,7 @@ console.log('\nError — vacancy + concessions out of range (mirrored engine val
         triggerSource: 'USER_EDIT',
       },
       store,
+      STUB_LLM_DEPS,
     ),
     InvalidDeltaError,
     'vacancy+concessions > 1 throws InvalidDeltaError(VACANCY_PLUS_CONCESSIONS_OUT_OF_RANGE)',
@@ -629,8 +647,8 @@ console.log('\nError — vacancy + concessions out of range (mirrored engine val
 console.log('\nError — bad value type (non-finite number):');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
-  assertThrowsInstance(
+  const root = await seedRoot(store);
+  await assertThrowsInstance(
     () => applyRevisionDelta(
       {
         parentRevisionId: root.rootId,
@@ -638,6 +656,7 @@ console.log('\nError — bad value type (non-finite number):');
         triggerSource: 'USER_EDIT',
       },
       store,
+      STUB_LLM_DEPS,
     ),
     InvalidDeltaError,
     'NaN value throws InvalidDeltaError(BAD_VALUE_TYPE)',
@@ -656,7 +675,7 @@ console.log('\nUnit — isEditablePath whitelist semantics:');
 console.log('\nUnit — diffAdjustedInputs surfaces scalar changes only:');
 {
   const store = new RecordGraphStore(':memory:');
-  const root = seedRoot(store);
+  const root = await seedRoot(store);
   const rootAi = store.getAdjustedInputs(store.getRevisionEnvelope(root.rootId)!.adjustedInputsId)!;
   const diff = diffAdjustedInputs(rootAi, rootAi);
   assertEqual(diff.changedFields.length, 0, 'identical bodies yield empty diff');
@@ -664,3 +683,5 @@ console.log('\nUnit — diffAdjustedInputs surfaces scalar changes only:');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
+
+})().catch((e) => { console.error(e); process.exit(1); });

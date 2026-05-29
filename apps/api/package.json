@@ -84,6 +84,7 @@
     "test:narrative-evaluation": "tsx src/scripts/test-narrative-evaluation.ts",
     "test:format-flags": "tsx src/scripts/test-format-flags.ts",
     "test:narrative-store": "tsx src/scripts/test-narrative-store.ts",
+    "test:evaluate-and-narrate": "tsx src/scripts/test-evaluate-and-narrate.ts",
     "test:build-handbook-evaluation": "tsx src/scripts/test-build-handbook-evaluation.ts",
     "test:handbook-evaluation-route": "tsx src/scripts/test-handbook-evaluation-route.ts",
     "test:asr-adapter": "tsx src/scripts/test-asr-adapter.ts",

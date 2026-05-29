@@ -41,6 +41,7 @@ import {
   IngestionError,
 } from '../services/ingest-extraction-result.js';
 import { JudgmentEngineError } from '../services/judgment/errors.js';
+import { STUB_LLM_DEPS } from './_narrative-test-deps.js';
 
 const AS_OF = '2026-05-08T00:00:00Z';
 
@@ -52,13 +53,13 @@ function assert(c: boolean, m: string): void { c ? ok(m) : fail(m); }
 function assertEqual<T>(a: T, b: T, m: string): void {
   a === b ? ok(m) : fail(`${m} (actual=${JSON.stringify(a)}, expected=${JSON.stringify(b)})`);
 }
-function assertThrowsInstance<E extends Error>(
+async function assertThrowsInstance<E extends Error>(
   fn: () => unknown,
   ctor: new (...args: never[]) => E,
   message: string,
-): void {
+): Promise<void> {
   try {
-    fn();
+    await fn();
     fail(`${message} (did not throw)`);
   } catch (e) {
     if (e instanceof ctor) ok(message);
@@ -174,6 +175,8 @@ function defaultArgs() {
 
 /* ----------------------------------- run ---------------------------------- */
 
+(async () => {
+
 console.log('Happy path — full ingestion produces all 9 records:');
 {
   const store = new RecordGraphStore(':memory:');
@@ -181,7 +184,7 @@ console.log('Happy path — full ingestion produces all 9 records:');
   store.insertLibrarySnapshot(lib);
 
   const { extractionResult, propertyType, marketLiquidityHint, marketBenchmarks, creditManifesto, analysisAsOfDate } = defaultArgs();
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     {
       extractionResult,
       propertyType,
@@ -192,6 +195,7 @@ console.log('Happy path — full ingestion produces all 9 records:');
       analysisAsOfDate,
     },
     store,
+    STUB_LLM_DEPS,
   );
 
   assert(/^[0-9a-f]{64}$/.test(result.rootId), 'rootId is 64-char hex content hash');
@@ -253,8 +257,8 @@ console.log('\nIdempotency — same inputs produce same rootId; second ingestion
     ...defaultArgs(),
     librarySnapshotId: lib.id,
   };
-  const r1 = ingestExtractionResult(args, store);
-  const r2 = ingestExtractionResult(args, store);
+  const r1 = await ingestExtractionResult(args, store, STUB_LLM_DEPS);
+  const r2 = await ingestExtractionResult(args, store, STUB_LLM_DEPS);
 
   assertEqual(r1.rootId, r2.rootId, 'identical inputs produce identical rootId (H4/B5)');
   assertEqual(r1.evaluationId, r2.evaluationId, 'identical inputs produce identical evaluationId');
@@ -280,8 +284,8 @@ console.log('\nDeterminism — fresh store, same inputs, byte-identical evaluati
   storeB.insertLibrarySnapshot(lib);
 
   const args = { ...defaultArgs(), librarySnapshotId: lib.id };
-  const a = ingestExtractionResult(args, storeA);
-  const b = ingestExtractionResult(args, storeB);
+  const a = await ingestExtractionResult(args, storeA, STUB_LLM_DEPS);
+  const b = await ingestExtractionResult(args, storeB, STUB_LLM_DEPS);
 
   assertEqual(a.rootId, b.rootId, 'rootId is stable across stores (no env / disk / clock leaks)');
   assertEqual(a.evaluation.finalScore, b.evaluation.finalScore, 'finalScore identical');
@@ -297,7 +301,7 @@ console.log('\nEmpty CrossCheckResult emitted (v1 documented gap):');
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
 
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     { ...defaultArgs(), librarySnapshotId: lib.id },
     store,
   );
@@ -315,11 +319,12 @@ console.log('\nLIBRARY_SNAPSHOT_NOT_FOUND — unknown librarySnapshotId throws I
   const store = new RecordGraphStore(':memory:');
   // Note: NO library snapshot pre-persisted
 
-  assertThrowsInstance(
+  await assertThrowsInstance(
     () =>
       ingestExtractionResult(
         { ...defaultArgs(), librarySnapshotId: 'z'.repeat(64) as never },
         store,
+        STUB_LLM_DEPS,
       ),
     IngestionError,
     'unknown librarySnapshotId throws IngestionError',
@@ -336,7 +341,7 @@ console.log('\nProducer error propagation — analysisAsOfDate mismatch surfaces
 
   // extraction date doesn't match args date
   const mismatched = makeFullExtraction('2025-01-01T00:00:00Z');
-  assertThrowsInstance(
+  await assertThrowsInstance(
     () =>
       ingestExtractionResult(
         {
@@ -345,6 +350,7 @@ console.log('\nProducer error propagation — analysisAsOfDate mismatch surfaces
           librarySnapshotId: lib.id,
         },
         store,
+        STUB_LLM_DEPS,
       ),
     JudgmentEngineError,
     'extraction date mismatch propagates JudgmentEngineError',
@@ -366,7 +372,7 @@ console.log('\nDegraded T-12 — pipeline completes; surfaces dataQualityFlags:'
   delete (degradedBody as { id?: unknown }).id;
   const degraded = { ...degradedBody, id: computeExtractionResultId(degradedBody) } as ExtractionResult;
 
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     { ...defaultArgs(), extractionResult: degraded, librarySnapshotId: lib.id },
     store,
   );
@@ -385,7 +391,7 @@ console.log('\nID integrity round-trip — every persisted record re-hashes to i
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
 
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     { ...defaultArgs(), librarySnapshotId: lib.id },
     store,
   );
@@ -411,13 +417,14 @@ console.log('\nDual-mode: id-based marketBenchmarks resolves from store:');
 
   const { marketBenchmarks: _bm, ...rest } = defaultArgs();
   void _bm;
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     {
       ...rest,
       librarySnapshotId: lib.id,
       marketBenchmarksId: bm.id,
     },
     store,
+    STUB_LLM_DEPS,
   );
   assert(/^[0-9a-f]{64}$/.test(result.rootId), 'pipeline completes when marketBenchmarks supplied by id');
 
@@ -434,13 +441,14 @@ console.log('\nDual-mode: id-based creditManifesto resolves from store:');
 
   const { creditManifesto: _cm, ...rest } = defaultArgs();
   void _cm;
-  const result = ingestExtractionResult(
+  const result = await ingestExtractionResult(
     {
       ...rest,
       librarySnapshotId: lib.id,
       creditManifestoId: m.id,
     },
     store,
+    STUB_LLM_DEPS,
   );
   assert(/^[0-9a-f]{64}$/.test(result.rootId), 'pipeline completes when creditManifesto supplied by id');
 
@@ -457,13 +465,14 @@ console.log('\nDual-mode: unknown marketBenchmarksId throws MARKET_BENCHMARKS_NO
   void _bm;
   let threw: Error | null = null;
   try {
-    ingestExtractionResult(
+    await ingestExtractionResult(
       {
         ...rest,
         librarySnapshotId: lib.id,
         marketBenchmarksId: ('0'.repeat(64)) as never,
       },
       store,
+      STUB_LLM_DEPS,
     );
   } catch (e) { threw = e as Error; }
   assert(threw instanceof IngestionError, 'throws IngestionError');
@@ -482,13 +491,14 @@ console.log('\nDual-mode: unknown creditManifestoId throws CREDIT_MANIFESTO_NOT_
   void _cm;
   let threw: Error | null = null;
   try {
-    ingestExtractionResult(
+    await ingestExtractionResult(
       {
         ...rest,
         librarySnapshotId: lib.id,
         creditManifestoId: ('0'.repeat(64)) as never,
       },
       store,
+      STUB_LLM_DEPS,
     );
   } catch (e) { threw = e as Error; }
   assert(threw instanceof IngestionError, 'throws IngestionError');
@@ -501,3 +511,5 @@ console.log('\nDual-mode: unknown creditManifestoId throws CREDIT_MANIFESTO_NOT_
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
+
+})().catch((e) => { console.error(e); process.exit(1); });

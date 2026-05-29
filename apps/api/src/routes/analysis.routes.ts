@@ -384,7 +384,7 @@ analysisRoutes.delete('/:id', (req: Request, res: Response) => {
 analysisRoutes.post(
   '/:id/revisions',
   requirePermission('analysis:revise'),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     let format: 'legacy' | 'graph';
     try {
       format = dispatchByIdFormat(req.params.id);
@@ -396,7 +396,7 @@ analysisRoutes.post(
       throw e;
     }
     if (format === 'graph') {
-      handleGraphRevision(req, res, recordGraphStore);
+      await handleGraphRevision(req, res, recordGraphStore);
       return;
     }
     handleLegacyRevision(req, res);
@@ -529,11 +529,11 @@ export function handleHandbookEvaluationRead(
 
 /** Exported for direct invocation by route tests with an in-memory store. The production
  *  route closure passes the `recordGraphStore` singleton. */
-export function handleGraphRevision(
+export async function handleGraphRevision(
   req: Request,
   res: Response,
   graphStore: RecordGraphStore,
-): void {
+): Promise<void> {
   // Thin top-level body shape validation. Per-override validation (path whitelist, value type,
   // engine-mirrored vacancy+concessions) is the service's job; surfaces as InvalidDeltaError.
   const body = req.body as
@@ -588,7 +588,7 @@ export function handleGraphRevision(
   };
 
   try {
-    const result = applyRevisionDelta(
+    const result = await applyRevisionDelta(
       {
         parentRevisionId: latest.revisionId,
         delta,

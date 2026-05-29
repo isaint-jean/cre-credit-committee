@@ -46,9 +46,23 @@ import {
   computeAdjustedInputsId,
   computeRevisionId,
 } from '../util/content-hash.js';
-import { evaluateFromAdjustedInputs } from './evaluate-from-adjusted-inputs.js';
+import { evaluateAndNarrate } from './evaluate-and-narrate.js';
+import type { LLMCallFn } from './narrative/build-narrative.js';
 import { annualDebtService, maturityBalance } from './judgment/amortization.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
+
+/**
+ * Optional dependencies for the revision-delta service. The LLM-call seam
+ * cascades through `evaluateAndNarrate` to `buildNarrative`. Production
+ * callers omit `deps`; tests pass a stub. Short-circuit paths (no-semantic
+ * change at line 436; existing-child idempotency at line 454) do NOT
+ * invoke the LLM — they return parent/child state already in the store,
+ * and the narrative associated with that AdjustedInputs is already
+ * persisted from the prior call.
+ */
+export interface ApplyRevisionDeltaDeps {
+  readonly llmCall?: LLMCallFn;
+}
 
 /* ---------------------------------- errors --------------------------------- */
 
@@ -353,10 +367,11 @@ function walk(
 
 /* ---------------------------------- service -------------------------------- */
 
-export function applyRevisionDelta(
+export async function applyRevisionDelta(
   args: ApplyRevisionDeltaArgs,
   store: RecordGraphStore,
-): ApplyRevisionDeltaResult {
+  deps: ApplyRevisionDeltaDeps = {},
+): Promise<ApplyRevisionDeltaResult> {
   // a. Load parent envelope.
   const parentEnvelope = store.getRevisionEnvelope(args.parentRevisionId);
   if (parentEnvelope === null) {
@@ -483,7 +498,7 @@ export function applyRevisionDelta(
   const propertyMetadata = store.getPropertyMetadataByExtractionResultId(
     parentDoctrine.extractionResultId,
   );
-  const { evaluation } = evaluateFromAdjustedInputs(
+  const { evaluation } = await evaluateAndNarrate(
     {
       adjustedInputs: childAdjustedInputs,
       assetProfile,
@@ -494,6 +509,7 @@ export function applyRevisionDelta(
       propertyMetadata,
     },
     store,
+    { llmCall: deps.llmCall },
   );
   const envelope: RevisionLineageEnvelope = {
     revisionId: childRevisionId,

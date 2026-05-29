@@ -127,7 +127,7 @@ export interface BuildAndIngestDeps {
   readonly buildExtractionResult:
     (args: BuildExtractionResultArgs) => Promise<BuildExtractionResultOutput>;
   readonly ingestExtractionResult:
-    (args: IngestExtractionResultArgs, store: RecordGraphStore) => IngestionResult;
+    (args: IngestExtractionResultArgs, store: RecordGraphStore) => Promise<IngestionResult>;
   readonly recordGraphStore: RecordGraphStore;
   /** Tier B of issue #10. Bytes are persisted before the composer runs so
    *  the SourceDocumentRef.contentHash refs in the resulting ExtractionResult
@@ -415,10 +415,12 @@ export function makeBuildAndIngestHandler(
          the ExtractionResult row. */
     }
 
-    /* Run ingest against the composed ExtractionResult. Synchronous. */
+    /* Run ingest against the composed ExtractionResult. Async since
+       Phase 1 batch 2 (the coupled `evaluateAndNarrate` wrapper performs
+       an LLM round-trip for the narrative producer). */
     let ingested: IngestionResult;
     try {
-      ingested = deps.ingestExtractionResult(
+      ingested = await deps.ingestExtractionResult(
         {
           extractionResult: composed.extractionResult,
           propertyType: body.propertyType as AssetType,

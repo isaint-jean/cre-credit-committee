@@ -290,11 +290,20 @@ export class RecordGraphStore {
       -- read, served from cache on subsequent reads. Append-only / content-addressed so
       -- the cache is monotonic and never invalidated; a render-version bump produces new
       -- entries while old ones remain (orphans for older versions can be GC'd later).
+      --
+      -- narrative_id is NULLABLE (Piece A Phase 1 batch 2): identifies the
+      -- NarrativeEvaluation row whose prose was embedded in this rendered
+      -- analysis. NULL for renders produced before narrative was wired in
+      -- (legacy rows) or for analyses where no narrative existed at materialize
+      -- time. The cache lookup uses (root_id, render_version, narrative_id) so
+      -- a refreshed narrative produces a cache miss → fresh render with the
+      -- new prose, instead of returning stale cached prose.
       CREATE TABLE IF NOT EXISTS rendered_analyses (
         id TEXT PRIMARY KEY,
         root_id TEXT NOT NULL,
         render_version TEXT NOT NULL,
         analysis_as_of_date TEXT NOT NULL,
+        narrative_id TEXT,
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (root_id) REFERENCES doctrine_evaluations(id)
@@ -406,6 +415,8 @@ export class RecordGraphStore {
       CREATE INDEX IF NOT EXISTS idx_doctrine_asset_profile    ON doctrine_evaluations(asset_profile_id);
       CREATE INDEX IF NOT EXISTS idx_doctrine_extraction       ON doctrine_evaluations(extraction_result_id);
       CREATE INDEX IF NOT EXISTS idx_rendered_root_version     ON rendered_analyses(root_id, render_version);
+      -- idx_rendered_root_version_narr is created in migrateAddColumns() so
+      -- the narrative_id column exists first on pre-Phase-1 databases.
     `);
   }
 
@@ -421,6 +432,26 @@ export class RecordGraphStore {
         this.db.exec('ALTER TABLE extraction_input_cache ADD COLUMN pca_hash TEXT');
       }
     } catch { /* table might not exist yet — that's OK, migrate() just created it */ }
+
+    /* rendered_analyses.narrative_id (Piece A Phase 1 batch 2). Pre-existing
+       rows have narrative_id NULL — lookups with narrativeId=null match them,
+       so the migration preserves cache behavior for legacy rows. */
+    try {
+      const cols = this.db.prepare("PRAGMA table_info('rendered_analyses')").all() as Array<{ name: string }>;
+      if (cols.length > 0 && !cols.find((c) => c.name === 'narrative_id')) {
+        this.db.exec('ALTER TABLE rendered_analyses ADD COLUMN narrative_id TEXT');
+      }
+    } catch { /* table might not exist yet — migrate() will create it */ }
+
+    /* Index that references narrative_id — must run AFTER the ADD COLUMN
+       above on pre-Phase-1 databases. Idempotent on fresh databases too:
+       the column exists from CREATE TABLE so the index just installs. */
+    try {
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_rendered_root_version_narr ' +
+          'ON rendered_analyses(root_id, render_version, narrative_id)',
+      );
+    } catch { /* defensive */ }
   }
 
   /* ---------------------------------- helpers ---------------------------------- */
@@ -909,13 +940,16 @@ export class RecordGraphStore {
 
   /* ----------------------------- rendered_analyses ----------------------------- */
 
-  insertRenderedAnalysis(record: RenderedAnalysis): { inserted: boolean } {
+  insertRenderedAnalysis(
+    record: RenderedAnalysis,
+    narrativeId: NarrativeEvaluationId | null = null,
+  ): { inserted: boolean } {
     const { id, payload, body } = this.verifyAndSerialize(record, 'RenderedAnalysis');
     const result = this.db
       .prepare(
         `INSERT INTO rendered_analyses
-         (id, root_id, render_version, analysis_as_of_date, payload, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+         (id, root_id, render_version, analysis_as_of_date, narrative_id, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING`,
       )
       .run(
@@ -923,6 +957,7 @@ export class RecordGraphStore {
         body.rootId,
         body.metadata.renderVersion,
         body.metadata.hashedAt,
+        narrativeId,
         payload,
         new Date().toISOString(),
       );
@@ -936,19 +971,42 @@ export class RecordGraphStore {
     return row ? this.parseRow<RenderedAnalysis>(row) : null;
   }
 
-  // Cache lookup keyed by (root_id, render_version). Returns the rendered analysis for
-  // the given root at the given render version, or null if not yet materialized.
+  /**
+   * Cache lookup keyed by (root_id, render_version, narrative_id). Returns
+   * the rendered analysis for the given root + render version + narrative
+   * snapshot, or null if not yet materialized.
+   *
+   * narrativeId discriminator (Piece A Phase 1 batch 2 / Q-R3 (p)): different
+   * narratives at the same (root, render_version) live in distinct cache rows
+   * because their executiveSummary prose differs → different RenderedAnalysisId.
+   * Looking up with the CURRENT narrative.id returns the row whose prose
+   * matches; a refreshed narrative (different id) misses cache and produces
+   * a fresh render.
+   *
+   * Legacy rows (pre-Phase-1, narrative_id NULL) match queries where
+   * narrativeId is null. New renders supply narrativeId; new lookups supply
+   * narrativeId — consistent over time.
+   */
   getRenderedAnalysisByRoot(
     rootId: DoctrineEvaluationId,
     renderVersion: RenderVersion,
+    narrativeId: NarrativeEvaluationId | null = null,
   ): RenderedAnalysis | null {
-    const row = this.db
-      .prepare(
-        `SELECT id, payload FROM rendered_analyses
-         WHERE root_id = ? AND render_version = ?
-         LIMIT 1`,
-      )
-      .get(rootId, renderVersion) as RecordRow | undefined;
+    const row = narrativeId === null
+      ? this.db
+          .prepare(
+            `SELECT id, payload FROM rendered_analyses
+             WHERE root_id = ? AND render_version = ? AND narrative_id IS NULL
+             LIMIT 1`,
+          )
+          .get(rootId, renderVersion) as RecordRow | undefined
+      : this.db
+          .prepare(
+            `SELECT id, payload FROM rendered_analyses
+             WHERE root_id = ? AND render_version = ? AND narrative_id = ?
+             LIMIT 1`,
+          )
+          .get(rootId, renderVersion, narrativeId) as RecordRow | undefined;
     return row ? this.parseRow<RenderedAnalysis>(row) : null;
   }
 
