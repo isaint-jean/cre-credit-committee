@@ -30,6 +30,22 @@ export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
  */
 export const HANDBOOK_ENGINE_VERSION = '1.0.0' as const;
 
+/**
+ * Narrative-engine simple version. Stamped onto every NarrativeEvaluation record
+ * (Piece A Phase 1, batch 1) so historical narratives stay anchored to the engine
+ * semantics they were composed under. Simple-version family (matches
+ * JUDGMENT_ENGINE_VERSION cadence, NOT HANDBOOK_ENGINE_VERSION's semver) per
+ * SPEC §14.4 v23 Decision 6. Bump rules:
+ *   MINOR (1.0 → 1.1): new injection-point producer slots, prompt-template
+ *     updates that materially change LLM output, format-flags filter
+ *     semantics changes.
+ *   MAJOR (1.0 → 2.0): semantic restructure (e.g., FK shape change, switch
+ *     from per-piece records to a unified record, consumer-contract break).
+ * Historical-replay union extends as new versions ship — see
+ * `NARRATIVE_ENGINE_MANIFEST` (mirror of the judgment-engine manifest pattern).
+ */
+export const NARRATIVE_ENGINE_VERSION = '1.0' as const;
+
 export type DoctrineVersion = typeof DOCTRINE_VERSION;
 /**
  * Historical-replay union: includes every JUDGMENT_ENGINE_VERSION ever shipped so
@@ -44,6 +60,13 @@ export type RenderContractVersion = typeof RENDER_CONTRACT_VERSION;
 export type ExtractionEngineVersion = typeof EXTRACTION_ENGINE_VERSION;
 export type ManifestoContractVersion = typeof MANIFESTO_CONTRACT_VERSION;
 export type HandbookEngineVersion = typeof HANDBOOK_ENGINE_VERSION;
+/**
+ * Historical-replay union: includes every NARRATIVE_ENGINE_VERSION ever shipped so
+ * NARRATIVE_ENGINE_MANIFEST can carry an append-only history of state hashes. Bump
+ * the `NARRATIVE_ENGINE_VERSION` constant and EXTEND this union (do not replace)
+ * when adding a new narrative-engine revision.
+ */
+export type NarrativeEngineVersion = '1.0';
 
 /**
  * ISO 8601 UTC timestamp, frozen at extraction time. Used as `analysisAsOfDate` everywhere a

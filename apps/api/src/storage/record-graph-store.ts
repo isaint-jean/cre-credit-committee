@@ -40,6 +40,9 @@ import type {
   DoctrineEvaluationId,
   HandbookEvaluation,
   HandbookEvaluationId,
+  NarrativeEngineVersion,
+  NarrativeEvaluation,
+  NarrativeEvaluationId,
   ExtractionResult,
   ExtractionResultId,
   LibrarySnapshot,
@@ -219,6 +222,27 @@ export class RecordGraphStore {
         FOREIGN KEY (adjusted_inputs_id) REFERENCES adjusted_inputs(id)
       );
 
+      -- Narrative engine output (Piece A Phase 1, batch 1). Sibling to
+      -- handbook_evaluations: FKs to adjusted_inputs (sibling-record
+      -- principle — siblings don't FK to each other; all FK to shared
+      -- input). ALSO references the consumed handbook_evaluation by id
+      -- so replay can identify exactly which HE shaped the narrative;
+      -- the FK is enforced so the HE must exist at insert time. MAY
+      -- have multiple rows per (adjusted_inputs_id, engine_version) as
+      -- LLM output is non-deterministic — store accessors return the
+      -- latest by created_at, scoped by engine_version.
+      CREATE TABLE IF NOT EXISTS narratives (
+        id TEXT PRIMARY KEY,
+        analysis_as_of_date TEXT NOT NULL,
+        adjusted_inputs_id TEXT NOT NULL,
+        handbook_evaluation_id TEXT NOT NULL,
+        engine_version TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (adjusted_inputs_id)       REFERENCES adjusted_inputs(id),
+        FOREIGN KEY (handbook_evaluation_id)   REFERENCES handbook_evaluations(id)
+      );
+
       CREATE TABLE IF NOT EXISTS valuation_conclusions (
         id TEXT PRIMARY KEY,
         analysis_as_of_date TEXT NOT NULL,
@@ -371,6 +395,9 @@ export class RecordGraphStore {
       CREATE INDEX IF NOT EXISTS idx_stress_outputs_ai         ON stress_outputs(adjusted_inputs_id);
       CREATE INDEX IF NOT EXISTS idx_handbook_eval_ai          ON handbook_evaluations(adjusted_inputs_id);
       CREATE INDEX IF NOT EXISTS idx_handbook_eval_version     ON handbook_evaluations(handbook_version);
+      CREATE INDEX IF NOT EXISTS idx_narrative_ai              ON narratives(adjusted_inputs_id);
+      CREATE INDEX IF NOT EXISTS idx_narrative_ai_version      ON narratives(adjusted_inputs_id, engine_version);
+      CREATE INDEX IF NOT EXISTS idx_narrative_he              ON narratives(handbook_evaluation_id);
       CREATE INDEX IF NOT EXISTS idx_valuation_ai              ON valuation_conclusions(adjusted_inputs_id);
       CREATE INDEX IF NOT EXISTS idx_valuation_stress          ON valuation_conclusions(stress_outputs_id);
       CREATE INDEX IF NOT EXISTS idx_doctrine_ai               ON doctrine_evaluations(adjusted_inputs_id);
@@ -731,6 +758,77 @@ export class RecordGraphStore {
       )
       .get(adjustedInputsId) as RecordRow | undefined;
     return row ? this.parseRow<HandbookEvaluation>(row) : null;
+  }
+
+  /* ---------------------------------- narratives -------------------------------- */
+
+  insertNarrative(record: NarrativeEvaluation): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'NarrativeEvaluation');
+    const result = this.db
+      .prepare(
+        `INSERT INTO narratives
+         (id, analysis_as_of_date, adjusted_inputs_id, handbook_evaluation_id, engine_version, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(
+        id,
+        body.analysisAsOfDate,
+        body.adjustedInputsId,
+        body.handbookEvaluationId,
+        body.engineVersion,
+        payload,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  getNarrative(id: NarrativeEvaluationId): NarrativeEvaluation | null {
+    const row = this.db
+      .prepare(`SELECT id, payload FROM narratives WHERE id = ?`)
+      .get(id) as RecordRow | undefined;
+    return row ? this.parseRow<NarrativeEvaluation>(row) : null;
+  }
+
+  /**
+   * Render-layer accessor (mirrors getHandbookEvaluationsForAdjustedInputs).
+   * Returns ALL narratives for an AdjustedInputs across engine versions,
+   * ordered newest-first. NOT used during hydration — narratives are a
+   * sibling artifact, not part of the doctrine FK closure.
+   */
+  getNarrativesForAdjustedInputs(adjustedInputsId: string): NarrativeEvaluation[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, payload FROM narratives
+         WHERE adjusted_inputs_id = ?
+         ORDER BY created_at DESC`,
+      )
+      .all(adjustedInputsId) as RecordRow[];
+    return rows.map((row) => this.parseRow<NarrativeEvaluation>(row));
+  }
+
+  /**
+   * Render-layer accessor. Scoped by engineVersion because LLM output is
+   * non-deterministic — multiple narrative rows can accumulate per
+   * (adjusted_inputs_id, engine_version) pair, and the render layer wants
+   * the most recent one stamped at the current engine version.
+   *
+   * Mirrors getLatestHandbookEvaluationForAdjustedInputs naming but adds
+   * the engineVersion scope (HE has only handbookVersion in its row, not
+   * a producer-engine version that needs scoping at read time).
+   */
+  getLatestNarrativeForAdjustedInputs(
+    adjustedInputsId: string,
+    engineVersion: NarrativeEngineVersion,
+  ): NarrativeEvaluation | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, payload FROM narratives
+         WHERE adjusted_inputs_id = ? AND engine_version = ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(adjustedInputsId, engineVersion) as RecordRow | undefined;
+    return row ? this.parseRow<NarrativeEvaluation>(row) : null;
   }
 
   /* --------------------------- valuation_conclusions --------------------------- */

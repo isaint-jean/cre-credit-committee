@@ -103,5 +103,12 @@ export * from './handbook.js';
 // engine package imports them back.
 export * from './handbook-evaluation.js';
 
+// NarrativeEvaluation (Piece A Phase 1, batch 1) — LLM-produced narrative
+// sibling. FKs to AdjustedInputs (sibling-record principle) and references
+// the consumed HandbookEvaluation by id. Phase 1 carries executive_summary
+// only; additional injection-point slots land via MINOR engine version bumps.
+export * from './narrative-evaluation.js';
+export * from './narrative-engine-manifest.js';
+
 // Typed error payloads
 export * from './errors.js';
