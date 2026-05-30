@@ -32,6 +32,8 @@ import {
   getMigrationManifest,
 } from '../services/render-migrations.js';
 import { adaptAnalysisToAdjustedInputs } from '../services/analysis-to-adjusted-inputs.adapter.js';
+import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
+import { recordGraphStore } from '../storage/record-graph-store.js';
 import { hydrateUnderwritingContext } from '../services/hydrate-underwriting-context.js';
 import {
   buildObservabilityEvent,
@@ -220,14 +222,21 @@ function composeRenderPayloadFromQuery(
     };
   }
 
-  const analysis = store.getAnalysis(dealId);
-  if (!analysis) {
+  const stored = store.getAnalysis(dealId);
+  if (!stored) {
     return {
       status: 'error',
       httpStatus: 404,
       body: { error: `No analysis found for dealId=${dealId}` },
     };
   }
+  // Read-time projection: promoted-from-graph records have uwModel=null in the
+  // stored row. projectLegacyAnalysisFromGraph synthesizes one from the graph
+  // substrate (AdjustedInputs + StressOutputs + PropertyMetadata) when the
+  // record carries a graphRevisionId. Legacy records (no graphRevisionId) pass
+  // through unchanged. With the synthesized model present, the requireUwModel
+  // gate below passes on its own — the gate is intentionally NOT lifted.
+  const analysis = projectLegacyAnalysisFromGraph(stored, recordGraphStore);
   if (requireUwModel && !analysis.uwModel) {
     return {
       status: 'error',

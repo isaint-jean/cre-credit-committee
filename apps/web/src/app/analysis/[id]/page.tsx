@@ -247,8 +247,12 @@ export default function AnalysisDashboard() {
         <div className="flex items-center gap-3">
           {/* Bank Underwriter and BP Spire Underwriter — both use the SAME
               unified Excel export pipeline (/api/underwriting/export). They
-              differ only in the `profile` parameter (input configuration). */}
-          {analysis.status === 'complete' && analysis.uwModel && (
+              differ only in the `profile` parameter (input configuration).
+              Promoted-from-graph records have analysis.uwModel===null in the
+              stored row; the export's compose runs projectLegacyAnalysisFromGraph
+              server-side to synthesize one. Surface the buttons when EITHER
+              uwModel is present OR graphRevisionId is set. */}
+          {analysis.status === 'complete' && (analysis.uwModel || analysis.graphRevisionId) && (
             <>
               <button
                 onClick={() =>

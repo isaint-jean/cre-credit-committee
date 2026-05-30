@@ -340,17 +340,15 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
   {
     // When a legacy analyst-edited uwModel is already populated, the projector
     // must NOT replace it with a synthesized model.
-    const sentinelUw = {
-      ...({} as never),
-    };
+    const sentinelUw = { sentinel: 'legacy-uwModel-must-not-be-replaced' } as unknown as import('@cre/shared').UnderwritingModel;
     const input = makeLegacyAnalysis({
       graphRevisionId: ingest.rootId,
       executiveSummary: null,
       creditScore: null,
-      uwModel: sentinelUw as never,
+      uwModel: sentinelUw,
     });
     const out = projectLegacyAnalysisFromGraph(input, store);
-    assertEqual(out.uwModel as unknown as object, sentinelUw, '8.1 existing legacy uwModel preserved (synthesis only fires when uwModel is null)');
+    assertEqual(out.uwModel as unknown as object, sentinelUw as unknown as object, '8.1 existing legacy uwModel preserved (synthesis only fires when uwModel is null)');
   }
 
   console.log('\n9. uwModel synthesis — null when graph chain unresolvable (legacy uwModel kept null)');
