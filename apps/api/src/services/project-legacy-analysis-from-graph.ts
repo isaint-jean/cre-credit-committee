@@ -13,6 +13,10 @@
  *                          + PropertyMetadata best-effort); ONLY when the legacy
  *                          uwModel is null. Preserves any analyst-edited legacy
  *                          uwModel that's already populated.
+ *   - stressScenarios   ← StressOutputs.scenarios[] (legacy stress shape); ONLY
+ *                          when the legacy stressScenarios is empty. Promoted
+ *                          records preload graph-computed scenarios so the
+ *                          stress tab shows real results without a manual click.
  *
  * Fallback: when `graphRevisionId` is null/undefined, OR when any of the linked
  * records cannot be resolved, the corresponding legacy field is left unchanged —
@@ -34,12 +38,15 @@ import {
   type NarrativeEvaluation,
   type RatingBand,
   type RevisionId,
+  type StressOutputs,
+  type StressScenarioOutput,
 } from '@cre/contracts';
 import type {
   Analysis,
   CreditScore,
   CreditScoreCategory,
   FindingCategory,
+  StressScenario,
 } from '@cre/shared';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 import { synthesizeUwModelFromGraph } from './synthesize-uw-model-from-graph.js';
@@ -82,12 +89,92 @@ export function projectLegacyAnalysisFromGraph(
     ? (synthesizeUwModelFromGraph(link as RevisionId, store) ?? analysis.uwModel)
     : analysis.uwModel;
 
+  // stressScenarios: project from StressOutputs ONLY when the legacy
+  // stressScenarios array is empty (promote-from-graph initial state). Any
+  // already-populated legacy stress (e.g. from a prior handleRunStress) is
+  // preserved. DE resolution gates this: without DE we can't reach
+  // stressOutputsId, so the projection is short-circuited.
+  let projectedStressScenarios = analysis.stressScenarios;
+  if ((analysis.stressScenarios?.length ?? 0) === 0 && doctrine !== null) {
+    const stressOutputs = store.getStressOutputs(doctrine.stressOutputsId);
+    if (stressOutputs !== null) {
+      projectedStressScenarios = projectStressScenarios(stressOutputs);
+    }
+  }
+
   return {
     ...analysis,
     executiveSummary: projectedExecutiveSummary,
     creditScore: projectedCreditScore,
     uwModel: projectedUwModel,
+    stressScenarios: projectedStressScenarios,
   };
+}
+
+/**
+ * Project graph StressOutputs into legacy StressScenario[] shape.
+ *
+ * Field map (StressScenarioOutput → StressScenario):
+ *   - name                     ← name (verbatim)
+ *   - results.noi              ← noi (null coerced to 0 — legacy requires
+ *                                 number; graph noi may be null for
+ *                                 not-computable scenarios)
+ *   - results.dscr/ltv/        ← passthrough (legacy already nullable)
+ *     debtYield/impliedValue
+ *   - results.dscrBreached/    ← breaches.includes(metric) ? true :
+ *     ltvBreached/                skipped.includes(metric) ? null : false
+ *     debtYieldBreached
+ *   - breaksCovenants          ← breaches.length > 0
+ *   - covenantBreaches         ← humanized breach strings
+ *   - covenantSkips            ← humanized skip strings
+ *   - adjustments              ← all zeros (graph stores STRESS_METHOD per-run,
+ *                                 not per-scenario delta values; the legacy
+ *                                 adjustments object isn't displayed in the
+ *                                 stress tab — purely structural).
+ */
+function projectStressScenarios(stressOutputs: StressOutputs): StressScenario[] {
+  return stressOutputs.scenarios.map(projectStressScenario);
+}
+
+function projectStressScenario(s: StressScenarioOutput): StressScenario {
+  const dscrBreached = breachFlag(s.breaches, s.skipped, 'DSCR');
+  const ltvBreached = breachFlag(s.breaches, s.skipped, 'LTV');
+  const debtYieldBreached = breachFlag(s.breaches, s.skipped, 'DEBT_YIELD');
+  return {
+    name: s.name,
+    adjustments: { vacancyDelta: 0, rentDelta: 0, capRateDelta: 0, interestRateDelta: 0 },
+    results: {
+      noi: s.noi ?? 0,
+      dscr: s.dscr,
+      ltv: s.ltv,
+      debtYield: s.debtYield,
+      impliedValue: s.value,
+      dscrBreached,
+      ltvBreached,
+      debtYieldBreached,
+    },
+    breaksCovenants: s.breaches.length > 0,
+    covenantBreaches: s.breaches.map(humanizeBreach),
+    covenantSkips: s.skipped.map(humanizeBreach),
+  };
+}
+
+function breachFlag(
+  breaches: readonly StressScenarioOutput['breaches'][number][],
+  skipped: readonly StressScenarioOutput['skipped'][number][],
+  metric: 'DSCR' | 'LTV' | 'DEBT_YIELD',
+): boolean | null {
+  if (breaches.includes(metric)) return true;
+  if (skipped.includes(metric)) return null;
+  return false;
+}
+
+function humanizeBreach(b: 'DSCR' | 'LTV' | 'DEBT_YIELD'): string {
+  switch (b) {
+    case 'DSCR':       return 'DSCR covenant';
+    case 'LTV':        return 'LTV covenant';
+    case 'DEBT_YIELD': return 'Debt Yield covenant';
+  }
 }
 
 function projectExecutiveSummary(narrative: NarrativeEvaluation): string {

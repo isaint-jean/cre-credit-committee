@@ -974,9 +974,16 @@ export default function AnalysisDashboard() {
                   )}
                   {uwTab === 'stress' && (
                     <div>
-                      <button onClick={handleRunStress} className="btn-secondary text-xs mb-4">
-                        Run Default Stress Scenarios
-                      </button>
+                      {/* Promoted records preload stress from graph StressOutputs
+                          (read-only authoritative). Legacy records still expose
+                          the manual "Run Default Stress" trigger. */}
+                      {analysis.graphRevisionId ? (
+                        <p className="text-xs text-text-muted mb-4">Stress scenarios pre-computed from graph (read-only).</p>
+                      ) : (
+                        <button onClick={handleRunStress} className="btn-secondary text-xs mb-4">
+                          Run Default Stress Scenarios
+                        </button>
+                      )}
                       {stressResults.length > 0 && (
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">

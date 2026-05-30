@@ -359,6 +359,55 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     assertEqual(out.uwModel, null, '9.1 unresolvable graph + null legacy → uwModel stays null');
   }
 
+  console.log('\n10. stress preload — projected from graph StressOutputs for promoted records');
+  {
+    const input = makeLegacyAnalysis({
+      graphRevisionId: ingest.rootId,
+      stressScenarios: [],
+    });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assert(out.stressScenarios.length > 0, '10.1 stressScenarios populated from graph');
+
+    // Fetch graph StressOutputs for direct comparison.
+    const envelope = store.getRevisionEnvelope(ingest.rootId);
+    const doctrine = envelope ? store.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+    const so = doctrine ? store.getStressOutputs(doctrine.stressOutputsId) : null;
+    assert(so !== null, '10.2 StressOutputs resolvable (precondition)');
+    if (so !== null) {
+      assertEqual(out.stressScenarios.length, so.scenarios.length, '10.3 scenario count matches SO.scenarios.length');
+      for (let i = 0; i < so.scenarios.length; i++) {
+        const src = so.scenarios[i];
+        const dst = out.stressScenarios[i];
+        assertEqual(dst.name, src.name, `10.4.${i} scenarios[${i}].name verbatim`);
+        assertEqual(dst.results.dscr, src.dscr, `10.5.${i} scenarios[${i}].results.dscr passthrough`);
+        assertEqual(dst.results.ltv, src.ltv, `10.6.${i} scenarios[${i}].results.ltv passthrough`);
+        assertEqual(dst.results.debtYield, src.debtYield, `10.7.${i} scenarios[${i}].results.debtYield passthrough`);
+        assertEqual(dst.results.impliedValue, src.value, `10.8.${i} scenarios[${i}].results.impliedValue ← SO.value`);
+        assertEqual(dst.breaksCovenants, src.breaches.length > 0, `10.9.${i} scenarios[${i}].breaksCovenants ← breaches.length > 0`);
+        assertEqual(dst.covenantBreaches.length, src.breaches.length, `10.10.${i} scenarios[${i}].covenantBreaches.length matches`);
+      }
+    }
+  }
+
+  console.log('\n11. stress preload — preserves existing legacy stress (no overwrite)');
+  {
+    const sentinelStress: import('@cre/shared').StressScenario[] = [{
+      name: 'Legacy Custom Scenario',
+      adjustments: { vacancyDelta: 0.05, rentDelta: -0.05, capRateDelta: 0, interestRateDelta: 0 },
+      results: { noi: 500_000, dscr: 1.1, ltv: 0.7, debtYield: 0.08, impliedValue: 10_000_000 },
+      breaksCovenants: false,
+      covenantBreaches: [],
+      covenantSkips: [],
+    }];
+    const input = makeLegacyAnalysis({
+      graphRevisionId: ingest.rootId,
+      stressScenarios: sentinelStress,
+    });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assertEqual(out.stressScenarios.length, 1, '11.1 existing stressScenarios length preserved');
+    assertEqual(out.stressScenarios[0].name, 'Legacy Custom Scenario', '11.2 existing stressScenarios[0] preserved verbatim');
+  }
+
   store.close();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
