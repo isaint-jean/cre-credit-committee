@@ -73,7 +73,11 @@ export class SqliteStore {
         -- defaults to id (root case); revision_ordinal defaults to 0.
         parent_analysis_id TEXT,
         lineage_root_id TEXT,
-        revision_ordinal INTEGER NOT NULL DEFAULT 0
+        revision_ordinal INTEGER NOT NULL DEFAULT 0,
+        -- Nullable anchor into the new-spine graph substrate (64-hex RevisionId).
+        -- When set, projection layer reads HE/DE/NE from the graph store; when null,
+        -- legacy-only behavior (LLM-produced executiveSummary etc.) is preserved.
+        graph_revision_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS comments (
@@ -240,6 +244,9 @@ export class SqliteStore {
         if (!has('revision_ordinal')) {
           this.db.exec('ALTER TABLE analyses ADD COLUMN revision_ordinal INTEGER NOT NULL DEFAULT 0');
         }
+        if (!has('graph_revision_id')) {
+          this.db.exec('ALTER TABLE analyses ADD COLUMN graph_revision_id TEXT');
+        }
         // Backfill lineage_root_id = id for any existing rows where it's NULL.
         // parent_analysis_id stays NULL (these are root revisions). revision_ordinal stays 0.
         this.db.exec(`UPDATE analyses SET lineage_root_id = id WHERE lineage_root_id IS NULL`);
@@ -283,6 +290,7 @@ export class SqliteStore {
       parent_analysis_id: a.parentAnalysisId ?? null,
       lineage_root_id: a.lineageRootId ?? a.id,
       revision_ordinal: a.revisionOrdinal ?? 0,
+      graph_revision_id: a.graphRevisionId ?? null,
     };
   }
 
@@ -297,6 +305,7 @@ export class SqliteStore {
       parentAnalysisId: row.parent_analysis_id ?? null,
       lineageRootId: row.lineage_root_id ?? row.id,
       revisionOrdinal: row.revision_ordinal ?? 0,
+      graphRevisionId: row.graph_revision_id ?? null,
     };
   }
 
@@ -315,8 +324,8 @@ export class SqliteStore {
   createAnalysis(analysis: Analysis): Analysis {
     const row = this.analysisToRow(analysis);
     this.db.prepare(`
-      INSERT INTO analyses (id, name, asset_type, status, progress, current_step, credit_score_overall, risk_tier, created_at, updated_at, data, error, parent_analysis_id, lineage_root_id, revision_ordinal)
-      VALUES (@id, @name, @asset_type, @status, @progress, @current_step, @credit_score_overall, @risk_tier, @created_at, @updated_at, @data, @error, @parent_analysis_id, @lineage_root_id, @revision_ordinal)
+      INSERT INTO analyses (id, name, asset_type, status, progress, current_step, credit_score_overall, risk_tier, created_at, updated_at, data, error, parent_analysis_id, lineage_root_id, revision_ordinal, graph_revision_id)
+      VALUES (@id, @name, @asset_type, @status, @progress, @current_step, @credit_score_overall, @risk_tier, @created_at, @updated_at, @data, @error, @parent_analysis_id, @lineage_root_id, @revision_ordinal, @graph_revision_id)
     `).run(row);
 
     // Insert any initial comments
@@ -460,7 +469,8 @@ export class SqliteStore {
         risk_tier = @risk_tier,
         updated_at = @updated_at,
         data = @data,
-        error = @error
+        error = @error,
+        graph_revision_id = @graph_revision_id
       WHERE id = @id
     `).run(row);
 

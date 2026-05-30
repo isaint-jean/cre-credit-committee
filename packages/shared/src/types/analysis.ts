@@ -262,6 +262,16 @@ export interface Analysis {
   lineageRootId?: string;
   /** 0-based ordinal in the lineage. `0` for root. Strictly monotonic (never edited after write). */
   revisionOrdinal?: number;
+  /**
+   * Optional anchor into the new-spine graph substrate (64-hex RevisionId).
+   * When set, the legacy view projects executiveSummary / componentScores /
+   * mitigations from the linked graph records (NarrativeEvaluation,
+   * DoctrineEvaluation, HandbookEvaluation) rather than the legacy LLM-
+   * produced fields. Resolves via `recordGraphStore.getRevisionEnvelope()`
+   * → `{ doctrineEvaluationId, adjustedInputsId }` → HE + NE accessors.
+   * Null for legacy-only analyses that have no graph counterpart.
+   */
+  graphRevisionId?: string | null;
   document: ParsedDocument | null;
   uwDocument: ParsedDocument | null;
   supportingDocuments: SupportingDocument[];
