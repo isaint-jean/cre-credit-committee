@@ -944,7 +944,13 @@ export default function AnalysisDashboard() {
                       <div className="border-t border-border-primary my-2" />
                       {/* Bands are server-emitted (apps/api/src/services/doctrine/credit-policy-bands.ts); never recomputed here. */}
                       <MetricRow label="DSCR" value={formatMultipleSafe(uw.dscr)} highlight={uw.dscrBand ?? undefined} />
-                      <MetricRow label="LTV" value={formatDecimalPercent(uw.ltv)} highlight={uw.ltvBand ?? undefined} />
+                      {/* Two LTVs with explicit denominators — never collapse the distinction.
+                          Underwritten LTV = loan / impliedValue (NOI/capRate-derived).
+                          Appraised LTV = loan / appraisalValue (graph: AI.metrics.ltvAppraisal). */}
+                      <MetricRow label="LTV (Underwritten)" value={formatDecimalPercent(uw.ltv)} highlight={uw.ltvBand ?? undefined} />
+                      {uw.ltvAppraised != null && (
+                        <MetricRow label="LTV (Appraised)" value={formatDecimalPercent(uw.ltvAppraised)} />
+                      )}
                       <MetricRow label="Debt Yield" value={formatDecimalPercent(uw.debtYield)} highlight={uw.debtYieldBand ?? undefined} />
                       {uw.repaymentSchedule && (
                         <>

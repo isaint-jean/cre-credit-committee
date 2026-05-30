@@ -193,9 +193,14 @@ export function synthesizeUwModelFromGraph(
   };
 
   /* Pre-recalc skeleton. recalculateFullModel will overwrite the derived
-     fields (NOI, impliedValue, dscr, ltv, debtYield, annualDebtService,
-     repaymentSchedule, effectiveGrossIncome, totalExpenses, per-unit /
-     per-sqft / percentOfEGI when totalUnits / totalSqFt are set). */
+     fields (NOI, impliedValue, dscr, ltv [= loan/impliedValue],
+     debtYield, annualDebtService, repaymentSchedule, effectiveGrossIncome,
+     totalExpenses, per-unit / per-sqft / percentOfEGI when totalUnits /
+     totalSqFt are set).
+
+     ltvAppraised is set AFTER recalc (otherwise recalc wouldn't touch it,
+     but the field exists on the model so we'd be relying on undefined
+     vs null semantics). We set it on the post-recalc return value. */
   const skeleton: UnderwritingModel = {
     income,
     expenses,
@@ -218,7 +223,13 @@ export function synthesizeUwModelFromGraph(
     repaymentSchedule:  null,
   };
 
-  return recalculateFullModel(skeleton);
+  const recalculated = recalculateFullModel(skeleton);
+  return {
+    ...recalculated,
+    // Appraised LTV — direct from graph metrics. Distinct denominator from
+    // recalculated.ltv (loan/impliedValue). Both shown on the metrics tab.
+    ltvAppraised: ai.metrics.ltvAppraisal,
+  };
 }
 
 function stubLineItem(id: string, label: string, annualAmount: number): LineItem {

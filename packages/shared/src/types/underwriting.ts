@@ -126,4 +126,9 @@ export interface UnderwritingModel {
   dscrBand?: MetricBand;
   ltvBand?: MetricBand;
   debtYieldBand?: MetricBand;
+  // Appraised LTV — loanAmount / appraisalValue (graph: AI.metrics.ltvAppraisal).
+  // Distinct from `ltv` above, which is loanAmount / impliedValue (underwritten).
+  // Optional: legacy non-promoted records leave it undefined; promoted-from-graph
+  // records populate it via synthesizeUwModelFromGraph. UI renders both labeled.
+  ltvAppraised?: number | null;
 }

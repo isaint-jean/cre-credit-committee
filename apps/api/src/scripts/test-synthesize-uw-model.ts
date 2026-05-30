@@ -308,11 +308,17 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   } else {
     fail('5.5 expected non-null debtYield');
   }
-  // LTV = loanAmount / impliedValue
+  // LTV (Underwritten) = loanAmount / impliedValue (legacy formula via recalc)
   if (uw.ltv !== null && uw.impliedValue !== null) {
-    assertClose(uw.ltv, uw.loanAmount / uw.impliedValue, '5.6 LTV = loanAmount / impliedValue');
+    assertClose(uw.ltv, uw.loanAmount / uw.impliedValue, '5.6 LTV (Underwritten) = loanAmount / impliedValue');
   } else {
-    fail('5.6 expected non-null LTV');
+    fail('5.6 expected non-null Underwritten LTV');
+  }
+  // LTV (Appraised) = AI.metrics.ltvAppraisal — direct graph passthrough, distinct denominator.
+  assert(uw.ltvAppraised != null, '5.7a uw.ltvAppraised present (sourced from AI.metrics.ltvAppraisal)');
+  if (uw.ltvAppraised != null && ai.metrics.ltvAppraisal != null) {
+    assertClose(uw.ltvAppraised, ai.metrics.ltvAppraisal, '5.7b LTV (Appraised) === AI.metrics.ltvAppraisal');
+    assert(uw.ltvAppraised !== uw.ltv, '5.7c both LTVs distinct (different denominators)');
   }
 
   console.log('\n6. recalculateFullModel acceptance + schedule length');
@@ -355,7 +361,8 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   console.log(`  Interest Rate     : ${uw.interestRate.toFixed(3)}%               (AI.loan.interestRate.adjusted = ${ai.loan.interestRate.adjusted})`);
   console.log(`  Annual Debt Svc   : $${uw.annualDebtService?.toLocaleString() ?? 'null'}    (AI.loan.debtServiceAnnual = $${ai.loan.debtServiceAnnual.adjusted.toLocaleString()})`);
   console.log(`  DSCR              : ${uw.dscr?.toFixed(3) ?? 'null'}              (AI.metrics.dscr = ${ai.metrics.dscr?.toFixed(3) ?? 'null'})`);
-  console.log(`  LTV               : ${uw.ltv !== null ? (uw.ltv * 100).toFixed(2) + '%' : 'null'}             (AI.metrics.ltvAppraisal = ${ai.metrics.ltvAppraisal !== null ? (ai.metrics.ltvAppraisal * 100).toFixed(2) + '%' : 'null'})`);
+  console.log(`  LTV (Underwritten): ${uw.ltv !== null ? (uw.ltv * 100).toFixed(2) + '%' : 'null'}             (loan / impliedValue)`);
+  console.log(`  LTV (Appraised)   : ${uw.ltvAppraised != null ? (uw.ltvAppraised * 100).toFixed(2) + '%' : 'null'}             (loan / appraisalValue; AI.metrics.ltvAppraisal = ${ai.metrics.ltvAppraisal !== null ? (ai.metrics.ltvAppraisal * 100).toFixed(2) + '%' : 'null'})`);
   console.log(`  Debt Yield        : ${uw.debtYield !== null ? (uw.debtYield * 100).toFixed(2) + '%' : 'null'}        (AI.metrics.debtYield = ${ai.metrics.debtYield !== null ? (ai.metrics.debtYield * 100).toFixed(2) + '%' : 'null'})`);
   console.log('');
   console.log('Income tab:');
