@@ -26,6 +26,7 @@ import {
   applyBandsToStressScenarios,
 } from '../services/doctrine/apply-credit-policy-bands.js';
 import { createRevision, type RevisionDelta } from '../services/revision-creator.service.js';
+import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import {
   applyRevisionDelta,
   InvalidDeltaError,
@@ -421,7 +422,11 @@ analysisRoutes.get('/:id', (req: Request, res: Response) => {
     res.status(404).json({ error: 'Analysis not found' });
     return;
   }
-  res.json({ analysis: applyCreditPolicyBandsToAnalysis(analysis) });
+  // Phase 3 — read-through projection. When analysis.graphRevisionId is set,
+  // overlay substrate fields (executiveSummary in this phase) from the linked
+  // graph records. Null-link / missing-graph cases pass through unchanged.
+  const projected = projectLegacyAnalysisFromGraph(analysis, recordGraphStore);
+  res.json({ analysis: applyCreditPolicyBandsToAnalysis(projected) });
 });
 
 // GET /api/analyses/:id/handbook-evaluation — Sibling endpoint for the handbook
