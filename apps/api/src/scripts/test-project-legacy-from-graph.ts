@@ -1,21 +1,22 @@
 /**
- * Integration test — Phase 3 read-through projection from legacy Analysis
- * to new-spine graph substrate (NarrativeEvaluation.executiveSummary).
+ * Integration test — read-through projection from legacy Analysis to
+ * new-spine graph substrate.
  *
  *   npx tsx apps/api/src/scripts/test-project-legacy-from-graph.ts
  *
- * Verifies six properties:
- *   1. Null-link case: graphRevisionId absent → input returned unchanged
- *      (executiveSummary stays at its legacy value, including null).
- *   2. Legacy executiveSummary preserved when no link: input has legacy
- *      prose, projection passes it through.
+ * Covers two projected slots end-to-end:
+ *   - executiveSummary ← NarrativeEvaluation.executiveSummary
+ *   - creditScore      ← DoctrineEvaluation.{finalScore, ratingBand, componentScores}
+ *
+ * Properties verified:
+ *   1. Null-link case: graphRevisionId absent → input returned unchanged.
+ *   2. Legacy fields preserved when link absent.
  *   3. Missing-envelope case: graphRevisionId set but envelope not found
- *      → input returned unchanged (degrades gracefully).
- *   4. Missing-narrative case: envelope found but NE not found → input
- *      returned unchanged.
- *   5. Happy path: graphRevisionId points to a valid graph chain →
- *      projection overrides executiveSummary with NE.executiveSummary.
- *   6. Other fields untouched: only executiveSummary changes in Phase 3.
+ *      → both fallbacks fire (executiveSummary + creditScore left as legacy).
+ *   4. Happy path: projection overrides both slots from graph substrate.
+ *   5. Numbers from projection match what the new-spine view would show
+ *      (componentScores bijection + finalScore + ratingBand).
+ *   6. Other fields (id, name, status, mitigations, findings) untouched.
  */
 
 import {
@@ -196,40 +197,94 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     assertEqual(out.executiveSummary, legacyProse, '2.1 legacy executiveSummary preserved');
   }
 
-  console.log('\n3. missing-envelope → input unchanged');
+  console.log('\n3. missing-envelope → BOTH slots fall back to legacy values');
   {
     const bogusLink = '0'.repeat(64) as RevisionId;
-    const input = makeLegacyAnalysis({ graphRevisionId: bogusLink, executiveSummary: 'legacy fallback' });
+    const legacyScore: import('@cre/shared').CreditScore = {
+      overall: 72,
+      categories: [],
+      recommendation: 'approve',
+      narrative: 'legacy narrative',
+      riskTier: 'acceptable',
+      whyThisScore: 'legacy why',
+      howToImprove: 'legacy how',
+    };
+    const input = makeLegacyAnalysis({
+      graphRevisionId: bogusLink,
+      executiveSummary: 'legacy fallback',
+      creditScore: legacyScore,
+    });
     const out = projectLegacyAnalysisFromGraph(input, store);
-    assertEqual(out.executiveSummary, 'legacy fallback', '3.1 missing envelope → fallback preserved');
+    assertEqual(out.executiveSummary, 'legacy fallback', '3.1 missing envelope → executiveSummary fallback preserved');
+    assertEqual(out.creditScore, legacyScore, '3.2 missing envelope → creditScore fallback preserved (same reference)');
   }
 
-  console.log('\n4. happy path — projection overrides with real narrative');
+  console.log('\n4. happy path — both slots projected from graph');
   {
     const input = makeLegacyAnalysis({
       graphRevisionId: ingest.rootId,
       executiveSummary: 'this should be overridden',
+      creditScore: null,
     });
     const out = projectLegacyAnalysisFromGraph(input, store);
     assertEqual(out.executiveSummary, STUB_EXEC, '4.1 executiveSummary projected from NarrativeEvaluation');
-    assert(out.executiveSummary !== input.executiveSummary, '4.2 projection actually changed the value');
+    assert(out.executiveSummary !== input.executiveSummary, '4.2 executiveSummary actually changed');
+    assert(out.creditScore !== null, '4.3 creditScore projected (non-null)');
   }
 
-  console.log('\n5. happy path with null legacy → projection still fills');
+  console.log('\n5. numbers projected match new-spine source (DE → CreditScore bijection)');
   {
     const input = makeLegacyAnalysis({
       graphRevisionId: ingest.rootId,
       executiveSummary: null,
+      creditScore: null,
     });
     const out = projectLegacyAnalysisFromGraph(input, store);
-    assertEqual(out.executiveSummary, STUB_EXEC, '5.1 null legacy filled by projection (promote-from-graph case)');
+
+    const envelope = store.getRevisionEnvelope(ingest.rootId);
+    assert(envelope !== null, '5.0 envelope resolvable (precondition)');
+    const doctrine = store.getDoctrineEvaluation(envelope!.doctrineEvaluationId);
+    assert(doctrine !== null, '5.0b doctrine resolvable (precondition)');
+
+    const cs = out.creditScore!;
+    assertEqual(cs.overall, Math.round(doctrine!.finalScore), '5.1 overall = round(finalScore)');
+    assertEqual(cs.categories.length, doctrine!.componentScores.length, '5.2 category count matches componentScores count');
+
+    for (let i = 0; i < doctrine!.componentScores.length; i++) {
+      const src = doctrine!.componentScores[i];
+      const dst = cs.categories[i];
+      assertEqual(dst.score, src.score, `5.3.${i} category[${i}].score === componentScore[${i}].score`);
+      assertEqual(dst.weight, src.weight, `5.4.${i} category[${i}].weight === componentScore[${i}].weight`);
+      assertEqual(dst.weightedScore, src.contribution, `5.5.${i} category[${i}].weightedScore === componentScore[${i}].contribution`);
+      assertEqual(dst.maxScore, 100, `5.6.${i} category[${i}].maxScore === 100`);
+      assertEqual(dst.category as unknown as string, src.componentId, `5.7.${i} category[${i}].category === componentScore[${i}].componentId`);
+    }
+
+    const expectedRiskTier =
+      doctrine!.ratingBand === 'Strong'     ? 'strong'     :
+      doctrine!.ratingBand === 'Acceptable' ? 'acceptable' :
+      doctrine!.ratingBand === 'Weak'       ? 'watchlist'  :
+                                              'high_risk';
+    assertEqual(cs.riskTier, expectedRiskTier, '5.8 riskTier = ratingBandToRiskTier(ratingBand)');
+
+    assertEqual(cs.recommendation, 'further_review', '5.9 recommendation = further_review (no DE source)');
+    assertEqual(cs.narrative, '', '5.10 narrative = "" (no DE source)');
+    assertEqual(cs.whyThisScore, '', '5.11 whyThisScore = "" (no DE source)');
+    assertEqual(cs.howToImprove, '', '5.12 howToImprove = "" (no DE source)');
+    for (let i = 0; i < cs.categories.length; i++) {
+      assertEqual(cs.categories[i].findings.length, 0, `5.13.${i} categories[${i}].findings = [] (no DE source)`);
+      assertEqual(cs.categories[i].explanation, '', `5.14.${i} categories[${i}].explanation = "" (no DE source)`);
+    }
+
+    assertEqual(out.executiveSummary, STUB_EXEC, '5.15 executiveSummary also projected in same call');
   }
 
-  console.log('\n6. other fields untouched (Phase 3 scope = summary only)');
+  console.log('\n6. other fields untouched');
   {
     const input = makeLegacyAnalysis({
       graphRevisionId: ingest.rootId,
       executiveSummary: null,
+      creditScore: null,
       name: 'Original name',
       findings: [],
       mitigations: [],
@@ -238,9 +293,8 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     assertEqual(out.id, input.id, '6.1 id preserved');
     assertEqual(out.name, input.name, '6.2 name preserved');
     assertEqual(out.status, input.status, '6.3 status preserved');
-    assertEqual(out.creditScore, input.creditScore, '6.4 creditScore preserved (null in Phase 3; future projection target)');
-    assertEqual(out.mitigations.length, 0, '6.5 mitigations preserved (future projection target)');
-    assertEqual(out.findings.length, 0, '6.6 findings preserved');
+    assertEqual(out.mitigations.length, 0, '6.4 mitigations preserved (future projection target)');
+    assertEqual(out.findings.length, 0, '6.5 findings preserved');
   }
 
   store.close();
