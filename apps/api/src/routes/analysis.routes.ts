@@ -34,7 +34,7 @@ import {
   ParentRevisionNotFoundError,
   type RevisionDelta as GraphRevisionDelta,
 } from '../services/apply-revision-delta.js';
-import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger } from '@cre/contracts';
+import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger, type AssetType as ContractsAssetType } from '@cre/contracts';
 import { requirePermission } from '../middleware/require-permission.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { v4 as uuid } from 'uuid';
@@ -240,6 +240,113 @@ analysisRoutes.get('/audit-log', (req: Request, res: Response) => {
 analysisRoutes.get('/model-versions', (_req: Request, res: Response) => {
   const versions = store.listModelLogicVersions();
   res.json({ versions });
+});
+
+// POST /api/analyses/promote-from-graph — Mint a legacy Analysis row bridging to
+// completed new-spine graph substrate (Phase 2 of read-through linkage spine).
+//
+// Given a graph root id (RevisionId, 64-hex), create a legacy Analysis carrying:
+//   - deal metadata (dealRef, propertyType, as-of date, loan terms) sourced from
+//     the linked ExtractionResult + AssetProfile
+//   - committee status at the initial post-ingest state ('complete', 100%)
+//   - graphRevisionId pointer set so the projection layer resolves substrate
+//     from HE / DE / NE via the existing graph accessors
+//   - Legacy substrate fields (executiveSummary, creditScore, findings, etc.)
+//     left null — they are served by projection in Phase 3+, not stored.
+//
+// Body: { rootRevisionId: string (64-hex), name?: string }
+//   - rootRevisionId: the RevisionId returned by POST /api/build-and-ingest
+//   - name: optional analysis name; defaults to the extraction's dealRef
+//
+// Responses:
+//   - 201: { analysisId, graphRevisionId, name, assetType }
+//   - 400: { error: 'INVALID_REQUEST' | 'MALFORMED_REVISION_ID' }
+//   - 404: { error: 'REVISION_NOT_FOUND' | 'GRAPH_RECORDS_INCOMPLETE' }
+const CONTRACTS_TO_LEGACY_ASSET_TYPE: Record<ContractsAssetType, AssetType> = {
+  Office: 'office',
+  Retail: 'retail',
+  Multifamily: 'multifamily',
+  Hotel: 'hotel',
+  Industrial: 'industrial',
+  SelfStorage: 'self_storage',
+  MHC: 'manufactured_housing',
+  MixedUse: 'mixed_use',
+  Other: 'mixed_use',
+};
+
+analysisRoutes.post('/promote-from-graph', (req: Request, res: Response) => {
+  const body = req.body as { rootRevisionId?: unknown; name?: unknown };
+  if (typeof body.rootRevisionId !== 'string') {
+    res.status(400).json({ error: 'INVALID_REQUEST', message: 'rootRevisionId required' });
+    return;
+  }
+  if (!/^[0-9a-f]{64}$/.test(body.rootRevisionId)) {
+    res.status(400).json({ error: 'MALFORMED_REVISION_ID', message: 'rootRevisionId must be 64-hex' });
+    return;
+  }
+  const rootRevisionId = body.rootRevisionId as RevisionId;
+
+  const envelope = recordGraphStore.getRevisionEnvelope(rootRevisionId);
+  if (envelope === null) {
+    res.status(404).json({ error: 'REVISION_NOT_FOUND', rootRevisionId });
+    return;
+  }
+
+  const doctrine = recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId);
+  if (doctrine === null) {
+    res.status(404).json({ error: 'GRAPH_RECORDS_INCOMPLETE', missing: 'DoctrineEvaluation' });
+    return;
+  }
+  const extraction = recordGraphStore.getExtractionResult(doctrine.extractionResultId);
+  if (extraction === null) {
+    res.status(404).json({ error: 'GRAPH_RECORDS_INCOMPLETE', missing: 'ExtractionResult' });
+    return;
+  }
+  const assetProfile = recordGraphStore.getAssetProfile(doctrine.assetProfileId);
+  if (assetProfile === null) {
+    res.status(404).json({ error: 'GRAPH_RECORDS_INCOMPLETE', missing: 'AssetProfile' });
+    return;
+  }
+
+  const id = uuid();
+  const now = new Date().toISOString();
+  const explicitName = typeof body.name === 'string' && body.name.length > 0 ? body.name : null;
+  const name = explicitName ?? extraction.dealRef ?? `Promoted Analysis ${id.slice(0, 8)}`;
+
+  const analysis: Analysis = {
+    id,
+    name,
+    assetType: CONTRACTS_TO_LEGACY_ASSET_TYPE[assetProfile.propertyType],
+    status: 'complete',
+    progress: 100,
+    currentStep: 'Complete (promoted from graph)',
+    createdAt: now,
+    updatedAt: now,
+    document: null,
+    uwDocument: null,
+    supportingDocuments: [],
+    templateDocument: null,
+    findings: [],
+    creditScore: null,
+    uwModel: null,
+    research: null,
+    crossCheckFindings: [],
+    mitigations: [],
+    executiveSummary: null,
+    bPieceDecision: null,
+    comments: [],
+    criteriaEvaluations: [],
+    stressScenarios: [],
+    graphRevisionId: rootRevisionId,
+  };
+  store.createAnalysis(analysis);
+
+  res.status(201).json({
+    analysisId: id,
+    graphRevisionId: rootRevisionId,
+    name,
+    assetType: analysis.assetType,
+  });
 });
 
 // GET /api/analyses/:id — Full detail.
