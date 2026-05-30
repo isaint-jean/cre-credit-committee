@@ -57,6 +57,9 @@ function assert(c: boolean, m: string): void { c ? ok(m) : fail(m); }
 function assertEqual<T>(a: T, b: T, m: string): void {
   a === b ? ok(m) : fail(`${m} (actual=${JSON.stringify(a)}, expected=${JSON.stringify(b)})`);
 }
+function assertClose(a: number, b: number, m: string, tolerance = 0.01): void {
+  Math.abs(a - b) <= tolerance ? ok(m) : fail(`${m} (actual=${a}, expected≈${b}, |diff|=${Math.abs(a - b)})`);
+}
 
 function emptyByAssetType<T = null>(value: T = null as never): { [K in AssetType]: T } {
   const out = {} as { [K in AssetType]: T };
@@ -295,6 +298,67 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     assertEqual(out.status, input.status, '6.3 status preserved');
     assertEqual(out.mitigations.length, 0, '6.4 mitigations preserved (future projection target)');
     assertEqual(out.findings.length, 0, '6.5 findings preserved');
+  }
+
+  console.log('\n7. uwModel synthesis — projected onto promoted record (Phase 2 wiring)');
+  {
+    const input = makeLegacyAnalysis({
+      graphRevisionId: ingest.rootId,
+      executiveSummary: null,
+      creditScore: null,
+      // uwModel: null (default from makeLegacyAnalysis — promote-from-graph
+      // initial state). Projector should synthesize one from the graph.
+    });
+    assertEqual(input.uwModel, null, '7.0 precondition: input.uwModel null (promoted record)');
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assert(out.uwModel !== null, '7.1 uwModel populated by synthesis');
+    if (out.uwModel !== null) {
+      // Pull AI for ground-truth comparison.
+      const envelope = store.getRevisionEnvelope(ingest.rootId);
+      const ai = envelope ? store.getAdjustedInputs(envelope.adjustedInputsId) : null;
+      assert(ai !== null, '7.1a precondition: AdjustedInputs resolvable');
+      assertClose(out.uwModel.netOperatingIncome, ai!.metrics.noi ?? 0, '7.2 NOI === AI.metrics.noi (graph canonical)', 1.0);
+      assertClose(out.uwModel.dscr ?? 0, ai!.metrics.dscr ?? 0, '7.3 DSCR === AI.metrics.dscr', 0.001);
+      assertClose(out.uwModel.debtYield ?? 0, ai!.metrics.debtYield ?? 0, '7.4 debt yield === AI.metrics.debtYield', 0.0001);
+      assertClose(out.uwModel.capRate, ai!.assumptions.capRate.adjusted, '7.5 capRate direct from AI');
+      // Both LTVs present and distinct
+      assert(out.uwModel.ltv !== null, '7.6a underwritten LTV (loan/impliedValue) present');
+      assert(out.uwModel.ltvAppraised != null, '7.6b appraised LTV present');
+      assertClose(out.uwModel.ltvAppraised!, ai!.metrics.ltvAppraisal ?? 0, '7.6c appraised LTV === AI.metrics.ltvAppraisal');
+      // Income / expenses populated
+      assert(out.uwModel.income.grossPotentialRent.annualAmount > 0, '7.7 income.grossPotentialRent populated');
+      assert(out.uwModel.expenses.totalExpenses.annualAmount > 0, '7.8 expenses.totalExpenses populated');
+      // Non-editable invariant
+      assertEqual(out.uwModel.income.grossPotentialRent.isEditable, false, '7.9 synthesized line items non-editable');
+      assertEqual(out.uwModel.income.grossPotentialRent.isOverridden, false, '7.10 synthesized line items not overridden');
+      // Repayment schedule generated
+      assert(out.uwModel.repaymentSchedule !== null, '7.11 repaymentSchedule generated');
+    }
+  }
+
+  console.log('\n8. uwModel synthesis — preserves existing legacy uwModel (no overwrite)');
+  {
+    // When a legacy analyst-edited uwModel is already populated, the projector
+    // must NOT replace it with a synthesized model.
+    const sentinelUw = {
+      ...({} as never),
+    };
+    const input = makeLegacyAnalysis({
+      graphRevisionId: ingest.rootId,
+      executiveSummary: null,
+      creditScore: null,
+      uwModel: sentinelUw as never,
+    });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assertEqual(out.uwModel as unknown as object, sentinelUw, '8.1 existing legacy uwModel preserved (synthesis only fires when uwModel is null)');
+  }
+
+  console.log('\n9. uwModel synthesis — null when graph chain unresolvable (legacy uwModel kept null)');
+  {
+    const bogusLink = '1'.repeat(64) as RevisionId;
+    const input = makeLegacyAnalysis({ graphRevisionId: bogusLink });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assertEqual(out.uwModel, null, '9.1 unresolvable graph + null legacy → uwModel stays null');
   }
 
   store.close();

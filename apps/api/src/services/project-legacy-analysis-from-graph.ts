@@ -9,6 +9,10 @@
  * Current scope:
  *   - executiveSummary  ← NarrativeEvaluation.executiveSummary
  *   - creditScore       ← DoctrineEvaluation.{finalScore, ratingBand, componentScores}
+ *   - uwModel           ← synthesizeUwModelFromGraph (AdjustedInputs + StressOutputs
+ *                          + PropertyMetadata best-effort); ONLY when the legacy
+ *                          uwModel is null. Preserves any analyst-edited legacy
+ *                          uwModel that's already populated.
  *
  * Fallback: when `graphRevisionId` is null/undefined, OR when any of the linked
  * records cannot be resolved, the corresponding legacy field is left unchanged —
@@ -38,6 +42,7 @@ import type {
   FindingCategory,
 } from '@cre/shared';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
+import { synthesizeUwModelFromGraph } from './synthesize-uw-model-from-graph.js';
 
 export function projectLegacyAnalysisFromGraph(
   analysis: Analysis,
@@ -68,10 +73,20 @@ export function projectLegacyAnalysisFromGraph(
     ? projectCreditScore(doctrine)
     : analysis.creditScore;
 
+  // uwModel: synthesize ONLY when the legacy slot is null (promote-from-graph
+  // initial state). If an analyst-edited legacy uwModel already exists, keep it.
+  // If synthesis returns null (graph chain doesn't resolve), keep whatever's
+  // there. The synthesis function performs its own envelope lookup, so this
+  // overlay is safe to call without precomputed records.
+  const projectedUwModel = analysis.uwModel === null
+    ? (synthesizeUwModelFromGraph(link as RevisionId, store) ?? analysis.uwModel)
+    : analysis.uwModel;
+
   return {
     ...analysis,
     executiveSummary: projectedExecutiveSummary,
     creditScore: projectedCreditScore,
+    uwModel: projectedUwModel,
   };
 }
 
