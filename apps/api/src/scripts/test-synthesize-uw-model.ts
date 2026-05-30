@@ -219,18 +219,25 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   console.log('\n2. income — direct + signed-pct conversions');
   assertEqual(uw.income.grossPotentialRent.annualAmount, ai.income.grossRentalIncome.adjusted, '2.1 GPR direct map');
   assertEqual(uw.income.otherIncome.annualAmount, ai.income.otherIncome.adjusted, '2.2 otherIncome direct map');
-  assertClose(uw.income.vacancyLoss.annualAmount, -(ai.income.vacancyPct.adjusted * ai.income.grossRentalIncome.adjusted), '2.3 vacancyLoss = -(vacancyPct * GPR)');
+  // Vacancy and concessions apply to (GPR + otherIncome) — graph convention,
+  // economically correct (vacant unit reduces both base rent and other income).
+  const vacancyBase = ai.income.grossRentalIncome.adjusted + ai.income.otherIncome.adjusted;
+  assertClose(uw.income.vacancyLoss.annualAmount, -(ai.income.vacancyPct.adjusted * vacancyBase), '2.3 vacancyLoss = -(vacancyPct × (GPR + otherIncome))');
   assert(uw.income.vacancyLoss.annualAmount <= 0, '2.4 vacancyLoss is signed-negative (or zero)');
-  assertClose(uw.income.concessions.annualAmount, -(ai.income.concessionsPct.adjusted * ai.income.grossRentalIncome.adjusted), '2.5 concessions = -(concessionsPct * GPR)');
+  assertClose(uw.income.concessions.annualAmount, -(ai.income.concessionsPct.adjusted * vacancyBase), '2.5 concessions = -(concessionsPct × (GPR + otherIncome))');
   assert(uw.income.concessions.annualAmount <= 0, '2.6 concessions is signed-negative (or zero)');
-  // additionalItems may carry an EGI reconciliation entry when the graph's
-  // adjusted EGI differs from legacy-formula EGI (e.g. when graph applies
-  // vacancy to other income but legacy applies it to GPR only).
-  assert(uw.income.additionalItems.length <= 1, '2.7 income.additionalItems has at most one entry (EGI reconciliation if needed)');
+  // Income line items now sum to graph EGI directly (vacancy/concessions
+  // applied to (GPR + otherIncome) base). The defensive residual fires only
+  // when a graph-side adjustment lands outside that formula — should be empty
+  // in normal cases.
+  assert(uw.income.additionalItems.length <= 1, '2.7 income.additionalItems at most one defensive residual entry');
   if (uw.income.additionalItems.length === 1) {
-    assertEqual(uw.income.additionalItems[0].id, 'inc_egi_recon', '2.7b reconciliation item id');
-    assertEqual(uw.income.additionalItems[0].isEditable, false, '2.7c reconciliation item non-editable');
+    assertEqual(uw.income.additionalItems[0].id, 'inc_egi_residual', '2.7b defensive residual item id');
+    assertEqual(uw.income.additionalItems[0].isEditable, false, '2.7c residual item non-editable');
   }
+  // For this fixture (vacancy + concessions are the only income-side
+  // adjustments), the residual should NOT fire.
+  assertEqual(uw.income.additionalItems.length, 0, '2.7d standard fixture has zero residual (line items sum to graph EGI exactly)');
 
   console.log('\n3. expenses — direct + namespace/granularity conversions');
   assertEqual(uw.expenses.realEstateTaxes.annualAmount, ai.expenses.realEstateTaxes.adjusted, '3.1 taxes direct map');
@@ -241,8 +248,11 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   assertEqual(uw.expenses.generalAndAdmin.annualAmount, ai.expenses.generalAndAdmin.adjusted, '3.6 generalAndAdmin direct map');
   assertEqual(uw.expenses.payroll.annualAmount, ai.expenses.payroll.adjusted, '3.7 payroll direct map');
   // Reserves zeroed on the synthesized tab — graph treats them as below-NOI.
-  assertEqual(uw.expenses.replacementReserves.annualAmount, 0, '3.8 replacementReserves = 0 (below-NOI on graph; not a synthesized opex)');
+  assertEqual(uw.expenses.replacementReserves.annualAmount, 0, '3.8 replacementReserves.annualAmount = 0 (below-NOI / capital; preserves NOI tie)');
   assert(uw.expenses.replacementReserves.label.includes('below NOI'), '3.8b replacementReserves label flags below-NOI status');
+  assert(!uw.expenses.replacementReserves.label.includes('graph'), '3.8c reserves label drops "graph" jargon');
+  const annualReserves = ai.capitalReserves.monthlyReplacementReserves.adjusted * 12;
+  assert(uw.expenses.replacementReserves.label.includes(annualReserves.toLocaleString('en-US')), '3.8d reserves label embeds the real annual figure');
   // additionalItems carries one entry per OpEx adjustment in
   // AI.expenses.totalOperatingExpenses.adjustments[] (e.g. expense floors)
   // PLUS one per AI.topLevelAdjustments entry (e.g. NOI cap), labeled from

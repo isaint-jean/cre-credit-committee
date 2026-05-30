@@ -62,27 +62,27 @@ export function synthesizeUwModelFromGraph(
     doctrine.extractionResultId,
   );
 
-  /* Income — unit-converted from AI.income. Vacancy and concessions are stored
-     as 0..1 fractions on AI; legacy LineItems expect signed-negative dollars. */
+  /* Income — economically-faithful unit conversion. Vacancy and concessions
+   * apply to (GPR + otherIncome) rather than GPR alone (a vacant unit reduces
+   * BOTH base rent and other income); this matches the graph's EGI formula
+   * and the legacy line items then sum to AI.income.effectiveGrossIncome
+   * directly via calculateEGI. Residual handling is defensive: if a future
+   * fixture surfaces an EGI gap from some other graph-side adjustment, it
+   * surfaces as a labeled income additionalItem rather than silently
+   * diverging. */
   const grossPotentialRent = ai.income.grossRentalIncome.adjusted;
-  const vacancyDollars = -(ai.income.vacancyPct.adjusted * grossPotentialRent);
-  const concessionsDollars = -(ai.income.concessionsPct.adjusted * grossPotentialRent);
+  const vacancyConcessionBase = grossPotentialRent + ai.income.otherIncome.adjusted;
+  const vacancyDollars = -(ai.income.vacancyPct.adjusted * vacancyConcessionBase);
+  const concessionsDollars = -(ai.income.concessionsPct.adjusted * vacancyConcessionBase);
 
-  /* Income — direct map + EGI reconciliation. Legacy calculateEGI applies
-   * vacancy/concessions to GPR only; the graph's EGI formula applies vacancy
-   * to (GPR + otherIncome) (and may include other convention-level
-   * adjustments). The gap between my line-item-summed EGI and
-   * AI.income.effectiveGrossIncome.adjusted is surfaced as an income
-   * additionalItem labeled descriptively, so recalculateFullModel's recompute
-   * lands at the graph's canonical EGI. */
-  const lineItemEgiBeforeReconciliation =
+  const lineItemEgi =
     grossPotentialRent + vacancyDollars + concessionsDollars + ai.income.otherIncome.adjusted;
-  const egiGap = ai.income.effectiveGrossIncome.adjusted - lineItemEgiBeforeReconciliation;
+  const egiGap = ai.income.effectiveGrossIncome.adjusted - lineItemEgi;
   const incomeAdditionalItems: LineItem[] = [];
   if (Math.abs(egiGap) > 0.01) {
     incomeAdditionalItems.push(stubLineItem(
-      'inc_egi_recon',
-      'Income Reconciliation (graph EGI − line items)',
+      'inc_egi_residual',
+      'Income Adjustment',
       egiGap,
     ));
   }
@@ -173,9 +173,15 @@ export function synthesizeUwModelFromGraph(
     management:            stubLineItem('exp_mgmt', 'Management', ai.expenses.managementFee.adjusted),
     generalAndAdmin:       stubLineItem('exp_ga', 'General & Admin', ai.expenses.generalAndAdmin.adjusted),
     payroll:               stubLineItem('exp_payroll', 'Payroll', ai.expenses.payroll.adjusted),
-    // Reserves zeroed on the tab — graph treats them as below-NOI / capital.
-    // Real monthly value: AI.capitalReserves.monthlyReplacementReserves.
-    replacementReserves:   stubLineItem('exp_rr', 'Replacement Reserves (below NOI on graph)', 0),
+    // Reserves zeroed on the opex subtotal (NOI excludes capital reserves —
+    // preserves the NOI tie-out against AI.metrics.noi). The real annual
+    // figure is embedded in the label so the analyst sees it without it
+    // entering totalExpenses.
+    replacementReserves:   stubLineItem(
+      'exp_rr',
+      `Replacement Reserves (capital, below NOI; $${(ai.capitalReserves.monthlyReplacementReserves.adjusted * 12).toLocaleString('en-US')}/yr)`,
+      0,
+    ),
     totalExpenses:         stubLineItem('exp_total', 'Total Operating Expenses', ai.expenses.totalOperatingExpenses.adjusted),
     additionalItems,
   };
