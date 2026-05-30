@@ -223,7 +223,14 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   assert(uw.income.vacancyLoss.annualAmount <= 0, '2.4 vacancyLoss is signed-negative (or zero)');
   assertClose(uw.income.concessions.annualAmount, -(ai.income.concessionsPct.adjusted * ai.income.grossRentalIncome.adjusted), '2.5 concessions = -(concessionsPct * GPR)');
   assert(uw.income.concessions.annualAmount <= 0, '2.6 concessions is signed-negative (or zero)');
-  assertEqual(uw.income.additionalItems.length, 0, '2.7 additionalItems = [] (no graph source)');
+  // additionalItems may carry an EGI reconciliation entry when the graph's
+  // adjusted EGI differs from legacy-formula EGI (e.g. when graph applies
+  // vacancy to other income but legacy applies it to GPR only).
+  assert(uw.income.additionalItems.length <= 1, '2.7 income.additionalItems has at most one entry (EGI reconciliation if needed)');
+  if (uw.income.additionalItems.length === 1) {
+    assertEqual(uw.income.additionalItems[0].id, 'inc_egi_recon', '2.7b reconciliation item id');
+    assertEqual(uw.income.additionalItems[0].isEditable, false, '2.7c reconciliation item non-editable');
+  }
 
   console.log('\n3. expenses — direct + namespace/granularity conversions');
   assertEqual(uw.expenses.realEstateTaxes.annualAmount, ai.expenses.realEstateTaxes.adjusted, '3.1 taxes direct map');
@@ -233,13 +240,36 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   assertEqual(uw.expenses.management.annualAmount, ai.expenses.managementFee.adjusted, '3.5 management ← AI.expenses.managementFee');
   assertEqual(uw.expenses.generalAndAdmin.annualAmount, ai.expenses.generalAndAdmin.adjusted, '3.6 generalAndAdmin direct map');
   assertEqual(uw.expenses.payroll.annualAmount, ai.expenses.payroll.adjusted, '3.7 payroll direct map');
-  assertEqual(uw.expenses.replacementReserves.annualAmount, ai.capitalReserves.monthlyReplacementReserves.adjusted * 12, '3.8 replacementReserves = AI.capitalReserves.monthly × 12');
-  // additionalItems carries the judgment-engine NOI cap entry (or is empty when
-  // line-item math already matches AI.metrics.noi exactly).
-  assert(uw.expenses.additionalItems.length <= 1, '3.9a additionalItems has at most one entry (Judgment Engine Adjustment when NOI cap fired)');
-  if (uw.expenses.additionalItems.length === 1) {
-    assertEqual(uw.expenses.additionalItems[0].label, 'Judgment Engine Adjustment', '3.9b additionalItem labeled "Judgment Engine Adjustment"');
-    assertEqual(uw.expenses.additionalItems[0].isEditable, false, '3.9c JE adjustment is non-editable');
+  // Reserves zeroed on the synthesized tab — graph treats them as below-NOI.
+  assertEqual(uw.expenses.replacementReserves.annualAmount, 0, '3.8 replacementReserves = 0 (below-NOI on graph; not a synthesized opex)');
+  assert(uw.expenses.replacementReserves.label.includes('below NOI'), '3.8b replacementReserves label flags below-NOI status');
+  // additionalItems carries one entry per OpEx adjustment in
+  // AI.expenses.totalOperatingExpenses.adjustments[] (e.g. expense floors)
+  // PLUS one per AI.topLevelAdjustments entry (e.g. NOI cap), labeled from
+  // their REAL ruleId values. Real values, not back-computed plugs.
+  const expectedItemCount =
+    ai.expenses.totalOperatingExpenses.adjustments.length +
+    ai.topLevelAdjustments.length;
+  // (Plus possibly one residual line if attributed sums don't quite close.)
+  assert(uw.expenses.additionalItems.length >= expectedItemCount, `3.9 additionalItems >= adjustments + topLevelAdjustments (${uw.expenses.additionalItems.length} vs ${expectedItemCount} attributed)`);
+  for (const item of uw.expenses.additionalItems) {
+    assertEqual(item.isEditable, false, `3.9 additionalItem ${item.id} non-editable`);
+  }
+  // Per-rule presence — each OpEx adjustment's REAL delta appears verbatim
+  // (not a back-computed plug).
+  for (const adj of ai.expenses.totalOperatingExpenses.adjustments) {
+    const found = uw.expenses.additionalItems.find((it) => it.label.includes(adj.ruleId));
+    assert(found !== undefined, `3.10.${adj.ruleId} additionalItem labeled with REAL ruleId present`);
+    if (found !== undefined) {
+      assertClose(found.annualAmount, adj.delta, `3.10.${adj.ruleId} additionalItem.annualAmount === REAL delta (not back-computed)`);
+    }
+  }
+  for (const entry of ai.topLevelAdjustments) {
+    const found = uw.expenses.additionalItems.find((it) => it.label.includes(entry.ruleId));
+    assert(found !== undefined, `3.11.${entry.ruleId} NOI-level adjustment surfaced with real ruleId`);
+    if (found !== undefined) {
+      assertClose(found.annualAmount, -entry.delta, `3.11.${entry.ruleId} annualAmount === -delta (NOI-reducing entry → positive expense)`);
+    }
   }
 
   console.log('\n4. loan — unit conversions');
@@ -329,16 +359,24 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   console.log(`  Debt Yield        : ${uw.debtYield !== null ? (uw.debtYield * 100).toFixed(2) + '%' : 'null'}        (AI.metrics.debtYield = ${ai.metrics.debtYield !== null ? (ai.metrics.debtYield * 100).toFixed(2) + '%' : 'null'})`);
   console.log('');
   console.log('Income tab:');
-  for (const k of ['grossPotentialRent', 'vacancyLoss', 'concessions', 'otherIncome', 'effectiveGrossIncome'] as const) {
+  for (const k of ['grossPotentialRent', 'vacancyLoss', 'concessions', 'otherIncome'] as const) {
     const it = uw.income[k];
-    console.log(`  ${it.label.padEnd(28)}: $${it.annualAmount.toLocaleString().padStart(14)}   (editable=${it.isEditable})`);
+    console.log(`  ${it.label.padEnd(52)}: $${it.annualAmount.toLocaleString().padStart(14)}   (editable=${it.isEditable})`);
   }
+  for (const it of uw.income.additionalItems) {
+    console.log(`  ${it.label.padEnd(52)}: $${it.annualAmount.toLocaleString().padStart(14)}   (editable=${it.isEditable})  [graph adjustment]`);
+  }
+  console.log(`  ${uw.income.effectiveGrossIncome.label.padEnd(52)}: $${uw.income.effectiveGrossIncome.annualAmount.toLocaleString().padStart(14)}   (subtotal)`);
   console.log('');
-  console.log('Expense tab:');
-  for (const k of ['realEstateTaxes', 'insurance', 'utilities', 'repairsAndMaintenance', 'management', 'generalAndAdmin', 'payroll', 'replacementReserves', 'totalExpenses'] as const) {
+  console.log('Expense tab (above NOI):');
+  for (const k of ['realEstateTaxes', 'insurance', 'utilities', 'repairsAndMaintenance', 'management', 'generalAndAdmin', 'payroll', 'replacementReserves'] as const) {
     const it = uw.expenses[k];
-    console.log(`  ${it.label.padEnd(28)}: $${it.annualAmount.toLocaleString().padStart(14)}   (editable=${it.isEditable})`);
+    console.log(`  ${it.label.padEnd(52)}: $${it.annualAmount.toLocaleString().padStart(14)}   (editable=${it.isEditable})`);
   }
+  for (const it of uw.expenses.additionalItems) {
+    console.log(`  ${it.label.padEnd(52)}: $${it.annualAmount.toLocaleString().padStart(14)}   (editable=${it.isEditable})  [judgment adjustment]`);
+  }
+  console.log(`  ${uw.expenses.totalExpenses.label.padEnd(52)}: $${uw.expenses.totalExpenses.annualAmount.toLocaleString().padStart(14)}   (subtotal)`);
   console.log('');
   console.log('Loan details:');
   console.log(`  amount=$${uw.loanDetails.loanAmount.toLocaleString()}  rate=${uw.loanDetails.interestRate}%  type=${uw.loanDetails.rateType}`);
