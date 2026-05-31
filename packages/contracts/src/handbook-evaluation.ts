@@ -50,6 +50,11 @@ export const SKIP_REASONS = [
   'no_band_matched',
   'no_group_matched',
   'degenerate_evaluation',
+  // LLM_CONTEXT path (Phase 2 of the LLM evaluator). Emitted when the LLM
+  // call fails to return parseable structured output even after one retry.
+  // Distinct from missing_field (no data) and not_deterministic (no path
+  // wired) — this means the path WAS wired and the LLM call attempted.
+  'llm_eval_failed',
 ] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
