@@ -356,6 +356,7 @@ function makeSmokeInputs(overrides: {
     librarySnapshot: defaultLibrarySnapshot,
     assetProfile,
     extractionResult: defaultExtractionResult,
+    rentRoll: null,
   };
   const propertyMetadata: PropertyMetadata | null =
     overrides.propertyMetadata === null

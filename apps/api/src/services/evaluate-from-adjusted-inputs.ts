@@ -150,6 +150,10 @@ export async function evaluateFromAdjustedInputs(
       stressOutputs,
       propertyMetadata,
       analysisAsOfDate,
+      // Phase 2 (rent-roll-node): forward the typed RentRoll into the handbook
+      // evaluator. buildHandbookEvaluation threads it into runLlmContextCheck
+      // where a curated per-tenant block flows into the LLM prompt + context hash.
+      rentRoll,
     },
     { store, llmContextDeps: deps.llmContextDeps },
   );

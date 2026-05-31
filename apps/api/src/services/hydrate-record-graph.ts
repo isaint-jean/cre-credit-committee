@@ -41,7 +41,7 @@
  *         resolver concern, NEVER a hydration parameter.
  *
  * ──────────────────────────────────────────────────────────────────────────────
- * Single-hop topology (Batch 6.5 schema):
+ * Single-hop topology (Batch 6.5 schema + Phase 2 rent-roll-node):
  *
  *   DoctrineEvaluationId ─ root lookup ─→ DoctrineEvaluation
  *                                            │
@@ -52,15 +52,24 @@
  *                                            ├─ stressOutputsId       ─→ StressOutputs
  *                                            ├─ valuationConclusionId ─→ ValuationConclusion
  *                                            ├─ assetProfileId        ─→ AssetProfile
- *                                            └─ extractionResultId    ─→ ExtractionResult
+ *                                            ├─ extractionResultId    ─→ ExtractionResult
+ *                                            └─ rentRollId            ─→ RentRoll | null
  *
  * Every record in the bundle is reachable in exactly one FK lookup from the root.
  * No transitive chains. No multi-hop traversal. No alternate paths.
+ *
+ * rentRollId is the FIRST OPTIONAL FK in the topology. A null `rentRollId` is an
+ * explicit "deal has no rent roll" signal (no xlsx uploaded + no ASR fallback) and
+ * produces `rentRoll: null` in the bundle. This preserves HY3 — the null is NOT a
+ * fallback substitution for a missing lookup; it is the persisted truth on the
+ * doctrine root. A non-null rentRollId that does not resolve in the store is still
+ * a hard error (DANGLING_FK_RENT_ROLL).
  */
 
 import type {
   DoctrineEvaluationId,
   HydratedRecordGraph,
+  RentRoll,
 } from '@cre/contracts';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
@@ -75,7 +84,8 @@ export type HydrationErrorCode =
   | 'DANGLING_FK_STRESS_OUTPUTS'
   | 'DANGLING_FK_VALUATION_CONCLUSION'
   | 'DANGLING_FK_ASSET_PROFILE'
-  | 'DANGLING_FK_EXTRACTION_RESULT';
+  | 'DANGLING_FK_EXTRACTION_RESULT'
+  | 'DANGLING_FK_RENT_ROLL';
 
 export interface HydrationErrorContext {
   readonly code: HydrationErrorCode;
@@ -180,6 +190,21 @@ export function hydrateRecordGraph(
     });
   }
 
+  /* Phase 2 (rent-roll-node): optional single-hop lookup. A null rentRollId on the
+     root is an explicit "no rent roll" signal — yields rentRoll: null in the bundle.
+     A non-null id that fails to resolve is a hard error (HY3 — no fallback synthesis). */
+  let rentRoll: RentRoll | null = null;
+  if (doctrineEvaluation.rentRollId !== null) {
+    rentRoll = store.getRentRoll(doctrineEvaluation.rentRollId);
+    if (rentRoll === null) {
+      throw new HydrationError({
+        code: 'DANGLING_FK_RENT_ROLL',
+        rootId,
+        missingId: doctrineEvaluation.rentRollId,
+      });
+    }
+  }
+
   return {
     doctrineEvaluation,
     valuationConclusion,
@@ -190,5 +215,6 @@ export function hydrateRecordGraph(
     librarySnapshot,
     assetProfile,
     extractionResult,
+    rentRoll,
   };
 }

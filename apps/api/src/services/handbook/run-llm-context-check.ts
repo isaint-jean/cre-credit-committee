@@ -35,6 +35,8 @@ import type {
   ManualInputs,
   NarrativeFacts,
   PropertyMetadata,
+  RentRoll,
+  RentRollLine,
   SkipReason,
   StressOutputs,
 } from '@cre/contracts';
@@ -88,6 +90,19 @@ export interface LlmContextCheckArgs {
    * needs_manual_input.
    */
   readonly manualInputs?: ManualInputs;
+  /**
+   * Phase 2 (rent-roll-node): curated per-tenant rent-roll surfaced into the
+   * prompt + folded into the context hash. Source: HydratedRecordGraph.rentRoll,
+   * threaded through buildHandbookEvaluation. When absent, no per-tenant block
+   * appears in the prompt and the hash field is null (string-canonicalized) —
+   * byte-stable across runs that both omit. Different rent roll → different
+   * curated bytes → different hash → fresh eval (cache invalidates correctly).
+   *
+   * Spec-clean (§2.3) — this file imports RentRoll-the-graph-node, NEVER
+   * ExtractionResult. The handbook evaluator reads typed RentRoll directly;
+   * the lossy ExtractionResult.rentRoll projection is not consulted here.
+   */
+  readonly rentRoll?: RentRoll;
 }
 
 export interface LlmContextCheckDeps {
@@ -286,6 +301,121 @@ function resultFromLlmOutput(principle: Principle, parsed: LlmStructuredOutput):
   };
 }
 
+// --- Rent-roll curation (Phase 2 — rent-roll-node) --------------------------
+//
+// Pure, deterministic projection of a typed RentRoll into a top-N + "other"
+// aggregate shape suitable for the per-principle LLM context bundle. Bound to
+// top-10 by in-place income so a 200-tenant roll doesn't balloon the prompt.
+// The same curation drives BOTH the prompt's per-tenant block AND the context
+// hash — identical roll → identical curated bytes → identical hash → cache hit.
+//
+// Discipline: no I/O, no Date, no Math.random, no asset-class branching, no
+// nullish coalescing on numeric fields. Null fidelity preserved: a tenant with
+// null squareFeet has null inPlaceRentPsf (no synthesis, no zeros). A tenant
+// with null inPlaceRentAnnual sorts to the end (still surfaced in "other"
+// aggregate when applicable).
+
+const RENT_ROLL_TOP_N = 10;
+
+interface CuratedTenantLine {
+  readonly tenantName: string | null;
+  readonly suite: string | null;
+  readonly squareFeet: number | null;
+  readonly inPlaceRentAnnual: number | null;
+  readonly inPlaceRentPsf: number | null;   // derived: annual / SF, null when either is null
+  readonly marketRentAnnual: number | null;
+  readonly leaseType: string;
+  readonly leaseEnd: string | null;
+  readonly occupied: boolean;               // true iff status === 'OCCUPIED'
+}
+
+interface CuratedRentRollOtherAggregate {
+  readonly tenantCount: number;
+  readonly squareFeetTotal: number | null;        // sum of non-null SF; null only if EVERY remaining tenant has SF null
+  readonly inPlaceRentAnnualTotal: number | null; // same null-policy
+}
+
+interface CuratedRentRoll {
+  readonly asOfDate: string | null;
+  readonly propertyName: string | null;
+  readonly source: string;
+  readonly totalTenantCount: number;
+  readonly topTenants: ReadonlyArray<CuratedTenantLine>;
+  readonly otherAggregate: CuratedRentRollOtherAggregate | null; // null when totalTenantCount <= TOP_N
+}
+
+function curateTenantLine(line: RentRollLine): CuratedTenantLine {
+  // Derive inPlaceRentPsf strictly: both operands non-null → divide; else null.
+  // No defaulting, no Math.max/min, no rounding (raw division — LLM sees full precision).
+  const sf = line.squareFeet;
+  const rent = line.inPlaceRentAnnual;
+  const psf = sf !== null && rent !== null && sf !== 0 ? rent / sf : null;
+  return {
+    tenantName: line.tenantName,
+    suite: line.suite,
+    squareFeet: sf,
+    inPlaceRentAnnual: rent,
+    inPlaceRentPsf: psf,
+    marketRentAnnual: line.marketRentAnnual,
+    leaseType: line.leaseType,
+    leaseEnd: line.leaseEnd,
+    occupied: line.status === 'OCCUPIED',
+  };
+}
+
+function curateRentRoll(rentRoll: RentRoll): CuratedRentRoll {
+  // Stable sort by in-place income descending. Null incomes sort to the end
+  // (still aggregated under "other" when they spill past TOP_N). Tie-break on
+  // index so the sort is deterministic across V8 versions (Array.prototype.sort
+  // is stable in modern Node, but we want the contract explicit).
+  const indexed = rentRoll.lines.map((line, idx) => ({ line, idx }));
+  indexed.sort((a, b) => {
+    const ar = a.line.inPlaceRentAnnual;
+    const br = b.line.inPlaceRentAnnual;
+    if (ar === null && br === null) return a.idx - b.idx;
+    if (ar === null) return 1;
+    if (br === null) return -1;
+    if (ar !== br) return br - ar;
+    return a.idx - b.idx;
+  });
+
+  const total = indexed.length;
+  const top = indexed.slice(0, RENT_ROLL_TOP_N).map((e) => curateTenantLine(e.line));
+  const remaining = indexed.slice(RENT_ROLL_TOP_N).map((e) => e.line);
+
+  let otherAggregate: CuratedRentRollOtherAggregate | null = null;
+  if (remaining.length > 0) {
+    let sfSum = 0;
+    let sfSeen = false;
+    let rentSum = 0;
+    let rentSeen = false;
+    for (const line of remaining) {
+      if (line.squareFeet !== null) {
+        sfSum += line.squareFeet;
+        sfSeen = true;
+      }
+      if (line.inPlaceRentAnnual !== null) {
+        rentSum += line.inPlaceRentAnnual;
+        rentSeen = true;
+      }
+    }
+    otherAggregate = {
+      tenantCount: remaining.length,
+      squareFeetTotal: sfSeen ? sfSum : null,
+      inPlaceRentAnnualTotal: rentSeen ? rentSum : null,
+    };
+  }
+
+  return {
+    asOfDate: rentRoll.asOfDate,
+    propertyName: rentRoll.propertyName,
+    source: rentRoll.source,
+    totalTenantCount: total,
+    topTenants: top,
+    otherAggregate,
+  };
+}
+
 // --- Context-hash assembly --------------------------------------------------
 //
 // Mirrors the Phase 0 spike's curation exactly. Any change to this function
@@ -295,7 +425,9 @@ function computeContextHash(args: LlmContextCheckArgs): string {
   // manualInputs canonicalized as `null` when absent — preserves hash
   // stability across runs that both omit comps. Different comp sets
   // produce different bytes → different hash → fresh eval (correct
-  // per Phase 0 caching strategy).
+  // per Phase 0 caching strategy). Same policy applies to rentRoll
+  // (Phase 2): absent → null; present → curated top-N + other aggregate
+  // → byte-stable for identical rolls, byte-different for changed rolls.
   const ctx = {
     principle: {
       id: args.principle.id,
@@ -313,6 +445,7 @@ function computeContextHash(args: LlmContextCheckArgs): string {
       narrativeFacts: curateNarrativeFacts(args.narrativeFacts),
     },
     manualInputs: args.manualInputs ?? null,
+    rentRoll: args.rentRoll !== undefined ? curateRentRoll(args.rentRoll) : null,
     handbookEngineVersion: args.handbookEngineVersion,
     modelVersion: LLM_CONTEXT_MODEL,
     deterministicFiredFlags: args.deterministicFiredFlags,
@@ -447,6 +580,23 @@ function buildPrompt(args: LlmContextCheckArgs): string {
     deterministicFiredFlagsCount: args.deterministicFiredFlags.length,
   });
 
+  // Per-tenant rent-roll block (Phase 2 — rent-roll-node). Curated to top-N
+  // by in-place income with an "other" aggregate so a 200-tenant roll doesn't
+  // balloon the prompt. The same curation drives computeContextHash, so this
+  // block's bytes are cache-stable for identical rolls.
+  const rentRollJson = args.rentRoll !== undefined
+    ? canonicalize(curateRentRoll(args.rentRoll))
+    : null;
+  const rentRollBlock = rentRollJson !== null
+    ? [
+        '',
+        'Per-tenant rent roll (top tenants by in-place income + "other" aggregate when applicable). All in-place rent figures are ANNUAL DOLLARS unless suffixed _psf; in-place_rent_psf is derived (annual / SF, null when either operand is null):',
+        rentRollJson,
+        '',
+        'Use these per-tenant numbers when the principle requires tenant-level analysis (above-market rent, tenant concentration, lease expiration laddering, lease-type recovery treatment). PSF figures are derived from the same source — they are not independent data.',
+      ].join('\n')
+    : '';
+
   // Manual-input layer (analyst-supplied; NOT extracted from documents).
   // Surface only when present — absence is meaningful (drives the
   // needs_manual_input path for principles that require this kind of data).
@@ -463,6 +613,7 @@ function buildPrompt(args: LlmContextCheckArgs): string {
       ].join('\n')
     : '';
 
+  // Order: deal aggregates → per-tenant rent roll → analyst-supplied manual inputs.
   return [
     `Principle to evaluate: ${args.principle.id} — ${args.principle.title}`,
     `Default severity: ${args.principle.severity}`,
@@ -471,6 +622,7 @@ function buildPrompt(args: LlmContextCheckArgs): string {
     '',
     'Deal data (JCS-canonical JSON):',
     dealJson,
+    rentRollBlock,
     manualInputsBlock,
     'Evaluate this principle against this deal. Return the JSON object as specified.',
   ].join('\n');

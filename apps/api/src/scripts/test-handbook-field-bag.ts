@@ -310,6 +310,7 @@ function makeMinimalGraph(
     librarySnapshot: defaultLibrarySnapshot,
     assetProfile: defaultAssetProfile,
     extractionResult: defaultExtractionResult,
+    rentRoll: null,
   };
 }
 

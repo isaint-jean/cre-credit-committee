@@ -27,8 +27,18 @@ export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
  *     or new operators / formula ops that don't affect existing principles.
  *   MAJOR (1.0.0 → 2.0.0): semantic changes to existing operators or condition
  *     evaluation order. Re-evaluation recommended for historical deals.
+ *
+ * Version history:
+ *   1.0.0 — initial release.
+ *   1.1.0 — LLM_CONTEXT dispatch (async engine, llmEvaluator dep).
+ *   1.2.0 — per-principle LLM context bundle gains curated rentRoll (top-10 tenants
+ *           by in-place income + "other" aggregate when applicable). The per-tenant
+ *           block flows through computeContextHash so identical rent rolls cache-hit
+ *           and changed rent rolls (e.g., one tenant's rent changes) cache-miss into
+ *           a fresh evaluation. Bump invalidates ALL 1.1.0 llm_principle_eval_cache
+ *           rows; expected — different context shape → different hash → fresh eval.
  */
-export const HANDBOOK_ENGINE_VERSION = '1.1.0' as const;
+export const HANDBOOK_ENGINE_VERSION = '1.2.0' as const;
 
 /**
  * Narrative-engine simple version. Stamped onto every NarrativeEvaluation record

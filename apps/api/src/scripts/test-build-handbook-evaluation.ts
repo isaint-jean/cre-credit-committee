@@ -163,6 +163,10 @@ function makeArgs(overrides: Partial<BuildHandbookEvaluationArgs> = {}): BuildHa
   return {
     adjustedInputs, assetProfile, narrativeFacts, stressOutputs, propertyMetadata,
     analysisAsOfDate: AS_OF,
+    // Phase 2 (rent-roll-node): producer requires the typed RentRoll arg.
+    // Default fixture deals have no rent roll; tests that care about per-tenant
+    // behavior override via the overrides bag.
+    rentRoll: null,
     ...overrides,
   };
 }
@@ -182,7 +186,7 @@ await (async () => {
   assertTruthy(eval_.id, 'record has an id');
   assertEqual(eval_.adjustedInputsId, 'aaaa', 'adjustedInputsId FKs to AdjustedInputs');
   assertEqual(eval_.handbookVersion, '2026.2-addendum', 'handbookVersion stamped from handbook constant (bumped for Rules A+B)');
-  assertEqual(eval_.engineVersion, '1.1.0', 'engineVersion stamped as constant (1.1.0 — LLM_CONTEXT dispatch)');
+  assertEqual(eval_.engineVersion, '1.2.0', 'engineVersion stamped as constant (1.2.0 — per-principle context bundle gains curated rentRoll)');
   assertEqual(eval_.analysisAsOfDate, '2026-01-01T00:00:00.000Z', 'analysisAsOfDate preserved');
   assertTruthy(eval_.fieldBagSnapshot, 'fieldBagSnapshot present');
   assertTruthy(Array.isArray(eval_.firedFlags), 'firedFlags is array');

@@ -29,12 +29,15 @@ import type {
   HydratedRecordGraph,
   LibrarySnapshot,
   MarketBenchmarks,
+  RentRoll,
+  RentRollId,
 } from '@cre/contracts';
 import {
   computeCreditManifestoId,
   computeExtractionResultId,
   computeLibrarySnapshotId,
   computeMarketBenchmarksId,
+  computeRentRollId,
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
@@ -185,18 +188,72 @@ async function ingestSeed(store: RecordGraphStore): Promise<{ rootId: DoctrineEv
   return { rootId: result.evaluationId };
 }
 
+function makeRentRoll(dealRef = 'HYDR-RR-1'): RentRoll {
+  const body = {
+    asOfDate: AS_OF,
+    propertyName: `Rent Roll for ${dealRef}`,
+    source: 'rent_roll_file' as const,
+    lines: [
+      {
+        tenantName: 'Tenant A', suite: '100', squareFeet: 10_000,
+        status: 'OCCUPIED' as const,
+        leaseStart: '2024-01-01T00:00:00Z' as const,
+        leaseEnd: '2027-01-01T00:00:00Z' as const,
+        inPlaceRentAnnual: 360_000, marketRentAnnual: 380_000,
+        leaseType: 'NNN' as const, recoveriesAnnual: null,
+        otherIncomeAnnual: null, newTiPsf: null, renewTiPsf: null,
+        newLcPct: null, renewLcPct: null, downtimeMonths: null, notes: null,
+      },
+      {
+        tenantName: 'Tenant B', suite: '200', squareFeet: 20_000,
+        status: 'OCCUPIED' as const,
+        leaseStart: '2024-01-01T00:00:00Z' as const,
+        leaseEnd: '2034-01-01T00:00:00Z' as const,
+        inPlaceRentAnnual: 600_000, marketRentAnnual: 620_000,
+        leaseType: 'NNN' as const, recoveriesAnnual: null,
+        otherIncomeAnnual: null, newTiPsf: null, renewTiPsf: null,
+        newLcPct: null, renewLcPct: null, downtimeMonths: null, notes: null,
+      },
+    ],
+  };
+  return { id: computeRentRollId(body), ...body } as RentRoll;
+}
+
+async function ingestSeedWithRentRoll(
+  store: RecordGraphStore,
+): Promise<{ rootId: DoctrineEvaluationId; rentRollId: RentRollId }> {
+  const lib = makeSnapshot();
+  store.insertLibrarySnapshot(lib);
+  const rentRoll = makeRentRoll();
+  const result = await ingestExtractionResult(
+    {
+      extractionResult: makeFullExtraction(),
+      propertyType: 'Office' as AssetType,
+      marketLiquidityHint: 'Primary',
+      librarySnapshotId: lib.id,
+      marketBenchmarks: makeBenchmarks(),
+      creditManifesto: makeManifesto(),
+      analysisAsOfDate: AS_OF,
+      rentRoll,
+    },
+    store,
+    STUB_LLM_DEPS,
+  );
+  return { rootId: result.evaluationId, rentRollId: rentRoll.id };
+}
+
 /* ----------------------------------- run ---------------------------------- */
 
 (async () => {
 
-console.log('Round-trip — bundle contains all 9 records reachable from root:');
+console.log('Round-trip — bundle contains all 10 records reachable from root:');
 {
   const store = new RecordGraphStore(':memory:');
   const { rootId } = await ingestSeed(store);
 
   const bundle = hydrateRecordGraph(rootId, store);
 
-  // 9 records present
+  // 10 records present (rentRoll is null for this seed — deal has no rent roll)
   assert(bundle.doctrineEvaluation !== null, 'doctrineEvaluation present');
   assert(bundle.valuationConclusion !== null, 'valuationConclusion present');
   assert(bundle.stressOutputs !== null, 'stressOutputs present');
@@ -206,6 +263,7 @@ console.log('Round-trip — bundle contains all 9 records reachable from root:')
   assert(bundle.librarySnapshot !== null, 'librarySnapshot present');
   assert(bundle.assetProfile !== null, 'assetProfile present');
   assert(bundle.extractionResult !== null, 'extractionResult present');
+  assertEqual(bundle.rentRoll, null, 'rentRoll is null when seed has no rent roll (Phase 2)');
 
   // Each FK on the root resolves to the bundle's record id (single-hop closure)
   assertEqual(bundle.doctrineEvaluation.id, rootId, 'doctrineEvaluation.id === rootId');
@@ -218,6 +276,49 @@ console.log('Round-trip — bundle contains all 9 records reachable from root:')
   assertEqual(bundle.assetProfile.id, bundle.doctrineEvaluation.assetProfileId, 'assetProfileId FK resolves');
   assertEqual(bundle.extractionResult.id, bundle.doctrineEvaluation.extractionResultId, 'extractionResultId FK resolves');
 
+  store.close();
+}
+
+console.log('\nRent-roll hydration (Phase 2) — null rentRollId → bundle.rentRoll === null:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const { rootId } = await ingestSeed(store);
+  const bundle = hydrateRecordGraph(rootId, store);
+  assertEqual(bundle.doctrineEvaluation.rentRollId, null, 'doctrineEvaluation.rentRollId is null when no rent roll ingested');
+  assertEqual(bundle.rentRoll, null, 'bundle.rentRoll === null (no DANGLING_FK_RENT_ROLL throw)');
+  store.close();
+}
+
+console.log('\nRent-roll hydration (Phase 2) — non-null rentRollId resolves to persisted RentRoll:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const { rootId, rentRollId } = await ingestSeedWithRentRoll(store);
+  const bundle = hydrateRecordGraph(rootId, store);
+  assertEqual(bundle.doctrineEvaluation.rentRollId, rentRollId, 'doctrineEvaluation.rentRollId stamped with RentRoll.id');
+  assert(bundle.rentRoll !== null, 'bundle.rentRoll is present');
+  if (bundle.rentRoll !== null) {
+    assertEqual(bundle.rentRoll.id, rentRollId, 'bundle.rentRoll.id matches the persisted RentRoll.id');
+    assertEqual(bundle.rentRoll.lines.length, 2, 'bundle.rentRoll.lines preserved');
+    assertEqual(bundle.rentRoll.source, 'rent_roll_file', 'bundle.rentRoll.source preserved');
+  }
+  store.close();
+}
+
+console.log('\nRent-roll hydration (Phase 2) — DANGLING_FK_RENT_ROLL when row deleted:');
+{
+  const store = new RecordGraphStore(':memory:');
+  const { rootId, rentRollId } = await ingestSeedWithRentRoll(store);
+  // Surgically delete the rent_rolls row while preserving the FK stamp on
+  // DoctrineEvaluation. Hydration must throw the typed error (HY3 — no fallback).
+  const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+  db.pragma('foreign_keys = OFF');
+  db.prepare(`DELETE FROM rent_rolls WHERE id = ?`).run(rentRollId);
+  db.pragma('foreign_keys = ON');
+  assertThrowsCode(
+    () => hydrateRecordGraph(rootId, store),
+    'DANGLING_FK_RENT_ROLL',
+    'delete rent_rolls row → DANGLING_FK_RENT_ROLL',
+  );
   store.close();
 }
 
@@ -238,7 +339,7 @@ console.log('\nDeterminism (HY6) — same root, byte-identical bundle:');
 console.log('\nPure read (HY5) — hydration does not mutate the store:');
 {
   const store = new RecordGraphStore(':memory:');
-  const { rootId } = await ingestSeed(store);
+  const { rootId, rentRollId } = await ingestSeedWithRentRoll(store);
 
   // Snapshot id of every record before hydration
   const before = hydrateRecordGraph(rootId, store);
@@ -252,6 +353,7 @@ console.log('\nPure read (HY5) — hydration does not mutate the store:');
     before.librarySnapshot.id,
     before.assetProfile.id,
     before.extractionResult.id,
+    before.rentRoll?.id ?? null,
   ];
 
   // Hydrate again multiple times — no mutation should occur
@@ -269,8 +371,10 @@ console.log('\nPure read (HY5) — hydration does not mutate the store:');
     after.librarySnapshot.id,
     after.assetProfile.id,
     after.extractionResult.id,
+    after.rentRoll?.id ?? null,
   ];
   assertEqual(JSON.stringify(beforeIds), JSON.stringify(afterIds), 'record ids unchanged after repeated hydration');
+  assertEqual(after.rentRoll?.id, rentRollId, 'rent-roll id stable across hydrations');
 
   store.close();
 }

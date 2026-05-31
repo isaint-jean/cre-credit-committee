@@ -15,10 +15,11 @@
  *   - identical context across runs → identical contextHash → identical cache key.
  */
 
-import type { AdjustedInputs, AssetProfile, NarrativeFacts, Principle, StressOutputs } from '@cre/contracts';
+import type { AdjustedInputs, AssetProfile, NarrativeFacts, Principle, RentRoll, RentRollLine, StressOutputs } from '@cre/contracts';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { runLlmContextCheck } from '../services/handbook/run-llm-context-check.js';
 import type { LlmContextCheckArgs } from '../services/handbook/run-llm-context-check.js';
+import { computeRentRollId } from '../util/content-hash.js';
 
 let passed = 0;
 let failed = 0;
@@ -124,19 +125,73 @@ function args(p: Principle = samplePrinciple): LlmContextCheckArgs {
     propertyMetadata: null,
     narrativeFacts: sampleNarrativeFacts,
     deterministicFiredFlags: [],
-    handbookEngineVersion: '1.1.0',
+    handbookEngineVersion: '1.2.0',
   };
 }
 
 function makeStubLlm(responses: string[]) {
   let i = 0;
   let calls = 0;
-  const fn = async (_opts: { model: string; max_tokens: number; messages: { role: string; content: string }[]; system?: string }): Promise<string> => {
+  const promptsSent: string[] = [];
+  const fn = async (opts: { model: string; max_tokens: number; messages: { role: string; content: string }[]; system?: string }): Promise<string> => {
     calls++;
+    // Capture the user-message prompt for assertion access.
+    const firstUser = opts.messages.find((m) => m.role === 'user');
+    if (firstUser) promptsSent.push(firstUser.content);
     if (i >= responses.length) throw new Error('stub: no more responses');
     return responses[i++];
   };
-  return { fn, calls: () => calls };
+  return { fn, calls: () => calls, prompts: (): readonly string[] => promptsSent };
+}
+
+// --- Rent-roll fixtures (Phase 2 — rent-roll-node) --------------------------
+
+function makeRentRollLine(overrides: Partial<RentRollLine> & { tenantName: string; squareFeet: number | null; inPlaceRentAnnual: number | null }): RentRollLine {
+  return {
+    tenantName: overrides.tenantName,
+    suite: overrides.suite ?? null,
+    squareFeet: overrides.squareFeet,
+    status: overrides.status ?? 'OCCUPIED',
+    leaseStart: overrides.leaseStart ?? '2024-01-01T00:00:00Z',
+    leaseEnd: overrides.leaseEnd ?? '2029-01-01T00:00:00Z',
+    inPlaceRentAnnual: overrides.inPlaceRentAnnual,
+    marketRentAnnual: overrides.marketRentAnnual ?? null,
+    leaseType: overrides.leaseType ?? 'NNN',
+    recoveriesAnnual: null, otherIncomeAnnual: null,
+    newTiPsf: null, renewTiPsf: null, newLcPct: null, renewLcPct: null,
+    downtimeMonths: null, notes: null,
+  };
+}
+
+function makeRentRoll(lines: RentRollLine[], propertyName = 'Test Property'): RentRoll {
+  const body = {
+    asOfDate: '2026-05-31T00:00:00Z',
+    propertyName,
+    source: 'rent_roll_file' as const,
+    lines,
+  };
+  return { id: computeRentRollId(body), ...body } as RentRoll;
+}
+
+function smallRentRoll(): RentRoll {
+  return makeRentRoll([
+    makeRentRollLine({ tenantName: 'Tenant A', squareFeet: 10_000, inPlaceRentAnnual: 360_000 }),
+    makeRentRollLine({ tenantName: 'Tenant B', squareFeet: 20_000, inPlaceRentAnnual: 600_000 }),
+  ]);
+}
+
+function twelveTenantRentRoll(): RentRoll {
+  const lines: RentRollLine[] = [];
+  // Top tenants by income: A($120k) is biggest, descending to L($10k).
+  for (let i = 0; i < 12; i++) {
+    const letter = String.fromCharCode('A'.charCodeAt(0) + i);
+    lines.push(makeRentRollLine({
+      tenantName: `Tenant ${letter}`,
+      squareFeet: 1_000 + i * 100,
+      inPlaceRentAnnual: (12 - i) * 10_000,
+    }));
+  }
+  return makeRentRoll(lines, '12-Tenant Property');
 }
 
 (async () => {
@@ -365,6 +420,134 @@ function makeStubLlm(responses: string[]) {
       assertEqual(r2.skip.reason, r1.skip.reason, '11.3 cached reason identical');
       assertEqual(r2.skip.manualInputRequests?.length, r1.skip.manualInputRequests?.length, '11.4 cached requests identical');
     }
+  }
+
+  // ===========================================================================
+  // Phase 2 (rent-roll-node) — per-principle rent-roll context tests
+  // ===========================================================================
+
+  console.log('\n12. Phase 2 — per-tenant block appears in prompt when rentRoll present');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'ok', evidenceQuotes: [] }),
+    ]);
+    const argsWithRR: LlmContextCheckArgs = { ...args(), rentRoll: smallRentRoll() };
+    await runLlmContextCheck(argsWithRR, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('Per-tenant rent roll'), '12.1 prompt includes the per-tenant rent-roll header');
+    assert(prompt.includes('Tenant A'), '12.2 prompt includes Tenant A name');
+    assert(prompt.includes('Tenant B'), '12.3 prompt includes Tenant B name');
+    assert(prompt.includes('"totalTenantCount":2'), '12.4 prompt includes totalTenantCount metadata');
+    assert(prompt.includes('"otherAggregate":null'), '12.5 small roll has no otherAggregate');
+  }
+
+  console.log('\n13. Phase 2 — per-tenant block absent when rentRoll omitted');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'ok', evidenceQuotes: [] }),
+    ]);
+    await runLlmContextCheck(args(), store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(!prompt.includes('Per-tenant rent roll'), '13.1 prompt has no per-tenant rent-roll block when rentRoll absent');
+  }
+
+  console.log('\n14. Phase 2 — cache stability: same rentRoll bytes → same context hash → cache hit');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const argsRR: LlmContextCheckArgs = { ...args(), rentRoll: smallRentRoll() };
+    const stub1 = makeStubLlm([
+      JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'rent-roll baseline', evidenceQuotes: [] }),
+    ]);
+    const r1 = await runLlmContextCheck(argsRR, store, { llmCall: stub1.fn as never });
+    assertEqual(stub1.calls(), 1, '14.1 first call invoked LLM');
+    const stub2 = makeStubLlm([]); // no responses available — proves cache hit
+    const r2 = await runLlmContextCheck(argsRR, store, { llmCall: stub2.fn as never });
+    assertEqual(stub2.calls(), 0, '14.2 second call HIT CACHE (identical rentRoll bytes)');
+    if (r1.status === 'fired' && r2.status === 'fired') {
+      assertEqual(r2.flag.flag_message, r1.flag.flag_message, '14.3 cached message byte-identical');
+    }
+  }
+
+  console.log('\n15. Phase 2 — cache invalidation: changed rentRoll → different hash → fresh eval');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const argsA: LlmContextCheckArgs = { ...args(), rentRoll: smallRentRoll() };
+    const rollB = makeRentRoll([
+      makeRentRollLine({ tenantName: 'Tenant A', squareFeet: 10_000, inPlaceRentAnnual: 360_000 }),
+      // Tenant B rent dropped from 600k to 500k → different curated bytes.
+      makeRentRollLine({ tenantName: 'Tenant B', squareFeet: 20_000, inPlaceRentAnnual: 500_000 }),
+    ]);
+    const argsB: LlmContextCheckArgs = { ...args(), rentRoll: rollB };
+    const stubA = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'A ok', evidenceQuotes: [] })]);
+    const stubB = makeStubLlm([JSON.stringify({ outcome: 'fired', severity: 'medium', flag_message: 'B differs', evidenceQuotes: [] })]);
+    await runLlmContextCheck(argsA, store, { llmCall: stubA.fn as never });
+    const rB = await runLlmContextCheck(argsB, store, { llmCall: stubB.fn as never });
+    assertEqual(stubA.calls(), 1, '15.1 first run invoked LLM');
+    assertEqual(stubB.calls(), 1, '15.2 changed rentRoll → cache MISS → LLM re-invoked');
+    if (rB.status === 'fired') assertEqual(rB.flag.flag_message, 'B differs', '15.3 new result reflects changed rent-roll');
+  }
+
+  console.log('\n16. Phase 2 — top-N + other aggregate: 12 tenants → 10 top + other.tenantCount=2');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'ok', evidenceQuotes: [] }),
+    ]);
+    const argsWithRR: LlmContextCheckArgs = { ...args(), rentRoll: twelveTenantRentRoll() };
+    await runLlmContextCheck(argsWithRR, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('"totalTenantCount":12'), '16.1 totalTenantCount reflects all 12 tenants');
+    // Top-10 by income (descending): A=120k, B=110k, ..., J=30k. K(20k) and L(10k) are in "other".
+    assert(prompt.includes('Tenant A'), '16.2 top-10 includes Tenant A (highest income)');
+    assert(prompt.includes('Tenant J'), '16.3 top-10 includes Tenant J (10th)');
+    assert(!prompt.includes('Tenant K'), '16.4 top-10 excludes Tenant K (11th by income)');
+    assert(!prompt.includes('Tenant L'), '16.5 top-10 excludes Tenant L (12th by income)');
+    assert(prompt.includes('"tenantCount":2'), '16.6 other aggregate counts the 2 remaining tenants');
+    // Sum of K + L income = 20k + 10k = 30k; sum of SF = 2000 + 2100 = 4100
+    assert(prompt.includes('"inPlaceRentAnnualTotal":30000'), '16.7 other aggregate sums income (20k+10k)');
+    assert(prompt.includes('"squareFeetTotal":4100'), '16.8 other aggregate sums SF (2000+2100)');
+  }
+
+  console.log('\n17. Phase 2 — null fidelity: tenant with null SF has null inPlaceRentPsf in curated output');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'ok', evidenceQuotes: [] }),
+    ]);
+    const rollNull = makeRentRoll([
+      // Tenant with null SF and non-null rent → PSF must be null (no synthesis).
+      makeRentRollLine({ tenantName: 'NullSF Tenant', squareFeet: null, inPlaceRentAnnual: 100_000 }),
+      // Tenant with non-null SF and null rent → PSF must be null.
+      makeRentRollLine({ tenantName: 'NullRent Tenant', squareFeet: 5_000, inPlaceRentAnnual: null }),
+    ]);
+    const argsWithRR: LlmContextCheckArgs = { ...args(), rentRoll: rollNull };
+    await runLlmContextCheck(argsWithRR, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    // Canonicalized JSON preserves null fields. Both tenants must carry "inPlaceRentPsf":null.
+    // The simple substring check is sufficient because no other field is named inPlaceRentPsf
+    // and the only non-null path would emit a number, not "null".
+    const matches = prompt.split('"inPlaceRentPsf":').slice(1);
+    assertEqual(matches.length, 2, '17.1 two tenants → two inPlaceRentPsf fields in curated output');
+    for (const m of matches) {
+      assert(m.startsWith('null'), '17.2 inPlaceRentPsf is null when either SF or rent is null (no synthesis)');
+    }
+  }
+
+  console.log('\n18. Phase 2 — omitted rentRoll: hash stable across two omit runs (cache hit on replay)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const baseArgs = args();
+    const stub1 = makeStubLlm([
+      JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'no-roll baseline', evidenceQuotes: [] }),
+    ]);
+    await runLlmContextCheck(baseArgs, store, { llmCall: stub1.fn as never });
+    assertEqual(stub1.calls(), 1, '18.1 first omit-run invoked LLM');
+    const stub2 = makeStubLlm([]); // no responses available — cache hit proves identical hash
+    const r2 = await runLlmContextCheck(baseArgs, store, { llmCall: stub2.fn as never });
+    assertEqual(stub2.calls(), 0, '18.2 second omit-run HIT CACHE (null canonicalization stable)');
+    assertEqual(r2.status, 'fired', '18.3 cached result preserved');
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

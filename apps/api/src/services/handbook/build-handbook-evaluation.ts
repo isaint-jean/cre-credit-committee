@@ -23,6 +23,7 @@ import type {
   NarrativeFacts,
   PropertyMetadata,
   Principle,
+  RentRoll,
   StressOutputs,
 } from '@cre/contracts';
 import {
@@ -83,6 +84,22 @@ export interface BuildHandbookEvaluationArgs {
    * symmetry with other Stage-4 outputs.
    */
   readonly analysisAsOfDate: ISODateTime;
+
+  /**
+   * Phase 2 (rent-roll-node): typed RentRoll graph node. Threaded down
+   * into runLlmContextCheck where a curated subset (top-N tenants by
+   * in-place income + "other" aggregate) is surfaced into the per-principle
+   * LLM context bundle and folded into the context hash.
+   *
+   * Spec-clean (§2.3): this file imports `RentRoll` from @cre/contracts,
+   * NEVER `ExtractionResult`. The handbook evaluator reads RentRoll-the-
+   * graph-node, not the lossy ExtractionResult.rentRoll projection.
+   *
+   * Nullable: a deal genuinely may have no rent roll. When null, no
+   * per-tenant block flows to the LLM and the context hash field is null
+   * (string-canonicalized, byte-stable across runs that both omit).
+   */
+  readonly rentRoll: RentRoll | null;
 }
 
 // =============================================================================
@@ -187,6 +204,11 @@ export async function buildHandbookEvaluation(
         ...(deps.llmContextDeps?.manualInputs !== undefined
           ? { manualInputs: deps.llmContextDeps.manualInputs }
           : {}),
+        // Phase 2 (rent-roll-node): surface RentRoll into the per-principle
+        // LLM context bundle. Mirrors the manualInputs spread-only-when-present
+        // idiom so LlmContextCheckArgs.rentRoll stays optional and absent
+        // (vs. explicit null) when no rent roll is on the deal.
+        ...(args.rentRoll !== null ? { rentRoll: args.rentRoll } : {}),
       };
       const evalResult = await runLlmContextCheck(checkArgs, deps.store!, deps.llmContextDeps ?? {});
       // LlmEvalResult and PrincipleEvaluationResult are structurally
