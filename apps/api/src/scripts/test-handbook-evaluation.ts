@@ -112,7 +112,7 @@ function makeMinimalEvaluation(): HandbookEvaluation {
     analysisAsOfDate: '2026-01-01T00:00:00.000Z' as ISODateTime,
     adjustedInputsId: 'bbbbbbbbbbbbbbbb' as AdjustedInputsId,
     handbookVersion: '2026.1',
-    engineVersion: '1.0.0' as HandbookEngineVersion,
+    engineVersion: '1.1.0' as HandbookEngineVersion,
     firedFlags: [
       makeFiredFlag({ principleId: 'P-IV-OFF-2', bandIndex: 0 }),
       makeFiredFlag({
@@ -143,7 +143,7 @@ console.log('\n=== HandbookEvaluation construction ===');
 (() => {
   const eval_ = makeMinimalEvaluation();
   assertEqual(eval_.handbookVersion, '2026.1', 'handbookVersion populated');
-  assertEqual(eval_.engineVersion, '1.0.0', 'engineVersion populated');
+  assertEqual(eval_.engineVersion, '1.1.0', 'engineVersion populated');
   assertEqual(eval_.firedFlags.length, 2, 'two fired flags');
   assertEqual(eval_.skippedPrinciples.length, 2, 'two skipped principles');
   ok('full HandbookEvaluation literal compiles and constructs');
@@ -184,7 +184,8 @@ console.log('\n=== SkippedPrinciple shape (preserves detail field) ===');
 console.log('\n=== SKIP_REASONS enum coverage ===');
 
 (() => {
-  // All 7 reasons the engine can produce must be in the enum
+  // All 8 reasons the engine can produce must be in the enum
+  // (added 'llm_eval_failed' in Phase 2 of the LLM_CONTEXT evaluator)
   const expected = [
     'trigger_inactive',
     'not_deterministic',
@@ -193,6 +194,7 @@ console.log('\n=== SKIP_REASONS enum coverage ===');
     'no_band_matched',
     'no_group_matched',
     'degenerate_evaluation',
+    'llm_eval_failed',
   ];
   assertEqual(SKIP_REASONS.length, expected.length, `SKIP_REASONS has ${expected.length} entries`);
   for (const reason of expected) {

@@ -33,6 +33,7 @@ import { evaluateCondition } from './condition.js';
 import { evaluateMetric, resolveThreshold } from './metric.js';
 import { evaluateOperator } from './operator.js';
 import type {
+  EvaluateDeps,
   FieldBag,
   FieldValue,
   FiredFlag,
@@ -42,6 +43,7 @@ import type {
 } from './types.js';
 
 const DETERMINISTIC: ExecutionMode = 'DETERMINISTIC';
+const LLM_CONTEXT: ExecutionMode = 'LLM_CONTEXT';
 
 /**
  * Evaluate a single principle against a deal bag. Returns either a fired
@@ -49,20 +51,24 @@ const DETERMINISTIC: ExecutionMode = 'DETERMINISTIC';
  *
  * Order of operations:
  *   1. Check trigger — if false, skip with reason 'trigger_inactive'
- *   2. Check executionModes includes DETERMINISTIC — if not, skip
- *   3. Check deterministicCheck is present — if not, skip
- *   4. Evaluate metric — if null and metric kind isn't 'categorical', skip
- *      with reason 'missing_field' (best-effort detail on the path)
- *   5. Walk evaluation groups; for the first group whose condition matches,
- *      walk bands; first band whose operator returns true fires
- *   6. If no group matches, skip 'no_group_matched'
- *   7. If a group matched but no band fired, skip 'no_band_matched'
+ *   2a. If executionModes includes DETERMINISTIC AND deterministicCheck is
+ *       present → run the deterministic check (sync)
+ *   2b. Else if executionModes includes LLM_CONTEXT AND deps.llmEvaluator is
+ *       provided → dispatch to the callback (async; engine awaits)
+ *   2c. Else → skip with reason 'not_deterministic' (RESEARCH-only principles
+ *       and DETERMINISTIC principles missing their check land here)
+ *
+ * Async return: the function is async to accommodate the LLM_CONTEXT branch.
+ * Callers that only use deterministic principles still get the same result
+ * shape (wrapped in a Promise). Sync deterministic evaluation paths inside
+ * the function remain sync internally — only the dispatch boundary is async.
  */
-export function evaluatePrinciple(
+export async function evaluatePrinciple(
   principle: Principle,
   bag: FieldBag,
-): PrincipleEvaluationResult {
-  // 1. Trigger
+  deps: EvaluateDeps = {},
+): Promise<PrincipleEvaluationResult> {
+  // 1. Trigger (mode-agnostic)
   if (!evaluateCondition(principle.trigger, bag)) {
     return {
       status: 'skipped',
@@ -70,24 +76,28 @@ export function evaluatePrinciple(
     };
   }
 
-  // 2. Execution mode
-  if (!principle.executionModes.includes(DETERMINISTIC)) {
-    return {
-      status: 'skipped',
-      skip: { principleId: principle.id, reason: 'not_deterministic' },
-    };
+  // 2a. Deterministic path
+  if (principle.executionModes.includes(DETERMINISTIC)) {
+    const check = principle.deterministicCheck;
+    if (!check) {
+      return {
+        status: 'skipped',
+        skip: { principleId: principle.id, reason: 'no_check_defined' },
+      };
+    }
+    return runDeterministicCheck(principle, check, bag);
   }
 
-  // 3. Check defined
-  const check = principle.deterministicCheck;
-  if (!check) {
-    return {
-      status: 'skipped',
-      skip: { principleId: principle.id, reason: 'no_check_defined' },
-    };
+  // 2b. LLM_CONTEXT path (if dispatch hook provided)
+  if (principle.executionModes.includes(LLM_CONTEXT) && deps.llmEvaluator) {
+    return await deps.llmEvaluator(principle);
   }
 
-  return runDeterministicCheck(principle, check, bag);
+  // 2c. Fall through — RESEARCH-only, or LLM_CONTEXT without dispatch hook
+  return {
+    status: 'skipped',
+    skip: { principleId: principle.id, reason: 'not_deterministic' },
+  };
 }
 
 function runDeterministicCheck(
@@ -240,24 +250,38 @@ function walkFormula(
  * full list of fired flags plus diagnostic information for skipped
  * principles.
  *
- * Iteration order: handbook.principles array order. Engine does not sort
- * or group results — the api layer handles presentation (e.g., grouping
- * by severity, by injection point, or by cluster).
+ * Iteration order: handbook.principles array order. The engine preserves
+ * declared order in both firedFlags and skippedPrinciples; downstream
+ * consumers (api layer) can re-group / re-sort.
  *
- * The engine ignores principles whose `executionModes` doesn't include
- * DETERMINISTIC (recorded as skipped, reason 'not_deterministic') — those
- * principles are handled by the LLM_CONTEXT or RESEARCH execution paths,
- * which are a different layer.
+ * Execution model:
+ *   - Deterministic principles run sync (in-line awaited; no LLM IO).
+ *   - LLM_CONTEXT principles dispatch through `deps.llmEvaluator` when the
+ *     callback is provided; awaited via `Promise.all` with handbook order
+ *     preserved on collect.
+ *   - RESEARCH-only principles skip with 'not_deterministic'.
+ *
+ * Concurrency note: `Promise.all` over all principles is bounded by the
+ * caller-provided `llmEvaluator`'s own rate-limit handling. The engine
+ * does not throttle here. With the handbook's 87 principles, only 7
+ * dispatch to the LLM today (Section II/III universals with
+ * executionModes excluding DETERMINISTIC); concurrent LLM fan-out at
+ * this size is well within typical API rate envelopes. If/when the
+ * 17 RESEARCH principles also dispatch, the caller may need to layer
+ * a concurrency limiter.
  */
-export function evaluateHandbook(
+export async function evaluateHandbook(
   handbook: Handbook,
   bag: FieldBag,
-): HandbookEvaluationResult {
+  deps: EvaluateDeps = {},
+): Promise<HandbookEvaluationResult> {
+  const results = await Promise.all(
+    handbook.principles.map((p) => evaluatePrinciple(p, bag, deps)),
+  );
+
   const firedFlags: FiredFlag[] = [];
   const skippedPrinciples: SkippedPrinciple[] = [];
-
-  for (const principle of handbook.principles) {
-    const result = evaluatePrinciple(principle, bag);
+  for (const result of results) {
     if (result.status === 'fired') {
       firedFlags.push(result.flag);
     } else {

@@ -22,15 +22,24 @@ import type {
   ISODateTime,
   NarrativeFacts,
   PropertyMetadata,
+  Principle,
   StressOutputs,
 } from '@cre/contracts';
 import {
   evaluateHandbook,
   HANDBOOK_ENGINE_VERSION,
+  type LlmEvaluatorFn,
+  type PrincipleEvaluationResult,
 } from '@cre/handbook-engine';
 import { handbook } from '@cre/handbook-data';
 import { buildFieldBag } from './assembler.js';
 import { computeHandbookEvaluationId } from '../../util/content-hash.js';
+import type { RecordGraphStore } from '../../storage/record-graph-store.js';
+import {
+  runLlmContextCheck,
+  LLM_CONTEXT_MODEL,
+  type LlmContextCheckDeps,
+} from './run-llm-context-check.js';
 
 // =============================================================================
 // Args
@@ -105,9 +114,23 @@ export interface BuildHandbookEvaluationArgs {
  *   If the assembler ever grows to read more graph fields, the
  *   producer's args must extend correspondingly.
  */
-export function buildHandbookEvaluation(
+export interface BuildHandbookEvaluationDeps {
+  /**
+   * Optional store for the LLM_CONTEXT eval cache (Phase 1 of the LLM
+   * evaluator). When provided AND llmContextDeps.llmCall is wired (or
+   * omitted to use the default real LLM), principles with
+   * executionModes including LLM_CONTEXT are dispatched through
+   * runLlmContextCheck. When absent, LLM principles continue to skip
+   * with reason 'not_deterministic' (engine v1.0 behavior).
+   */
+  readonly store?: RecordGraphStore;
+  readonly llmContextDeps?: LlmContextCheckDeps;
+}
+
+export async function buildHandbookEvaluation(
   args: BuildHandbookEvaluationArgs,
-): HandbookEvaluation {
+  deps: BuildHandbookEvaluationDeps = {},
+): Promise<HandbookEvaluation> {
   const {
     adjustedInputs,
     assetProfile,
@@ -137,10 +160,39 @@ export function buildHandbookEvaluation(
     asOfDate: new Date(analysisAsOfDate),
   });
 
-  // 3. Evaluate against the handbook. Engine consumes the FULL bag, including
-  //    undefined keys — its missing-field check treats undefined and key-absent
-  //    identically. This is the canonical bag for evaluation.
-  const result = evaluateHandbook(handbook, bag);
+  // 3a. Run the deterministic-only engine pass first. Its fired flags become
+  //     part of the LLM context for the LLM-principle pass (so LLM principles
+  //     can cite deterministic findings). This first pass omits the
+  //     llmEvaluator dep → all LLM principles skip as 'not_deterministic'.
+  const deterministicPass = await evaluateHandbook(handbook, bag);
+
+  // 3b. Run the full engine pass with the LLM dispatch hook wired (if deps
+  //     supply a store). The deterministic principles re-evaluate to the
+  //     same results (pure functions of the bag); the LLM principles
+  //     dispatch through runLlmContextCheck. We then merge — preferring the
+  //     LLM result over the deterministic-pass's 'not_deterministic' skip
+  //     for the same principleId.
+  let result = deterministicPass;
+  if (deps.store !== undefined) {
+    const llmEvaluator: LlmEvaluatorFn = async (principle: Principle): Promise<PrincipleEvaluationResult> => {
+      const checkArgs = {
+        principle,
+        adjustedInputs,
+        stressOutputs,
+        assetProfile,
+        propertyMetadata,
+        narrativeFacts,
+        deterministicFiredFlags: deterministicPass.firedFlags,
+        handbookEngineVersion: HANDBOOK_ENGINE_VERSION,
+      };
+      const evalResult = await runLlmContextCheck(checkArgs, deps.store!, deps.llmContextDeps ?? {});
+      // LlmEvalResult and PrincipleEvaluationResult are structurally
+      // identical; the explicit cast widens FiredFlag's branded fields.
+      return evalResult as PrincipleEvaluationResult;
+    };
+    result = await evaluateHandbook(handbook, bag, { llmEvaluator });
+  }
+  void LLM_CONTEXT_MODEL;
 
   // 4. Filter undefined keys for persistence. The workspace's canonical-json
   //    implementation rejects undefined values (strict JCS). The Commit 1

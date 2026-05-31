@@ -107,9 +107,9 @@ const sampleStressOutputs = {
   method: 'DEFAULT' as const, scenarios: [],
 } as unknown as StressOutputs;
 
-const sampleAssetProfile: AssetProfile = {
+const sampleAssetProfile = {
   id: 'ap1', propertyType: 'Office', businessPlan: 'Stabilized', marketLiquidity: 'Primary',
-};
+} as unknown as AssetProfile;
 
 const sampleNarrativeFacts = {
   id: 'nf1', analysisAsOfDate: '2026-05-31T00:00:00Z', isSingleTenant: null, hasInPlaceCashFlow: true,

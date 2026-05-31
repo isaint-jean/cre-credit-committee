@@ -229,12 +229,15 @@ function setupUpstream(store: RecordGraphStore): {
 
 /* ----------------------------------- tests --------------------------------- */
 
+// Top-level async IIFE — evaluateFromAdjustedInputs is async since Phase 3.
+(async () => {
+
 console.log('Happy path:');
 {
   const store = new RecordGraphStore(':memory:');
   const u = setupUpstream(store);
 
-  const { evaluation } = evaluateFromAdjustedInputs(
+  const { evaluation } = await evaluateFromAdjustedInputs(
     {
       adjustedInputs: u.adjustedInputs,
       assetProfile: u.assetProfile,
@@ -278,8 +281,8 @@ console.log('\nIdempotency — two calls with the same args produce the same eva
     analysisAsOfDate: AS_OF,
     propertyMetadata: null,
   };
-  const r1 = evaluateFromAdjustedInputs(args, store);
-  const r2 = evaluateFromAdjustedInputs(args, store);
+  const r1 = await evaluateFromAdjustedInputs(args, store);
+  const r2 = await evaluateFromAdjustedInputs(args, store);
 
   assertEqual(r1.evaluation.id, r2.evaluation.id, 'identical inputs → identical evaluation.id');
   assertEqual(r1.evaluation.crossCheckResultId, r2.evaluation.crossCheckResultId, 'identical inputs → identical crossCheckResultId');
@@ -297,7 +300,7 @@ console.log('\nCaller pre-inserts AdjustedInputs — function still completes:')
   // may insert a child AdjustedInputs into the store and then drive the tail.
   store.insertAdjustedInputs(u.adjustedInputs);
 
-  const { evaluation } = evaluateFromAdjustedInputs(
+  const { evaluation } = await evaluateFromAdjustedInputs(
     {
       adjustedInputs: u.adjustedInputs,
       assetProfile: u.assetProfile,
@@ -319,7 +322,7 @@ console.log('\nDiscipline — evaluateFromAdjustedInputs does NOT create a revis
 {
   const store = new RecordGraphStore(':memory:');
   const u = setupUpstream(store);
-  const { evaluation } = evaluateFromAdjustedInputs(
+  const { evaluation } = await evaluateFromAdjustedInputs(
     {
       adjustedInputs: u.adjustedInputs,
       assetProfile: u.assetProfile,
@@ -354,3 +357,5 @@ console.log('\nDiscipline — evaluateFromAdjustedInputs does NOT create a revis
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
+
+})().catch((e) => { console.error('test runner threw:', e); process.exit(2); });

@@ -53,9 +53,14 @@ export async function evaluateAndNarrate(
   store: RecordGraphStore,
   deps: EvaluateAndNarrateDeps = {},
 ): Promise<EvaluateAndNarrateResult> {
-  const { evaluation, handbookEvaluation } = evaluateFromAdjustedInputs(
+  const { evaluation, handbookEvaluation } = await evaluateFromAdjustedInputs(
     args,
     store,
+    // Wire the LLM_CONTEXT evaluator into the handbook pass when the same
+    // llmCall is available. Production callers omit deps.llmCall → the
+    // real callAIWithContinuation flows through to both the narrative
+    // producer and the LLM-principle evaluator.
+    { llmContextDeps: { llmCall: deps.llmCall } },
   );
 
   const narrative = await buildNarrative(

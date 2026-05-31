@@ -71,6 +71,30 @@ export interface HandbookEvaluationResult {
   skippedPrinciples: SkippedPrinciple[];
 }
 
+/**
+ * Optional dependency injection for the engine evaluators (Phase 3 of the
+ * LLM_CONTEXT evaluator). Engine package stays free of LLM/store imports
+ * — the caller provides a callback that performs the LLM evaluation and
+ * returns a PrincipleEvaluationResult.
+ *
+ * When `llmEvaluator` is omitted, principles whose executionModes don't
+ * include DETERMINISTIC fall through to a skip with reason 'not_deterministic'
+ * (unchanged from the original sync engine behavior).
+ *
+ * When `llmEvaluator` is provided, principles with executionModes including
+ * LLM_CONTEXT (but not DETERMINISTIC) are dispatched to the callback. The
+ * callback returns either a fired flag or a skip; the engine folds the
+ * result into the aggregate.
+ *
+ * RESEARCH-only principles continue to skip with 'not_deterministic' — those
+ * are deferred to a later evaluator and are not handled here.
+ */
+export type LlmEvaluatorFn = (principle: import('@cre/contracts').Principle) => Promise<PrincipleEvaluationResult>;
+
+export interface EvaluateDeps {
+  readonly llmEvaluator?: LlmEvaluatorFn;
+}
+
 // =============================================================================
 // Internal helpers (unchanged from f981fec)
 // =============================================================================

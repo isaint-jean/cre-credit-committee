@@ -171,14 +171,18 @@ function makeArgs(overrides: Partial<BuildHandbookEvaluationArgs> = {}): BuildHa
 // Tests
 // =============================================================================
 
+// Top-level async IIFE — buildHandbookEvaluation is async since Phase 3
+// of the LLM_CONTEXT evaluator. Each per-test IIFE inside is awaited.
+(async () => {
+
 console.log('\n=== Record construction ===');
 
-(() => {
-  const eval_ = buildHandbookEvaluation(makeArgs());
+await (async () => {
+  const eval_ = await buildHandbookEvaluation(makeArgs());
   assertTruthy(eval_.id, 'record has an id');
   assertEqual(eval_.adjustedInputsId, 'aaaa', 'adjustedInputsId FKs to AdjustedInputs');
   assertEqual(eval_.handbookVersion, '2026.1', 'handbookVersion stamped from handbook constant');
-  assertEqual(eval_.engineVersion, '1.0.0', 'engineVersion stamped as constant');
+  assertEqual(eval_.engineVersion, '1.1.0', 'engineVersion stamped as constant (1.1.0 — LLM_CONTEXT dispatch)');
   assertEqual(eval_.analysisAsOfDate, '2026-01-01T00:00:00.000Z', 'analysisAsOfDate preserved');
   assertTruthy(eval_.fieldBagSnapshot, 'fieldBagSnapshot present');
   assertTruthy(Array.isArray(eval_.firedFlags), 'firedFlags is array');
@@ -187,8 +191,8 @@ console.log('\n=== Record construction ===');
 
 console.log('\n=== Id consistency (store will recompute and verify) ===');
 
-(() => {
-  const eval_ = buildHandbookEvaluation(makeArgs());
+await (async () => {
+  const eval_ = await buildHandbookEvaluation(makeArgs());
   const { id, ...body } = eval_;
   const recomputed = computeHandbookEvaluationId(body);
   assertEqual(id, recomputed, 'producer-computed id matches recomputation from body');
@@ -198,8 +202,8 @@ console.log('\n=== Engine output propagates (adapted to real handbook) ===');
 
 // Fixture (Office, Class B, DSCR 1.10, stressed DSCR 0.92) should fire at
 // least P-IV-OFF-2 (Class B office). Real engine returns ~80 skips total.
-(() => {
-  const eval_ = buildHandbookEvaluation(makeArgs());
+await (async () => {
+  const eval_ = await buildHandbookEvaluation(makeArgs());
   assertTruthy(
     eval_.firedFlags.length >= 1,
     'at least one flag fires for Class B office with low DSCR',
@@ -208,8 +212,8 @@ console.log('\n=== Engine output propagates (adapted to real handbook) ===');
   assertTruthy(offTwo, 'P-IV-OFF-2 (Class B office) fires for this fixture');
 })();
 
-(() => {
-  const eval_ = buildHandbookEvaluation(makeArgs());
+await (async () => {
+  const eval_ = await buildHandbookEvaluation(makeArgs());
   assertTruthy(
     eval_.skippedPrinciples.length >= 1,
     'at least one skipped principle (real engine returns many)',
@@ -225,8 +229,8 @@ console.log('\n=== Engine output propagates (adapted to real handbook) ===');
 
 console.log('\n=== fieldBagSnapshot reflects assembler output ===');
 
-(() => {
-  const eval_ = buildHandbookEvaluation(makeArgs());
+await (async () => {
+  const eval_ = await buildHandbookEvaluation(makeArgs());
   assertEqual(eval_.fieldBagSnapshot['asset_type'], 'Office', 'snapshot includes asset_type');
   assertEqual(eval_.fieldBagSnapshot['dscr'], 1.10, 'snapshot includes dscr');
   assertEqual(
@@ -238,9 +242,9 @@ console.log('\n=== fieldBagSnapshot reflects assembler output ===');
 
 console.log('\n=== Null PropertyMetadata: producer succeeds, metadata fields absent ===');
 
-(() => {
+await (async () => {
   const args = makeArgs({ propertyMetadata: null });
-  const eval_ = buildHandbookEvaluation(args);
+  const eval_ = await buildHandbookEvaluation(args);
   assertTruthy(eval_.id, 'record built successfully with null propertyMetadata');
   assertEqual(eval_.fieldBagSnapshot['msa'], undefined, 'msa undefined when metadata null');
   assertEqual(
@@ -253,17 +257,17 @@ console.log('\n=== Null PropertyMetadata: producer succeeds, metadata fields abs
 
 console.log('\n=== Determinism: same inputs → same id ===');
 
-(() => {
-  const eval1 = buildHandbookEvaluation(makeArgs());
-  const eval2 = buildHandbookEvaluation(makeArgs());
+await (async () => {
+  const eval1 = await buildHandbookEvaluation(makeArgs());
+  const eval2 = await buildHandbookEvaluation(makeArgs());
   assertEqual(eval1.id, eval2.id, 'same inputs produce same id');
 })();
 
 console.log('\n=== Different inputs → different ids ===');
 
-(() => {
-  const eval1 = buildHandbookEvaluation(makeArgs());
-  const eval2 = buildHandbookEvaluation(
+await (async () => {
+  const eval1 = await buildHandbookEvaluation(makeArgs());
+  const eval2 = await buildHandbookEvaluation(
     makeArgs({
       adjustedInputs: makeAdjustedInputs('bbbb' as AdjustedInputsId, {
         loanAmount: 5_000_000, dscr: 2.50, debtYield: 0.15,
@@ -279,8 +283,8 @@ console.log('\n=== Different inputs → different ids ===');
 
 console.log('\n=== JSON round-trip preserves all fields ===');
 
-(() => {
-  const eval_ = buildHandbookEvaluation(makeArgs());
+await (async () => {
+  const eval_ = await buildHandbookEvaluation(makeArgs());
   const round = JSON.parse(JSON.stringify(eval_)) as HandbookEvaluation;
   assertEqual(round.handbookVersion, eval_.handbookVersion, 'handbookVersion survives round-trip');
   assertEqual(round.firedFlags.length, eval_.firedFlags.length, 'firedFlags survives');
@@ -304,3 +308,5 @@ if (failed > 0) {
   for (const f of failures) console.log(`  - ${f}`);
   process.exit(1);
 }
+
+})().catch((e) => { console.error('test runner threw:', e); process.exit(2); });

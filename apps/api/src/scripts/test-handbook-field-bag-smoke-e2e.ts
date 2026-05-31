@@ -87,7 +87,7 @@ function fail(m: string): void {
 }
 
 function assertFlagFired(
-  result: ReturnType<typeof evaluateHandbook>,
+  result: Awaited<ReturnType<typeof evaluateHandbook>>,
   principleId: string,
   m: string,
 ): void {
@@ -105,7 +105,7 @@ function assertFlagFired(
 }
 
 function assertFlagSkippedWith(
-  result: ReturnType<typeof evaluateHandbook>,
+  result: Awaited<ReturnType<typeof evaluateHandbook>>,
   principleId: string,
   expectedReason: string,
   m: string,
@@ -373,9 +373,14 @@ function makeSmokeInputs(overrides: {
 // Scenario A: Office deal with weak metrics
 // =============================================================================
 
+// Top-level async IIFE — engine evaluators are async since Phase 3 of the
+// LLM_CONTEXT evaluator. Sequencing inside this IIFE ensures the per-
+// scenario IIFEs finish before the Summary block reads pass/fail counts.
+(async () => {
+
 console.log('\n=== Scenario A: Office deal with weak metrics ===');
 
-(() => {
+await (async () => {
   const inputs = makeSmokeInputs({
     loanAmount: 30_000_000,
     dscr: 1.20,
@@ -399,7 +404,7 @@ console.log('\n=== Scenario A: Office deal with weak metrics ===');
   });
 
   const bag = buildFieldBag(inputs);
-  const result = evaluateHandbook(handbook, bag);
+  const result = await evaluateHandbook(handbook, bag);
 
   console.log(
     `  info  ${result.firedFlags.length} flags fired, ${result.skippedPrinciples.length} principles skipped`,
@@ -431,7 +436,7 @@ console.log('\n=== Scenario A: Office deal with weak metrics ===');
 
 console.log('\n=== Scenario B: Single-tenant deal with blocked dark value ===');
 
-(() => {
+await (async () => {
   const inputs = makeSmokeInputs({
     loanAmount: 15_000_000,
     dscr: 1.45,
@@ -452,7 +457,7 @@ console.log('\n=== Scenario B: Single-tenant deal with blocked dark value ===');
   });
 
   const bag = buildFieldBag(inputs);
-  const result = evaluateHandbook(handbook, bag);
+  const result = await evaluateHandbook(handbook, bag);
 
   console.log(
     `  info  ${result.firedFlags.length} flags fired, ${result.skippedPrinciples.length} principles skipped`,
@@ -494,7 +499,7 @@ console.log('\n=== Scenario B: Single-tenant deal with blocked dark value ===');
 
 console.log('\n=== Scenario C: PropertyMetadata absent ===');
 
-(() => {
+await (async () => {
   const inputs = makeSmokeInputs({
     loanAmount: 5_000_000,
     dscr: 1.50,
@@ -508,7 +513,7 @@ console.log('\n=== Scenario C: PropertyMetadata absent ===');
   });
 
   const bag = buildFieldBag(inputs);
-  const result = evaluateHandbook(handbook, bag);
+  const result = await evaluateHandbook(handbook, bag);
 
   console.log(
     `  info  ${result.firedFlags.length} flags fired, ${result.skippedPrinciples.length} principles skipped (PropertyMetadata=null)`,
@@ -539,3 +544,8 @@ if (failed > 0) {
   for (const f of failures) console.log(`  - ${f}`);
 }
 process.exit(failed > 0 ? 1 : 0);
+
+})().catch((e) => {
+  console.error('test runner threw:', e);
+  process.exit(2);
+});

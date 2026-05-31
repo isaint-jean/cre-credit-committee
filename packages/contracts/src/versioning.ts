@@ -28,7 +28,7 @@ export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
  *   MAJOR (1.0.0 → 2.0.0): semantic changes to existing operators or condition
  *     evaluation order. Re-evaluation recommended for historical deals.
  */
-export const HANDBOOK_ENGINE_VERSION = '1.0.0' as const;
+export const HANDBOOK_ENGINE_VERSION = '1.1.0' as const;
 
 /**
  * Narrative-engine simple version. Stamped onto every NarrativeEvaluation record

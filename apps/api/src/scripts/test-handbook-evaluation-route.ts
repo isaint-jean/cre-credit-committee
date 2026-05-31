@@ -110,7 +110,7 @@ function makeSampleEvaluation(adjustedInputsId: AdjustedInputsId): HandbookEvalu
     analysisAsOfDate: '2026-01-01T00:00:00.000Z' as ISODateTime,
     adjustedInputsId,
     handbookVersion: '2026.1',
-    engineVersion: '1.0.0' as HandbookEngineVersion,
+    engineVersion: '1.1.0' as HandbookEngineVersion,
     firedFlags: [
       {
         principleId: 'P-IV-OFF-2',

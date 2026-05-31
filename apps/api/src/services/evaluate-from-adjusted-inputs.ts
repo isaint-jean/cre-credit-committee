@@ -80,10 +80,22 @@ export interface EvaluateFromAdjustedInputsResult {
   readonly handbookEvaluation: HandbookEvaluation;
 }
 
-export function evaluateFromAdjustedInputs(
+export interface EvaluateFromAdjustedInputsDeps {
+  /**
+   * Optional LLM-context deps for the handbook evaluator (Phase 3 of the
+   * LLM_CONTEXT evaluator). When provided, the handbook engine dispatches
+   * LLM_CONTEXT principles through runLlmContextCheck. When omitted, all
+   * non-deterministic principles skip with 'not_deterministic' (legacy
+   * sync engine behavior).
+   */
+  readonly llmContextDeps?: import('./handbook/run-llm-context-check.js').LlmContextCheckDeps;
+}
+
+export async function evaluateFromAdjustedInputs(
   args: EvaluateFromAdjustedInputsArgs,
   store: RecordGraphStore,
-): EvaluateFromAdjustedInputsResult {
+  deps: EvaluateFromAdjustedInputsDeps = {},
+): Promise<EvaluateFromAdjustedInputsResult> {
   const {
     adjustedInputs,
     assetProfile,
@@ -124,14 +136,17 @@ export function evaluateFromAdjustedInputs(
      StressOutputs because the assembler reads stressed_dscr_top_3_removed
      from the named scenario; placed before ValuationConclusion because the
      handbook evaluation has no dependency on valuation or doctrine. */
-  const handbookEvaluation = buildHandbookEvaluation({
-    adjustedInputs,
-    assetProfile,
-    narrativeFacts,
-    stressOutputs,
-    propertyMetadata,
-    analysisAsOfDate,
-  });
+  const handbookEvaluation = await buildHandbookEvaluation(
+    {
+      adjustedInputs,
+      assetProfile,
+      narrativeFacts,
+      stressOutputs,
+      propertyMetadata,
+      analysisAsOfDate,
+    },
+    { store, llmContextDeps: deps.llmContextDeps },
+  );
   store.insertHandbookEvaluation(handbookEvaluation);
 
   /* Stage 7 — ValuationConclusion. */

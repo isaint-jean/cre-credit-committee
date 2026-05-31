@@ -28,11 +28,13 @@ export {
 export { HANDBOOK_ENGINE_VERSION } from './types.js';
 
 export type {
+  EvaluateDeps,
   FieldBag,
   FieldValue,
   FiredFlag,
   HandbookEngineVersion,
   HandbookEvaluationResult,
+  LlmEvaluatorFn,
   PrincipleEvaluationResult,
   SkippedPrinciple,
   SkipReason,
