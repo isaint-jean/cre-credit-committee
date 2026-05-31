@@ -359,6 +359,28 @@ export class RecordGraphStore {
 
       CREATE INDEX IF NOT EXISTS idx_extraction_input_cache_result ON extraction_input_cache(extraction_result_id);
 
+      -- LLM_CONTEXT principle eval cache (Phase 1.1 of LLM-context evaluator).
+      -- Keyed by (principleId, contextHash, handbookEngineVersion, modelVersion).
+      -- contextHash is SHA-256 of the JCS-canonicalized per-principle context bundle
+      -- (curated subset of AdjustedInputs, StressOutputs, AssetProfile,
+      -- PropertyMetadata, NarrativeFacts, plus principle metadata, plus
+      -- deterministicFiredFlags). Cache hits preserve HE.id content-stability across
+      -- replays (the LLM call is non-deterministic; the cache makes the result
+      -- effectively deterministic per content-addressed input).
+      --
+      -- result_payload stores the canonical JSON of the LLM's structured output:
+      --   { fired: bool, severity, flag_message, evidenceQuotes: string[] }
+      -- On 'fired=false' the severity/message/evidence are the LLM's "why not".
+      CREATE TABLE IF NOT EXISTS llm_principle_eval_cache (
+        principle_id              TEXT NOT NULL,
+        context_hash              TEXT NOT NULL,
+        handbook_engine_version   TEXT NOT NULL,
+        model_version             TEXT NOT NULL,
+        result_payload            TEXT NOT NULL,
+        created_at                TEXT NOT NULL,
+        PRIMARY KEY (principle_id, context_hash, handbook_engine_version, model_version)
+      );
+
       -- Option C / spec §4 — revision lineage. Two sibling tables:
       --   - envelopes: content-addressed (id = SHA-256 of RevisionIdHashInput,
       --     i.e. {parentRevisionId, adjustedInputsId, doctrineVersion}).
@@ -1127,6 +1149,64 @@ export class RecordGraphStore {
       extractionResultId: row.extraction_result_id as ExtractionResultId,
       propertyMetadataId: (row.property_metadata_id ?? null) as PropertyMetadataId | null,
     };
+  }
+
+  /* -------------------------- llm_principle_eval_cache ------------------------- */
+
+  /**
+   * Cache an LLM_CONTEXT principle evaluation. Idempotent under the composite
+   * key (principleId, contextHash, handbookEngineVersion, modelVersion); a
+   * second insert with the same key is a no-op (ON CONFLICT DO NOTHING). The
+   * stored payload is the LLM's canonical structured-output JSON.
+   */
+  insertLlmPrincipleEval(args: {
+    readonly principleId: string;
+    readonly contextHash: string;
+    readonly handbookEngineVersion: string;
+    readonly modelVersion: string;
+    readonly resultPayload: string;
+  }): { inserted: boolean } {
+    const result = this.db
+      .prepare(
+        `INSERT INTO llm_principle_eval_cache
+         (principle_id, context_hash, handbook_engine_version, model_version, result_payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(principle_id, context_hash, handbook_engine_version, model_version) DO NOTHING`,
+      )
+      .run(
+        args.principleId,
+        args.contextHash,
+        args.handbookEngineVersion,
+        args.modelVersion,
+        args.resultPayload,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  /**
+   * Lookup a cached LLM principle evaluation. Returns the raw JSON payload
+   * the caller stored, or null on miss. Caller parses + validates structurally.
+   */
+  getLlmPrincipleEval(args: {
+    readonly principleId: string;
+    readonly contextHash: string;
+    readonly handbookEngineVersion: string;
+    readonly modelVersion: string;
+  }): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT result_payload FROM llm_principle_eval_cache
+         WHERE principle_id = ? AND context_hash = ?
+           AND handbook_engine_version = ? AND model_version = ?`,
+      )
+      .get(
+        args.principleId,
+        args.contextHash,
+        args.handbookEngineVersion,
+        args.modelVersion,
+      ) as { result_payload: string } | undefined;
+    return row === undefined ? null : row.result_payload;
   }
 
   /* ------------------------- revision_lineage_envelopes ------------------------ */
