@@ -299,6 +299,54 @@ function makeStubLlm(responses: string[]) {
     }
   }
 
+  console.log('\n11b. manualInputs absent vs present → context hash differs (cache invariant)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    // First: no manualInputs — stub returns needs_manual_input
+    const stub1 = makeStubLlm([
+      JSON.stringify({
+        outcome: 'needs_manual_input',
+        flag_message: 'need comp',
+        manualInputRequests: [{ kind: 'market_rent_comp', detail: 'per-tenant PSF' }],
+      }),
+    ]);
+    const r1 = await runLlmContextCheck(args(), store, { llmCall: stub1.fn as never });
+    assertEqual(r1.status, 'skipped', '11b.1 no-comp run → skipped');
+
+    // Second: SAME deal + manualInputs provided → different context hash → cache miss → LLM re-called
+    const argsWithComp = { ...args(), manualInputs: { marketRentComps: [{ tenantOrSpace: 'asset-wide', psf: 32, source: 'placeholder' }] } };
+    const stub2 = makeStubLlm([
+      JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'above-market exposure identified', evidenceQuotes: ['comp PSF $32'] }),
+    ]);
+    const r2 = await runLlmContextCheck(argsWithComp, store, { llmCall: stub2.fn as never });
+    assertEqual(stub2.calls(), 1, '11b.2 manualInputs present → cache MISS → LLM called fresh');
+    assertEqual(r2.status, 'fired', '11b.3 comp-fed run → fires (different bucket from no-comp)');
+
+    // Third: identical args + same manualInputs as second → cache HIT
+    const stub3 = makeStubLlm([]); // no stub responses available — proves cache hit
+    const r3 = await runLlmContextCheck(argsWithComp, store, { llmCall: stub3.fn as never });
+    assertEqual(stub3.calls(), 0, '11b.4 same manualInputs again → cache HIT (LLM not called)');
+    assertEqual(r3.status, 'fired', '11b.5 cached result preserved');
+    if (r2.status === 'fired' && r3.status === 'fired') {
+      assertEqual(r3.flag.flag_message, r2.flag.flag_message, '11b.6 cached message byte-identical');
+    }
+  }
+
+  console.log('\n11c. DIFFERENT manualInputs → different cache entry');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const argsCompA = { ...args(), manualInputs: { marketRentComps: [{ tenantOrSpace: 'asset-wide', psf: 28 }] } };
+    const argsCompB = { ...args(), manualInputs: { marketRentComps: [{ tenantOrSpace: 'asset-wide', psf: 35 }] } };
+    const stubA = makeStubLlm([JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'comp A result', evidenceQuotes: [] })]);
+    const stubB = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'comp B satisfied', evidenceQuotes: [] })]);
+    const rA = await runLlmContextCheck(argsCompA, store, { llmCall: stubA.fn as never });
+    const rB = await runLlmContextCheck(argsCompB, store, { llmCall: stubB.fn as never });
+    assertEqual(stubA.calls(), 1, '11c.1 comp-A invoked LLM');
+    assertEqual(stubB.calls(), 1, '11c.2 comp-B invoked LLM (different comp → cache miss)');
+    assertEqual(rA.status === 'fired' && rA.flag.flag_message, 'comp A result', '11c.3 comp-A result preserved');
+    assertEqual(rB.status, 'skipped', '11c.4 comp-B result differs');
+  }
+
   console.log('\n11. needs_manual_input result IS cached (deterministic on replay)');
   {
     const store = new RecordGraphStore(':memory:');

@@ -40,6 +40,9 @@ import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 export interface EvaluateAndNarrateDeps {
   readonly llmCall?: LLMCallFn;
+  /** Optional analyst-supplied manual inputs threaded into the
+   *  LLM_CONTEXT evaluator. See run-llm-context-check.ts. */
+  readonly manualInputs?: import('@cre/contracts').ManualInputs;
 }
 
 export interface EvaluateAndNarrateResult {
@@ -60,7 +63,7 @@ export async function evaluateAndNarrate(
     // llmCall is available. Production callers omit deps.llmCall → the
     // real callAIWithContinuation flows through to both the narrative
     // producer and the LLM-principle evaluator.
-    { llmContextDeps: { llmCall: deps.llmCall } },
+    { llmContextDeps: { llmCall: deps.llmCall, manualInputs: deps.manualInputs } },
   );
 
   const narrative = await buildNarrative(

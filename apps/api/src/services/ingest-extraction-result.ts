@@ -73,6 +73,15 @@ import type { RecordGraphStore } from '../storage/record-graph-store.js';
  */
 export interface IngestExtractionResultDeps {
   readonly llmCall?: LLMCallFn;
+  /**
+   * Optional analyst-supplied manual inputs (comps, sponsor research, etc.).
+   * Threaded down to the LLM_CONTEXT evaluator's per-principle context. When
+   * provided, principles that require this kind of data reach a fired
+   * conclusion grounded in the analyst input; when omitted, those
+   * principles return needs_manual_input. Data-only — no UI; populated
+   * by script/test today.
+   */
+  readonly manualInputs?: import('@cre/contracts').ManualInputs;
 }
 
 /* ------------------------------- error type -------------------------------- */
@@ -253,7 +262,7 @@ export async function ingestExtractionResult(
       propertyMetadata,
     },
     store,
-    { llmCall: deps.llmCall },
+    { llmCall: deps.llmCall, manualInputs: deps.manualInputs },
   );
 
   /* Stage 9 — Root revision envelope + provenance (Option C / issue #20).

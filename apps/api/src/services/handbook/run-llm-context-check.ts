@@ -32,6 +32,7 @@ import type {
   AssetProfile,
   FiredFlag,
   ManualInputRequest,
+  ManualInputs,
   NarrativeFacts,
   PropertyMetadata,
   SkipReason,
@@ -78,11 +79,24 @@ export interface LlmContextCheckArgs {
   readonly narrativeFacts: NarrativeFacts;
   readonly deterministicFiredFlags: ReadonlyArray<FiredFlag>;
   readonly handbookEngineVersion: string;
+  /**
+   * Optional analyst-supplied inputs (the manual-input layer — comps,
+   * sponsor research, submarket vacancy rates, etc.). When present,
+   * surfaced into the LLM prompt and folded into the context hash so a
+   * different comp set produces a different hash and a fresh eval.
+   * When absent, principles that require this kind of input return
+   * needs_manual_input.
+   */
+  readonly manualInputs?: ManualInputs;
 }
 
 export interface LlmContextCheckDeps {
   readonly llmCall?: typeof callAIWithContinuation;
   readonly modelVersion?: string;
+  /** Analyst-supplied manual inputs (the manual-input layer). Folded
+   *  into the per-principle context bundle by buildHandbookEvaluation's
+   *  llmEvaluator closure. */
+  readonly manualInputs?: ManualInputs;
 }
 
 export async function runLlmContextCheck(
@@ -278,6 +292,10 @@ function resultFromLlmOutput(principle: Principle, parsed: LlmStructuredOutput):
 // invalidates every cached LLM eval — bump HANDBOOK_ENGINE_VERSION when changing.
 
 function computeContextHash(args: LlmContextCheckArgs): string {
+  // manualInputs canonicalized as `null` when absent — preserves hash
+  // stability across runs that both omit comps. Different comp sets
+  // produce different bytes → different hash → fresh eval (correct
+  // per Phase 0 caching strategy).
   const ctx = {
     principle: {
       id: args.principle.id,
@@ -294,6 +312,7 @@ function computeContextHash(args: LlmContextCheckArgs): string {
       propertyMetadata: args.propertyMetadata,
       narrativeFacts: curateNarrativeFacts(args.narrativeFacts),
     },
+    manualInputs: args.manualInputs ?? null,
     handbookEngineVersion: args.handbookEngineVersion,
     modelVersion: LLM_CONTEXT_MODEL,
     deterministicFiredFlags: args.deterministicFiredFlags,
@@ -428,6 +447,22 @@ function buildPrompt(args: LlmContextCheckArgs): string {
     deterministicFiredFlagsCount: args.deterministicFiredFlags.length,
   });
 
+  // Manual-input layer (analyst-supplied; NOT extracted from documents).
+  // Surface only when present — absence is meaningful (drives the
+  // needs_manual_input path for principles that require this kind of data).
+  const manualInputsJson = args.manualInputs !== undefined
+    ? canonicalize(args.manualInputs)
+    : null;
+  const manualInputsBlock = manualInputsJson !== null
+    ? [
+        '',
+        'Analyst-supplied manual inputs (NOT extracted — entered by the analyst):',
+        manualInputsJson,
+        '',
+        'When the principle requires this kind of input, treat the manual-input bundle as authoritative and reach a fired conclusion grounded in it. Only return needs_manual_input when the required input is genuinely absent from BOTH the deal data and the manual inputs.',
+      ].join('\n')
+    : '';
+
   return [
     `Principle to evaluate: ${args.principle.id} — ${args.principle.title}`,
     `Default severity: ${args.principle.severity}`,
@@ -436,7 +471,7 @@ function buildPrompt(args: LlmContextCheckArgs): string {
     '',
     'Deal data (JCS-canonical JSON):',
     dealJson,
-    '',
+    manualInputsBlock,
     'Evaluate this principle against this deal. Return the JSON object as specified.',
   ].join('\n');
 }

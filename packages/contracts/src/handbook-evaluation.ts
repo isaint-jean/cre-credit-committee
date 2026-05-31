@@ -78,6 +78,37 @@ export interface ManualInputRequest {
   readonly detail: string;     // analyst-facing description ("per-tenant market PSF for above-market tenants")
 }
 
+/**
+ * One analyst-supplied market rent comp. Sits in the manual-input layer
+ * (analyst-entered, never extracted from ASR/seller UW). Consumed by
+ * Office Rule B (P-IV-OFF-10) and any future principle that requires
+ * per-tenant or asset-wide market rent for above-market underwriting.
+ */
+export interface MarketRentComp {
+  /** Tenant id, space label, or 'asset-wide' for a blended figure. */
+  readonly tenantOrSpace: string;
+  /** Market rent in dollars per square foot per year. */
+  readonly psf: number;
+  /** Optional provenance note (broker, CoStar, etc.). */
+  readonly source?: string;
+  /** Optional ISO date the comp was sourced. */
+  readonly asOfDate?: string;
+}
+
+/**
+ * Manual-input bundle — analyst-supplied data that the extraction layer
+ * does NOT produce (comps, manual research, etc.). Threaded through the
+ * ingest/eval entry points as an optional dep. When present, the per-
+ * principle LLM context includes it; principles that require this kind
+ * of input reach a fired conclusion instead of needs_manual_input.
+ *
+ * Extensible — add new fields here (salesComps, submarketVacancy,
+ * sponsorLookup, etc.) as principles get authored that need them.
+ */
+export interface ManualInputs {
+  readonly marketRentComps?: ReadonlyArray<MarketRentComp>;
+}
+
 // `Severity` and `InjectionPoint` come from the handbook contract module
 // (handbook.ts), where they were originally defined as part of the
 // Principle metadata. Re-exported here so engine-output consumers can

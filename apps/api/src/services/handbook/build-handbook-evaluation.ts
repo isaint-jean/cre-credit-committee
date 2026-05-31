@@ -184,6 +184,9 @@ export async function buildHandbookEvaluation(
         narrativeFacts,
         deterministicFiredFlags: deterministicPass.firedFlags,
         handbookEngineVersion: HANDBOOK_ENGINE_VERSION,
+        ...(deps.llmContextDeps?.manualInputs !== undefined
+          ? { manualInputs: deps.llmContextDeps.manualInputs }
+          : {}),
       };
       const evalResult = await runLlmContextCheck(checkArgs, deps.store!, deps.llmContextDeps ?? {});
       // LlmEvalResult and PrincipleEvaluationResult are structurally
