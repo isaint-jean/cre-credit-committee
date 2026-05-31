@@ -389,6 +389,57 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     }
   }
 
+  console.log('\n11a. mitigationsNarrative — projected from NE.mitigationSuggestions for promoted records');
+  {
+    const input = makeLegacyAnalysis({
+      graphRevisionId: ingest.rootId,
+      mitigations: [],
+    });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assert(out.mitigationsNarrative != null && out.mitigationsNarrative.length > 0, '11a.1 mitigationsNarrative populated from graph');
+    // Stub LLM emits '- [P] mitigation stub' for the mitigation-suggestions slot.
+    assert(out.mitigationsNarrative!.includes('mitigation stub'), '11a.2 mitigationsNarrative carries the LLM-authored prose (stub fixture)');
+    // legacy mitigations[] left untouched.
+    assertEqual(out.mitigations.length, 0, '11a.3 legacy mitigations[] preserved (empty in this test)');
+  }
+
+  console.log('\n11b. mitigationsNarrative — null when no link');
+  {
+    const input = makeLegacyAnalysis({ graphRevisionId: null });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assertEqual(out.mitigationsNarrative ?? null, null, '11b.1 null-link → mitigationsNarrative null');
+  }
+
+  console.log('\n11c. mitigationsNarrative — null when NE missing (bogus link, no envelope)');
+  {
+    const bogusLink = '2'.repeat(64) as RevisionId;
+    const input = makeLegacyAnalysis({ graphRevisionId: bogusLink });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assertEqual(out.mitigationsNarrative ?? null, null, '11c.1 unresolvable graph → mitigationsNarrative stays null (legacy fallback)');
+  }
+
+  console.log('\n11d. mitigationsNarrative — preserves existing legacy mitigations[] cards untouched');
+  {
+    const sentinelMitigations: import('@cre/shared').MitigationStrategy[] = [{
+      id: 'legacy-mit-1',
+      findingId: 'finding-1',
+      strategy: 'Legacy strategy text',
+      description: 'Legacy description',
+      structuralChanges: ['change 1'],
+      financialImpact: { targetMetric: 'DSCR', currentValue: 1.0, projectedValue: 1.2, improvement: '+0.2x' },
+      riskReduction: 'moderate',
+    }];
+    const input = makeLegacyAnalysis({
+      graphRevisionId: ingest.rootId,
+      mitigations: sentinelMitigations,
+    });
+    const out = projectLegacyAnalysisFromGraph(input, store);
+    assertEqual(out.mitigations.length, 1, '11d.1 legacy mitigations[] length preserved');
+    assertEqual(out.mitigations[0].id, 'legacy-mit-1', '11d.2 legacy mitigations[] content preserved verbatim');
+    // mitigationsNarrative ALSO populated — the two surfaces are independent.
+    assert(out.mitigationsNarrative != null, '11d.3 mitigationsNarrative still populated alongside legacy mitigations[] (page chooses)');
+  }
+
   console.log('\n11. stress preload — preserves existing legacy stress (no overwrite)');
   {
     const sentinelStress: import('@cre/shared').StressScenario[] = [{

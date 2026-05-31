@@ -7,16 +7,22 @@
  * renders real handbook output instead of legacy LLM output.
  *
  * Current scope:
- *   - executiveSummary  ← NarrativeEvaluation.executiveSummary
- *   - creditScore       ← DoctrineEvaluation.{finalScore, ratingBand, componentScores}
- *   - uwModel           ← synthesizeUwModelFromGraph (AdjustedInputs + StressOutputs
- *                          + PropertyMetadata best-effort); ONLY when the legacy
- *                          uwModel is null. Preserves any analyst-edited legacy
- *                          uwModel that's already populated.
- *   - stressScenarios   ← StressOutputs.scenarios[] (legacy stress shape); ONLY
- *                          when the legacy stressScenarios is empty. Promoted
- *                          records preload graph-computed scenarios so the
- *                          stress tab shows real results without a manual click.
+ *   - executiveSummary     ← NarrativeEvaluation.executiveSummary
+ *   - creditScore          ← DoctrineEvaluation.{finalScore, ratingBand, componentScores}
+ *   - uwModel              ← synthesizeUwModelFromGraph (AdjustedInputs +
+ *                             StressOutputs + PropertyMetadata best-effort);
+ *                             ONLY when the legacy uwModel is null. Preserves
+ *                             any analyst-edited legacy uwModel that's already
+ *                             populated.
+ *   - stressScenarios      ← StressOutputs.scenarios[] (legacy stress shape);
+ *                             ONLY when the legacy stressScenarios is empty.
+ *                             Promoted records preload graph-computed scenarios
+ *                             so the stress tab shows real results without a
+ *                             manual click.
+ *   - mitigationsNarrative ← NarrativeEvaluation.mitigationSuggestions (prose).
+ *                             Read-time only — the legacy mitigations[] cards
+ *                             array is left untouched. The page chooses which
+ *                             surface to render based on graphRevisionId.
  *
  * Fallback: when `graphRevisionId` is null/undefined, OR when any of the linked
  * records cannot be resolved, the corresponding legacy field is left unchanged —
@@ -102,12 +108,21 @@ export function projectLegacyAnalysisFromGraph(
     }
   }
 
+  // mitigationsNarrative: passthrough of NE.mitigationSuggestions when NE
+  // resolves; null otherwise. Independent of the legacy `mitigations[]` cards
+  // — the projector never touches that array. The page chooses which surface
+  // to render based on analysis.graphRevisionId.
+  const projectedMitigationsNarrative = narrative !== null
+    ? narrative.mitigationSuggestions
+    : (analysis.mitigationsNarrative ?? null);
+
   return {
     ...analysis,
     executiveSummary: projectedExecutiveSummary,
     creditScore: projectedCreditScore,
     uwModel: projectedUwModel,
     stressScenarios: projectedStressScenarios,
+    mitigationsNarrative: projectedMitigationsNarrative,
   };
 }
 

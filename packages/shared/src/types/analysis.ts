@@ -284,6 +284,15 @@ export interface Analysis {
   sellerMetrics?: SellerExtractedMetrics | null;
   overallAdjustmentBias?: AdjustmentBias | null;
   mitigations: MitigationStrategy[];
+  /**
+   * LLM-authored mitigation prose from NarrativeEvaluation.mitigationSuggestions,
+   * surfaced via projectLegacyAnalysisFromGraph for promoted-from-graph records.
+   * Optional + nullable: legacy records leave it absent/null and continue to
+   * render the structured `mitigations: MitigationStrategy[]` cards; promoted
+   * records render this prose in place of the cards. NOT persisted — set at
+   * read time by the projector (same pattern as the synthesized uwModel).
+   */
+  mitigationsNarrative?: string | null;
   executiveSummary: string | null;
   bPieceDecision: BPieceDecision | null;
   comments: Comment[];
