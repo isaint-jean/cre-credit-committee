@@ -498,6 +498,13 @@ export async function applyRevisionDelta(
   const propertyMetadata = store.getPropertyMetadataByExtractionResultId(
     parentDoctrine.extractionResultId,
   );
+  // Phase 1 (rent-roll-node): the typed RentRoll is reachable from the parent
+  // doctrine's rentRollId FK. Revisions reuse the parent's rent roll content;
+  // the child DoctrineEvaluation stamps the same rentRollId. null when the
+  // parent had no rent roll (legacy row pre-Phase-1 or genuinely no rent roll).
+  const rentRoll = parentDoctrine.rentRollId === null
+    ? null
+    : store.getRentRoll(parentDoctrine.rentRollId);
   const { evaluation } = await evaluateAndNarrate(
     {
       adjustedInputs: childAdjustedInputs,
@@ -507,6 +514,7 @@ export async function applyRevisionDelta(
       extractionResultId: parentDoctrine.extractionResultId,
       analysisAsOfDate: parentAdjustedInputs.analysisAsOfDate,
       propertyMetadata,
+      rentRoll,
     },
     store,
     { llmCall: deps.llmCall },

@@ -52,6 +52,7 @@ import type {
   MarketBenchmarks,
   MarketBenchmarksId,
   MarketLiquidity,
+  RentRoll,
   RevisionId,
   RevisionLineageEnvelope,
   RevisionProvenance,
@@ -126,6 +127,12 @@ export interface IngestExtractionResultArgs {
   readonly creditManifesto?: CreditManifesto;
   readonly creditManifestoId?: CreditManifestoId;
   readonly analysisAsOfDate: ISODateTime;
+  /** Phase 1 (rent-roll-node): typed RentRoll surfaced by the composer (or
+   *  null when no rent roll was produced). Persisted as a first-class graph
+   *  node before the downstream pipeline runs; its id is then stamped on
+   *  DoctrineEvaluation.rentRollId. null when no xlsx was uploaded and the
+   *  ASR fallback produced nothing. */
+  readonly rentRoll: RentRoll | null;
 }
 
 export interface IngestionResult {
@@ -158,6 +165,7 @@ export async function ingestExtractionResult(
     marketLiquidityHint,
     librarySnapshotId,
     analysisAsOfDate,
+    rentRoll,
   } = args;
 
   /* Resolve marketBenchmarks: prefer inline; otherwise look up by id. The
@@ -204,6 +212,13 @@ export async function ingestExtractionResult(
 
   /* Stage 1 — persist extraction. */
   store.insertExtractionResult(extractionResult);
+
+  /* Stage 1.5 — Phase 1 (rent-roll-node). Persist the typed RentRoll as a
+     first-class graph node when present. Idempotent on content-hash via
+     ON CONFLICT DO NOTHING. Hydration not yet wired (Phase 2). */
+  if (rentRoll !== null) {
+    store.insertRentRoll(rentRoll);
+  }
 
   /* Stage 1/3 — NarrativeFacts. */
   const narrativeFacts = buildNarrativeFacts({
@@ -260,6 +275,7 @@ export async function ingestExtractionResult(
       extractionResultId: extractionResult.id,
       analysisAsOfDate,
       propertyMetadata,
+      rentRoll,
     },
     store,
     { llmCall: deps.llmCall, manualInputs: deps.manualInputs },

@@ -17,6 +17,7 @@ import type {
   ExtractionResultId,
   LibrarySnapshotId,
   NarrativeFactsId,
+  RentRollId,
   StressOutputsId,
   ValuationConclusionId,
 } from '../identity.js';
@@ -61,6 +62,11 @@ export interface DoctrineEvaluation {
   readonly valuationConclusionId: ValuationConclusionId;
   readonly assetProfileId: AssetProfileId;        // 6.5: was inline embed `assetProfile`
   readonly extractionResultId: ExtractionResultId; // 6.5: new — root knows its extraction provenance
+  // Phase 1 (rent-roll-node): typed RentRoll captured at extraction time is now a first-class
+  // graph node. Nullable — a deal genuinely may have no rent roll (no xlsx uploaded + no ASR
+  // fallback). Adding this field intentionally changes DoctrineEvaluation's content-hash id;
+  // documented schema evolution, mirrors the Batch 6.5 extractionResultId precedent above.
+  readonly rentRollId: RentRollId | null;
 
   // Substages 10a–10g — scoring trail
   readonly mechanicalScore: number;                              // 10a aggregate (§4)

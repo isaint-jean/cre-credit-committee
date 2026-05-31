@@ -73,6 +73,7 @@ import type {
   LoanTermsExtraction,
   OperatingStatementExtraction,
   PropertyMetadata,
+  RentRoll,
   SellerUWExtraction,
   SourceDocumentRef,
 } from '@cre/contracts';
@@ -130,6 +131,12 @@ export interface BuildExtractionResultArgs {
 export interface BuildExtractionResultOutput {
   readonly extractionResult: ExtractionResult;
   readonly propertyMetadata: PropertyMetadata | null;
+  /** Phase 1 (rent-roll-node): typed RentRoll surfaced sibling-style so the
+   *  ingest layer can persist it as a first-class graph node. Null when no
+   *  rent roll was produced (no xlsx + no ASR fallback). Distinct from the
+   *  lossy `extractionResult.rentRoll` which continues to flow downstream
+   *  unchanged. */
+  readonly rentRoll: RentRoll | null;
   readonly report: BuildReport;
 }
 
@@ -314,6 +321,7 @@ export async function buildExtractionResult(
   const asr = asrOk === null ? null : asrOk.asr;
   const propertyMetadata = asrOk === null ? null : asrOk.propertyMetadata;
   const asrRentRollFallback = asrOk === null ? null : asrOk.rentRollFallback;
+  const asrRentRollFallbackTyped = asrOk === null ? null : asrOk.rentRollFallbackTyped;
 
   /* PCA: single-value outcome (PCAExtraction | null). Adapter returns
      'empty' when extractPca returns null (both AI calls produced no data),
@@ -324,8 +332,12 @@ export async function buildExtractionResult(
      in otherwise. Truth table in pick-rent-roll.ts. The returned `source`
      field tells the extractorVersions stamping below which adapter's version
      to record under the 'rentRoll' key. */
-  const rentRollPick = pickRentRoll(rrOutcome, asrRentRollFallback);
+  const rentRollPick = pickRentRoll(rrOutcome, asrRentRollFallback, asrRentRollFallbackTyped);
   const rentRoll = rentRollPick.value;
+  // Phase 1 (rent-roll-node): typed RentRoll from whichever source won precedence.
+  // Persisted sibling-style by the ingest layer; downstream legacy chain still
+  // consumes only the lossy projection in `extractionResult.rentRoll`.
+  const typedRentRoll = rentRollPick.typed;
 
   /* Concatenate sourceRefs from each slot in [cf, rentRoll, asr] order.
      Order is incidental — see header doc comment for the sort recipe if
@@ -433,5 +445,5 @@ export async function buildExtractionResult(
     slots: slotReports,
   };
 
-  return { extractionResult, propertyMetadata, report };
+  return { extractionResult, propertyMetadata, rentRoll: typedRentRoll, report };
 }

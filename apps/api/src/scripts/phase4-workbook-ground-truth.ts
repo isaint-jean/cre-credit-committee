@@ -321,6 +321,7 @@ function reportCells(label: string, result: { writtenAddresses: string[]; unreso
       marketBenchmarks: makeBenchmarks(),
       creditManifesto: makeManifesto(),
       analysisAsOfDate: AS_OF,
+      rentRoll: null,
     },
     store,
     { llmCall: stubLlm },

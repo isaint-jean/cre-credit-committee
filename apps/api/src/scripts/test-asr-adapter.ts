@@ -197,6 +197,8 @@ function makeDeps(o: DepsOverrides = {}): AsrAdapterDeps {
       assert(o.value.asr !== null, '1.5 value.asr populated');
       assert(o.value.propertyMetadata !== null, '1.6 value.propertyMetadata populated');
       assert(o.value.rentRollFallback !== null, '1.7 value.rentRollFallback populated');
+      // Phase 1 (rent-roll-node): typed RentRoll carried alongside the projection.
+      assert(o.value.rentRollFallbackTyped !== null, '1.8 value.rentRollFallbackTyped populated alongside projection');
     }
   }
 
@@ -215,6 +217,7 @@ function makeDeps(o: DepsOverrides = {}): AsrAdapterDeps {
       assertEqual(o.value.asr, null, '2.4 value.asr null in v0.1.0 shape');
       assert(o.value.propertyMetadata !== null, '2.5 value.propertyMetadata populated');
       assert(o.value.rentRollFallback !== null, '2.6 value.rentRollFallback populated');
+      assert(o.value.rentRollFallbackTyped !== null, '2.7-typed value.rentRollFallbackTyped populated');
     }
     assertEqual(o.adapterVersion, ASR_ADAPTER_VERSION, '2.7 adapterVersion stamped on ok');
   }
@@ -264,6 +267,7 @@ function makeDeps(o: DepsOverrides = {}): AsrAdapterDeps {
       assertEqual(o.status, 'ok', '5.1 status ok (others succeeded)');
       if (o.status === 'ok') {
         assertEqual(o.value.rentRollFallback, null, '5.2 rentRollFallback null (throw collapsed)');
+        assertEqual(o.value.rentRollFallbackTyped, null, '5.2-typed rentRollFallbackTyped null (no source)');
         assert(o.value.propertyMetadata !== null, '5.3 propertyMetadata populated');
         assert(o.value.asr !== null, '5.4 asr populated');
         const kinds = o.sourceRefs.map((r) => r.kind).sort();
@@ -288,6 +292,7 @@ function makeDeps(o: DepsOverrides = {}): AsrAdapterDeps {
         assert(o.value.asr !== null, '6.2 asr populated');
         assertEqual(o.value.propertyMetadata, null, '6.3 propertyMetadata null');
         assertEqual(o.value.rentRollFallback, null, '6.4 rentRollFallback null');
+        assertEqual(o.value.rentRollFallbackTyped, null, '6.4-typed rentRollFallbackTyped null');
         assertEqual(o.sourceRefs.length, 1, '6.5 sourceRefs.length === 1');
         assertEqual(o.sourceRefs[0]?.kind, 'asr', '6.6 only asr kind');
       }

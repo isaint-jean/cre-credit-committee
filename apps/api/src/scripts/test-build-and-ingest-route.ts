@@ -226,6 +226,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       const defaultReturn: BuildExtractionResultOutput = {
         extractionResult: makeExtractionResult(),
         propertyMetadata: null,
+        rentRoll: null,
         report: makeBuildReport(),
       };
       return o.composerReturn !== undefined ? o.composerReturn : defaultReturn;
@@ -255,6 +256,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       composerReturn: {
         extractionResult: makeExtractionResult(),
         propertyMetadata: makePropertyMetadata(),
+        rentRoll: null,
         report: {
           ...makeBuildReport(),
           slots: {
@@ -382,6 +384,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       composerReturn: {
         extractionResult: makeExtractionResult(),
         propertyMetadata: makePropertyMetadata(),
+        rentRoll: null,
         report: makeBuildReport(),
       },
       pmInsertThrow: new Error('disk full'),
@@ -406,6 +409,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       composerReturn: {
         extractionResult: makeExtractionResult(),
         propertyMetadata: makePropertyMetadata(),
+        rentRoll: null,
         report: makeBuildReport(),
       },
     });
@@ -624,6 +628,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
         return {
           extractionResult: composedExtraction,
           propertyMetadata: null,
+          rentRoll: null,
           report: makeBuildReport(),
         };
       },
@@ -694,6 +699,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
         return {
           extractionResult: composedExtraction,
           propertyMetadata: pm,
+          rentRoll: null,
           report: makeBuildReport(),
         };
       },
@@ -747,6 +753,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
         return {
           extractionResult: makeExtractionResult(),
           propertyMetadata: null,
+          rentRoll: null,
           report: makeBuildReport(),
         };
       },
@@ -823,6 +830,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
         return {
           extractionResult: composedExtraction,
           propertyMetadata: null,
+          rentRoll: null,
           report: makeBuildReport(),
         };
       },
@@ -864,6 +872,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
         return {
           extractionResult: composedExtraction,
           propertyMetadata: null,
+          rentRoll: null,
           report: makeBuildReport(),
         };
       },

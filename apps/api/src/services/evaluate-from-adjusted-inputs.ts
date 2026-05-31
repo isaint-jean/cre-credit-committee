@@ -44,6 +44,7 @@ import type {
   LibrarySnapshot,
   NarrativeFacts,
   PropertyMetadata,
+  RentRoll,
 } from '@cre/contracts';
 import { buildStressOutputs } from './stress-test-contracts.service.js';
 import { buildValuationConclusion } from './valuation.service.js';
@@ -67,6 +68,10 @@ export interface EvaluateFromAdjustedInputsArgs {
    *  null is a valid state — assembler is null-tolerant and the engine skips
    *  metadata-derived principles with reason 'missing_field'. */
   readonly propertyMetadata: PropertyMetadata | null;
+  /** Phase 1 (rent-roll-node): typed RentRoll. Stamped on DoctrineEvaluation
+   *  as `rentRollId` so the bundle is reachable from the root. null when no
+   *  rent roll was produced; this is a valid state (deal with no rent roll). */
+  readonly rentRoll: RentRoll | null;
 }
 
 export interface EvaluateFromAdjustedInputsResult {
@@ -104,6 +109,7 @@ export async function evaluateFromAdjustedInputs(
     extractionResultId,
     analysisAsOfDate,
     propertyMetadata,
+    rentRoll,
   } = args;
 
   /* Stage 4 (insert only) — AdjustedInputs already constructed by caller. */
@@ -168,6 +174,7 @@ export async function evaluateFromAdjustedInputs(
     stressOutputs,
     valuationConclusion,
     extractionResultId,
+    rentRoll,
   });
   store.insertDoctrineEvaluation(evaluation);
 

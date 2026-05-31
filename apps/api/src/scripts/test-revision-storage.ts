@@ -296,6 +296,7 @@ function makeDoctrineEvaluation(args: {
     valuationConclusionId: args.valuationConclusion.id,
     assetProfileId: args.assetProfile.id,
     extractionResultId: args.extractionResult.id,
+    rentRollId: null,
     mechanicalScore: 65,
     componentScores: [],
     weightedAggregate: 62,

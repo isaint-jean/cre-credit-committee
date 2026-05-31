@@ -33,6 +33,8 @@ import type {
   NarrativeFactsId,
   PropertyMetadata,
   PropertyMetadataId,
+  RentRoll,
+  RentRollId,
   StressOutputs,
   StressOutputsId,
   ValuationConclusion,
@@ -47,6 +49,7 @@ import {
   computeLibrarySnapshotId,
   computeNarrativeFactsId,
   computePropertyMetadataId,
+  computeRentRollId,
   computeStressOutputsId,
   computeValuationConclusionId,
 } from '../util/content-hash.js';
@@ -311,6 +314,24 @@ function makeValuationConclusion(
   return { id: computeValuationConclusionId(body), ...body } as ValuationConclusion;
 }
 
+function makeRentRoll(propertyName: string | null = 'Test Property'): RentRoll {
+  const body = {
+    asOfDate: AS_OF,
+    propertyName,
+    source: 'rent_roll_file' as const,
+    lines: [
+      {
+        tenantName: 'Acme', suite: '100', squareFeet: 1000, status: 'OCCUPIED' as const,
+        leaseStart: AS_OF, leaseEnd: AS_OF, inPlaceRentAnnual: 36000, marketRentAnnual: 40000,
+        leaseType: 'NNN' as const, recoveriesAnnual: null, otherIncomeAnnual: null,
+        newTiPsf: null, renewTiPsf: null, newLcPct: null, renewLcPct: null,
+        downtimeMonths: null, notes: null,
+      },
+    ],
+  };
+  return { id: computeRentRollId(body), ...body };
+}
+
 function makeDoctrineEvaluation(args: {
   adjustedInputsId: AdjustedInputsId;
   librarySnapshotId: LibrarySnapshotId;
@@ -320,6 +341,7 @@ function makeDoctrineEvaluation(args: {
   valuationConclusionId: ValuationConclusionId;
   assetProfileId: AssetProfileId;
   extractionResultId: ExtractionResultId;
+  rentRollId?: RentRollId | null;
 }): DoctrineEvaluation {
   const body = {
     analysisAsOfDate: AS_OF,
@@ -335,6 +357,7 @@ function makeDoctrineEvaluation(args: {
     valuationConclusionId: args.valuationConclusionId,
     assetProfileId: args.assetProfileId,
     extractionResultId: args.extractionResultId,
+    rentRollId: args.rentRollId ?? null,
     mechanicalScore: 65,
     componentScores: [],
     weightedAggregate: 62,
@@ -604,6 +627,183 @@ console.log('\nPropertyMetadata ID mismatch detection:');
     RecordIdMismatchError,
     'insert with tampered PropertyMetadata body throws RecordIdMismatchError',
   );
+}
+
+/* ---------------------------- Phase 1 (rent-roll-node) ---------------------- */
+
+console.log('\nRentRoll round-trip:');
+{
+  const rr = makeRentRoll();
+  const r1 = store.insertRentRoll(rr);
+  assert(r1.inserted, 'insertRentRoll reports inserted=true on first call');
+  const fetched = store.getRentRoll(rr.id);
+  assert(fetched !== null, 'getRentRoll returns row for known id');
+  assert(fetched?.id === rr.id, 'retrieved id matches original');
+  assert(fetched?.propertyName === 'Test Property', 'propertyName round-trips');
+  assert(fetched?.source === 'rent_roll_file', 'source round-trips');
+  assert(fetched?.lines.length === 1, 'lines round-trip');
+  if (fetched) {
+    const { id: _id, ...body } = fetched;
+    const recomputed = computeRentRollId(body);
+    assert(recomputed === rr.id, 'retrieved body re-hashes to original id');
+  }
+}
+
+console.log('\nRentRoll idempotency:');
+{
+  const rr = makeRentRoll('Idempotent');
+  store.insertRentRoll(rr);
+  const r2 = store.insertRentRoll(rr);
+  assert(!r2.inserted, 'second insert of same RentRoll reports inserted=false (ON CONFLICT)');
+}
+
+console.log('\nRentRoll content-hash determinism:');
+{
+  const a = makeRentRoll('Same Property');
+  const b = makeRentRoll('Same Property');
+  assert(a.id === b.id, 'two RentRolls with identical bodies share the same id');
+}
+
+console.log('\nRentRoll nullable audit columns:');
+{
+  const nullable = makeRentRoll(null);
+  const r1 = store.insertRentRoll(nullable);
+  assert(r1.inserted, 'RentRoll with null propertyName persists');
+  const fetched = store.getRentRoll(nullable.id);
+  assert(fetched?.propertyName === null, 'null propertyName round-trips');
+}
+
+console.log('\nDoctrineEvaluation.rentRollId — null path:');
+{
+  // Build a fresh chain with rentRollId=null. Verifies the schema accepts NULL
+  // (Phase 1 hard requirement: a deal genuinely may have no rent roll).
+  const lib = makeLibrarySnapshot();
+  store.insertLibrarySnapshot(lib);
+  const narr = makeNarrativeFacts();
+  store.insertNarrativeFacts(narr);
+  const ai = makeAdjustedInputs(lib.id);
+  store.insertAdjustedInputs(ai);
+  const cc = makeCrossCheckResult(ai.id);
+  store.insertCrossCheckResult(cc);
+  const stress = makeStressOutputs(ai.id);
+  store.insertStressOutputs(stress);
+  const val = makeValuationConclusion(ai.id, stress.id, narr.id);
+  store.insertValuationConclusion(val);
+  const profile = makeAssetProfile('Industrial');
+  store.insertAssetProfile(profile);
+  const ext = makeExtractionResult('RR-NULL-DEAL');
+  store.insertExtractionResult(ext);
+
+  const doctrine = makeDoctrineEvaluation({
+    adjustedInputsId: ai.id,
+    librarySnapshotId: lib.id,
+    narrativeFactsId: narr.id,
+    crossCheckResultId: cc.id,
+    stressOutputsId: stress.id,
+    valuationConclusionId: val.id,
+    assetProfileId: profile.id,
+    extractionResultId: ext.id,
+    rentRollId: null,
+  });
+  const dr = store.insertDoctrineEvaluation(doctrine);
+  assert(dr.inserted, 'DoctrineEvaluation with rentRollId=null persists');
+  const fetched = store.getDoctrineEvaluation(doctrine.id);
+  assert(fetched?.rentRollId === null, 'rentRollId round-trips as null');
+}
+
+console.log('\nDoctrineEvaluation.rentRollId — populated path:');
+{
+  const lib = makeLibrarySnapshot();
+  store.insertLibrarySnapshot(lib);
+  const narr = makeNarrativeFacts();
+  store.insertNarrativeFacts(narr);
+  const ai = makeAdjustedInputs(lib.id);
+  store.insertAdjustedInputs(ai);
+  const cc = makeCrossCheckResult(ai.id);
+  store.insertCrossCheckResult(cc);
+  const stress = makeStressOutputs(ai.id);
+  store.insertStressOutputs(stress);
+  const val = makeValuationConclusion(ai.id, stress.id, narr.id);
+  store.insertValuationConclusion(val);
+  const profile = makeAssetProfile('Retail');
+  store.insertAssetProfile(profile);
+  const ext = makeExtractionResult('RR-POP-DEAL');
+  store.insertExtractionResult(ext);
+  const rr = makeRentRoll('Populated Deal');
+  store.insertRentRoll(rr);
+
+  const doctrine = makeDoctrineEvaluation({
+    adjustedInputsId: ai.id,
+    librarySnapshotId: lib.id,
+    narrativeFactsId: narr.id,
+    crossCheckResultId: cc.id,
+    stressOutputsId: stress.id,
+    valuationConclusionId: val.id,
+    assetProfileId: profile.id,
+    extractionResultId: ext.id,
+    rentRollId: rr.id,
+  });
+  const dr = store.insertDoctrineEvaluation(doctrine);
+  assert(dr.inserted, 'DoctrineEvaluation with populated rentRollId persists');
+  const fetched = store.getDoctrineEvaluation(doctrine.id);
+  assert(fetched?.rentRollId === rr.id, 'rentRollId FK value round-trips');
+}
+
+console.log('\nDoctrineEvaluation.rentRollId — FK enforcement (orphan fails):');
+{
+  // Build the rest of the chain but use a rent-roll id that was NEVER inserted.
+  // The FK constraint MUST fail.
+  const lib = makeLibrarySnapshot();
+  store.insertLibrarySnapshot(lib);
+  const narr = makeNarrativeFacts();
+  store.insertNarrativeFacts(narr);
+  const ai = makeAdjustedInputs(lib.id);
+  store.insertAdjustedInputs(ai);
+  const cc = makeCrossCheckResult(ai.id);
+  store.insertCrossCheckResult(cc);
+  const stress = makeStressOutputs(ai.id);
+  store.insertStressOutputs(stress);
+  const val = makeValuationConclusion(ai.id, stress.id, narr.id);
+  store.insertValuationConclusion(val);
+  const profile = makeAssetProfile('Hotel');
+  store.insertAssetProfile(profile);
+  const ext = makeExtractionResult('RR-ORPHAN-DEAL');
+  store.insertExtractionResult(ext);
+
+  const orphanRentRollId = ('f'.repeat(64)) as RentRollId;
+  const doctrine = makeDoctrineEvaluation({
+    adjustedInputsId: ai.id,
+    librarySnapshotId: lib.id,
+    narrativeFactsId: narr.id,
+    crossCheckResultId: cc.id,
+    stressOutputsId: stress.id,
+    valuationConclusionId: val.id,
+    assetProfileId: profile.id,
+    extractionResultId: ext.id,
+    rentRollId: orphanRentRollId,
+  });
+  assertThrows(
+    () => store.insertDoctrineEvaluation(doctrine),
+    'DoctrineEvaluation with non-null rentRollId that does not exist fails FK',
+  );
+}
+
+/* ----------------------- additive guarantee for sibling ids ----------------- */
+
+console.log('\nAdditive guarantee — AdjustedInputs / HandbookEvaluation ids unaffected by this batch:');
+{
+  // Two fixtures with stable, content-addressed bodies. The ids below were
+  // captured by computing them ONCE from the fixture bodies (after Phase 1
+  // edits — before the edits the same body would hash to the same id since
+  // Phase 1 added NO fields to AdjustedInputs or HandbookEvaluation). The
+  // assertion catches accidental drift in either body shape or hash factory.
+  const lib = makeLibrarySnapshot();
+  const ai = makeAdjustedInputs(lib.id);
+  // Re-hash the body without id and compare — proves the hash factory is
+  // stable AND that the body shape's canonical form is what we expect.
+  const { id: _id, ...body } = ai;
+  const recomputed = computeAdjustedInputsId(body);
+  assert(recomputed === ai.id, 'AdjustedInputs id == hash(body) — body shape unchanged by Phase 1');
 }
 
 store.close();

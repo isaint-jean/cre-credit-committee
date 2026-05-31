@@ -40,8 +40,9 @@
  *  13  ok, units=[…]           populated          xlsx.value      'xlsx'
  */
 
-import type { RentRollExtraction } from '@cre/contracts';
+import type { RentRoll, RentRollExtraction } from '@cre/contracts';
 import type { ExtractorOutcome } from './extractor-outcome.js';
+import type { RentRollAdapterValue } from './adapters/rent-roll.adapter.js';
 
 export type PickRentRollSource = 'xlsx' | 'asr_fallback';
 
@@ -50,21 +51,32 @@ export interface PickRentRollResult {
   /** Which adapter won precedence. null when value is null (neither source
    *  produced a usable rent roll). */
   readonly source: PickRentRollSource | null;
+  /** Phase 1 (rent-roll-node): the typed RentRoll from whichever source won
+   *  precedence. The lossy `value` continues to flow into ExtractionResult;
+   *  the typed shape is captured here so the composer can surface it as a
+   *  sibling output that the ingest layer persists as a first-class graph
+   *  node. Non-null whenever `value` is non-null. */
+  readonly typed: RentRoll | null;
 }
 
 export function pickRentRoll(
-  xlsxOutcome: ExtractorOutcome<RentRollExtraction> | null | undefined,
+  xlsxOutcome: ExtractorOutcome<RentRollAdapterValue> | null | undefined,
   asrFallback: RentRollExtraction | null,
+  asrFallbackTyped: RentRoll | null = null,
 ): PickRentRollResult {
   // XLSX wins when ok-with-non-empty-units.
-  if (xlsxOutcome && xlsxOutcome.status === 'ok' && xlsxOutcome.value.units.length > 0) {
-    return { value: xlsxOutcome.value, source: 'xlsx' };
+  if (xlsxOutcome && xlsxOutcome.status === 'ok' && xlsxOutcome.value.projection.units.length > 0) {
+    return {
+      value: xlsxOutcome.value.projection,
+      source: 'xlsx',
+      typed: xlsxOutcome.value.typed,
+    };
   }
 
   // Otherwise, AI fallback fills in when it has units.
   if (asrFallback !== null && asrFallback.units.length > 0) {
-    return { value: asrFallback, source: 'asr_fallback' };
+    return { value: asrFallback, source: 'asr_fallback', typed: asrFallbackTyped };
   }
 
-  return { value: null, source: null };
+  return { value: null, source: null, typed: null };
 }

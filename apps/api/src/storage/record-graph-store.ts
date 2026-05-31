@@ -56,6 +56,8 @@ import type {
   RenderedAnalysis,
   RenderedAnalysisId,
   RenderVersion,
+  RentRoll,
+  RentRollId,
   RevisionId,
   RevisionLineageEnvelope,
   RevisionProvenance,
@@ -175,6 +177,22 @@ export class RecordGraphStore {
         created_at TEXT NOT NULL
       );
 
+      -- Phase 1 (rent-roll-node). Typed RentRoll captured by the rent-roll
+      -- extractors is now persisted as a first-class graph node, sibling to
+      -- narrative_facts (no FKs in/out at this layer; DoctrineEvaluation
+      -- carries a nullable FK to rent_rolls(id)). The nullable audit columns
+      -- mirror the body's nullable shape: as_of_date and property_name are
+      -- nullable on RentRoll itself; source is the RentRollSource enum and
+      -- always present. The lines[] array stays inside payload (JSON).
+      CREATE TABLE IF NOT EXISTS rent_rolls (
+        id TEXT PRIMARY KEY,
+        as_of_date TEXT,
+        property_name TEXT,
+        source TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS adjusted_inputs (
         id TEXT PRIMARY KEY,
         analysis_as_of_date TEXT NOT NULL,
@@ -272,6 +290,9 @@ export class RecordGraphStore {
         valuation_conclusion_id TEXT NOT NULL,
         asset_profile_id TEXT NOT NULL,
         extraction_result_id TEXT NOT NULL,
+        -- Phase 1 (rent-roll-node). NULLABLE: a deal may have no rent roll
+        -- (no xlsx uploaded + no ASR fallback). FK to rent_rolls(id).
+        rent_roll_id TEXT,
         final_score REAL NOT NULL,
         rating_band TEXT NOT NULL,
         payload TEXT NOT NULL,
@@ -283,7 +304,8 @@ export class RecordGraphStore {
         FOREIGN KEY (stress_outputs_id)        REFERENCES stress_outputs(id),
         FOREIGN KEY (valuation_conclusion_id)  REFERENCES valuation_conclusions(id),
         FOREIGN KEY (asset_profile_id)         REFERENCES asset_profiles(id),
-        FOREIGN KEY (extraction_result_id)     REFERENCES extraction_results(id)
+        FOREIGN KEY (extraction_result_id)     REFERENCES extraction_results(id),
+        FOREIGN KEY (rent_roll_id)             REFERENCES rent_rolls(id)
       );
 
       -- Read-pole memoization cache (post-6.8). Lazy materialization: populated on first
@@ -436,6 +458,8 @@ export class RecordGraphStore {
       CREATE INDEX IF NOT EXISTS idx_doctrine_doctrine_version ON doctrine_evaluations(doctrine_version);
       CREATE INDEX IF NOT EXISTS idx_doctrine_asset_profile    ON doctrine_evaluations(asset_profile_id);
       CREATE INDEX IF NOT EXISTS idx_doctrine_extraction       ON doctrine_evaluations(extraction_result_id);
+      -- idx_doctrine_rent_roll is created in migrateAddColumns() so the
+      -- rent_roll_id column exists first on pre-Phase-1 databases.
       CREATE INDEX IF NOT EXISTS idx_rendered_root_version     ON rendered_analyses(root_id, render_version);
       -- idx_rendered_root_version_narr is created in migrateAddColumns() so
       -- the narrative_id column exists first on pre-Phase-1 databases.
@@ -472,6 +496,25 @@ export class RecordGraphStore {
       this.db.exec(
         'CREATE INDEX IF NOT EXISTS idx_rendered_root_version_narr ' +
           'ON rendered_analyses(root_id, render_version, narrative_id)',
+      );
+    } catch { /* defensive */ }
+
+    /* doctrine_evaluations.rent_roll_id (Phase 1 / rent-roll-node). Pre-existing
+       rows have rent_roll_id NULL — which is the same shape as a deal with no
+       rent roll, so legacy rows remain readable. */
+    try {
+      const cols = this.db.prepare("PRAGMA table_info('doctrine_evaluations')").all() as Array<{ name: string }>;
+      if (cols.length > 0 && !cols.find((c) => c.name === 'rent_roll_id')) {
+        this.db.exec('ALTER TABLE doctrine_evaluations ADD COLUMN rent_roll_id TEXT');
+      }
+    } catch { /* table might not exist yet — migrate() will create it */ }
+
+    /* Index that references rent_roll_id — runs after the ADD COLUMN above
+       on legacy DBs; on fresh DBs the column exists from CREATE TABLE so the
+       index just installs. */
+    try {
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_doctrine_rent_roll ON doctrine_evaluations(rent_roll_id)',
       );
     } catch { /* defensive */ }
   }
@@ -664,6 +707,32 @@ export class RecordGraphStore {
       .prepare(`SELECT id, payload FROM narrative_facts WHERE id = ?`)
       .get(id) as RecordRow | undefined;
     return row ? this.parseRow<NarrativeFacts>(row) : null;
+  }
+
+  /* --------------------------------- rent_rolls -------------------------------- */
+
+  /** Insert a RentRoll. Phase 1 (rent-roll-node): typed RentRoll is now a
+   *  first-class graph node, sibling-style (no FKs in/out at this layer). The
+   *  body's nullable as_of_date / property_name and the always-present source
+   *  enum are surfaced as columns for audit visibility; the lines[] array
+   *  stays in payload (JSON). */
+  insertRentRoll(record: RentRoll): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'RentRoll');
+    const result = this.db
+      .prepare(
+        `INSERT INTO rent_rolls (id, as_of_date, property_name, source, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(id, body.asOfDate, body.propertyName, body.source, payload, new Date().toISOString());
+    return { inserted: result.changes > 0 };
+  }
+
+  getRentRoll(id: RentRollId): RentRoll | null {
+    const row = this.db
+      .prepare(`SELECT id, payload FROM rent_rolls WHERE id = ?`)
+      .get(id) as RecordRow | undefined;
+    return row ? this.parseRow<RentRoll>(row) : null;
   }
 
   /* ------------------------------ adjusted_inputs ------------------------------ */
@@ -925,9 +994,9 @@ export class RecordGraphStore {
          (id, analysis_as_of_date, doctrine_version, judgment_engine_version, stress_engine_version,
           valuation_engine_version, adjusted_inputs_id, library_snapshot_id, narrative_facts_id,
           cross_check_result_id, stress_outputs_id, valuation_conclusion_id,
-          asset_profile_id, extraction_result_id,
+          asset_profile_id, extraction_result_id, rent_roll_id,
           final_score, rating_band, payload, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING`,
       )
       .run(
@@ -945,6 +1014,7 @@ export class RecordGraphStore {
         body.valuationConclusionId,
         body.assetProfileId,
         body.extractionResultId,
+        body.rentRollId,
         body.finalScore,
         body.ratingBand,
         payload,

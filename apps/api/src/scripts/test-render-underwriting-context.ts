@@ -167,6 +167,7 @@ async function endToEnd(store: RecordGraphStore): Promise<{ rootId: DoctrineEval
       marketBenchmarks: makeBenchmarks(),
       creditManifesto: makeManifesto(),
       analysisAsOfDate: AS_OF,
+      rentRoll: null,
     },
     store,
     STUB_LLM_DEPS,

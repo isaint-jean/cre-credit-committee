@@ -48,6 +48,7 @@ import {
   type LibrarySnapshot,
   type NarrativeFacts,
   type RatingBand,
+  type RentRoll,
   type StressOutputs,
   type ValuationConclusion,
 } from '@cre/contracts';
@@ -76,6 +77,11 @@ export interface BuildDoctrineEvaluationArgs {
   // 6.5 — extraction-result FK is stamped on the evaluation root so the hydration bundle is
   // single-hop reachable. Doctrine does not read extraction content; only the id is recorded.
   readonly extractionResultId: ExtractionResultId;
+  // Phase 1 (rent-roll-node) — typed RentRoll, persisted as a first-class graph node by the
+  // ingest layer. Doctrine does not read its contents; only the id is recorded. Nullable —
+  // a deal genuinely may have no rent roll. Stamping changes DoctrineEvaluation's content-hash
+  // id; mirrors the Batch 6.5 extractionResultId precedent above.
+  readonly rentRoll: RentRoll | null;
 }
 
 /* ----------------------------- §12 score adjusters ----------------------- */
@@ -250,6 +256,7 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
     stressOutputs,
     valuationConclusion,
     extractionResultId,
+    rentRoll,
   } = args;
 
   /* Phase 1 — run 5a component scorers */
@@ -317,6 +324,7 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
     valuationConclusionId: valuationConclusion.id,
     assetProfileId: assetProfile.id,
     extractionResultId,
+    rentRollId: rentRoll?.id ?? null,
     mechanicalScore,
     componentScores,
     weightedAggregate,

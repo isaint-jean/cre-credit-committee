@@ -303,6 +303,7 @@ const defaultDoctrineEvaluation: DoctrineEvaluation = {
   valuationConclusionId: defaultValuationConclusion.id,
   assetProfileId: defaultAssetProfile.id,
   extractionResultId: defaultExtractionResult.id,
+  rentRollId: null,
   mechanicalScore: 0,
   componentScores: [],
   weightedAggregate: 0,

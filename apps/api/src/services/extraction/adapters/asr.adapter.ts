@@ -79,11 +79,19 @@ export const ASR_ADAPTER_VERSION = '0.2.0';
  *
  * As of v0.2.0, `asr` carries the AI-extracted broker headline numbers
  * (implied value / cap rate / underwritten NOI) when present, else null.
+ *
+ * Phase 1 (rent-roll-node): `rentRollFallbackTyped` carries the typed
+ * `RentRoll` corresponding to `rentRollFallback`. The lossy projection
+ * (`rentRollFallback`) still flows into ExtractionResult via pickRentRoll;
+ * the typed shape is captured alongside so the ingest layer can persist it
+ * as a first-class graph node when the ASR fallback wins precedence.
+ * Always non-null when `rentRollFallback` is non-null; null otherwise.
  */
 export interface AsrAdapterValue {
   readonly asr: ASRExtraction | null;
   readonly propertyMetadata: PropertyMetadata | null;
   readonly rentRollFallback: RentRollExtraction | null;
+  readonly rentRollFallbackTyped: RentRoll | null;
 }
 
 /**
@@ -277,7 +285,14 @@ export async function runAsrAdapterOnDocument(
 
   return {
     status: 'ok',
-    value: { asr, propertyMetadata, rentRollFallback },
+    value: {
+      asr,
+      propertyMetadata,
+      rentRollFallback,
+      // Phase 1 (rent-roll-node): carry the typed RentRoll alongside the lossy
+      // projection. Non-null whenever rentRollFallback is non-null (same source).
+      rentRollFallbackTyped: rentRollLegacy,
+    },
     sourceRefs: refs,
     adapterVersion: ASR_ADAPTER_VERSION,
     durationMs: Date.now() - t0,

@@ -170,6 +170,9 @@ function defaultArgs() {
     marketBenchmarks: makeBenchmarks(),
     creditManifesto: makeManifesto(),
     analysisAsOfDate: AS_OF,
+    // Phase 1 (rent-roll-node): null is a valid state for these tests; they
+    // assert ingest topology and don't depend on rent-roll-node persistence.
+    rentRoll: null as null,
   };
 }
 
@@ -193,6 +196,7 @@ console.log('Happy path — full ingestion produces all 9 records:');
       marketBenchmarks,
       creditManifesto,
       analysisAsOfDate,
+      rentRoll: null,
     },
     store,
     STUB_LLM_DEPS,

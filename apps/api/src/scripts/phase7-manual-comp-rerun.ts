@@ -146,6 +146,7 @@ async function ingest(store: RecordGraphStore, label: string, manualInputs: Manu
       marketBenchmarks: makeBenchmarks(),
       creditManifesto: makeManifesto(),
       analysisAsOfDate: AS_OF,
+      rentRoll: composed.rentRoll,
     },
     store,
     manualInputs !== undefined ? { manualInputs } : {},

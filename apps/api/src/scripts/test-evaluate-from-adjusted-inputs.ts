@@ -246,6 +246,7 @@ console.log('Happy path:');
       extractionResultId: u.extractionResult.id,
       analysisAsOfDate: AS_OF,
       propertyMetadata: null,
+      rentRoll: null,
     },
     store,
   );
@@ -280,6 +281,7 @@ console.log('\nIdempotency — two calls with the same args produce the same eva
     extractionResultId: u.extractionResult.id,
     analysisAsOfDate: AS_OF,
     propertyMetadata: null,
+    rentRoll: null,
   };
   const r1 = await evaluateFromAdjustedInputs(args, store);
   const r2 = await evaluateFromAdjustedInputs(args, store);
@@ -309,6 +311,7 @@ console.log('\nCaller pre-inserts AdjustedInputs — function still completes:')
       extractionResultId: u.extractionResult.id,
       analysisAsOfDate: AS_OF,
       propertyMetadata: null,
+      rentRoll: null,
     },
     store,
   );
@@ -331,6 +334,7 @@ console.log('\nDiscipline — evaluateFromAdjustedInputs does NOT create a revis
       extractionResultId: u.extractionResult.id,
       analysisAsOfDate: AS_OF,
       propertyMetadata: null,
+      rentRoll: null,
     },
     store,
   );

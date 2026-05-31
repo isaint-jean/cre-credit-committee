@@ -130,9 +130,23 @@ export function projectToRentRollExtraction(rentRoll: RentRoll): RentRollExtract
   };
 }
 
+/**
+ * Phase 1 (rent-roll-node): the 'ok' outcome's value now carries BOTH the
+ * lossy `RentRollExtraction` projection (consumed today by the existing
+ * downstream chain) AND the typed `RentRoll` (persisted as a first-class
+ * graph node by the ingest layer; will be hydrated to the handbook
+ * evaluator in Phase 2). The composer reads `typed` and exposes it as a
+ * sibling output; the lossy `projection` continues to flow into
+ * ExtractionResult.rentRoll unchanged.
+ */
+export interface RentRollAdapterValue {
+  readonly projection: RentRollExtraction;
+  readonly typed: RentRoll;
+}
+
 export async function runRentRollAdapter(
   slot: SlotInput,
-): Promise<ExtractorOutcome<RentRollExtraction>> {
+): Promise<ExtractorOutcome<RentRollAdapterValue>> {
   const t0 = Date.now();
 
   let rentRoll: RentRoll;
@@ -162,13 +176,13 @@ export async function runRentRollAdapter(
     };
   }
 
-  const value = projectToRentRollExtraction(rentRoll);
+  const projection = projectToRentRollExtraction(rentRoll);
   const bufferHash = computeBufferContentHash(slot.buffer);
   const refs: SourceDocumentRef[] = [{ kind: 'rent_roll', contentHash: bufferHash }];
 
   return {
     status: 'ok',
-    value,
+    value: { projection, typed: rentRoll },
     sourceRefs: refs,
     adapterVersion: RENT_ROLL_ADAPTER_VERSION,
     durationMs: Date.now() - t0,

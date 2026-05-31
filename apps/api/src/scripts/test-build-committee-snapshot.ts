@@ -173,6 +173,7 @@ async function ingestRender(store: RecordGraphStore): Promise<{ rootId: Doctrine
       marketBenchmarks: makeBenchmarks(),
       creditManifesto: makeManifesto(),
       analysisAsOfDate: AS_OF,
+      rentRoll: null,
     },
     store,
     STUB_LLM_DEPS,

@@ -289,6 +289,9 @@ function defaultArgs() {
     stressOutputs: makeStressOutputs(),
     valuationConclusion: makeValuationConclusion(),
     extractionResultId: 'e'.repeat(64) as never,
+    // Phase 1 (rent-roll-node): null is a valid state (deal with no rent roll).
+    // DoctrineEvaluation stamps rentRollId=null when rentRoll is null.
+    rentRoll: null,
   };
 }
 
@@ -559,6 +562,7 @@ console.log('\nPersistence round-trip:');
     stressOutputs,
     valuationConclusion,
     extractionResultId: extId,
+    rentRoll: null,
   };
   const result = buildDoctrineEvaluation(args);
 
@@ -598,6 +602,7 @@ console.log('\nFK + version stamping:');
   assertEqual(r.crossCheckResultId, args.crossCheckResult.id, 'crossCheckResultId FK');
   assertEqual(r.stressOutputsId, args.stressOutputs.id, 'stressOutputsId FK');
   assertEqual(r.valuationConclusionId, args.valuationConclusion.id, 'valuationConclusionId FK');
+  assertEqual(r.rentRollId, null, 'rentRollId stamped null when rentRoll=null (Phase 1)');
   assertEqual(r.doctrineVersion, '1.0', 'doctrineVersion');
   assertEqual(r.judgmentEngineVersion, '1.2', 'judgmentEngineVersion');
   assertEqual(r.stressEngineVersion, '1.0', 'stressEngineVersion');

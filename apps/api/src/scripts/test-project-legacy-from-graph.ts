@@ -179,6 +179,7 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
       marketBenchmarks: makeBenchmarks(),
       creditManifesto: makeManifesto(),
       analysisAsOfDate: AS_OF,
+      rentRoll: null,
     },
     store,
     { llmCall: stubLlm },

@@ -116,6 +116,12 @@ ingestRoutes.post('/', async (req: Request, res: Response) => {
           ? { creditManifesto: body.creditManifesto as never }
           : { creditManifestoId: body.creditManifestoId as never }),
         analysisAsOfDate: body.analysisAsOfDate as never,
+        // Phase 1 (rent-roll-node): /api/ingest accepts a pre-built
+        // ExtractionResult JSON body; the typed RentRoll is NOT carried on
+        // that contract (its lossy projection lives at extractionResult.rentRoll).
+        // Pass null — matches "no rent roll" semantics for this route shape.
+        // Callers that need rent-roll-node persistence should use /api/build-and-ingest.
+        rentRoll: null,
       },
       recordGraphStore,
     );

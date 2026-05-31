@@ -24,11 +24,13 @@ import type {
   OperatingStatementExtraction,
   PCAExtraction,
   PropertyMetadata,
+  RentRoll,
   RentRollExtraction,
   RentRollUnit,
 } from '@cre/contracts';
 import type { CfAdapterValue } from '../services/extraction/adapters/cf.adapter.js';
 import type { AsrAdapterValue } from '../services/extraction/adapters/asr.adapter.js';
+import type { RentRollAdapterValue } from '../services/extraction/adapters/rent-roll.adapter.js';
 import type {
   ExtractorOutcome,
   SlotInput,
@@ -39,7 +41,7 @@ import {
   type BuildExtractionResultDeps,
 } from '../services/extraction/build-extraction-result.js';
 import { incompleteSlots } from '../services/extraction/build-report.js';
-import { computePropertyMetadataId } from '../util/content-hash.js';
+import { computePropertyMetadataId, computeRentRollId } from '../util/content-hash.js';
 
 let passed = 0;
 let failed = 0;
@@ -151,17 +153,30 @@ function cfOkOutcome(): ExtractorOutcome<CfAdapterValue> {
   };
 }
 
-function rrOkOutcome(units: RentRollUnit[]): ExtractorOutcome<RentRollExtraction> {
+/* Phase 1 (rent-roll-node) helper. The adapter now returns a typed RentRoll
+ * alongside the projection. Tests synthesize a minimal typed body whose id
+ * is computed via the contract factory. */
+function makeTypedRentRoll(label: string): RentRoll {
+  const body = {
+    asOfDate: '2026-01-01T00:00:00Z' as const,
+    propertyName: label,
+    source: 'rent_roll_file' as const,
+    lines: [],
+  };
+  return { id: computeRentRollId(body), ...body };
+}
+
+function rrOkOutcome(units: RentRollUnit[], typedLabel = 'xlsx'): ExtractorOutcome<RentRollAdapterValue> {
   return {
     status: 'ok',
-    value: makeRentRollExtraction(units),
+    value: { projection: makeRentRollExtraction(units), typed: makeTypedRentRoll(typedLabel) },
     sourceRefs: [{ kind: 'rent_roll', contentHash: RR_HASH }],
     adapterVersion: '0.1.0',
     durationMs: 3,
   };
 }
 
-function rrEmptyOutcome(): ExtractorOutcome<RentRollExtraction> {
+function rrEmptyOutcome(): ExtractorOutcome<RentRollAdapterValue> {
   return {
     status: 'empty',
     sourceRefs: [],
@@ -175,17 +190,26 @@ function asrOkOutcome(opts: {
   asr?: ASRExtraction | null;
   pm?: PropertyMetadata | null;
   fallback?: RentRollExtraction | null;
+  /** Phase 1 (rent-roll-node): when omitted, defaults to a synthesized typed RentRoll
+   *  iff fallback is non-null (mirrors adapter contract). Tests can pass null
+   *  explicitly to simulate the rare orphan-projection edge. */
+  fallbackTyped?: RentRoll | null;
 } = {}): ExtractorOutcome<AsrAdapterValue> {
   const refs = [];
   if (opts.asr !== undefined && opts.asr !== null) refs.push({ kind: 'asr' as const, contentHash: ASR_HASH });
   if (opts.pm !== undefined && opts.pm !== null) refs.push({ kind: 'property_metadata' as const, contentHash: ASR_HASH });
   if (opts.fallback !== undefined && opts.fallback !== null) refs.push({ kind: 'rent_roll' as const, contentHash: ASR_HASH });
+  const fallback = opts.fallback === undefined ? null : opts.fallback;
+  const fallbackTyped = opts.fallbackTyped !== undefined
+    ? opts.fallbackTyped
+    : (fallback === null ? null : makeTypedRentRoll('asr-fallback'));
   return {
     status: 'ok',
     value: {
       asr: opts.asr === undefined ? null : opts.asr,
       propertyMetadata: opts.pm === undefined ? null : opts.pm,
-      rentRollFallback: opts.fallback === undefined ? null : opts.fallback,
+      rentRollFallback: fallback,
+      rentRollFallbackTyped: fallbackTyped,
     },
     sourceRefs: refs,
     adapterVersion: '0.1.0',
@@ -197,7 +221,7 @@ function asrOkOutcome(opts: {
 
 interface DepBehaviorMap {
   cf?: ExtractorOutcome<CfAdapterValue> | 'throw';
-  rr?: ExtractorOutcome<RentRollExtraction> | 'throw';
+  rr?: ExtractorOutcome<RentRollAdapterValue> | 'throw';
   asr?: ExtractorOutcome<AsrAdapterValue> | 'throw';
   pca?: ExtractorOutcome<PCAExtraction | null> | 'throw';
 }
@@ -261,6 +285,8 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.extractionResult.rentRoll?.units.length ?? -1, 2, '1.8 rentRoll has 2 units (xlsx, not fallback)');
     assertEqual(o.extractionResult.rentRoll?.units[0]?.unitId ?? null, '100', '1.9 rentRoll first unitId from xlsx (not fallback)');
     assert(o.propertyMetadata !== null, '1.10 propertyMetadata sibling populated');
+    // Phase 1 (rent-roll-node): typed RentRoll surfaced sibling-style; matches xlsx win.
+    assert(o.rentRoll !== null, '1.10b typed rentRoll sibling populated (xlsx won)');
     assertEqual(o.extractionResult.sourceDocuments.length, 6, '1.11 sourceDocuments has 6 refs (2 cf + 1 rr + 3 asr)');
     // Test scenario supplies cf+rr+asr but not pca; pcaPdf is absent → one incomplete slot.
     // Pre-PCA-producer-ticket version asserted 0; post-widening pcaPdf-absent contributes 1.
@@ -398,6 +424,7 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
       makeDeps({ cf: cfOkOutcome() }),
     );
     assertEqual(o.propertyMetadata, null, '9.1 propertyMetadata null (no ASR slot)');
+    assertEqual(o.rentRoll, null, '9.2 typed rentRoll null (no rentRoll slot, no ASR fallback)');
   }
 
   /* CASE 10 — args.loanTerms threading (Ticket K #7).

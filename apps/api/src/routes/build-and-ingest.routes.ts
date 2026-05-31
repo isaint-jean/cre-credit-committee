@@ -349,6 +349,15 @@ export function makeBuildAndIngestHandler(
         composed = {
           extractionResult: cachedExtraction,
           propertyMetadata: cachedPM,
+          // Phase 1 (rent-roll-node): the re-upload short-circuit cache doesn't
+          // store typed RentRoll. On a cache hit, ingestion's rentRoll arg is
+          // null (the RentRoll graph node from the FIRST upload is still
+          // persisted under its own content-hash id; the doctrine evaluation
+          // produced this time will stamp rentRollId=null, but downstream
+          // hydration in Phase 2 will be able to look up the original via FK
+          // on the original DE if needed. Acceptable for v1 — the alternative
+          // would extend the cache schema to track the typed RentRoll id).
+          rentRoll: null,
           report: synthesizeBuildReport({
             extractionEngineVersion: cachedExtraction.extractionEngineVersion,
             slotPresent: { cf: cf !== undefined, rentRoll: rr !== undefined, asr: asr !== undefined, pca: pca !== undefined },
@@ -435,6 +444,9 @@ export function makeBuildAndIngestHandler(
             ? { creditManifesto: creditManifesto as CreditManifesto }
             : { creditManifestoId: body.creditManifestoId as CreditManifestoId }),
           analysisAsOfDate: body.analysisAsOfDate as ISODateTime,
+          // Phase 1 (rent-roll-node): typed RentRoll from the composer flows
+          // straight into ingest; null when no rent roll was produced.
+          rentRoll: composed.rentRoll,
         },
         deps.recordGraphStore,
       );

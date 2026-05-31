@@ -185,6 +185,7 @@ async function ingestSeed(store: RecordGraphStore): Promise<{ rootId: DoctrineEv
       marketBenchmarks: makeBenchmarks(),
       creditManifesto: makeManifesto(),
       analysisAsOfDate: AS_OF,
+      rentRoll: null,
     },
     store,
     STUB_LLM_DEPS,

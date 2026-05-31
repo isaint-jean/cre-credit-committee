@@ -171,9 +171,15 @@ async function buildRentRollXlsxBuffer(args: {
   assert(outcome.durationMs >= 0, 'durationMs non-negative');
 
   if (outcome.status === 'ok') {
-    assertEqual(outcome.value.units.length, 3, '3 tenant rows extracted (totals row skipped by parser)');
-    assertEqual(outcome.value.summary.totalUnits, 3, 'summary.totalUnits = 3');
-    assertEqual(outcome.value.summary.occupiedUnits, 2, 'summary.occupiedUnits = 2');
+    // Phase 1 (rent-roll-node): value now carries { projection, typed }.
+    assertEqual(outcome.value.projection.units.length, 3, '3 tenant rows extracted (totals row skipped by parser)');
+    assertEqual(outcome.value.projection.summary.totalUnits, 3, 'summary.totalUnits = 3');
+    assertEqual(outcome.value.projection.summary.occupiedUnits, 2, 'summary.occupiedUnits = 2');
+
+    // Typed RentRoll is the source-of-truth, carried alongside the lossy projection.
+    assert(outcome.value.typed !== null && outcome.value.typed !== undefined, 'value.typed is populated');
+    assertEqual(outcome.value.typed.lines.length, 3, 'typed.lines.length === 3');
+    assertEqual(outcome.value.typed.source, 'rent_roll_file', 'typed.source = rent_roll_file (xlsx parser source)');
 
     assertEqual(outcome.sourceRefs.length, 1, 'one sourceRef (single physical document, single semantic kind)');
     assertEqual(outcome.sourceRefs[0]?.kind, 'rent_roll', "sourceRef kind is 'rent_roll'");
@@ -186,6 +192,8 @@ async function buildRentRollXlsxBuffer(args: {
         outcome.sourceRefs[0]?.contentHash ?? null,
         'contentHash deterministic across re-runs on same buffer',
       );
+      // Typed RentRoll id is also deterministic.
+      assertEqual(outcome2.value.typed.id, outcome.value.typed.id, 'typed.id deterministic across re-runs (content-addressed)');
     } else {
       fail(`re-run expected status "ok", got "${outcome2.status}"`);
     }
