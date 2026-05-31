@@ -536,7 +536,23 @@ export default function AnalysisDashboard() {
 
             {activeTab === 'mitigations' && (
               <div className="space-y-3">
-                {(analysis.mitigations || []).length === 0 ? (
+                {/* Promoted-from-graph records render the LLM-authored mitigation
+                    prose from NarrativeEvaluation.mitigationSuggestions (same
+                    surface as RenderedAnalysisView/NarrativeSection on the
+                    new-spine view). The legacy MitigationStrategy[] cards
+                    remain for non-promoted records. The two surfaces are
+                    independent on the projector — the page chooses based on
+                    graphRevisionId. */}
+                {analysis.graphRevisionId ? (
+                  analysis.mitigationsNarrative ? (
+                    <div className="card">
+                      <h3 className="text-xs font-semibold text-accent uppercase tracking-wider mb-3">Mitigation Suggestions</h3>
+                      <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-line">{analysis.mitigationsNarrative}</div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-text-muted py-8 text-center">Mitigation analysis will appear after analysis completes.</p>
+                  )
+                ) : (analysis.mitigations || []).length === 0 ? (
                   <p className="text-sm text-text-muted py-8 text-center">No mitigation strategies generated.</p>
                 ) : (
                   (analysis.mitigations || []).map((mitigation) => {
