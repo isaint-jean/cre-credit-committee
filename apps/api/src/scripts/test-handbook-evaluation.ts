@@ -184,8 +184,9 @@ console.log('\n=== SkippedPrinciple shape (preserves detail field) ===');
 console.log('\n=== SKIP_REASONS enum coverage ===');
 
 (() => {
-  // All 8 reasons the engine can produce must be in the enum
-  // (added 'llm_eval_failed' in Phase 2 of the LLM_CONTEXT evaluator)
+  // All 9 reasons the engine can produce must be in the enum.
+  // 'llm_eval_failed' added by LLM_CONTEXT evaluator (Phase 2).
+  // 'needs_manual_input' added by manual-input layer (this brief Phase 1).
   const expected = [
     'trigger_inactive',
     'not_deterministic',
@@ -195,6 +196,7 @@ console.log('\n=== SKIP_REASONS enum coverage ===');
     'no_group_matched',
     'degenerate_evaluation',
     'llm_eval_failed',
+    'needs_manual_input',
   ];
   assertEqual(SKIP_REASONS.length, expected.length, `SKIP_REASONS has ${expected.length} entries`);
   for (const reason of expected) {
@@ -202,7 +204,7 @@ console.log('\n=== SKIP_REASONS enum coverage ===');
       fail(`SKIP_REASONS missing '${reason}'`);
     }
   }
-  ok('all 7 engine skip reasons covered');
+  ok('all 9 engine skip reasons covered');
 })();
 
 console.log('\n=== fieldBagSnapshot JSON round-trip ===');

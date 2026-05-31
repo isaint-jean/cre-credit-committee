@@ -31,6 +31,7 @@ import type {
   AdjustedInputs,
   AssetProfile,
   FiredFlag,
+  ManualInputRequest,
   NarrativeFacts,
   PropertyMetadata,
   SkipReason,
@@ -56,13 +57,15 @@ export type LlmEvalResult =
       readonly status: 'skipped';
       readonly skip: {
         readonly principleId: string;
-        // 'llm_eval_failed' when the LLM call itself failed (malformed
-        // output even after retry). 'no_band_matched' when the LLM evaluated
-        // cleanly and concluded fired=false (carrying the same semantic as
-        // the deterministic engine's existing 'principle checked, no flag
-        // warranted' skip).
+        // Outcomes:
+        //   'llm_eval_failed'      — LLM call broke (malformed output / API error)
+        //   'no_band_matched'      — LLM concluded fired=false (clean negative)
+        //   'needs_manual_input'   — LLM triggered + healthy but cannot conclude
+        //                            without an analyst-supplied input; carries
+        //                            structured manualInputRequests
         readonly reason: SkipReason;
         readonly detail?: string;
+        readonly manualInputRequests?: ReadonlyArray<ManualInputRequest>;
       };
     };
 
@@ -150,14 +153,26 @@ export async function runLlmContextCheck(
 
 // --- Structured output schema + parser --------------------------------------
 
+/**
+ * Three outcome paths in the LLM's structured output:
+ *   1. fired=true    → fires; severity + flag_message + evidenceQuotes required
+ *   2. fired=false   → clean negative (no_band_matched)
+ *   3. outcome='needs_manual_input' → triggered, cannot conclude without an
+ *      analyst-supplied input; flag_message describes the gap (also surfaces
+ *      to the analyst), manualInputRequests carries structured request entries.
+ *      `fired` may be omitted on this path; severity defaults to the
+ *      principle's own severity (set by resultFromLlmOutput).
+ */
 interface LlmStructuredOutput {
-  readonly fired: boolean;
-  readonly severity: 'critical' | 'high' | 'medium' | 'advisory';
+  readonly outcome: 'fired' | 'not_fired' | 'needs_manual_input';
+  readonly severity?: 'critical' | 'high' | 'medium' | 'advisory';
   readonly flag_message: string;
-  readonly evidenceQuotes: ReadonlyArray<string>;
+  readonly evidenceQuotes?: ReadonlyArray<string>;
+  readonly manualInputRequests?: ReadonlyArray<ManualInputRequest>;
 }
 
 const VALID_SEVERITIES = new Set(['critical', 'high', 'medium', 'advisory']);
+const VALID_OUTCOMES = new Set(['fired', 'not_fired', 'needs_manual_input']);
 
 function tryParseLlmOutput(raw: string): LlmStructuredOutput | null {
   // Tolerate ```json fences, surrounding prose, or trailing junk by extracting
@@ -173,36 +188,81 @@ function tryParseLlmOutput(raw: string): LlmStructuredOutput | null {
 
   if (parsed === null || typeof parsed !== 'object') return null;
   const o = parsed as Record<string, unknown>;
-  if (typeof o.fired !== 'boolean') return null;
-  if (typeof o.severity !== 'string' || !VALID_SEVERITIES.has(o.severity)) return null;
+
+  // Back-compat: legacy `fired: boolean` shape maps to outcome 'fired' or 'not_fired'.
+  let outcome: LlmStructuredOutput['outcome'];
+  if (typeof o.outcome === 'string' && VALID_OUTCOMES.has(o.outcome)) {
+    outcome = o.outcome as LlmStructuredOutput['outcome'];
+  } else if (typeof o.fired === 'boolean') {
+    outcome = o.fired ? 'fired' : 'not_fired';
+  } else {
+    return null;
+  }
+
   if (typeof o.flag_message !== 'string') return null;
-  if (!Array.isArray(o.evidenceQuotes) || o.evidenceQuotes.some((q) => typeof q !== 'string')) return null;
+
+  let severity: LlmStructuredOutput['severity'] | undefined;
+  if (typeof o.severity === 'string' && VALID_SEVERITIES.has(o.severity)) {
+    severity = o.severity as LlmStructuredOutput['severity'];
+  } else if (outcome === 'fired') {
+    return null; // severity required for fired outcomes
+  }
+
+  const evidenceQuotes = Array.isArray(o.evidenceQuotes)
+    ? (o.evidenceQuotes.every((q) => typeof q === 'string') ? o.evidenceQuotes as string[] : null)
+    : [];
+  if (evidenceQuotes === null) return null;
+
+  let manualInputRequests: ManualInputRequest[] | undefined;
+  if (outcome === 'needs_manual_input') {
+    if (!Array.isArray(o.manualInputRequests) || o.manualInputRequests.length === 0) return null;
+    const reqs: ManualInputRequest[] = [];
+    for (const r of o.manualInputRequests) {
+      if (r === null || typeof r !== 'object') return null;
+      const ro = r as Record<string, unknown>;
+      if (typeof ro.kind !== 'string' || typeof ro.detail !== 'string') return null;
+      reqs.push({ kind: ro.kind, detail: ro.detail });
+    }
+    manualInputRequests = reqs;
+  }
 
   return {
-    fired: o.fired,
-    severity: o.severity as LlmStructuredOutput['severity'],
+    outcome,
+    ...(severity !== undefined ? { severity } : {}),
     flag_message: o.flag_message,
-    evidenceQuotes: o.evidenceQuotes as ReadonlyArray<string>,
+    evidenceQuotes,
+    ...(manualInputRequests !== undefined ? { manualInputRequests } : {}),
   };
 }
 
 function resultFromLlmOutput(principle: Principle, parsed: LlmStructuredOutput): LlmEvalResult {
-  if (!parsed.fired) {
-    // Not-fired is NOT a failure — it's a clean "principle evaluated, no flag
-    // warranted". Reuse the engine's existing 'no_band_matched' skip reason
-    // which carries the same semantic in the deterministic path. Distinct from
-    // 'llm_eval_failed' (the LLM call itself failed).
+  if (parsed.outcome === 'needs_manual_input') {
+    return {
+      status: 'skipped',
+      skip: {
+        principleId: principle.id,
+        reason: 'needs_manual_input',
+        detail: parsed.flag_message,
+        manualInputRequests: parsed.manualInputRequests,
+      },
+    };
+  }
+
+  if (parsed.outcome === 'not_fired') {
+    // Clean "principle evaluated, no flag warranted" — mirrors deterministic
+    // engine's no_band_matched semantic.
     return {
       status: 'skipped',
       skip: { principleId: principle.id, reason: 'no_band_matched' },
     };
   }
 
+  // outcome === 'fired' — severity guaranteed present by parser.
   return {
     status: 'fired',
     flag: {
       principleId: principle.id,
-      severity: parsed.severity,
+      severity: parsed.severity!,
       flag_message: parsed.flag_message,
       metricValue: null,           // LLM principles have no numeric metric
       groupIndex: 0,                // deterministic-only concept; placeholder
@@ -285,18 +345,46 @@ const SYSTEM_PROMPT = [
   '',
   'Your task: decide whether the principle warrants a fired flag for this deal, given the deal data provided.',
   '',
-  'OUTPUT FORMAT (strict): return a SINGLE JSON object with EXACTLY these fields, no surrounding prose, no markdown fences:',
+  'OUTPUT FORMAT (strict): return a SINGLE JSON object, no surrounding prose, no markdown fences. The schema has THREE possible shapes by the `outcome` field:',
+  '',
+  '  // (1) Fire — the principle\'s concern is genuinely present in this deal',
   '  {',
-  '    "fired": <boolean>,',
+  '    "outcome": "fired",',
   '    "severity": "critical" | "high" | "medium" | "advisory",',
-  '    "flag_message": "<one-sentence analyst-readable description of the concern; if fired=false, briefly note why the principle is satisfied>",',
-  '    "evidenceQuotes": [<short evidence strings from the deal data that support your decision; cite specific numbers and fields>]',
+  '    "flag_message": "<one-sentence analyst-readable description of the concern, citing specific numbers from the deal>",',
+  '    "evidenceQuotes": [<short evidence strings from the deal data; cite specific numeric fields and their values>]',
+  '  }',
+  '',
+  '  // (2) Not fired — principle evaluated cleanly, no flag warranted',
+  '  {',
+  '    "outcome": "not_fired",',
+  '    "flag_message": "<brief note on why the principle is satisfied>",',
+  '    "evidenceQuotes": []',
+  '  }',
+  '',
+  '  // (3) Needs manual input — principle TRIGGERED and is otherwise healthy,',
+  '  //     but cannot conclude without an analyst-supplied input you have',
+  '  //     correctly declined to fabricate (e.g., per-tenant market rent comps,',
+  '  //     submarket sales comps, sponsor litigation lookups).',
+  '  //     Use this when the principle\'s text explicitly says the input',
+  '  //     comes from manual analyst data and that input is absent.',
+  '  {',
+  '    "outcome": "needs_manual_input",',
+  '    "flag_message": "<short description of what input is needed and why>",',
+  '    "manualInputRequests": [',
+  '      {',
+  '        "kind": "<short identifier, e.g. market_rent_comp / sales_comp / sponsor_litigation>",',
+  '        "detail": "<specific analyst-facing description naming the exact input needed; for per-tenant comps, list the tenants by name>"',
+  '      },',
+  '      ...',
+  '    ]',
   '  }',
   '',
   'Decision criteria:',
-  '- Fire (fired=true) only when the principle\'s concern is genuinely present in this deal. Be willing to fire on universal-philosophy principles when the deal\'s structure warrants commentary even if no covenant is breached.',
+  '- Fire (outcome=\"fired\") only when the principle\'s concern is genuinely present in this deal. Be willing to fire on universal-philosophy principles when the deal\'s structure warrants commentary even if no covenant is breached.',
+  '- Use outcome=\"needs_manual_input\" when the principle\'s text identifies a required input that must come from the manual analyst layer (rent comps, sales comps, sponsor lookups, etc.) AND that input is not present in the deal data. Do NOT fabricate market PSF, comp values, or other numbers you have no basis for.',
   '- Choose severity matching the principle\'s default severity unless the deal\'s specifics warrant a different tier.',
-  '- evidenceQuotes should cite numeric fields and their values when possible (e.g. "DSCR 1.05", "loan-to-value 0.66"). Empty array when fired=false.',
+  '- evidenceQuotes should cite numeric fields and their values when possible (e.g. "DSCR 1.05", "loan-to-value 0.66"). Empty array when not fired.',
   '',
   'Do not include text outside the JSON object.',
 ].join('\n');

@@ -244,6 +244,81 @@ function makeStubLlm(responses: string[]) {
     if (r.status === 'fired') assertEqual(r.flag.severity, 'critical', '7.2 new model produced new result');
   }
 
+  console.log('\n8. new outcome: outcome=needs_manual_input → needs_manual_input skip + structured requests');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({
+        outcome: 'needs_manual_input',
+        flag_message: 'Cannot evaluate above-market rent exposure without per-tenant market PSF comps.',
+        manualInputRequests: [
+          { kind: 'market_rent_comp', detail: 'Per-tenant market PSF for above-market in-place tenants (T-1, T-2)' },
+          { kind: 'submarket_vacancy', detail: 'Suburban San Diego office submarket vacancy rate (current)' },
+        ],
+      }),
+    ]);
+    const result = await runLlmContextCheck(args(), store, { llmCall: stub.fn as never });
+    assertEqual(result.status, 'skipped', '8.1 status === skipped');
+    if (result.status === 'skipped') {
+      assertEqual(result.skip.reason, 'needs_manual_input', '8.2 reason === needs_manual_input (NEW path)');
+      assertEqual(result.skip.detail, 'Cannot evaluate above-market rent exposure without per-tenant market PSF comps.', '8.3 detail carries the prose');
+      const reqs = result.skip.manualInputRequests ?? [];
+      assertEqual(reqs.length, 2, '8.4 manualInputRequests count');
+      assertEqual(reqs[0]?.kind, 'market_rent_comp', '8.5 first request kind');
+      assertEqual(reqs[1]?.kind, 'submarket_vacancy', '8.6 second request kind');
+      assert(reqs[0]?.detail.includes('Per-tenant market PSF'), '8.7 first request detail intact');
+    }
+    assertEqual(stub.calls(), 1, '8.8 LLM called once');
+  }
+
+  console.log('\n9. needs_manual_input requires non-empty manualInputRequests (parser strictness)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'needs_manual_input', flag_message: 'missing info' }), // no requests array
+      JSON.stringify({ outcome: 'needs_manual_input', flag_message: 'missing info', manualInputRequests: [] }), // empty
+    ]);
+    const result = await runLlmContextCheck(args(), store, { llmCall: stub.fn as never });
+    // Both attempts fail schema; final outcome should be llm_eval_failed.
+    assertEqual(result.status, 'skipped', '9.1 status === skipped');
+    if (result.status === 'skipped') {
+      assertEqual(result.skip.reason, 'llm_eval_failed', '9.2 reason === llm_eval_failed (parser rejected both empty/missing requests)');
+    }
+  }
+
+  console.log('\n10. legacy fired:boolean shape still parses (back-compat)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ fired: true, severity: 'high', flag_message: 'legacy shape fire', evidenceQuotes: ['x'] }),
+    ]);
+    const result = await runLlmContextCheck(args(), store, { llmCall: stub.fn as never });
+    assertEqual(result.status, 'fired', '10.1 legacy fired=true → fires');
+    if (result.status === 'fired') {
+      assertEqual(result.flag.flag_message, 'legacy shape fire', '10.2 legacy flag_message preserved');
+    }
+  }
+
+  console.log('\n11. needs_manual_input result IS cached (deterministic on replay)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({
+        outcome: 'needs_manual_input',
+        flag_message: 'need comp',
+        manualInputRequests: [{ kind: 'market_rent_comp', detail: 'per-tenant PSF' }],
+      }),
+    ]);
+    const r1 = await runLlmContextCheck(args(), store, { llmCall: stub.fn as never });
+    assertEqual(stub.calls(), 1, '11.1 first call invoked LLM');
+    const r2 = await runLlmContextCheck(args(), store, { llmCall: stub.fn as never });
+    assertEqual(stub.calls(), 1, '11.2 second call HIT CACHE (LLM not invoked again)');
+    if (r1.status === 'skipped' && r2.status === 'skipped') {
+      assertEqual(r2.skip.reason, r1.skip.reason, '11.3 cached reason identical');
+      assertEqual(r2.skip.manualInputRequests?.length, r1.skip.manualInputRequests?.length, '11.4 cached requests identical');
+    }
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 })().catch((e) => {

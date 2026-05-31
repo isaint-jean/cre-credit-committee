@@ -55,8 +55,28 @@ export const SKIP_REASONS = [
   // Distinct from missing_field (no data) and not_deterministic (no path
   // wired) — this means the path WAS wired and the LLM call attempted.
   'llm_eval_failed',
+  // LLM_CONTEXT path — Manual-input layer. Emitted when a principle
+  // TRIGGERED and is otherwise healthy, but cannot conclude without an
+  // analyst-supplied input it has correctly declined to fabricate
+  // (e.g. market rent comps for Rule B / P-IV-OFF-10). Distinct from
+  // 'missing_field' (deterministic data gap — input is supposed to come
+  // from extraction but didn't) and 'no_band_matched' (concluded "no
+  // flag warranted"). The principle's `manualInputRequests` payload on
+  // the SkippedPrinciple record carries the structured request shape.
+  'needs_manual_input',
 ] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
+
+/**
+ * Structured analyst-input request attached to a SkippedPrinciple with
+ * reason 'needs_manual_input'. Each entry names a specific input the
+ * principle needs to conclude. Free-form `detail` text supplements the
+ * structured `kind` for analyst-facing display.
+ */
+export interface ManualInputRequest {
+  readonly kind: string;       // e.g. 'market_rent_comp', 'sales_comp', 'sponsor_lookup'
+  readonly detail: string;     // analyst-facing description ("per-tenant market PSF for above-market tenants")
+}
 
 // `Severity` and `InjectionPoint` come from the handbook contract module
 // (handbook.ts), where they were originally defined as part of the
@@ -129,6 +149,14 @@ export interface SkippedPrinciple {
    * humans and LLMs to read.
    */
   readonly detail?: string;
+  /**
+   * Structured analyst-input requests. Present only when
+   * `reason === 'needs_manual_input'`. Each entry names a specific
+   * input the principle needs to conclude. Analyst-input UIs read this
+   * shape directly; the `detail` string is the prose summary for LLM
+   * narrative consumption.
+   */
+  readonly manualInputRequests?: ReadonlyArray<ManualInputRequest>;
 }
 
 // =============================================================================
