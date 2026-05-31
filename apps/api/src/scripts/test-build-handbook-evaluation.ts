@@ -181,7 +181,7 @@ await (async () => {
   const eval_ = await buildHandbookEvaluation(makeArgs());
   assertTruthy(eval_.id, 'record has an id');
   assertEqual(eval_.adjustedInputsId, 'aaaa', 'adjustedInputsId FKs to AdjustedInputs');
-  assertEqual(eval_.handbookVersion, '2026.1', 'handbookVersion stamped from handbook constant');
+  assertEqual(eval_.handbookVersion, '2026.2-addendum', 'handbookVersion stamped from handbook constant (bumped for Rules A+B)');
   assertEqual(eval_.engineVersion, '1.1.0', 'engineVersion stamped as constant (1.1.0 — LLM_CONTEXT dispatch)');
   assertEqual(eval_.analysisAsOfDate, '2026-01-01T00:00:00.000Z', 'analysisAsOfDate preserved');
   assertTruthy(eval_.fieldBagSnapshot, 'fieldBagSnapshot present');

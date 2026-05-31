@@ -91,6 +91,10 @@ export const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   'location_type',
   'mall_class',
   'mall_occupancy_cost_ratio',
+  // Addendum (2026-05-31): mgmt fee as fraction of EGI. Sourced from
+  // AI.expenses.managementFee.adjusted / AI.income.effectiveGrossIncome.adjusted.
+  // Used by Rule A (P-III-14 — 3% floor). Undefined when EGI <= 0.
+  'mgmt_fee_pct_of_egi',
   'msa',
   'noi_projection',
   'park_owned_home_pct',
@@ -210,6 +214,13 @@ export function buildFieldBag(inputs: AssemblerInputs): FieldBag {
   bag['debt_yield'] = graph.adjustedInputs.metrics.debtYield;
   bag['dscr'] = graph.adjustedInputs.metrics.dscr;
   bag['loan_amount'] = graph.adjustedInputs.loan.loanAmount.adjusted;
+
+  // Addendum (2026-05-31): mgmt fee as fraction of EGI for the universal
+  // 3% floor rule (P-III-14). undefined when EGI <= 0 so the engine skips
+  // with 'missing_field' rather than dividing by zero.
+  const mgmtFee = graph.adjustedInputs.expenses.managementFee.adjusted;
+  const egi = graph.adjustedInputs.income.effectiveGrossIncome.adjusted;
+  bag['mgmt_fee_pct_of_egi'] = egi > 0 ? mgmtFee / egi : undefined;
 
   // reserves: scalar (annual dollars) projected from the monthly replacement
   // reserve rate. Was initially documented as "broadcast across loan term";
