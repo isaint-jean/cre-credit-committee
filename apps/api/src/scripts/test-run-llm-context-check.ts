@@ -126,7 +126,42 @@ function args(p: Principle = samplePrinciple): LlmContextCheckArgs {
     propertyMetadata: null,
     narrativeFacts: sampleNarrativeFacts,
     deterministicFiredFlags: [],
-    handbookEngineVersion: '1.3.0',
+    handbookEngineVersion: '1.4.0',
+  };
+}
+
+// Phase-2 defaults — every ComputedFacts must carry reserveSchedule + terminationOptions.
+// Legacy refi-only tests below wrap their refinancingRisk values via withPhase2Defaults.
+const PHASE2_DEFAULT_RESERVE_SCHEDULE = {
+  source: 'adjusted_inputs.capitalReserves' as const,
+  monthlyReplacementReserves: 0,
+  monthlyCapex: 0,
+  monthlyTiLc: 0,
+  monthlyTenantImprovements: 0,
+  monthlyLeasingCommissions: 0,
+  upfrontReplacementReserves: 0,
+  upfrontTiLc: 0,
+  pcaImmediateRepairs: 0,
+  capexScheduleInflated: null as ReadonlyArray<{ year: number; amount: number }> | null,
+  totalMonthlyReservesDollars: 0 as number | null,
+  totalUpfrontReservesDollars: 0 as number | null,
+  anyMonthlyReservePopulated: false,
+};
+const PHASE2_DEFAULT_TERMINATION_OPTIONS = {
+  source: 'rent_roll_footnotes' as const,
+  extracted: false,
+  options: null as ReadonlyArray<{ tenantName: string | null; description: string; effectiveDate: string | null; noticePeriodMonths: number | null }> | null,
+  extractionGap: {
+    kind: 'termination_option_extraction_gap' as const,
+    detail: 'rent-roll footnote extraction not implemented (Phase 2 marker)',
+    recommendedInputKind: 'termination_option_extraction_gap' as const,
+  } as { kind: 'termination_option_extraction_gap'; detail: string; recommendedInputKind: 'termination_option_extraction_gap' } | null,
+};
+function withPhase2Defaults(refinancingRisk: import('../services/handbook/run-llm-context-check.js').ComputedFacts['refinancingRisk']) {
+  return {
+    refinancingRisk,
+    reserveSchedule: PHASE2_DEFAULT_RESERVE_SCHEDULE,
+    terminationOptions: PHASE2_DEFAULT_TERMINATION_OPTIONS,
   };
 }
 
@@ -563,23 +598,21 @@ function twelveTenantRentRoll(): RentRoll {
     ]);
     const argsWithFacts: LlmContextCheckArgs = {
       ...args(),
-      computedFacts: {
-        refinancingRisk: {
-          refiWindowMonths: 12,
-          termMonths: 60,
-          maturityDate: '2031-05-31T00:00:00Z',
-          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
-          aggregateRolloverFraction: 0.2,
-          perTenantSchedule: [
-            { tenantName: 'Early', suite: null, squareFeet: 1000, leaseEnd: '2030-01-01T00:00:00Z',
-              expiresWithinRefiWindow: true, inPlaceRentAnnual: 200_000 },
-            { tenantName: 'Late', suite: null, squareFeet: 4000, leaseEnd: '2040-01-01T00:00:00Z',
-              expiresWithinRefiWindow: false, inPlaceRentAnnual: 800_000 },
-          ],
-          sourceDataComplete: true,
-          verdict: 'rollover_in_refi_window',
-        },
-      },
+      computedFacts: withPhase2Defaults({
+        refiWindowMonths: 12,
+        termMonths: 60,
+        maturityDate: '2031-05-31T00:00:00Z',
+        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+        aggregateRolloverFraction: 0.2,
+        perTenantSchedule: [
+          { tenantName: 'Early', suite: null, squareFeet: 1000, leaseEnd: '2030-01-01T00:00:00Z',
+            expiresWithinRefiWindow: true, inPlaceRentAnnual: 200_000 },
+          { tenantName: 'Late', suite: null, squareFeet: 4000, leaseEnd: '2040-01-01T00:00:00Z',
+            expiresWithinRefiWindow: false, inPlaceRentAnnual: 800_000 },
+        ],
+        sourceDataComplete: true,
+        verdict: 'rollover_in_refi_window',
+      }),
     };
     await runLlmContextCheck(argsWithFacts, store, { llmCall: stub.fn as never });
     const prompt = stub.prompts()[0] ?? '';
@@ -610,21 +643,19 @@ function twelveTenantRentRoll(): RentRoll {
     ]);
     const argsStrength: LlmContextCheckArgs = {
       ...args(),
-      computedFacts: {
-        refinancingRisk: {
-          refiWindowMonths: 12,
-          termMonths: 60,
-          maturityDate: '2031-05-31T00:00:00Z',
-          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
-          aggregateRolloverFraction: 0,
-          perTenantSchedule: [
-            { tenantName: 'GSA', suite: '100', squareFeet: 100_000, leaseEnd: '2039-01-01T00:00:00Z',
-              expiresWithinRefiWindow: false, inPlaceRentAnnual: 5_000_000 },
-          ],
-          sourceDataComplete: true,
-          verdict: 'no_rollover_in_refi_window',
-        },
-      },
+      computedFacts: withPhase2Defaults({
+        refiWindowMonths: 12,
+        termMonths: 60,
+        maturityDate: '2031-05-31T00:00:00Z',
+        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+        aggregateRolloverFraction: 0,
+        perTenantSchedule: [
+          { tenantName: 'GSA', suite: '100', squareFeet: 100_000, leaseEnd: '2039-01-01T00:00:00Z',
+            expiresWithinRefiWindow: false, inPlaceRentAnnual: 5_000_000 },
+        ],
+        sourceDataComplete: true,
+        verdict: 'no_rollover_in_refi_window',
+      }),
     };
     const r = await runLlmContextCheck(argsStrength, store, { llmCall: stub.fn as never });
     const prompt = stub.prompts()[0] ?? '';
@@ -648,21 +679,19 @@ function twelveTenantRentRoll(): RentRoll {
     ]);
     const argsInsuff: LlmContextCheckArgs = {
       ...args(),
-      computedFacts: {
-        refinancingRisk: {
-          refiWindowMonths: 12,
-          termMonths: 60,
-          maturityDate: '2031-05-31T00:00:00Z',
-          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
-          aggregateRolloverFraction: null,
-          perTenantSchedule: [
-            { tenantName: 'A', suite: null, squareFeet: 1000, leaseEnd: null,
-              expiresWithinRefiWindow: null, inPlaceRentAnnual: 100_000 },
-          ],
-          sourceDataComplete: false,
-          verdict: 'insufficient_data',
-        },
-      },
+      computedFacts: withPhase2Defaults({
+        refiWindowMonths: 12,
+        termMonths: 60,
+        maturityDate: '2031-05-31T00:00:00Z',
+        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+        aggregateRolloverFraction: null,
+        perTenantSchedule: [
+          { tenantName: 'A', suite: null, squareFeet: 1000, leaseEnd: null,
+            expiresWithinRefiWindow: null, inPlaceRentAnnual: 100_000 },
+        ],
+        sourceDataComplete: false,
+        verdict: 'insufficient_data',
+      }),
     };
     const r = await runLlmContextCheck(argsInsuff, store, { llmCall: stub.fn as never });
     const prompt = stub.prompts()[0] ?? '';
@@ -677,18 +706,16 @@ function twelveTenantRentRoll(): RentRoll {
   console.log('\n23. Phase 1 — same computedFacts → same hash → cache hit');
   {
     const store = new RecordGraphStore(':memory:');
-    const facts = {
-      refinancingRisk: {
-        refiWindowMonths: 12,
-        termMonths: 60,
-        maturityDate: '2031-05-31T00:00:00Z',
-        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
-        aggregateRolloverFraction: 0,
-        perTenantSchedule: [],
-        sourceDataComplete: true,
-        verdict: 'no_rollover_in_refi_window' as const,
-      },
-    };
+    const facts = withPhase2Defaults({
+      refiWindowMonths: 12,
+      termMonths: 60,
+      maturityDate: '2031-05-31T00:00:00Z',
+      maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+      aggregateRolloverFraction: 0,
+      perTenantSchedule: [],
+      sourceDataComplete: true,
+      verdict: 'no_rollover_in_refi_window' as const,
+    });
     const stub1 = makeStubLlm([
       JSON.stringify({ outcome: 'not_fired', flag_message: 'strength', evidenceQuotes: [] }),
     ]);
@@ -703,25 +730,21 @@ function twelveTenantRentRoll(): RentRoll {
   console.log('\n24. Phase 1 — different refiWindowMonths → different hash → fresh eval');
   {
     const store = new RecordGraphStore(':memory:');
-    const base = {
-      refinancingRisk: {
-        refiWindowMonths: 12,
-        termMonths: 60,
-        maturityDate: '2031-05-31T00:00:00Z',
-        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
-        aggregateRolloverFraction: 0,
-        perTenantSchedule: [],
-        sourceDataComplete: true,
-        verdict: 'no_rollover_in_refi_window' as const,
-      },
-    };
-    const wider = {
-      refinancingRisk: {
-        ...base.refinancingRisk,
-        refiWindowMonths: 24, // different parameter
-        maturityPlusWindowDate: '2033-05-31T00:00:00Z',
-      },
-    };
+    const base = withPhase2Defaults({
+      refiWindowMonths: 12,
+      termMonths: 60,
+      maturityDate: '2031-05-31T00:00:00Z',
+      maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+      aggregateRolloverFraction: 0,
+      perTenantSchedule: [],
+      sourceDataComplete: true,
+      verdict: 'no_rollover_in_refi_window' as const,
+    });
+    const wider = withPhase2Defaults({
+      ...base.refinancingRisk,
+      refiWindowMonths: 24, // different parameter
+      maturityPlusWindowDate: '2033-05-31T00:00:00Z',
+    });
     const stub1 = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'window-12', evidenceQuotes: [] })]);
     const stub2 = makeStubLlm([JSON.stringify({ outcome: 'fired', severity: 'medium', flag_message: 'window-24 differs', evidenceQuotes: [] })]);
     await runLlmContextCheck({ ...args(), computedFacts: base }, store, { llmCall: stub1.fn as never });
@@ -739,22 +762,258 @@ function twelveTenantRentRoll(): RentRoll {
     await runLlmContextCheck(args(), store, { llmCall: stubA.fn as never });
     const argsWithFacts = {
       ...args(),
-      computedFacts: {
-        refinancingRisk: {
-          refiWindowMonths: 12, termMonths: 60,
-          maturityDate: '2031-05-31T00:00:00Z',
-          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
-          aggregateRolloverFraction: 0,
-          perTenantSchedule: [],
-          sourceDataComplete: true,
-          verdict: 'no_rollover_in_refi_window' as const,
-        },
-      },
+      computedFacts: withPhase2Defaults({
+        refiWindowMonths: 12, termMonths: 60,
+        maturityDate: '2031-05-31T00:00:00Z',
+        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+        aggregateRolloverFraction: 0,
+        perTenantSchedule: [],
+        sourceDataComplete: true,
+        verdict: 'no_rollover_in_refi_window' as const,
+      }),
     };
     const stubB = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'with-facts', evidenceQuotes: [] })]);
     const r = await runLlmContextCheck(argsWithFacts, store, { llmCall: stubB.fn as never });
     assertEqual(stubB.calls(), 1, '25.1 adding computedFacts → cache MISS → LLM re-called');
     assertEqual(r.status, 'skipped', '25.2 new result distinct from no-facts run');
+  }
+
+  // ===========================================================================
+  // Phase 2 (reserve-read + footnote-read) — extended computedFacts tests
+  // ===========================================================================
+
+  // Fixture builder shared across Phase 2 tests. Always emits a refinancingRisk
+  // alongside the new fields so the full ComputedFacts shape is exercised.
+  function phase2Facts(overrides: {
+    reserveSchedule?: Partial<{
+      monthlyReplacementReserves: number | null;
+      monthlyCapex: number | null;
+      monthlyTiLc: number | null;
+      monthlyTenantImprovements: number | null;
+      monthlyLeasingCommissions: number | null;
+      upfrontReplacementReserves: number | null;
+      upfrontTiLc: number | null;
+      pcaImmediateRepairs: number | null;
+      capexScheduleInflated: ReadonlyArray<{ year: number; amount: number }> | null;
+      totalMonthlyReservesDollars: number | null;
+      totalUpfrontReservesDollars: number | null;
+      anyMonthlyReservePopulated: boolean;
+    }>;
+    terminationOptions?: Partial<{
+      extracted: boolean;
+      options: ReadonlyArray<{ tenantName: string | null; description: string; effectiveDate: string | null; noticePeriodMonths: number | null }> | null;
+      extractionGap: { kind: 'termination_option_extraction_gap'; detail: string; recommendedInputKind: 'termination_option_extraction_gap' } | null;
+    }>;
+  } = {}) {
+    const rs = {
+      source: 'adjusted_inputs.capitalReserves' as const,
+      monthlyReplacementReserves: 0,
+      monthlyCapex: 0,
+      monthlyTiLc: 0,
+      monthlyTenantImprovements: 0,
+      monthlyLeasingCommissions: 0,
+      upfrontReplacementReserves: 0,
+      upfrontTiLc: 0,
+      pcaImmediateRepairs: 0,
+      capexScheduleInflated: null,
+      totalMonthlyReservesDollars: 0,
+      totalUpfrontReservesDollars: 0,
+      anyMonthlyReservePopulated: false,
+      ...(overrides.reserveSchedule ?? {}),
+    };
+    const to = {
+      source: 'rent_roll_footnotes' as const,
+      extracted: false,
+      options: null as ReadonlyArray<{ tenantName: string | null; description: string; effectiveDate: string | null; noticePeriodMonths: number | null }> | null,
+      extractionGap: {
+        kind: 'termination_option_extraction_gap' as const,
+        detail: 'rent-roll footnote extraction not yet implemented',
+        recommendedInputKind: 'termination_option_extraction_gap' as const,
+      } as { kind: 'termination_option_extraction_gap'; detail: string; recommendedInputKind: 'termination_option_extraction_gap' } | null,
+      ...(overrides.terminationOptions ?? {}),
+    };
+    return {
+      refinancingRisk: {
+        refiWindowMonths: 12,
+        termMonths: 60,
+        maturityDate: '2031-05-31T00:00:00Z' as const,
+        maturityPlusWindowDate: '2032-05-31T00:00:00Z' as const,
+        aggregateRolloverFraction: 0,
+        perTenantSchedule: [],
+        sourceDataComplete: true,
+        verdict: 'no_rollover_in_refi_window' as const,
+      },
+      reserveSchedule: rs,
+      terminationOptions: to,
+    };
+  }
+
+  console.log('\n26. Phase 2 — reserveSchedule appears in prompt with all 9 fields');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'ok', evidenceQuotes: [] }),
+    ]);
+    const argsRS: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: phase2Facts({
+        reserveSchedule: {
+          monthlyReplacementReserves: 0,
+          monthlyCapex: 250,
+          monthlyTiLc: 500,
+          monthlyTenantImprovements: 300,
+          monthlyLeasingCommissions: 200,
+          upfrontReplacementReserves: 50_000,
+          upfrontTiLc: 100_000,
+          pcaImmediateRepairs: 25_000,
+          capexScheduleInflated: [{ year: 1, amount: 5_000 }, { year: 2, amount: 7_500 }],
+          totalMonthlyReservesDollars: 1_250,
+          totalUpfrontReservesDollars: 175_000,
+          anyMonthlyReservePopulated: true,
+        },
+      }),
+    };
+    await runLlmContextCheck(argsRS, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('"reserveSchedule"'), '26.1 prompt includes reserveSchedule key');
+    assert(prompt.includes('"monthlyReplacementReserves":0'), '26.2 monthlyReplacementReserves present (=0)');
+    assert(prompt.includes('"monthlyCapex":250'), '26.3 monthlyCapex present');
+    assert(prompt.includes('"monthlyTiLc":500'), '26.4 monthlyTiLc present');
+    assert(prompt.includes('"monthlyTenantImprovements":300'), '26.5 monthlyTenantImprovements present');
+    assert(prompt.includes('"monthlyLeasingCommissions":200'), '26.6 monthlyLeasingCommissions present');
+    assert(prompt.includes('"upfrontReplacementReserves":50000'), '26.7 upfrontReplacementReserves present');
+    assert(prompt.includes('"upfrontTiLc":100000'), '26.8 upfrontTiLc present');
+    assert(prompt.includes('"pcaImmediateRepairs":25000'), '26.9 pcaImmediateRepairs present');
+    assert(prompt.includes('"capexScheduleInflated":'), '26.10 capexScheduleInflated present');
+    assert(prompt.includes('"totalMonthlyReservesDollars":1250'), '26.11 totalMonthlyReservesDollars roll-up present');
+    assert(prompt.includes('"totalUpfrontReservesDollars":175000'), '26.12 totalUpfrontReservesDollars roll-up present');
+    assert(prompt.includes('"anyMonthlyReservePopulated":true'), '26.13 anyMonthlyReservePopulated roll-up present');
+    assert(prompt.includes('For reserveSchedule specifically'), '26.14 prompt carries reserveSchedule instruction prose');
+    assert(prompt.includes('"source":"adjusted_inputs.capitalReserves"'), '26.15 source tag identifies adjusted-inputs origin');
+  }
+
+  console.log('\n27. Phase 2 — reserveSchedule folds into context hash (cache stability)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const facts = phase2Facts({
+      reserveSchedule: {
+        monthlyReplacementReserves: 750,
+        monthlyCapex: 100,
+        totalMonthlyReservesDollars: 850,
+        anyMonthlyReservePopulated: true,
+      },
+    });
+    const stub1 = makeStubLlm([
+      JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'baseline-reserves', evidenceQuotes: [] }),
+    ]);
+    const r1 = await runLlmContextCheck({ ...args(), computedFacts: facts }, store, { llmCall: stub1.fn as never });
+    assertEqual(stub1.calls(), 1, '27.1 first call invoked LLM');
+    const stub2 = makeStubLlm([]); // proves cache hit
+    const r2 = await runLlmContextCheck({ ...args(), computedFacts: facts }, store, { llmCall: stub2.fn as never });
+    assertEqual(stub2.calls(), 0, '27.2 second call HIT CACHE (identical reserveSchedule bytes)');
+    assertEqual(r1.status, r2.status, '27.3 cached status preserved');
+  }
+
+  console.log('\n28. Phase 2 — different reserveSchedule (single field flip) → different hash → fresh eval');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const factsA = phase2Facts({
+      reserveSchedule: {
+        monthlyReplacementReserves: 0,
+        monthlyTiLc: null,
+        totalMonthlyReservesDollars: 0,
+        anyMonthlyReservePopulated: false,
+      },
+    });
+    // Same shape, but monthlyTiLc flips from null → 500.
+    const factsB = phase2Facts({
+      reserveSchedule: {
+        monthlyReplacementReserves: 0,
+        monthlyTiLc: 500,
+        totalMonthlyReservesDollars: 500,
+        anyMonthlyReservePopulated: true,
+      },
+    });
+    const stubA = makeStubLlm([JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'tilc-null', evidenceQuotes: [] })]);
+    const stubB = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'tilc-populated', evidenceQuotes: [] })]);
+    await runLlmContextCheck({ ...args(), computedFacts: factsA }, store, { llmCall: stubA.fn as never });
+    const rB = await runLlmContextCheck({ ...args(), computedFacts: factsB }, store, { llmCall: stubB.fn as never });
+    assertEqual(stubB.calls(), 1, '28.1 single-field flip → cache MISS → LLM re-invoked');
+    if (rB.status === 'skipped') {
+      assertEqual(rB.skip.reason, 'no_band_matched', '28.2 new result reflects the populated TI/LC field');
+    }
+  }
+
+  console.log('\n29. Phase 2 — terminationOptions appears with extracted=false + extractionGap marker');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({
+        outcome: 'needs_manual_input',
+        flag_message: 'Termination options not extractable from current pipeline.',
+        manualInputRequests: [
+          { kind: 'termination_option_extraction_gap', detail: 'rent-roll footnotes not parsed' },
+        ],
+      }),
+    ]);
+    const argsTO: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: phase2Facts(),
+    };
+    const r = await runLlmContextCheck(argsTO, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('"terminationOptions"'), '29.1 prompt includes terminationOptions key');
+    assert(prompt.includes('"extracted":false'), '29.2 extracted=false visible');
+    assert(prompt.includes('"options":null'), '29.3 options is null (no data)');
+    assert(prompt.includes('"kind":"termination_option_extraction_gap"'), '29.4 extractionGap.kind visible');
+    assert(prompt.includes('"source":"rent_roll_footnotes"'), '29.5 source identifies footnote origin');
+    assert(prompt.includes('For terminationOptions specifically'), '29.6 prompt carries terminationOptions instruction prose');
+    assertEqual(r.status, 'skipped', '29.7 LLM honored needs_manual_input path');
+    if (r.status === 'skipped') {
+      assertEqual(r.skip.reason, 'needs_manual_input', '29.8 skip reason === needs_manual_input');
+      assertEqual(r.skip.manualInputRequests?.[0]?.kind, 'termination_option_extraction_gap', '29.9 returned kind matches recommendedInputKind');
+    }
+  }
+
+  console.log('\n30. Phase 2 — P-III-3-style fixture: $0 replacement reserves but populated TI/LC → both visible in prompt');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({
+        outcome: 'not_fired',
+        flag_message: 'Replacement reserves $0 but monthly TI/LC of $500 and capex schedule populated cover reserve concern.',
+        evidenceQuotes: ['monthlyReplacementReserves $0', 'monthlyTiLc $500', 'capexScheduleInflated 2 years'],
+      }),
+    ]);
+    const argsP3: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: phase2Facts({
+        reserveSchedule: {
+          monthlyReplacementReserves: 0,
+          monthlyCapex: 100,
+          monthlyTiLc: 500,
+          monthlyTenantImprovements: 300,
+          monthlyLeasingCommissions: 200,
+          upfrontReplacementReserves: 0,
+          upfrontTiLc: 75_000,
+          pcaImmediateRepairs: 0,
+          capexScheduleInflated: [{ year: 1, amount: 3_000 }, { year: 2, amount: 4_500 }],
+          totalMonthlyReservesDollars: 1_100,
+          totalUpfrontReservesDollars: 75_000,
+          anyMonthlyReservePopulated: true,
+        },
+      }),
+    };
+    const r = await runLlmContextCheck(argsP3, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    // Prompt must show BOTH the $0 replacement-reserves AND the populated TI/LC.
+    assert(prompt.includes('"monthlyReplacementReserves":0'), '30.1 prompt shows the $0 replacement-reserves field');
+    assert(prompt.includes('"monthlyTiLc":500'), '30.2 prompt shows the populated TI/LC field');
+    assert(prompt.includes('"anyMonthlyReservePopulated":true'), '30.3 roll-up confirms "deal is reserved"');
+    assertEqual(r.status, 'skipped', '30.4 LLM stub returned not_fired → status skipped');
+    if (r.status === 'skipped') {
+      assertEqual(r.skip.reason, 'no_band_matched', '30.5 skip reason === no_band_matched (clean negative; stub used populated TI/LC)');
+    }
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

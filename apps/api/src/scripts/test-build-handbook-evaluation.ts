@@ -187,7 +187,7 @@ await (async () => {
   assertTruthy(eval_.id, 'record has an id');
   assertEqual(eval_.adjustedInputsId, 'aaaa', 'adjustedInputsId FKs to AdjustedInputs');
   assertEqual(eval_.handbookVersion, '2026.3-gate', 'handbookVersion stamped from handbook constant (bumped for refi-window gate; adds P-II-9)');
-  assertEqual(eval_.engineVersion, '1.3.0', 'engineVersion stamped as constant (1.3.0 — per-principle context bundle gains computedFacts.refinancingRisk + SYSTEM_PROMPT precedence rule)');
+  assertEqual(eval_.engineVersion, '1.4.0', 'engineVersion stamped as constant (1.4.0 — computedFacts gains reserveSchedule (9-field) + terminationOptions (extraction-gap marker); invalidates 1.3.0 cache)');
   assertEqual(eval_.analysisAsOfDate, '2026-01-01T00:00:00.000Z', 'analysisAsOfDate preserved');
   assertTruthy(eval_.fieldBagSnapshot, 'fieldBagSnapshot present');
   assertTruthy(Array.isArray(eval_.firedFlags), 'firedFlags is array');

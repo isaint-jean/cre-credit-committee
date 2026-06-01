@@ -31,6 +31,7 @@ import type {
   AdjustedInputs,
   AssetProfile,
   FiredFlag,
+  ISODateTime,
   ManualInputRequest,
   ManualInputs,
   NarrativeFacts,
@@ -83,11 +84,158 @@ export type LlmEvalResult =
  * `RentRoll` (the graph nodes), NEVER from `ExtractionResult`. Stage 5 (handbook
  * evaluator) does not import extraction.
  *
- * Extensible by design — Phase 2 of the gate will widen this with reserve sizing and
- * footnote facts. Today (Phase 1) the only field is `refinancingRisk`.
+ * Phase 1 added `refinancingRisk` (refi-window rollover gate).
+ * Phase 2 widens with:
+ *   - `reserveSchedule`: full 9-field capital-reserve picture so reserves-adjacent
+ *     principles (P-III-3, P-III-4, P-IV-OFF-3) stop firing CRITICAL on
+ *     monthlyReplacementReserves=$0 alone when other reserves are populated.
+ *   - `terminationOptions`: structured extraction-gap marker. Today rent-roll footnotes
+ *     are NOT parsed, so any principle requiring termination-option data must return
+ *     needs_manual_input with kind='termination_option_extraction_gap' rather than
+ *     silently missing the data.
  */
 export interface ComputedFacts {
   readonly refinancingRisk: RefiWindowRolloverFacts;
+  readonly reserveSchedule: ReserveScheduleFacts;
+  readonly terminationOptions: TerminationOptionsFacts;
+}
+
+/**
+ * Full reserve-schedule snapshot surfaced into the LLM context. Mirrors
+ * AdjustedInputs.capitalReserves' fields (monthly + upfront + PCA-projected schedule)
+ * with three derived roll-ups. Strict null fidelity: a field that is null (the UW
+ * did not conclude this kind of reserve) stays null. Zeros stay zero. No defaulting.
+ *
+ * Source field: `AdjustedInputs.capitalReserves` (the canonical adjusted layer).
+ * NOT derived from any asset-class stereotype.
+ */
+export interface ReserveScheduleFacts {
+  readonly source: 'adjusted_inputs.capitalReserves';
+  // Monthly figures (in dollars; null = not concluded by UW)
+  readonly monthlyReplacementReserves: number | null;
+  readonly monthlyCapex: number | null;
+  readonly monthlyTiLc: number | null;
+  readonly monthlyTenantImprovements: number | null;
+  readonly monthlyLeasingCommissions: number | null;
+  // Upfront figures
+  readonly upfrontReplacementReserves: number | null;
+  readonly upfrontTiLc: number | null;
+  readonly pcaImmediateRepairs: number | null;
+  // Per-year schedule (PCA-projected, inflated $). null when no PCA.
+  readonly capexScheduleInflated: ReadonlyArray<{ readonly year: number; readonly amount: number }> | null;
+  // Derived helpers — pure roll-ups so the LLM doesn't have to math.
+  // totalMonthlyReservesDollars: sum of (monthlyReplacementReserves + monthlyCapex +
+  // monthlyTiLc + monthlyTenantImprovements + monthlyLeasingCommissions) where non-null;
+  // null only when ALL monthly fields are null. NOT zero on all-null — strict null fidelity.
+  readonly totalMonthlyReservesDollars: number | null;
+  // totalUpfrontReservesDollars: same policy across the three upfront fields.
+  readonly totalUpfrontReservesDollars: number | null;
+  // anyMonthlyReservePopulated: true iff at least one monthly field is non-null AND > 0.
+  readonly anyMonthlyReservePopulated: boolean;
+}
+
+/**
+ * Termination-options facts. In Phase 2 this is ALWAYS an extraction gap:
+ * rent-roll footnote annotations (kickout clauses, early-termination rights) are
+ * NOT extracted today. The structured `extractionGap` block exists so the LLM
+ * can return needs_manual_input naming the exact gap rather than silently
+ * concluding "there are no termination options."
+ *
+ * Forward-compatible: when footnote extraction lands in a future ticket,
+ * `extracted` flips to true, `options` carries the parsed termination-options
+ * list, and `extractionGap` becomes null.
+ */
+export interface TerminationOptionsFacts {
+  readonly source: 'rent_roll_footnotes';
+  /** Always false in Phase 2 (extraction gap). Future ticket: true when footnotes are parsed. */
+  readonly extracted: boolean;
+  /**
+   * Per-tenant termination options (kickout clauses, early-termination rights).
+   * Null in Phase 2 (extracted=false). Populated when extracted=true (future).
+   */
+  readonly options: ReadonlyArray<{
+    readonly tenantName: string | null;
+    readonly description: string;
+    readonly effectiveDate: ISODateTime | null;
+    readonly noticePeriodMonths: number | null;
+  }> | null;
+  /**
+   * Structured extraction-gap marker. Populated in Phase 2 (extracted=false);
+   * null when extracted=true. The LLM is instructed to cite `detail` verbatim
+   * and return manualInputRequests with kind=recommendedInputKind.
+   */
+  readonly extractionGap: {
+    readonly kind: 'termination_option_extraction_gap';
+    readonly detail: string;
+    readonly recommendedInputKind: 'termination_option_extraction_gap';
+  } | null;
+}
+
+/**
+ * Pure builder — projects AdjustedInputs.capitalReserves into ReserveScheduleFacts.
+ * Reads only `adjustedInputs.capitalReserves`; no other inputs. Strict null fidelity
+ * preserved across all derived roll-ups.
+ *
+ * Spec-clean (§2.3): imports AdjustedInputs only — never ExtractionResult.
+ */
+export function buildReserveScheduleFacts(adjustedInputs: AdjustedInputs): ReserveScheduleFacts {
+  const r = adjustedInputs.capitalReserves;
+  // AdjustedLineItem.adjusted is non-null in the contract; the "null = not concluded"
+  // path here is for future-proofing if the field ever widens to nullable. Today every
+  // adjusted is a number; the cast preserves the null-aware roll-up math regardless.
+  const monthlies: ReadonlyArray<number | null> = [
+    r.monthlyReplacementReserves.adjusted,
+    r.monthlyCapex.adjusted,
+    r.monthlyTiLc.adjusted,
+    r.monthlyTenantImprovements.adjusted,
+    r.monthlyLeasingCommissions.adjusted,
+  ];
+  const upfronts: ReadonlyArray<number | null> = [
+    r.upfrontReplacementReserves.adjusted,
+    r.upfrontTiLc.adjusted,
+    r.pcaImmediateRepairs.adjusted,
+  ];
+  const sum = (xs: ReadonlyArray<number | null>): number | null => {
+    const nonNull = xs.filter((x): x is number => x !== null);
+    return nonNull.length === 0 ? null : nonNull.reduce((a, b) => a + b, 0);
+  };
+  return {
+    source: 'adjusted_inputs.capitalReserves',
+    monthlyReplacementReserves: r.monthlyReplacementReserves.adjusted,
+    monthlyCapex: r.monthlyCapex.adjusted,
+    monthlyTiLc: r.monthlyTiLc.adjusted,
+    monthlyTenantImprovements: r.monthlyTenantImprovements.adjusted,
+    monthlyLeasingCommissions: r.monthlyLeasingCommissions.adjusted,
+    upfrontReplacementReserves: r.upfrontReplacementReserves.adjusted,
+    upfrontTiLc: r.upfrontTiLc.adjusted,
+    pcaImmediateRepairs: r.pcaImmediateRepairs.adjusted,
+    capexScheduleInflated: r.capexScheduleInflated ?? null,
+    totalMonthlyReservesDollars: sum(monthlies),
+    totalUpfrontReservesDollars: sum(upfronts),
+    anyMonthlyReservePopulated: monthlies.some((x) => x !== null && x > 0),
+  };
+}
+
+/**
+ * Pure builder — Phase 2 always returns the extraction-gap shape because rent-roll
+ * footnotes are NOT extracted today. No inputs (the function exists so the call site
+ * keeps a parallel shape to buildReserveScheduleFacts, and so the future ticket that
+ * lands footnote extraction has one clear edit point).
+ *
+ * Spec-clean (§2.3): no extraction imports.
+ */
+export function buildTerminationOptionsFacts(): TerminationOptionsFacts {
+  return {
+    source: 'rent_roll_footnotes',
+    extracted: false,
+    options: null,
+    extractionGap: {
+      kind: 'termination_option_extraction_gap',
+      detail:
+        "Tenant lease termination options (kickout clauses, early-termination rights) live in rent-roll footnote annotations. Today the extraction pipeline does NOT parse footnotes — only the tabular rent-roll rows reach the graph. Principles requiring termination-option data MUST return needs_manual_input with kind='termination_option_extraction_gap' rather than silently missing the data.",
+      recommendedInputKind: 'termination_option_extraction_gap',
+    },
+  };
 }
 
 export interface LlmContextCheckArgs {
@@ -570,6 +718,8 @@ const SYSTEM_PROMPT = [
   '',
   'Decision criteria:',
   '- When the user message contains an "Authoritative Derived Facts" block, treat those values as the ground truth for the quantities they cover. Asset-class priors and stereotypes are NOT a substitute for a computed value. If the underlying data needed to compute a fact is absent (the block will say verdict=insufficient_data or carry a null aggregate), you MUST return needs_manual_input naming the missing input — do NOT fire on an assumed value, and do NOT silently ignore the principle. When the block documents an absence of risk (e.g., verdict=no_rollover_in_refi_window), it is appropriate to return outcome=not_fired with flag_message describing the deal STRENGTH the data confirms.',
+  '- The Authoritative Derived Facts block now carries a `reserveSchedule` with NINE reserve fields (not just monthly replacement reserves). When evaluating reserve-adequacy principles, you MUST read the full schedule before concluding. The handbook\'s "appraisal TI estimates typically too low" prior does NOT permit you to fire CRITICAL on a single null/zero field when other reserves are populated — fire only when the WHOLE schedule is inadequate to the deal\'s needs, and cite specific numbers in your flag_message.',
+  '- The Authoritative Derived Facts block also carries `terminationOptions`. In Phase 2 this is ALWAYS an extraction gap (extracted=false). Treat the absence of footnote data as an open question, not as evidence of absence: a principle requiring termination-option data returns needs_manual_input with kind=\'termination_option_extraction_gap\'.',
   '- Fire (outcome=\"fired\") only when the principle\'s concern is genuinely present in this deal. Be willing to fire on universal-philosophy principles when the deal\'s structure warrants commentary even if no covenant is breached.',
   '- Use outcome=\"needs_manual_input\" when the principle\'s text identifies a required input that must come from the manual analyst layer (rent comps, sales comps, sponsor lookups, etc.) AND that input is not present in the deal data. Do NOT fabricate market PSF, comp values, or other numbers you have no basis for.',
   '- Choose severity matching the principle\'s default severity unless the deal\'s specifics warrant a different tier.',
@@ -635,6 +785,13 @@ function buildPrompt(args: LlmContextCheckArgs): string {
         '  verdict=no_rollover_in_refi_window → no leases expire before maturity + refiWindowMonths. Document this as a deal STRENGTH in your flag_message if the principle concerns rollover/re-leasing/refinancing risk; outcome=not_fired with strength-prose.',
         '  verdict=rollover_in_refi_window → real rollover exists; fire the relevant principle sized to the actual aggregate fraction and per-tenant schedule given; cite specific tenants and dates in your evidence.',
         '  verdict=insufficient_data → return needs_manual_input naming exactly what is missing (per-tenant lease expirations, loan maturity date, or both). Do NOT fall back to an assumed rollover figure.',
+        '',
+        'For reserveSchedule specifically: this is the FULL set of capital-reserve figures the UW concluded.',
+        '  - Do NOT fire reserves-related principles (P-III-3, P-III-4, P-IV-OFF-3) on monthlyReplacementReserves=$0 alone if other reserve figures (monthlyTiLc, monthlyCapex, capexScheduleInflated, upfronts, pcaImmediateRepairs) carry non-null/non-zero values. Read the WHOLE schedule.',
+        '  - totalMonthlyReservesDollars and anyMonthlyReservePopulated are convenience roll-ups; use them when the question is "is the deal reserved at all" vs "is each specific reserve sized to plan."',
+        '  - The reserves come from AdjustedInputs.capitalReserves (the canonical adjusted layer), NOT from a stereotype. When firing on inadequate reserves, cite specific numbers from this block.',
+        '',
+        'For terminationOptions specifically: extracted=false means rent-roll footnote annotations are NOT in the graph today. If a principle requires termination-option data (e.g., early-termination/kickout rights), you MUST return needs_manual_input with kind=\'termination_option_extraction_gap\' and detail referencing extractionGap.detail. Do NOT assume there are no termination options just because the field is null — you cannot conclude anything about their existence without the footnote extraction landing in a future ticket.',
         '',
       ].join('\n')
     : '';

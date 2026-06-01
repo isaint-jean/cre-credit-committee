@@ -39,6 +39,9 @@ import type { RecordGraphStore } from '../../storage/record-graph-store.js';
 import {
   runLlmContextCheck,
   LLM_CONTEXT_MODEL,
+  buildReserveScheduleFacts,
+  buildTerminationOptionsFacts,
+  type ComputedFacts,
   type LlmContextCheckDeps,
 } from './run-llm-context-check.js';
 import { computeRefiWindowRollover } from '../judgment/refi-window.js';
@@ -197,6 +200,21 @@ export async function buildHandbookEvaluation(
     refiWindowMonths: 12,
   });
 
+  // Phase 2 of the gate:
+  //   - reserveSchedule: 9-field reserve picture from AdjustedInputs.capitalReserves
+  //     so reserves-adjacent principles read the WHOLE schedule, not just
+  //     monthlyReplacementReserves.
+  //   - terminationOptions: structured extraction-gap marker (rent-roll footnotes
+  //     are not parsed today; principles needing this data must return
+  //     needs_manual_input with kind='termination_option_extraction_gap').
+  // Both builders are pure (no I/O, no clock, no asset-class branching, §2.3 clean —
+  // read AdjustedInputs only, never ExtractionResult).
+  const computedFacts: ComputedFacts = {
+    refinancingRisk: refiFacts,
+    reserveSchedule: buildReserveScheduleFacts(adjustedInputs),
+    terminationOptions: buildTerminationOptionsFacts(),
+  };
+
   // 3b. Run the full engine pass with the LLM dispatch hook wired (if deps
   //     supply a store). The deterministic principles re-evaluate to the
   //     same results (pure functions of the bag); the LLM principles
@@ -223,12 +241,12 @@ export async function buildHandbookEvaluation(
         // idiom so LlmContextCheckArgs.rentRoll stays optional and absent
         // (vs. explicit null) when no rent roll is on the deal.
         ...(args.rentRoll !== null ? { rentRoll: args.rentRoll } : {}),
-        // Phase 1 (refi-window gate): surface computed facts into every per-principle
-        // LLM context bundle. refiFacts is always present (the computer always returns
-        // a verdict, even insufficient_data) so we pass it unconditionally — that lets
-        // the LLM see the insufficient-data signal explicitly and choose the
-        // needs_manual_input path rather than guessing from priors.
-        computedFacts: { refinancingRisk: refiFacts },
+        // Phase 1 + 2 (refi-gate series): surface computed facts into every per-principle
+        // LLM context bundle. The bundle is always present (each computer always returns
+        // a structured value, even when underlying data is absent — the verdict /
+        // extraction-gap markers let the LLM see the gap explicitly and choose the
+        // needs_manual_input path rather than guessing from priors).
+        computedFacts,
       };
       const evalResult = await runLlmContextCheck(checkArgs, deps.store!, deps.llmContextDeps ?? {});
       // LlmEvalResult and PrincipleEvaluationResult are structurally

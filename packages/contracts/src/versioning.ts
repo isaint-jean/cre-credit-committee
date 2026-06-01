@@ -47,8 +47,24 @@ export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
  *           contract change: AdjustedInputs.loan gains an explicit `maturityDate`
  *           field threaded from LoanTermsExtraction.maturityDate so the gate can
  *           compare per-tenant lease expirations against maturity + refi window.
+ *   1.4.0 — computedFacts gains reserveSchedule (9-field) + terminationOptions
+ *           (extraction-gap marker). Invalidates 1.3.0 llm_principle_eval_cache rows.
+ *           reserveSchedule surfaces the FULL AdjustedInputs.capitalReserves (monthly
+ *           replacement reserves, capex, TI/LC, tenant improvements, leasing commissions,
+ *           upfront figures, PCA immediate repairs, and the capex schedule) plus three
+ *           derived roll-ups (totalMonthlyReservesDollars, totalUpfrontReservesDollars,
+ *           anyMonthlyReservePopulated) so reserves-related principles (P-III-3, P-III-4,
+ *           P-IV-OFF-3) can read the whole concluded reserve picture instead of firing
+ *           CRITICAL on a single null/zero field. terminationOptions is always an
+ *           extraction-gap marker in Phase 2 (extracted=false; rent-roll footnotes are
+ *           not parsed today) so principles requiring termination-option data return
+ *           needs_manual_input with kind='termination_option_extraction_gap' rather
+ *           than silently missing the data. SYSTEM_PROMPT extends with two tightened
+ *           bullets near the Authoritative-Derived-Facts rule (one for reserves, one
+ *           for terminationOptions). Spec-clean (§2.3): the new builders read
+ *           AdjustedInputs only (no ExtractionResult import).
  */
-export const HANDBOOK_ENGINE_VERSION = '1.3.0' as const;
+export const HANDBOOK_ENGINE_VERSION = '1.4.0' as const;
 
 /**
  * Narrative-engine simple version. Stamped onto every NarrativeEvaluation record
