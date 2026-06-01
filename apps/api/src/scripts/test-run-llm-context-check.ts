@@ -97,6 +97,7 @@ const sampleAdjustedInputs = {
     noi: 793_800, value: 13_230_000, dscr: 0.904, ltvAppraisal: 0.667,
     debtYield: 0.0722, expenseRatio: 0.30,
     top1IncomeShare: null, pctIncomeExpiringWithinTerm: null,
+    trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
   },
   confidenceReduction: 0,
   topLevelAdjustments: [],
@@ -126,7 +127,7 @@ function args(p: Principle = samplePrinciple): LlmContextCheckArgs {
     propertyMetadata: null,
     narrativeFacts: sampleNarrativeFacts,
     deterministicFiredFlags: [],
-    handbookEngineVersion: '1.4.0',
+    handbookEngineVersion: '1.5.0',
   };
 }
 
@@ -157,11 +158,31 @@ const PHASE2_DEFAULT_TERMINATION_OPTIONS = {
     recommendedInputKind: 'termination_option_extraction_gap' as const,
   } as { kind: 'termination_option_extraction_gap'; detail: string; recommendedInputKind: 'termination_option_extraction_gap' } | null,
 };
+// NOI-recon (Commit 1, engine 1.5.0) default — verdict=insufficient_data on the
+// canned sample (systemUwNoi present but trailingActualNoi null) so the legacy
+// refi-only test fixtures don't accidentally flip a NOI-recon trigger.
+const PHASE2_DEFAULT_NOI_RECONCILIATION = {
+  source: 'adjusted_inputs.metrics' as const,
+  systemUwNoi: null as number | null,
+  trailingActualNoi: null as number | null,
+  issuerStatedNoiSellerUw: null as number | null,
+  issuerStatedNoiAsr: null as number | null,
+  excessDollars: null as number | null,
+  excessFraction: null as number | null,
+  verdict: 'insufficient_data' as 'noi_uplift_present' | 'noi_at_or_below_trailing' | 'insufficient_data',
+  signedLeaseBackingAvailable: false as const,
+  extractionGap: {
+    kind: 'signed_lease_status_extraction_gap' as const,
+    detail: 'signed-lease execution status not extracted (engine 1.5.0 marker)',
+    recommendedInputKind: 'signed_lease_status_extraction_gap' as const,
+  },
+};
 function withPhase2Defaults(refinancingRisk: import('../services/handbook/run-llm-context-check.js').ComputedFacts['refinancingRisk']) {
   return {
     refinancingRisk,
     reserveSchedule: PHASE2_DEFAULT_RESERVE_SCHEDULE,
     terminationOptions: PHASE2_DEFAULT_TERMINATION_OPTIONS,
+    noiReconciliation: PHASE2_DEFAULT_NOI_RECONCILIATION,
   };
 }
 
@@ -845,6 +866,7 @@ function twelveTenantRentRoll(): RentRoll {
       },
       reserveSchedule: rs,
       terminationOptions: to,
+      noiReconciliation: PHASE2_DEFAULT_NOI_RECONCILIATION,
     };
   }
 
@@ -1013,6 +1035,141 @@ function twelveTenantRentRoll(): RentRoll {
     assertEqual(r.status, 'skipped', '30.4 LLM stub returned not_fired → status skipped');
     if (r.status === 'skipped') {
       assertEqual(r.skip.reason, 'no_band_matched', '30.5 skip reason === no_band_matched (clean negative; stub used populated TI/LC)');
+    }
+  }
+
+  // ===========================================================================
+  // NOI-recon (Commit 1, engine 1.5.0) — computedFacts noiReconciliation tests
+  // ===========================================================================
+
+  // Helper: overlay an explicit noiReconciliation onto a phase2Facts default.
+  function withNoiRecon(overrides: Partial<typeof PHASE2_DEFAULT_NOI_RECONCILIATION>) {
+    return {
+      ...phase2Facts(),
+      noiReconciliation: { ...PHASE2_DEFAULT_NOI_RECONCILIATION, ...overrides },
+    };
+  }
+
+  console.log('\n31. NOI-recon — noiReconciliation appears in prompt with all required fields');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({
+        outcome: 'needs_manual_input',
+        flag_message: 'NOI uplift of $200,000 over trailing actual; signed-lease backing not extractable.',
+        manualInputRequests: [
+          { kind: 'signed_lease_status_extraction_gap', detail: 'per-tenant lease execution status' },
+        ],
+      }),
+    ]);
+    const argsRec: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: withNoiRecon({
+        systemUwNoi: 1_200_000,
+        trailingActualNoi: 1_000_000,
+        issuerStatedNoiSellerUw: 1_150_000,
+        issuerStatedNoiAsr: 1_180_000,
+        excessDollars: 200_000,
+        excessFraction: 0.2,
+        verdict: 'noi_uplift_present',
+      }),
+    };
+    await runLlmContextCheck(argsRec, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('"noiReconciliation"'), '31.1 prompt includes noiReconciliation key');
+    assert(prompt.includes('"systemUwNoi":1200000'), '31.2 systemUwNoi visible');
+    assert(prompt.includes('"trailingActualNoi":1000000'), '31.3 trailingActualNoi visible');
+    assert(prompt.includes('"issuerStatedNoiSellerUw":1150000'), '31.4 issuerStatedNoiSellerUw visible');
+    assert(prompt.includes('"issuerStatedNoiAsr":1180000'), '31.5 issuerStatedNoiAsr visible');
+    assert(prompt.includes('"excessDollars":200000'), '31.6 excessDollars visible');
+    assert(prompt.includes('"excessFraction":0.2'), '31.7 excessFraction visible');
+    assert(prompt.includes('"verdict":"noi_uplift_present"'), '31.8 verdict literal visible');
+    assert(prompt.includes('"signedLeaseBackingAvailable":false'), '31.9 signedLeaseBackingAvailable=false visible');
+    assert(prompt.includes('"kind":"signed_lease_status_extraction_gap"'), '31.10 extractionGap.kind visible');
+    assert(prompt.includes('"source":"adjusted_inputs.metrics"'), '31.11 source tag identifies adjusted-inputs origin');
+    assert(prompt.includes('For noiReconciliation specifically'), '31.12 prompt carries noiReconciliation instruction prose');
+  }
+
+  console.log('\n32. NOI-recon — noiReconciliation folds into context hash (cache stability)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const facts = withNoiRecon({
+      systemUwNoi: 1_200_000,
+      trailingActualNoi: 1_000_000,
+      excessDollars: 200_000,
+      excessFraction: 0.2,
+      verdict: 'noi_uplift_present',
+    });
+    const stub1 = makeStubLlm([
+      JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'baseline-recon', evidenceQuotes: [] }),
+    ]);
+    const r1 = await runLlmContextCheck({ ...args(), computedFacts: facts }, store, { llmCall: stub1.fn as never });
+    assertEqual(stub1.calls(), 1, '32.1 first call invoked LLM');
+    const stub2 = makeStubLlm([]); // proves cache hit
+    const r2 = await runLlmContextCheck({ ...args(), computedFacts: facts }, store, { llmCall: stub2.fn as never });
+    assertEqual(stub2.calls(), 0, '32.2 second call HIT CACHE (identical noiReconciliation bytes)');
+    assertEqual(r1.status, r2.status, '32.3 cached status preserved');
+  }
+
+  console.log('\n33. NOI-recon — different trailingActualNoi → different hash → fresh eval');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const factsA = withNoiRecon({
+      systemUwNoi: 1_200_000,
+      trailingActualNoi: 1_000_000,
+      excessDollars: 200_000,
+      excessFraction: 0.2,
+      verdict: 'noi_uplift_present',
+    });
+    // Same systemUwNoi, but trailing actual flips from 1_000_000 → 1_300_000 (now no uplift).
+    const factsB = withNoiRecon({
+      systemUwNoi: 1_200_000,
+      trailingActualNoi: 1_300_000,
+      excessDollars: -100_000,
+      excessFraction: -100_000 / 1_300_000,
+      verdict: 'noi_at_or_below_trailing',
+    });
+    const stubA = makeStubLlm([JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'uplift-present', evidenceQuotes: [] })]);
+    const stubB = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'at-or-below', evidenceQuotes: [] })]);
+    await runLlmContextCheck({ ...args(), computedFacts: factsA }, store, { llmCall: stubA.fn as never });
+    const rB = await runLlmContextCheck({ ...args(), computedFacts: factsB }, store, { llmCall: stubB.fn as never });
+    assertEqual(stubB.calls(), 1, '33.1 different trailingActualNoi → cache MISS → LLM re-invoked');
+    if (rB.status === 'skipped') {
+      assertEqual(rB.skip.reason, 'no_band_matched', '33.2 new result reflects no-uplift verdict');
+    }
+  }
+
+  console.log('\n34. NOI-recon — verdict=noi_uplift_present + signedLeaseBackingAvailable=false → LLM honors needs_manual_input path');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({
+        outcome: 'needs_manual_input',
+        flag_message: 'System UW NOI $1.2M exceeds trailing actual $1.0M by $200k (+20%); signed-lease execution status not in extraction.',
+        manualInputRequests: [
+          { kind: 'signed_lease_status_extraction_gap', detail: 'Per-tenant signed/executed lease status to determine durable backing' },
+        ],
+      }),
+    ]);
+    const argsUplift: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: withNoiRecon({
+        systemUwNoi: 1_200_000,
+        trailingActualNoi: 1_000_000,
+        excessDollars: 200_000,
+        excessFraction: 0.2,
+        verdict: 'noi_uplift_present',
+      }),
+    };
+    const r = await runLlmContextCheck(argsUplift, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('noi_uplift_present'), '34.1 prompt cites the uplift-present verdict');
+    assert(prompt.includes('signed_lease_status_extraction_gap'), '34.2 prompt cites the extraction-gap kind');
+    assert(prompt.includes("needs_manual_input with kind='signed_lease_status_extraction_gap'"), '34.3 prompt instructs the manual-input path');
+    assertEqual(r.status, 'skipped', '34.4 status === skipped');
+    if (r.status === 'skipped') {
+      assertEqual(r.skip.reason, 'needs_manual_input', '34.5 reason === needs_manual_input');
+      assertEqual(r.skip.manualInputRequests?.[0]?.kind, 'signed_lease_status_extraction_gap', '34.6 returned kind matches recommendedInputKind');
     }
   }
 

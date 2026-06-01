@@ -190,6 +190,7 @@ const defaultAdjustedInputs: AdjustedInputs = {
   metrics: {
     noi: 0, value: 0, dscr: 1.35, ltvAppraisal: 0, debtYield: 0.10,
     expenseRatio: 0, top1IncomeShare: 0, pctIncomeExpiringWithinTerm: 0,
+    trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
   },
   confidenceReduction: 0,
   topLevelAdjustments: [],
@@ -706,9 +707,11 @@ console.log('\n=== Partition and surface invariants ===');
 })();
 
 (() => {
-  // Tally — assert exact counts so accidental changes show up in CI
-  assertEqual(KNOWN_FIELDS.size, 31, 'KNOWN_FIELDS has 31 entries');
-  assertEqual(POPULATED_FIELDS.size, 15, 'POPULATED_FIELDS has 15 entries');
+  // Tally — assert exact counts so accidental changes show up in CI.
+  // Bumped 31→32 / 15→16 by the 2026-05-31 addendum (P-III-14 added
+  // mgmt_fee_pct_of_egi to KNOWN_FIELDS and POPULATED_FIELDS).
+  assertEqual(KNOWN_FIELDS.size, 32, 'KNOWN_FIELDS has 32 entries');
+  assertEqual(POPULATED_FIELDS.size, 16, 'POPULATED_FIELDS has 16 entries');
   assertEqual(
     INTENTIONALLY_UNDEFINED_FIELDS.size,
     16,

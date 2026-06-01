@@ -261,6 +261,9 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       expenseRatio: 0.195,
       top1IncomeShare: 0.18,
       pctIncomeExpiringWithinTerm: 0.22,
+      trailingActualNoi: null,
+      issuerStatedNoiSellerUw: null,
+      issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],
@@ -865,6 +868,7 @@ console.log('\nAdjustedInputs.loan.maturityDate — round-trip null and populate
       noi: 7_570_000, value: 116_461_538, dscr: 1.89, ltvAppraisal: 0.625,
       debtYield: 0.1514, expenseRatio: 0.195, top1IncomeShare: 0.18,
       pctIncomeExpiringWithinTerm: 0.22,
+      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0.05, topLevelAdjustments: [], dataQualityFlags: [],
   };
@@ -905,6 +909,39 @@ console.log('\nAnalysisId / lineage cascade — refi-window gate shifts Adjusted
   const preGateId = computeAdjustedInputsId(preGateBody as Parameters<typeof computeAdjustedInputsId>[0]);
   assert(preGateId !== aiPost.id,
     'pre-gate body shape (no maturityDate) hashes to a DIFFERENT id from post-gate (maturityDate=null) — documented schema evolution; AnalysisId cascades');
+}
+
+console.log('\nAnalysisId / lineage cascade — NOI-recon Commit 1 shifts AdjustedInputsId:');
+{
+  // Commit 1 of the Model-A value-add NOI-reconciliation series adds three fields
+  // to AdjustedInputs.metrics: trailingActualNoi, issuerStatedNoiSellerUw,
+  // issuerStatedNoiAsr. Same precedent as the refi-window gate's `maturityDate` add
+  // (third one-time cascade in the gate series). This assertion documents the shift:
+  // a body that omits the three new metrics fields (pre-1.5.0 shape) and a body that
+  // carries them as null (post-1.5.0 shape) hash to different ids. The hash factory
+  // is deterministic; the shape that goes into it is new.
+  const lib = makeLibrarySnapshot();
+  const aiPost = makeAdjustedInputs(lib.id); // post-1.5.0 shape; new fields null
+  const { id: _id, metrics, ...rest } = aiPost;
+  void _id;
+  const {
+    trailingActualNoi: _tn,
+    issuerStatedNoiSellerUw: _isu,
+    issuerStatedNoiAsr: _ia,
+    ...metricsPre150
+  } = metrics;
+  void _tn; void _isu; void _ia;
+  const preBody = { ...rest, metrics: metricsPre150 };
+  const preId = computeAdjustedInputsId(preBody as Parameters<typeof computeAdjustedInputsId>[0]);
+  assert(preId !== aiPost.id,
+    'pre-1.5.0 body shape (no NOI-recon metrics) hashes to a DIFFERENT id from post-1.5.0 (all three new metrics fields=null) — documented schema evolution; AnalysisId cascades');
+
+  // Deterministic re-hash sanity: same post-1.5.0 body re-hashes to its own id.
+  const { id: _id2, ...postBody } = aiPost;
+  void _id2;
+  const recomputed = computeAdjustedInputsId(postBody);
+  assert(recomputed === aiPost.id,
+    'post-1.5.0 AdjustedInputs id is deterministic over its current body shape');
 }
 
 store.close();

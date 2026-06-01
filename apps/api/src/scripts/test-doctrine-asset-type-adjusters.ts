@@ -94,6 +94,7 @@ function makeAdjustedInputs(opts: { dscr?: number | null; debtYield?: number | n
       debtYield: opts.debtYield === undefined ? 0.10 : opts.debtYield,
       expenseRatio: 0.18,
       top1IncomeShare: 0.25, pctIncomeExpiringWithinTerm: 0.20,
+      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],

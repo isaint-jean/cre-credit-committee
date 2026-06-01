@@ -140,6 +140,7 @@ function makeAdjustedInputs(opts: Partial<{
       top1IncomeShare: opts.top1IncomeShare === undefined ? 0.25 : opts.top1IncomeShare,
       pctIncomeExpiringWithinTerm:
         opts.pctIncomeExpiringWithinTerm === undefined ? 0.20 : opts.pctIncomeExpiringWithinTerm,
+      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],

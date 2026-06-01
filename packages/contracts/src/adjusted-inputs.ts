@@ -250,6 +250,43 @@ export interface AdjustedMetrics {
   readonly expenseRatio: number | null;                   // = totalOpEx / EGI
   readonly top1IncomeShare: number | null;                // 0..1; from rent roll
   readonly pctIncomeExpiringWithinTerm: number | null;    // 0..1; from rent roll vs term
+  /**
+   * Trailing-actual NOI threaded from `OperatingStatementExtraction.t12.noi`. This is the
+   * "truth floor" the NOI-reconciliation rule (P-III-15, universal_framework) compares the
+   * system's underwritten NOI (`metrics.noi`) against. When the system UW NOI exceeds the
+   * trailing actual NOI, the rule fires and requires the excess to be backed by durable
+   * documented drivers (signed/executed leases + contractual rent steps).
+   *
+   * §2.3-legitimate: Stage 4 (judgment) is the only pipeline stage allowed to read
+   * ExtractionResult. We denormalize this onto AdjustedInputs.metrics here so the Stage 5+
+   * handbook evaluator can build the noiReconciliation computedFacts entry without
+   * re-importing extraction. Null when ExtractionResult.t12 is absent.
+   *
+   * Field added in the "Model-A value-add" NOI-reconciliation rule (Commit 1). One-time
+   * AdjustedInputs body grow → AnalysisId cascade (third in series, after Phase 1
+   * maturityDate and Phase 2 reserve-read field additions). Documented schema evolution.
+   */
+  readonly trailingActualNoi: number | null;
+  /**
+   * Issuer's underwritten NOI as carried on `SellerUWExtraction.underwrittenNOI`. Cross-
+   * reference only — NOT a floor or ceiling on the NOI-reconciliation trigger (which
+   * compares the system UW NOI against the trailing actual NOI). Surfaced so the
+   * LLM-context evaluator can cite the issuer's number in flag_message prose without
+   * making it a load-bearing input to the verdict.
+   *
+   * Null when SellerUWExtraction is absent or did not carry an explicit number. Companion
+   * to `issuerStatedNoiAsr` (which carries the same datum from the ASR side, when present).
+   */
+  readonly issuerStatedNoiSellerUw: number | null;
+  /**
+   * Issuer's underwritten NOI as carried on `ASRExtraction.underwrittenNOI`. Cross-
+   * reference only — same role as `issuerStatedNoiSellerUw` above; the two sources are
+   * surfaced separately because a deal may carry one, the other, or both. The NOI-
+   * reconciliation rule's verdict ignores both; they are context for the flag_message.
+   *
+   * Null when ASRExtraction is absent or did not carry an explicit number.
+   */
+  readonly issuerStatedNoiAsr: number | null;
 }
 
 /**

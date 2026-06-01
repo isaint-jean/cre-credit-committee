@@ -113,6 +113,7 @@ function makeAdjustedInputs(overrides: { vacancyPct?: number; dscr?: number | nu
       ltvAppraisal: overrides.ltv === undefined ? 0.42 : overrides.ltv,
       debtYield: 0.1534, expenseRatio: 0.193,
       top1IncomeShare: 0.30, pctIncomeExpiringWithinTerm: 0.22,
+      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],

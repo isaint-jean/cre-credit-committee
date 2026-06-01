@@ -736,6 +736,74 @@ const sectionIII_principles: Principle[] = [
       "This principle is the universal-framework formalization of the institutional-memory consultation doctrine. P-III-13's research actions are the primary handles for institutional-memory queries at analysis time. Engine implementation should treat this as the canonical entry point for 'consult prior UWs + prior kicks' rather than re-implementing the queries inside each Section V step.",
     ],
   },
+
+  // P-III-14 was previously added directly to handbook.json (commit 003cf0b — authored
+  // magnitude Rule A from the 2026-05-31 addendum) without being mirrored here. Mirrored
+  // now during the NOI-recon commit to drain the dual-source-of-truth drift backlog.
+  {
+    id: 'P-III-14',
+    cluster: 'universal_framework',
+    title: 'Management fee underwritten at 3% of EGI minimum',
+    principleText:
+      'Underwrite management fee at minimum 3% of EGI as a house default across asset types, regardless of in-place actual or self-managed cost. Below-floor management fees should be raised to the 3% floor.',
+    sourceCitation: 'Handbook Addendum (2026-05-31), Management Fee section',
+    trigger: { kind: 'always' },
+    executionModes: ['DETERMINISTIC'],
+    injectionPoints: ['red_flag_assessment', 'committee_recommendation'],
+    severity: 'medium',
+    deterministicCheck: {
+      metric: { kind: 'simple', path: 'mgmt_fee_pct_of_egi' },
+      evaluationGroups: [
+        {
+          condition: { kind: 'always' },
+          bands: [
+            {
+              operator: 'lt',
+              threshold: { kind: 'literal', value: 0.03 },
+              severity: 'medium',
+              flag_message:
+                'Management fee underwritten at {mgmt_fee_pct_of_egi} of EGI — below the 3% house-default floor; re-underwrite at the 3% minimum regardless of in-place actual or self-managed cost.',
+            },
+          ],
+        },
+      ],
+    },
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      'Authored magnitude rule from the 2026-05-31 addendum. Pure deterministic constant — requires no comp, no LLM, no external input; needs only mgmt_fee_pct_of_egi from the field-bag assembler.',
+    ],
+  },
+
+  // P-III-15 — NOI reconciliation: Model-A value-add (Commit 1).
+  {
+    id: 'P-III-15',
+    cluster: 'universal_framework',
+    title: 'NOI reconciliation: underwriting uplift earns its way against trailing actuals',
+    principleText:
+      "The trailing actual NOI is the truth floor; underwriting NOI that exceeds trailing actual NOI must be reconciled against durable documented drivers (signed and executed leases + contractual rent steps) before it is accepted. The issuer's underwritten NOI is a cross-reference, not a floor. When trailing actual NOI is below underwriting NOI, the rule fires; resolution requires per-tenant lease execution status (signed vs LOI/projection) to test whether the excess is durably backed. Market-rate assumptions, projected lease-up without signed tenants, and assumed rent growth do NOT satisfy the resolution — they earn haircuts. When signed-lease execution status is not available in the deal data, the rule returns needs_manual_input naming the gap rather than accepting the uplift on asset-class priors or rejecting it on stereotype.",
+    sourceCitation:
+      "Handbook value-add rule authored 2026-05-31; Model A frame (system underwrites from source documents and improves on issuer's numbers; trailing actuals are the truth floor).",
+    trigger: { kind: 'always' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: ['executive_summary', 'mitigation_suggestions', 'committee_recommendation'],
+    severity: 'high',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      "Model-A value-add rule (Commit 1 of the two-rule series). LLM_CONTEXT-only — the rule reads the noiReconciliation computedFacts entry surfaced into the per-principle prompt and dispatches per the verdict: noi_uplift_present → needs_manual_input with kind='signed_lease_status_extraction_gap' (always, in this engine version); noi_at_or_below_trailing → not_fired (strength); insufficient_data → needs_manual_input naming the missing input. Engine version 1.5.0 introduces the field threading and the computedFacts entry.",
+    ],
+  },
 ];
 
 // =============================================================================
@@ -3632,6 +3700,8 @@ const universalCluster: PrincipleCluster = {
     'P-III-11',
     'P-III-12',
     'P-III-13',
+    'P-III-14',
+    'P-III-15',
   ],
 };
 
@@ -3900,10 +3970,10 @@ const reviewSteps: ReviewStep[] = [
 ];
 
 export const handbook: Handbook = {
-  version: '2026.3-gate',
+  version: '2026.4-noi-recon',
   effectiveDate: '2026-05-31',
   description:
-    'Eightfold CRE Credit Handbook — structured form derived from atomization Sessions 1-4 (commits d183cb6, e2c84d0, 47da28e, plus the cross-reference cleanup pass). 87 atomic principles + 1 cluster narrative + 7 review steps capturing the full handbook. Source-of-truth typed TS literal; handbook.json is generated from this file. 2026.3-gate adds P-II-9 (read deal data before asset-class priors) as a meta-principle in the core_philosophy cluster, paired with the per-principle computedFacts surface introduced in HANDBOOK_ENGINE_VERSION 1.3.0.',
+    'Eightfold CRE Credit Handbook — structured form derived from atomization Sessions 1-4 (commits d183cb6, e2c84d0, 47da28e, plus the cross-reference cleanup pass). 87 atomic principles + 1 cluster narrative + 7 review steps capturing the full handbook. Source-of-truth typed TS literal; handbook.json is generated from this file. 2026.3-gate adds P-II-9 (read deal data before asset-class priors) as a meta-principle in the core_philosophy cluster, paired with the per-principle computedFacts surface introduced in HANDBOOK_ENGINE_VERSION 1.3.0. 2026.4-noi-recon adds P-III-15 (NOI reconciliation: underwriting uplift earns its way against trailing actuals) in the universal_framework cluster, paired with the noiReconciliation computedFacts entry introduced in HANDBOOK_ENGINE_VERSION 1.5.0.',
   clusters: [
     coreCluster,
     universalCluster,

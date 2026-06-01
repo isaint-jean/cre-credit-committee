@@ -185,6 +185,11 @@ export const POPULATED_FIELDS: ReadonlySet<string> = new Set([
   'building_age',
   'years_since_last_renovation',
   'tenancy_type',
+  // Addendum (2026-05-31) — Rule A / P-III-14 floor input. Derived from
+  // AI.expenses.managementFee.adjusted / AI.income.effectiveGrossIncome.adjusted;
+  // the assembler emits undefined when EGI <= 0 (the only insufficient-data path),
+  // but the field path itself is structurally a populated derivation.
+  'mgmt_fee_pct_of_egi',
 ]);
 
 // =============================================================================

@@ -385,6 +385,15 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       expenseRatio,
       top1IncomeShare,
       pctIncomeExpiringWithinTerm,
+      // §2.3-legitimate: Stage 4 is the ONLY pipeline stage allowed to read
+      // ExtractionResult. We denormalize trailing-actual NOI + the two issuer-stated
+      // NOI cross-references onto AdjustedInputs.metrics here so the Stage 5 handbook
+      // evaluator can build the noiReconciliation computedFacts entry without
+      // re-importing extraction. Trailing actual is the load-bearing input to the
+      // NOI-recon trigger (P-III-15); issuer-stated values are cross-reference context.
+      trailingActualNoi: extraction.t12?.noi ?? null,
+      issuerStatedNoiSellerUw: extraction.sellerUw?.underwrittenNOI ?? null,
+      issuerStatedNoiAsr: extraction.asr?.underwrittenNOI ?? null,
     },
     confidenceReduction: 0, // placeholder; replaced in Phase 6
     topLevelAdjustments: noiCapAdjustments,

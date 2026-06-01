@@ -41,6 +41,7 @@ import {
   LLM_CONTEXT_MODEL,
   buildReserveScheduleFacts,
   buildTerminationOptionsFacts,
+  buildNoiReconciliationFacts,
   type ComputedFacts,
   type LlmContextCheckDeps,
 } from './run-llm-context-check.js';
@@ -213,6 +214,11 @@ export async function buildHandbookEvaluation(
     refinancingRisk: refiFacts,
     reserveSchedule: buildReserveScheduleFacts(adjustedInputs),
     terminationOptions: buildTerminationOptionsFacts(),
+    // Model-A value-add NOI reconciliation (Commit 1): system UW NOI vs trailing
+    // actual NOI, with the signed-lease-status extraction gap surfaced so the LLM
+    // returns needs_manual_input rather than fabricating durable-lease backing.
+    // Pure (§2.3 clean — reads AdjustedInputs.metrics only).
+    noiReconciliation: buildNoiReconciliationFacts(adjustedInputs),
   };
 
   // 3b. Run the full engine pass with the LLM dispatch hook wired (if deps

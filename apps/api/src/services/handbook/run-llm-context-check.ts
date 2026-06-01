@@ -98,6 +98,55 @@ export interface ComputedFacts {
   readonly refinancingRisk: RefiWindowRolloverFacts;
   readonly reserveSchedule: ReserveScheduleFacts;
   readonly terminationOptions: TerminationOptionsFacts;
+  readonly noiReconciliation: NoiReconciliationFacts;
+}
+
+/**
+ * NOI reconciliation facts. Compares the system's underwritten NOI
+ * (`AdjustedInputs.metrics.noi`) against the trailing-actual NOI
+ * (`AdjustedInputs.metrics.trailingActualNoi`, threaded from ExtractionResult.t12.noi
+ * at Stage 4). Model-A frame: the system underwrites from source documents and improves
+ * on the issuer's numbers; the trailing actuals are the truth floor.
+ *
+ * When the system UW NOI exceeds the trailing actual NOI (`excessDollars > 0`,
+ * verdict='noi_uplift_present'), the rule fires AND requires the excess to be backed by
+ * durable documented drivers (signed/executed leases + contractual rent steps).
+ *
+ * `signedLeaseBackingAvailable` is ALWAYS false in this engine version because the
+ * rent-roll extractor today does NOT distinguish a signed-and-executed lease from a
+ * not-yet-signed lease, LOI, or rent-growth projection. Whenever the verdict is
+ * `noi_uplift_present`, the LLM is instructed to return needs_manual_input with
+ * kind='signed_lease_status_extraction_gap' citing extractionGap.detail — NOT to
+ * fabricate durable-lease backing and NOT to accept/reject the uplift on stereotype.
+ *
+ * Spec-clean (§2.3): the builder reads AdjustedInputs only — never ExtractionResult.
+ * The Stage-4 judgment orchestrator is the legitimate ExtractionResult consumer and
+ * denormalizes trailing/issuer NOI onto AdjustedInputs.metrics for this builder.
+ */
+export interface NoiReconciliationFacts {
+  readonly source: 'adjusted_inputs.metrics';
+  readonly systemUwNoi: number | null;             // AdjustedInputs.metrics.noi (system's underwrite)
+  readonly trailingActualNoi: number | null;       // AdjustedInputs.metrics.trailingActualNoi
+  readonly issuerStatedNoiSellerUw: number | null; // cross-reference; not load-bearing
+  readonly issuerStatedNoiAsr: number | null;      // cross-reference; not load-bearing
+  // Derived:
+  readonly excessDollars: number | null;           // systemUwNoi - trailingActualNoi when both non-null
+  readonly excessFraction: number | null;          // excessDollars / trailingActualNoi when trailingActualNoi > 0
+  readonly verdict: 'noi_uplift_present' | 'noi_at_or_below_trailing' | 'insufficient_data';
+  /**
+   * Signed-lease execution status is the load-bearing input for the NOI-recon resolution
+   * path. ALWAYS false in this engine version: the rent-roll extractor populates
+   * `RentRollLine.status` as OCCUPIED/VACANT/PRELEASED/HOLDOVER/UNKNOWN but does NOT
+   * distinguish a signed-and-executed lease from a not-yet-signed lease, LOI, or
+   * rent-growth projection. Future ticket: widen RentRollLine with leaseExecutionStatus
+   * and train extractors; until then this is a structural false.
+   */
+  readonly signedLeaseBackingAvailable: false;
+  readonly extractionGap: {
+    readonly kind: 'signed_lease_status_extraction_gap';
+    readonly detail: string;
+    readonly recommendedInputKind: 'signed_lease_status_extraction_gap';
+  };
 }
 
 /**
@@ -234,6 +283,59 @@ export function buildTerminationOptionsFacts(): TerminationOptionsFacts {
       detail:
         "Tenant lease termination options (kickout clauses, early-termination rights) live in rent-roll footnote annotations. Today the extraction pipeline does NOT parse footnotes — only the tabular rent-roll rows reach the graph. Principles requiring termination-option data MUST return needs_manual_input with kind='termination_option_extraction_gap' rather than silently missing the data.",
       recommendedInputKind: 'termination_option_extraction_gap',
+    },
+  };
+}
+
+/**
+ * Pure builder — projects AdjustedInputs.metrics into NoiReconciliationFacts. Reads
+ * `noi`, `trailingActualNoi`, `issuerStatedNoiSellerUw`, `issuerStatedNoiAsr` only;
+ * no other inputs. Strict null fidelity: when either operand of the comparison is
+ * null, derived fields (excessDollars, excessFraction) stay null and verdict is
+ * 'insufficient_data'. When `trailingActualNoi` is 0, excessFraction stays null
+ * (division-by-zero guard); verdict still computes from excessDollars sign.
+ *
+ * `signedLeaseBackingAvailable` is ALWAYS false in this engine version; the rent-roll
+ * extractor does not pull per-tenant lease execution status. The structured
+ * extractionGap is always present so the LLM can return needs_manual_input naming
+ * the exact gap when the verdict is noi_uplift_present.
+ *
+ * Spec-clean (§2.3): imports AdjustedInputs only — never ExtractionResult. The Stage-4
+ * judgment orchestrator is the legitimate ExtractionResult consumer and denormalizes
+ * trailing/issuer NOI onto AdjustedInputs.metrics for this builder.
+ */
+export function buildNoiReconciliationFacts(adjustedInputs: AdjustedInputs): NoiReconciliationFacts {
+  const systemUwNoi = adjustedInputs.metrics.noi;
+  const trailingActualNoi = adjustedInputs.metrics.trailingActualNoi;
+  const issuerStatedNoiSellerUw = adjustedInputs.metrics.issuerStatedNoiSellerUw;
+  const issuerStatedNoiAsr = adjustedInputs.metrics.issuerStatedNoiAsr;
+
+  let excessDollars: number | null = null;
+  let excessFraction: number | null = null;
+  let verdict: NoiReconciliationFacts['verdict'] = 'insufficient_data';
+
+  if (systemUwNoi !== null && trailingActualNoi !== null) {
+    excessDollars = systemUwNoi - trailingActualNoi;
+    if (trailingActualNoi > 0) {
+      excessFraction = excessDollars / trailingActualNoi;
+    }
+    verdict = excessDollars > 0 ? 'noi_uplift_present' : 'noi_at_or_below_trailing';
+  }
+
+  return {
+    source: 'adjusted_inputs.metrics',
+    systemUwNoi,
+    trailingActualNoi,
+    issuerStatedNoiSellerUw,
+    issuerStatedNoiAsr,
+    excessDollars,
+    excessFraction,
+    verdict,
+    signedLeaseBackingAvailable: false,
+    extractionGap: {
+      kind: 'signed_lease_status_extraction_gap',
+      detail: "NOI reconciliation resolution requires per-tenant lease execution status (signed/executed vs LOI/projection) to test whether the uplift over trailing actuals is backed by durable documented drivers. The rent-roll extractor today populates status as OCCUPIED/VACANT/PRELEASED/HOLDOVER/UNKNOWN but does not distinguish a signed-and-executed lease from a not-yet-signed lease or letter of intent. Principles requiring this data MUST return needs_manual_input with kind='signed_lease_status_extraction_gap' rather than fabricating durable-backing or accepting/rejecting uplift on stereotype.",
+      recommendedInputKind: 'signed_lease_status_extraction_gap',
     },
   };
 }
@@ -720,6 +822,7 @@ const SYSTEM_PROMPT = [
   '- When the user message contains an "Authoritative Derived Facts" block, treat those values as the ground truth for the quantities they cover. Asset-class priors and stereotypes are NOT a substitute for a computed value. If the underlying data needed to compute a fact is absent (the block will say verdict=insufficient_data or carry a null aggregate), you MUST return needs_manual_input naming the missing input — do NOT fire on an assumed value, and do NOT silently ignore the principle. When the block documents an absence of risk (e.g., verdict=no_rollover_in_refi_window), it is appropriate to return outcome=not_fired with flag_message describing the deal STRENGTH the data confirms.',
   '- The Authoritative Derived Facts block now carries a `reserveSchedule` with NINE reserve fields (not just monthly replacement reserves). When evaluating reserve-adequacy principles, you MUST read the full schedule before concluding. The handbook\'s "appraisal TI estimates typically too low" prior does NOT permit you to fire CRITICAL on a single null/zero field when other reserves are populated — fire only when the WHOLE schedule is inadequate to the deal\'s needs, and cite specific numbers in your flag_message.',
   '- The Authoritative Derived Facts block also carries `terminationOptions`. In Phase 2 this is ALWAYS an extraction gap (extracted=false). Treat the absence of footnote data as an open question, not as evidence of absence: a principle requiring termination-option data returns needs_manual_input with kind=\'termination_option_extraction_gap\'.',
+  '- The Authoritative Derived Facts block carries `noiReconciliation`. When verdict=noi_uplift_present AND signedLeaseBackingAvailable=false (always the case in this engine version), you MUST return needs_manual_input with kind=\'signed_lease_status_extraction_gap\' for any principle whose evaluation depends on whether the underwriting uplift is backed by durable documented drivers (signed/executed leases + contractual rent steps). The trailing actual NOI is treated as the truth floor; the issuer\'s underwriting must earn its way above the floor dollar-by-dollar with documented backing. Do NOT fabricate the backing.',
   '- Fire (outcome=\"fired\") only when the principle\'s concern is genuinely present in this deal. Be willing to fire on universal-philosophy principles when the deal\'s structure warrants commentary even if no covenant is breached.',
   '- Use outcome=\"needs_manual_input\" when the principle\'s text identifies a required input that must come from the manual analyst layer (rent comps, sales comps, sponsor lookups, etc.) AND that input is not present in the deal data. Do NOT fabricate market PSF, comp values, or other numbers you have no basis for.',
   '- Choose severity matching the principle\'s default severity unless the deal\'s specifics warrant a different tier.',
@@ -792,6 +895,13 @@ function buildPrompt(args: LlmContextCheckArgs): string {
         '  - The reserves come from AdjustedInputs.capitalReserves (the canonical adjusted layer), NOT from a stereotype. When firing on inadequate reserves, cite specific numbers from this block.',
         '',
         'For terminationOptions specifically: extracted=false means rent-roll footnote annotations are NOT in the graph today. If a principle requires termination-option data (e.g., early-termination/kickout rights), you MUST return needs_manual_input with kind=\'termination_option_extraction_gap\' and detail referencing extractionGap.detail. Do NOT assume there are no termination options just because the field is null — you cannot conclude anything about their existence without the footnote extraction landing in a future ticket.',
+        '',
+        'For noiReconciliation specifically:',
+        '  - verdict=noi_uplift_present means the system UW NOI exceeds the trailing actual NOI; this is the trigger condition that ALWAYS warrants reconciliation. Fire any NOI-reconciliation principle, citing the systemUwNoi and trailingActualNoi values verbatim and the excessDollars/excessFraction figures.',
+        '  - verdict=noi_at_or_below_trailing means the system did NOT underwrite uplift; the principle\'s concern is not triggered for this deal. Return outcome=not_fired with brief strength-prose acknowledging the discipline.',
+        '  - verdict=insufficient_data means trailing actual NOI or system UW NOI is null; return needs_manual_input naming the missing input.',
+        '  - signedLeaseBackingAvailable is ALWAYS false in this phase because the rent-roll extractor does not pull signed-lease execution status. When the verdict is noi_uplift_present, you MUST return needs_manual_input with kind=\'signed_lease_status_extraction_gap\' citing extractionGap.detail. Do NOT fabricate durable-lease backing. Do NOT assert that the uplift is acceptable on asset-class priors. Do NOT assert that the uplift is unacceptable without specific evidence — the resolution is genuinely unknowable without the signed-lease data. The honest output is the structured manual-input request.',
+        '  - issuerStatedNoiSellerUw and issuerStatedNoiAsr are cross-reference values (what the issuer claimed). They are NOT a floor or ceiling on the trigger — the trigger compares system UW NOI vs trailing actual. The issuer\'s number may be cited as context in flag_message but does not change the verdict.',
         '',
       ].join('\n')
     : '';

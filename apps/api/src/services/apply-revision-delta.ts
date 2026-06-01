@@ -298,6 +298,14 @@ export function recomputeDerivedFields(
     expenseRatio,
     top1IncomeShare: body.metrics.top1IncomeShare,
     pctIncomeExpiringWithinTerm: body.metrics.pctIncomeExpiringWithinTerm,
+    // NOI-reconciliation fields (P-III-15) — revision deltas do NOT re-extract source
+    // documents, so trailing-actual and issuer-stated NOI carry through from the body
+    // unchanged. The NOI denominator above (`noi`) may shift via delta-driven income/
+    // expense overrides; the comparison floor (trailingActualNoi) stays anchored to
+    // the original extraction so the reconciliation question is preserved.
+    trailingActualNoi: body.metrics.trailingActualNoi,
+    issuerStatedNoiSellerUw: body.metrics.issuerStatedNoiSellerUw,
+    issuerStatedNoiAsr: body.metrics.issuerStatedNoiAsr,
   };
 
   return {

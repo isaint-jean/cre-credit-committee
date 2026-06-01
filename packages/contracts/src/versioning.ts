@@ -63,8 +63,28 @@ export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
  *           bullets near the Authoritative-Derived-Facts rule (one for reserves, one
  *           for terminationOptions). Spec-clean (§2.3): the new builders read
  *           AdjustedInputs only (no ExtractionResult import).
+ *   1.5.0 — computedFacts gains noiReconciliation; trailingActualNoi + issuerStatedNoi*
+ *           threaded onto AdjustedInputs.metrics. Invalidates 1.4.0 cache. AdjustedInputs
+ *           body grew → AnalysisId cascade (third in series, documented schema evolution).
+ *           noiReconciliation compares the system's underwritten NOI
+ *           (`AdjustedInputs.metrics.noi`) against the trailing-actual NOI
+ *           (`AdjustedInputs.metrics.trailingActualNoi`, threaded from
+ *           ExtractionResult.t12.noi at Stage 4). When the system UW NOI exceeds the
+ *           trailing actual NOI, the rule fires (verdict=noi_uplift_present) AND
+ *           requires the excess to be backed by durable documented drivers (signed/
+ *           executed leases + contractual rent steps). Today the rent-roll extractor
+ *           does NOT pull signed-lease execution status, so `signedLeaseBackingAvailable`
+ *           is ALWAYS false in this engine version and the resolution path returns
+ *           needs_manual_input with kind='signed_lease_status_extraction_gap'. This is
+ *           the HONEST behavior — the engine does NOT fabricate signed-lease backing,
+ *           accept the uplift on asset-class priors, or reject it on stereotype.
+ *           Companion handbook bump: P-III-15 added in universal_framework cluster as
+ *           the per-deal NOI reconciliation rule; handbook version 2026.3-gate →
+ *           2026.4-noi-recon. SYSTEM_PROMPT extends with the NOI-recon precedence rule.
+ *           Spec-clean (§2.3): buildNoiReconciliationFacts reads AdjustedInputs only;
+ *           judgment is the legitimate Stage-4 consumer of ExtractionResult.
  */
-export const HANDBOOK_ENGINE_VERSION = '1.4.0' as const;
+export const HANDBOOK_ENGINE_VERSION = '1.5.0' as const;
 
 /**
  * Narrative-engine simple version. Stamped onto every NarrativeEvaluation record

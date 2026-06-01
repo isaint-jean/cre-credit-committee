@@ -1,7 +1,7 @@
 {
-  "version": "2026.3-gate",
+  "version": "2026.4-noi-recon",
   "effectiveDate": "2026-05-31",
-  "description": "Eightfold CRE Credit Handbook \u2014 structured form derived from atomization Sessions 1-4 (commits d183cb6, e2c84d0, 47da28e, plus the cross-reference cleanup pass). 87 atomic principles + 1 cluster narrative + 7 review steps capturing the full handbook. Source-of-truth typed TS literal; handbook.json is generated from this file. 2026.3-gate adds P-II-9 (read deal data before asset-class priors) as a meta-principle in the core_philosophy cluster, paired with the per-principle computedFacts surface introduced in HANDBOOK_ENGINE_VERSION 1.3.0.",
+  "description": "Eightfold CRE Credit Handbook \u2014 structured form derived from atomization Sessions 1-4 (commits d183cb6, e2c84d0, 47da28e, plus the cross-reference cleanup pass). 87 atomic principles + 1 cluster narrative + 7 review steps capturing the full handbook. Source-of-truth typed TS literal; handbook.json is generated from this file. 2026.3-gate adds P-II-9 (read deal data before asset-class priors) as a meta-principle in the core_philosophy cluster, paired with the per-principle computedFacts surface introduced in HANDBOOK_ENGINE_VERSION 1.3.0. 2026.4-noi-recon adds P-III-15 (NOI reconciliation: underwriting uplift earns its way against trailing actuals) in the universal_framework cluster, paired with the noiReconciliation computedFacts entry introduced in HANDBOOK_ENGINE_VERSION 1.5.0.",
   "clusters": [
     {
       "id": "core_philosophy",
@@ -39,7 +39,8 @@
         "P-III-11",
         "P-III-12",
         "P-III-13",
-        "P-III-14"
+        "P-III-14",
+        "P-III-15"
       ]
     },
     {
@@ -4478,6 +4479,35 @@
       },
       "notes": [
         "Authored magnitude rule from the 2026-05-31 addendum. Pure deterministic constant \u2014 requires no comp, no LLM, no external input; needs only mgmt_fee_pct_of_egi from the field-bag assembler."
+      ]
+    },
+    {
+      "id": "P-III-15",
+      "cluster": "universal_framework",
+      "title": "NOI reconciliation: underwriting uplift earns its way against trailing actuals",
+      "principleText": "The trailing actual NOI is the truth floor; underwriting NOI that exceeds trailing actual NOI must be reconciled against durable documented drivers (signed and executed leases + contractual rent steps) before it is accepted. The issuer's underwritten NOI is a cross-reference, not a floor. When trailing actual NOI is below underwriting NOI, the rule fires; resolution requires per-tenant lease execution status (signed vs LOI/projection) to test whether the excess is durably backed. Market-rate assumptions, projected lease-up without signed tenants, and assumed rent growth do NOT satisfy the resolution \u2014 they earn haircuts. When signed-lease execution status is not available in the deal data, the rule returns needs_manual_input naming the gap rather than accepting the uplift on asset-class priors or rejecting it on stereotype.",
+      "sourceCitation": "Handbook value-add rule authored 2026-05-31; Model A frame (system underwrites from source documents and improves on issuer's numbers; trailing actuals are the truth floor).",
+      "trigger": {
+        "kind": "always"
+      },
+      "executionModes": [
+        "LLM_CONTEXT"
+      ],
+      "injectionPoints": [
+        "executive_summary",
+        "mitigation_suggestions",
+        "committee_recommendation"
+      ],
+      "severity": "high",
+      "researchActions": [],
+      "crossReferences": {
+        "relatedPrincipleIds": [],
+        "relatedReviewStepIds": [],
+        "upstreamDependencies": [],
+        "overlapsWith": []
+      },
+      "notes": [
+        "Model-A value-add rule (Commit 1 of the two-rule series). LLM_CONTEXT-only \u2014 the rule reads the noiReconciliation computedFacts entry surfaced into the per-principle prompt and dispatches per the verdict: noi_uplift_present \u2192 needs_manual_input with kind='signed_lease_status_extraction_gap' (always, in this engine version); noi_at_or_below_trailing \u2192 not_fired (strength); insufficient_data \u2192 needs_manual_input naming the missing input. Engine version 1.5.0 introduces the field threading and the computedFacts entry."
       ]
     },
     {
