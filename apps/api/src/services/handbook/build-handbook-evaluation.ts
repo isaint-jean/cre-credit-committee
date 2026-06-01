@@ -41,6 +41,7 @@ import {
   LLM_CONTEXT_MODEL,
   type LlmContextCheckDeps,
 } from './run-llm-context-check.js';
+import { computeRefiWindowRollover } from '../judgment/refi-window.js';
 
 // =============================================================================
 // Args
@@ -183,6 +184,19 @@ export async function buildHandbookEvaluation(
   //     llmEvaluator dep → all LLM principles skip as 'not_deterministic'.
   const deterministicPass = await evaluateHandbook(handbook, bag);
 
+  // Phase 1 of the "read deal data before asset-class priors" gate:
+  // pre-compute the refi-window rollover facts ONCE per deal, before any
+  // per-principle dispatch. The facts surface into every LLM principle's
+  // context bundle as `computedFacts.refinancingRisk`. Computed from typed
+  // AdjustedInputs + RentRoll only — §2.3 clean (no ExtractionResult).
+  const refiFacts = computeRefiWindowRollover({
+    rentRoll: args.rentRoll,
+    maturityDate: adjustedInputs.loan.maturityDate,
+    termMonths: adjustedInputs.loan.termMonths.adjusted,
+    analysisAsOfDate,
+    refiWindowMonths: 12,
+  });
+
   // 3b. Run the full engine pass with the LLM dispatch hook wired (if deps
   //     supply a store). The deterministic principles re-evaluate to the
   //     same results (pure functions of the bag); the LLM principles
@@ -209,6 +223,12 @@ export async function buildHandbookEvaluation(
         // idiom so LlmContextCheckArgs.rentRoll stays optional and absent
         // (vs. explicit null) when no rent roll is on the deal.
         ...(args.rentRoll !== null ? { rentRoll: args.rentRoll } : {}),
+        // Phase 1 (refi-window gate): surface computed facts into every per-principle
+        // LLM context bundle. refiFacts is always present (the computer always returns
+        // a verdict, even insufficient_data) so we pass it unconditionally — that lets
+        // the LLM see the insufficient-data signal explicitly and choose the
+        // needs_manual_input path rather than guessing from priors.
+        computedFacts: { refinancingRisk: refiFacts },
       };
       const evalResult = await runLlmContextCheck(checkArgs, deps.store!, deps.llmContextDeps ?? {});
       // LlmEvalResult and PrincipleEvaluationResult are structurally

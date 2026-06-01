@@ -98,6 +98,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       loanAmount: lineItem(50_000_000), interestRate: lineItem(0.07),
       termMonths: lineItem(120), amortizationMonths: lineItem(360),
       ioPeriodMonths: lineItem(0), maturityBalance: lineItem(45_000_000),
+      maturityDate: null,
       debtServiceAnnual: lineItem(4_000_000),
     },
     assumptions: {

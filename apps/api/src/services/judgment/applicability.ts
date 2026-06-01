@@ -23,15 +23,21 @@ const PAYROLL_TYPES = new Set<AssetProfile['propertyType']>(['Hotel', 'MHC', 'Mu
 function rolloverWithinTermFraction(
   extraction: ExtractionResult,
   termMonths: number | null,
+  bufferMonths: number = 0,
 ): number {
-  // Approximate fraction of income (annualized) expiring within `termMonths`. Returns 0 if
-  // no rent roll OR no term info; conservative — applicability for upfrontTiLc / monthlyTiLc
-  // defaults to false in that case.
+  // Approximate fraction of income (annualized) expiring within `termMonths + bufferMonths`.
+  // Returns 0 if no rent roll OR no term info; conservative — applicability for upfrontTiLc /
+  // monthlyTiLc defaults to false in that case.
+  //
+  // The `bufferMonths` parameter is an additive extension to the cutoff window (the
+  // refinancing buffer; default 0 so existing call sites are byte-stable). Phase 1 of
+  // the refi-window gate added the parameter; existing applicability predicates pass
+  // bufferMonths=0 (the default) and so are behaviorally unchanged.
   if (extraction.rentRoll === null || termMonths === null) return 0;
   if (termMonths <= 0) return 0;
 
   const now = new Date(extraction.analysisAsOfDate).getTime();
-  const cutoff = now + termMonths * 30.4375 * 24 * 60 * 60 * 1000;
+  const cutoff = now + (termMonths + bufferMonths) * 30.4375 * 24 * 60 * 60 * 1000;
 
   let totalAnnualRent = 0;
   let expiringAnnualRent = 0;

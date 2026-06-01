@@ -45,6 +45,7 @@ import { canonicalize } from '../../util/canonical-json.js';
 import { createHash } from 'node:crypto';
 import { callAIWithContinuation } from '../ai-analysis.service.js';
 import type { RecordGraphStore } from '../../storage/record-graph-store.js';
+import type { RefiWindowRolloverFacts } from '../judgment/refi-window.js';
 
 export const LLM_CONTEXT_MODEL = 'claude-sonnet-4-20250514';
 
@@ -72,6 +73,23 @@ export type LlmEvalResult =
       };
     };
 
+/**
+ * Authoritative deal-level facts computed by the handbook evaluator BEFORE per-principle
+ * dispatch. The LLM is instructed via SYSTEM_PROMPT to use these as ground truth and to
+ * choose `needs_manual_input` rather than guessing from asset-class priors when the data
+ * is genuinely absent.
+ *
+ * Spec-clean (§2.3): each computed-fact entry is derived from `AdjustedInputs` +
+ * `RentRoll` (the graph nodes), NEVER from `ExtractionResult`. Stage 5 (handbook
+ * evaluator) does not import extraction.
+ *
+ * Extensible by design — Phase 2 of the gate will widen this with reserve sizing and
+ * footnote facts. Today (Phase 1) the only field is `refinancingRisk`.
+ */
+export interface ComputedFacts {
+  readonly refinancingRisk: RefiWindowRolloverFacts;
+}
+
 export interface LlmContextCheckArgs {
   readonly principle: Principle;
   readonly adjustedInputs: AdjustedInputs;
@@ -81,6 +99,19 @@ export interface LlmContextCheckArgs {
   readonly narrativeFacts: NarrativeFacts;
   readonly deterministicFiredFlags: ReadonlyArray<FiredFlag>;
   readonly handbookEngineVersion: string;
+  /**
+   * Authoritative deal-level facts computed by the handbook evaluator BEFORE
+   * per-principle dispatch. The LLM is instructed via SYSTEM_PROMPT to use
+   * these as ground truth and to choose needs_manual_input rather than
+   * guessing from priors when the data is absent. Spec-clean (§2.3): computed
+   * from AdjustedInputs + RentRoll, never from ExtractionResult.
+   *
+   * Folded into computeContextHash so a different refi-window (or different
+   * per-tenant schedule) produces a different cache key and a fresh eval.
+   * Same canonicalization-as-null policy as `manualInputs` and `rentRoll`:
+   * absent → null in the hash input → byte-stable across runs that both omit.
+   */
+  readonly computedFacts?: ComputedFacts;
   /**
    * Optional analyst-supplied inputs (the manual-input layer — comps,
    * sponsor research, submarket vacancy rates, etc.). When present,
@@ -446,6 +477,11 @@ function computeContextHash(args: LlmContextCheckArgs): string {
     },
     manualInputs: args.manualInputs ?? null,
     rentRoll: args.rentRoll !== undefined ? curateRentRoll(args.rentRoll) : null,
+    // Phase 1 (refi-window gate): computedFacts canonicalized as null when absent,
+    // verbatim when present. The refi-window verdict + per-tenant schedule + chosen
+    // refiWindowMonths flow through the hash so a changed buffer → different hash →
+    // fresh eval (correct: a different refi window is a different question).
+    computedFacts: args.computedFacts ?? null,
     handbookEngineVersion: args.handbookEngineVersion,
     modelVersion: LLM_CONTEXT_MODEL,
     deterministicFiredFlags: args.deterministicFiredFlags,
@@ -533,6 +569,7 @@ const SYSTEM_PROMPT = [
   '  }',
   '',
   'Decision criteria:',
+  '- When the user message contains an "Authoritative Derived Facts" block, treat those values as the ground truth for the quantities they cover. Asset-class priors and stereotypes are NOT a substitute for a computed value. If the underlying data needed to compute a fact is absent (the block will say verdict=insufficient_data or carry a null aggregate), you MUST return needs_manual_input naming the missing input — do NOT fire on an assumed value, and do NOT silently ignore the principle. When the block documents an absence of risk (e.g., verdict=no_rollover_in_refi_window), it is appropriate to return outcome=not_fired with flag_message describing the deal STRENGTH the data confirms.',
   '- Fire (outcome=\"fired\") only when the principle\'s concern is genuinely present in this deal. Be willing to fire on universal-philosophy principles when the deal\'s structure warrants commentary even if no covenant is breached.',
   '- Use outcome=\"needs_manual_input\" when the principle\'s text identifies a required input that must come from the manual analyst layer (rent comps, sales comps, sponsor lookups, etc.) AND that input is not present in the deal data. Do NOT fabricate market PSF, comp values, or other numbers you have no basis for.',
   '- Choose severity matching the principle\'s default severity unless the deal\'s specifics warrant a different tier.',
@@ -580,6 +617,28 @@ function buildPrompt(args: LlmContextCheckArgs): string {
     deterministicFiredFlagsCount: args.deterministicFiredFlags.length,
   });
 
+  // Authoritative Derived Facts block (Phase 1 — refi-window gate).
+  // Surfaced ABOVE the deal-data block so the LLM sees it first. The
+  // SYSTEM_PROMPT instructs the LLM to treat these as ground truth and
+  // to choose needs_manual_input when verdicts say insufficient_data.
+  // The same canonicalization drives computeContextHash so the block is
+  // cache-stable for identical inputs.
+  const computedFactsJson = args.computedFacts !== undefined
+    ? canonicalize(args.computedFacts)
+    : null;
+  const computedFactsBlock = computedFactsJson !== null
+    ? [
+        'AUTHORITATIVE DERIVED FACTS — these are server-computed from the deal\'s typed records. Use them as ground truth. Do NOT infer the same quantities from asset-class priors or stereotypes:',
+        computedFactsJson,
+        '',
+        'For refinancingRisk specifically: the verdict field tells you the gate\'s read.',
+        '  verdict=no_rollover_in_refi_window → no leases expire before maturity + refiWindowMonths. Document this as a deal STRENGTH in your flag_message if the principle concerns rollover/re-leasing/refinancing risk; outcome=not_fired with strength-prose.',
+        '  verdict=rollover_in_refi_window → real rollover exists; fire the relevant principle sized to the actual aggregate fraction and per-tenant schedule given; cite specific tenants and dates in your evidence.',
+        '  verdict=insufficient_data → return needs_manual_input naming exactly what is missing (per-tenant lease expirations, loan maturity date, or both). Do NOT fall back to an assumed rollover figure.',
+        '',
+      ].join('\n')
+    : '';
+
   // Per-tenant rent-roll block (Phase 2 — rent-roll-node). Curated to top-N
   // by in-place income with an "other" aggregate so a 200-tenant roll doesn't
   // balloon the prompt. The same curation drives computeContextHash, so this
@@ -613,13 +672,16 @@ function buildPrompt(args: LlmContextCheckArgs): string {
       ].join('\n')
     : '';
 
-  // Order: deal aggregates → per-tenant rent roll → analyst-supplied manual inputs.
+  // Order: authoritative derived facts → deal aggregates → per-tenant rent roll
+  // → analyst-supplied manual inputs. Derived facts are FIRST so the LLM sees
+  // them before any deal aggregates that might invite prior-based inference.
   return [
     `Principle to evaluate: ${args.principle.id} — ${args.principle.title}`,
     `Default severity: ${args.principle.severity}`,
     `Principle text:`,
     `  ${args.principle.principleText}`,
     '',
+    computedFactsBlock,
     'Deal data (JCS-canonical JSON):',
     dealJson,
     rentRollBlock,

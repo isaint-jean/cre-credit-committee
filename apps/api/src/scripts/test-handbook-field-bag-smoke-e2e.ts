@@ -230,6 +230,7 @@ function buildDefaultAdjustedInputs(args: {
       loanAmount: lineItem(args.loanAmount), interestRate: lineItem(0),
       termMonths: lineItem(0), amortizationMonths: lineItem(0),
       ioPeriodMonths: lineItem(0), maturityBalance: lineItem(0),
+      maturityDate: null,
       debtServiceAnnual: lineItem(0),
     },
     assumptions: {

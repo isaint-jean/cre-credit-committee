@@ -319,6 +319,7 @@ console.log('\nConservatism gate (direct invocation):');
       amortizationMonths: { raw: 360, adjusted: 360, source: 'BANK', adjustments: [] },
       ioPeriodMonths: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
       maturityBalance: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
+      maturityDate: null,
       debtServiceAnnual: { raw: 0, adjusted: 0, source: 'BANK', adjustments: [] },
     },
     assumptions: {

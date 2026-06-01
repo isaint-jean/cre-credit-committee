@@ -200,6 +200,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId, salt = 0): Adj
       amortizationMonths: lineItem(360),
       ioPeriodMonths: lineItem(0),
       maturityBalance: lineItem(45_000_000),
+      maturityDate: null,
       debtServiceAnnual: lineItem(4_000_000),
     },
     assumptions: {

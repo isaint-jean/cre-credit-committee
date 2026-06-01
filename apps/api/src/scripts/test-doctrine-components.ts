@@ -108,6 +108,7 @@ function makeAdjustedInputs(opts: Partial<{
       termMonths: lineItem(120), amortizationMonths: lineItem(360),
       ioPeriodMonths: lineItem(0),
       maturityBalance: lineItem(opts.maturityBalance ?? 9_000_000),
+      maturityDate: null,
       debtServiceAnnual: lineItem(800_000),
     },
     assumptions: {

@@ -190,6 +190,27 @@ export interface AdjustedLoan {
   readonly amortizationMonths: AdjustedLineItem;
   readonly ioPeriodMonths: AdjustedLineItem;
   readonly maturityBalance: AdjustedLineItem;
+  /**
+   * Explicit loan maturity ISO timestamp threaded from LoanTermsExtraction.maturityDate
+   * (Stage 4 read; §2.3 clean — only the judgment orchestrator imports ExtractionResult,
+   * downstream consumers read this denormalized field off AdjustedInputs). Carried here
+   * so the handbook evaluator (Stage 5) can compute the refinancing-window rollover gate
+   * without violating spec-isolation. Null when LoanTermsExtraction is absent or when the
+   * source did not carry an explicit maturity date.
+   *
+   * Distinct from `termMonths` which carries the loan-term duration; `maturityDate` is
+   * the absolute calendar date the loan matures. The two are NOT redundant: term anchors
+   * to origination and is invariant to the analysis-as-of date, while maturityDate is the
+   * absolute target the refi-window gate compares per-tenant lease expirations against.
+   *
+   * Field added in the "read deal data before asset-class priors" gate (Phase 1) so the
+   * LLM evaluator can compute refi-window rollover from authoritative data instead of
+   * inferring from asset-class priors. This addition causes a one-time content-hash bump
+   * on AdjustedInputs (and therefore on every record that FKs to it — HandbookEvaluation,
+   * RevisionLineageEnvelope = AnalysisId). Documented schema evolution, same flavor as
+   * the Phase 1 DoctrineEvaluation.rentRollId precedent.
+   */
+  readonly maturityDate: ISODateTime | null;
   readonly debtServiceAnnual: AdjustedLineItem;
 }
 

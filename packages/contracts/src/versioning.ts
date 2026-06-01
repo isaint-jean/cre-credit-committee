@@ -37,8 +37,18 @@ export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
  *           and changed rent rolls (e.g., one tenant's rent changes) cache-miss into
  *           a fresh evaluation. Bump invalidates ALL 1.1.0 llm_principle_eval_cache
  *           rows; expected — different context shape → different hash → fresh eval.
+ *   1.3.0 — per-principle context bundle gains computedFacts.refinancingRisk (per-tenant
+ *           lease vs maturity+N-month refi window, with deterministic verdict). SYSTEM_PROMPT
+ *           extended with the Authoritative-Derived-Facts precedence rule (LLM treats
+ *           computed facts as ground truth; chooses needs_manual_input rather than
+ *           guessing from priors when data is genuinely absent). Invalidates ALL 1.2.0
+ *           llm_principle_eval_cache rows; expected — different context shape +
+ *           different system message → different hash → fresh eval. Companion
+ *           contract change: AdjustedInputs.loan gains an explicit `maturityDate`
+ *           field threaded from LoanTermsExtraction.maturityDate so the gate can
+ *           compare per-tenant lease expirations against maturity + refi window.
  */
-export const HANDBOOK_ENGINE_VERSION = '1.2.0' as const;
+export const HANDBOOK_ENGINE_VERSION = '1.3.0' as const;
 
 /**
  * Narrative-engine simple version. Stamped onto every NarrativeEvaluation record

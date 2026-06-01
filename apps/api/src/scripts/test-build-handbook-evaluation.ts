@@ -91,6 +91,7 @@ function makeAdjustedInputs(
       loanAmount: lineItem(loanAmount), interestRate: lineItem(0),
       termMonths: lineItem(0), amortizationMonths: lineItem(0),
       ioPeriodMonths: lineItem(0), maturityBalance: lineItem(0),
+      maturityDate: null,
       debtServiceAnnual: lineItem(0),
     },
     assumptions: {
@@ -185,8 +186,8 @@ await (async () => {
   const eval_ = await buildHandbookEvaluation(makeArgs());
   assertTruthy(eval_.id, 'record has an id');
   assertEqual(eval_.adjustedInputsId, 'aaaa', 'adjustedInputsId FKs to AdjustedInputs');
-  assertEqual(eval_.handbookVersion, '2026.2-addendum', 'handbookVersion stamped from handbook constant (bumped for Rules A+B)');
-  assertEqual(eval_.engineVersion, '1.2.0', 'engineVersion stamped as constant (1.2.0 — per-principle context bundle gains curated rentRoll)');
+  assertEqual(eval_.handbookVersion, '2026.3-gate', 'handbookVersion stamped from handbook constant (bumped for refi-window gate; adds P-II-9)');
+  assertEqual(eval_.engineVersion, '1.3.0', 'engineVersion stamped as constant (1.3.0 — per-principle context bundle gains computedFacts.refinancingRisk + SYSTEM_PROMPT precedence rule)');
   assertEqual(eval_.analysisAsOfDate, '2026-01-01T00:00:00.000Z', 'analysisAsOfDate preserved');
   assertTruthy(eval_.fieldBagSnapshot, 'fieldBagSnapshot present');
   assertTruthy(Array.isArray(eval_.firedFlags), 'firedFlags is array');

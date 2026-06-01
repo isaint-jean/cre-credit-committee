@@ -364,6 +364,12 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       amortizationMonths,
       ioPeriodMonths,
       maturityBalance: loanMaturityBalance,
+      // §2.3-legitimate: Stage 4 is the ONLY pipeline stage allowed to read
+      // ExtractionResult. We denormalize `maturityDate` onto AdjustedInputs.loan
+      // here so the Stage 5+ handbook evaluator can compute the refinancing-window
+      // rollover gate (refi-window.ts) without re-importing extraction. Null when
+      // LoanTermsExtraction is absent or the source did not carry an explicit date.
+      maturityDate: extraction.loanTerms?.maturityDate ?? null,
       debtServiceAnnual,
     },
     // concludedCapRate is analyst-input-only per §14.3 Decision 3 + Delta X

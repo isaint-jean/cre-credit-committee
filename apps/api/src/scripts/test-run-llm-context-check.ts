@@ -85,6 +85,7 @@ const sampleAdjustedInputs = {
     loanAmount: mkLineItem(11_000_000), interestRate: mkLineItem(0.07),
     termMonths: mkLineItem(59), amortizationMonths: mkLineItem(360),
     ioPeriodMonths: mkLineItem(0), maturityBalance: mkLineItem(10_367_000),
+    maturityDate: null,
     debtServiceAnnual: mkLineItem(878_199),
   },
   assumptions: {
@@ -125,7 +126,7 @@ function args(p: Principle = samplePrinciple): LlmContextCheckArgs {
     propertyMetadata: null,
     narrativeFacts: sampleNarrativeFacts,
     deterministicFiredFlags: [],
-    handbookEngineVersion: '1.2.0',
+    handbookEngineVersion: '1.3.0',
   };
 }
 
@@ -548,6 +549,212 @@ function twelveTenantRentRoll(): RentRoll {
     const r2 = await runLlmContextCheck(baseArgs, store, { llmCall: stub2.fn as never });
     assertEqual(stub2.calls(), 0, '18.2 second omit-run HIT CACHE (null canonicalization stable)');
     assertEqual(r2.status, 'fired', '18.3 cached result preserved');
+  }
+
+  // ===========================================================================
+  // Phase 1 (refi-window gate) — computedFacts per-principle context tests
+  // ===========================================================================
+
+  console.log('\n19. Phase 1 — computedFacts block appears in prompt when present (rollover_in_refi_window)');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'real rollover identified', evidenceQuotes: ['Tenant Early 2030'] }),
+    ]);
+    const argsWithFacts: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: {
+        refinancingRisk: {
+          refiWindowMonths: 12,
+          termMonths: 60,
+          maturityDate: '2031-05-31T00:00:00Z',
+          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+          aggregateRolloverFraction: 0.2,
+          perTenantSchedule: [
+            { tenantName: 'Early', suite: null, squareFeet: 1000, leaseEnd: '2030-01-01T00:00:00Z',
+              expiresWithinRefiWindow: true, inPlaceRentAnnual: 200_000 },
+            { tenantName: 'Late', suite: null, squareFeet: 4000, leaseEnd: '2040-01-01T00:00:00Z',
+              expiresWithinRefiWindow: false, inPlaceRentAnnual: 800_000 },
+          ],
+          sourceDataComplete: true,
+          verdict: 'rollover_in_refi_window',
+        },
+      },
+    };
+    await runLlmContextCheck(argsWithFacts, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('AUTHORITATIVE DERIVED FACTS'), '19.1 prompt includes the AUTHORITATIVE DERIVED FACTS header');
+    assert(prompt.includes('refinancingRisk'), '19.2 prompt includes refinancingRisk key');
+    assert(prompt.includes('rollover_in_refi_window'), '19.3 prompt includes the verdict literal');
+    assert(prompt.includes('size to the actual aggregate fraction') || prompt.includes('size to the actual') ||
+           prompt.includes('sized to the actual aggregate fraction'),
+           '19.4 prompt includes size-to-actual fire-instruction line');
+  }
+
+  console.log('\n20. Phase 1 — computedFacts block absent when omitted');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'ok', evidenceQuotes: [] }),
+    ]);
+    await runLlmContextCheck(args(), store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(!prompt.includes('AUTHORITATIVE DERIVED FACTS'), '20.1 no AUTHORITATIVE DERIVED FACTS header when omitted');
+  }
+
+  console.log('\n21. Phase 1 — verdict=no_rollover_in_refi_window prompt instructions');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'GSA runs to 2039 — well past maturity + 12mo; structural strength', evidenceQuotes: [] }),
+    ]);
+    const argsStrength: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: {
+        refinancingRisk: {
+          refiWindowMonths: 12,
+          termMonths: 60,
+          maturityDate: '2031-05-31T00:00:00Z',
+          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+          aggregateRolloverFraction: 0,
+          perTenantSchedule: [
+            { tenantName: 'GSA', suite: '100', squareFeet: 100_000, leaseEnd: '2039-01-01T00:00:00Z',
+              expiresWithinRefiWindow: false, inPlaceRentAnnual: 5_000_000 },
+          ],
+          sourceDataComplete: true,
+          verdict: 'no_rollover_in_refi_window',
+        },
+      },
+    };
+    const r = await runLlmContextCheck(argsStrength, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('no_rollover_in_refi_window'), '21.1 prompt cites the strength verdict');
+    assert(prompt.includes('STRENGTH'), '21.2 prompt instructs strength-prose');
+    assert(prompt.includes('not_fired'), '21.3 prompt instructs outcome=not_fired path');
+    assertEqual(r.status, 'skipped', '21.4 LLM honored not_fired → status skipped');
+  }
+
+  console.log('\n22. Phase 1 — verdict=insufficient_data prompt instructions');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stub = makeStubLlm([
+      JSON.stringify({
+        outcome: 'needs_manual_input',
+        flag_message: 'Per-tenant lease expirations are missing; cannot quantify refi-window rollover.',
+        manualInputRequests: [
+          { kind: 'lease_expiration', detail: 'Per-tenant lease end dates from the rent roll' },
+        ],
+      }),
+    ]);
+    const argsInsuff: LlmContextCheckArgs = {
+      ...args(),
+      computedFacts: {
+        refinancingRisk: {
+          refiWindowMonths: 12,
+          termMonths: 60,
+          maturityDate: '2031-05-31T00:00:00Z',
+          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+          aggregateRolloverFraction: null,
+          perTenantSchedule: [
+            { tenantName: 'A', suite: null, squareFeet: 1000, leaseEnd: null,
+              expiresWithinRefiWindow: null, inPlaceRentAnnual: 100_000 },
+          ],
+          sourceDataComplete: false,
+          verdict: 'insufficient_data',
+        },
+      },
+    };
+    const r = await runLlmContextCheck(argsInsuff, store, { llmCall: stub.fn as never });
+    const prompt = stub.prompts()[0] ?? '';
+    assert(prompt.includes('insufficient_data'), '22.1 prompt cites insufficient_data verdict');
+    assert(prompt.includes('needs_manual_input'), '22.2 prompt instructs needs_manual_input path');
+    assertEqual(r.status, 'skipped', '22.3 status === skipped');
+    if (r.status === 'skipped') {
+      assertEqual(r.skip.reason, 'needs_manual_input', '22.4 reason === needs_manual_input');
+    }
+  }
+
+  console.log('\n23. Phase 1 — same computedFacts → same hash → cache hit');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const facts = {
+      refinancingRisk: {
+        refiWindowMonths: 12,
+        termMonths: 60,
+        maturityDate: '2031-05-31T00:00:00Z',
+        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+        aggregateRolloverFraction: 0,
+        perTenantSchedule: [],
+        sourceDataComplete: true,
+        verdict: 'no_rollover_in_refi_window' as const,
+      },
+    };
+    const stub1 = makeStubLlm([
+      JSON.stringify({ outcome: 'not_fired', flag_message: 'strength', evidenceQuotes: [] }),
+    ]);
+    const r1 = await runLlmContextCheck({ ...args(), computedFacts: facts }, store, { llmCall: stub1.fn as never });
+    assertEqual(stub1.calls(), 1, '23.1 first call invoked LLM');
+    const stub2 = makeStubLlm([]); // none available proves cache hit
+    const r2 = await runLlmContextCheck({ ...args(), computedFacts: facts }, store, { llmCall: stub2.fn as never });
+    assertEqual(stub2.calls(), 0, '23.2 second call HIT CACHE (identical computedFacts bytes)');
+    assertEqual(r1.status, r2.status, '23.3 cached status preserved');
+  }
+
+  console.log('\n24. Phase 1 — different refiWindowMonths → different hash → fresh eval');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const base = {
+      refinancingRisk: {
+        refiWindowMonths: 12,
+        termMonths: 60,
+        maturityDate: '2031-05-31T00:00:00Z',
+        maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+        aggregateRolloverFraction: 0,
+        perTenantSchedule: [],
+        sourceDataComplete: true,
+        verdict: 'no_rollover_in_refi_window' as const,
+      },
+    };
+    const wider = {
+      refinancingRisk: {
+        ...base.refinancingRisk,
+        refiWindowMonths: 24, // different parameter
+        maturityPlusWindowDate: '2033-05-31T00:00:00Z',
+      },
+    };
+    const stub1 = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'window-12', evidenceQuotes: [] })]);
+    const stub2 = makeStubLlm([JSON.stringify({ outcome: 'fired', severity: 'medium', flag_message: 'window-24 differs', evidenceQuotes: [] })]);
+    await runLlmContextCheck({ ...args(), computedFacts: base }, store, { llmCall: stub1.fn as never });
+    const r2 = await runLlmContextCheck({ ...args(), computedFacts: wider }, store, { llmCall: stub2.fn as never });
+    assertEqual(stub2.calls(), 1, '24.1 different refiWindowMonths → cache MISS → LLM re-called');
+    if (r2.status === 'fired') {
+      assertEqual(r2.flag.flag_message, 'window-24 differs', '24.2 new result reflects changed window');
+    }
+  }
+
+  console.log('\n25. Phase 1 — computedFacts absent vs present → different hash → fresh eval');
+  {
+    const store = new RecordGraphStore(':memory:');
+    const stubA = makeStubLlm([JSON.stringify({ outcome: 'fired', severity: 'high', flag_message: 'no-facts', evidenceQuotes: [] })]);
+    await runLlmContextCheck(args(), store, { llmCall: stubA.fn as never });
+    const argsWithFacts = {
+      ...args(),
+      computedFacts: {
+        refinancingRisk: {
+          refiWindowMonths: 12, termMonths: 60,
+          maturityDate: '2031-05-31T00:00:00Z',
+          maturityPlusWindowDate: '2032-05-31T00:00:00Z',
+          aggregateRolloverFraction: 0,
+          perTenantSchedule: [],
+          sourceDataComplete: true,
+          verdict: 'no_rollover_in_refi_window' as const,
+        },
+      },
+    };
+    const stubB = makeStubLlm([JSON.stringify({ outcome: 'not_fired', flag_message: 'with-facts', evidenceQuotes: [] })]);
+    const r = await runLlmContextCheck(argsWithFacts, store, { llmCall: stubB.fn as never });
+    assertEqual(stubB.calls(), 1, '25.1 adding computedFacts → cache MISS → LLM re-called');
+    assertEqual(r.status, 'skipped', '25.2 new result distinct from no-facts run');
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

@@ -242,6 +242,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       amortizationMonths: lineItem(360),
       ioPeriodMonths: lineItem(0),
       maturityBalance: lineItem(45_000_000),
+      maturityDate: null,
       debtServiceAnnual: lineItem(4_000_000),
     },
     assumptions: {
@@ -790,20 +791,120 @@ console.log('\nDoctrineEvaluation.rentRollId — FK enforcement (orphan fails):'
 
 /* ----------------------- additive guarantee for sibling ids ----------------- */
 
-console.log('\nAdditive guarantee — AdjustedInputs / HandbookEvaluation ids unaffected by this batch:');
+console.log('\nContent-hash stability — AdjustedInputs body recomputes to its own id:');
 {
-  // Two fixtures with stable, content-addressed bodies. The ids below were
-  // captured by computing them ONCE from the fixture bodies (after Phase 1
-  // edits — before the edits the same body would hash to the same id since
-  // Phase 1 added NO fields to AdjustedInputs or HandbookEvaluation). The
-  // assertion catches accidental drift in either body shape or hash factory.
+  // After the refi-window gate added AdjustedLoan.maturityDate the AdjustedInputs
+  // body shape grew by one field. Same body → same hash is still the contract;
+  // the body shape itself is now different from the pre-gate one (intentional —
+  // see commit body / architecture_revision_lineage.md for the documented
+  // schema evolution). This assertion remains valid: it proves the hash factory
+  // is deterministic over whatever body shape is current.
   const lib = makeLibrarySnapshot();
   const ai = makeAdjustedInputs(lib.id);
-  // Re-hash the body without id and compare — proves the hash factory is
-  // stable AND that the body shape's canonical form is what we expect.
   const { id: _id, ...body } = ai;
   const recomputed = computeAdjustedInputsId(body);
-  assert(recomputed === ai.id, 'AdjustedInputs id == hash(body) — body shape unchanged by Phase 1');
+  assert(recomputed === ai.id, 'AdjustedInputs id == hash(body) — current shape is stable');
+}
+
+/* ----------------------- refi-window gate (Phase 1) ------------------------- */
+
+console.log('\nAdjustedInputs.loan.maturityDate — round-trip null and populated:');
+{
+  // The refi-window gate added `maturityDate` to AdjustedLoan. Both null and
+  // populated must round-trip through the record-graph store.
+  const lib = makeLibrarySnapshot();
+  store.insertLibrarySnapshot(lib);
+
+  // (a) maturityDate=null path
+  const aiNull = makeAdjustedInputs(lib.id);
+  store.insertAdjustedInputs(aiNull);
+  const fetchedNull = store.getAdjustedInputs(aiNull.id);
+  assert(fetchedNull !== null, 'AdjustedInputs with null maturityDate persists');
+  assert(fetchedNull?.loan.maturityDate === null, 'maturityDate=null round-trips');
+  if (fetchedNull) {
+    const { id: _id, ...body } = fetchedNull;
+    assert(computeAdjustedInputsId(body) === aiNull.id, 'body re-hashes to id (null path)');
+  }
+
+  // (b) maturityDate populated path — distinct body → distinct id.
+  const aiBody = {
+    analysisAsOfDate: AS_OF,
+    judgmentEngineVersion: JUDGMENT_ENGINE_VERSION,
+    librarySnapshotId: lib.id,
+    income: {
+      grossRentalIncome: lineItem(10_000_000), otherIncome: lineItem(500_000),
+      vacancyPct: lineItem(0.05), concessionsPct: lineItem(0.01),
+      effectiveGrossIncome: lineItem(9_400_000),
+    },
+    expenses: {
+      realEstateTaxes: lineItem(800_000), insurance: lineItem(150_000),
+      utilities: lineItem(200_000), managementFee: lineItem(280_000),
+      payroll: lineItem(0), maintenance: lineItem(300_000), other: lineItem(100_000),
+      generalAndAdmin: lineItem(0), janitorial: lineItem(0), reimbursements: lineItem(0),
+      totalOperatingExpenses: lineItem(1_830_000),
+    },
+    capitalReserves: {
+      upfrontCapex: lineItem(0), upfrontTiLc: lineItem(0), monthlyCapex: lineItem(0),
+      monthlyTiLc: lineItem(0), monthlyReplacementReserves: lineItem(0),
+      monthlyTenantImprovements: lineItem(0), monthlyLeasingCommissions: lineItem(0),
+      pcaImmediateRepairs: lineItem(0), upfrontReplacementReserves: lineItem(0),
+      capexScheduleInflated: null, capexScheduleUninflated: null,
+    },
+    loan: {
+      loanAmount: lineItem(50_000_000), interestRate: lineItem(0.07),
+      termMonths: lineItem(120), amortizationMonths: lineItem(360),
+      ioPeriodMonths: lineItem(0), maturityBalance: lineItem(45_000_000),
+      maturityDate: '2031-05-31T00:00:00Z' as const,
+      debtServiceAnnual: lineItem(4_000_000),
+    },
+    assumptions: {
+      capRate: lineItem(0.065), terminalCapRate: lineItem(0.075), concludedCapRate: null,
+      rentGrowthPct: lineItem(0.03), expenseGrowthPct: lineItem(0.03),
+    },
+    metrics: {
+      noi: 7_570_000, value: 116_461_538, dscr: 1.89, ltvAppraisal: 0.625,
+      debtYield: 0.1514, expenseRatio: 0.195, top1IncomeShare: 0.18,
+      pctIncomeExpiringWithinTerm: 0.22,
+    },
+    confidenceReduction: 0.05, topLevelAdjustments: [], dataQualityFlags: [],
+  };
+  const aiPop = { id: computeAdjustedInputsId(aiBody), ...aiBody } as AdjustedInputs;
+  store.insertAdjustedInputs(aiPop);
+  const fetchedPop = store.getAdjustedInputs(aiPop.id);
+  assert(fetchedPop?.loan.maturityDate === '2031-05-31T00:00:00Z',
+    'maturityDate ISO round-trips when populated');
+  assert(aiPop.id !== aiNull.id,
+    'populated-maturityDate body hashes to a DIFFERENT id from null-maturityDate body');
+}
+
+console.log('\nAnalysisId / lineage cascade — refi-window gate shifts AdjustedInputsId:');
+{
+  // Honest documentation of cascade behavior. The brief asked for verification:
+  // the answer is "AnalysisId WILL change for re-ingest of the same source
+  // bytes through the new schema." RevisionLineageEnvelope's content-hash
+  // inputs include adjustedInputsId; AnalysisId = lineageRootId = envelope's
+  // revisionId. AdjustedInputs.loan now carries maturityDate, so its hash
+  // shifts — and the shift cascades to HandbookEvaluation.id and to the
+  // envelope.revisionId (= AnalysisId).
+  //
+  // This assertion documents the shift: a body that omits `maturityDate`
+  // (pre-gate shape) and a body that carries `maturityDate: null` (post-gate
+  // shape) hash to different ids. The hash factory is deterministic, but the
+  // shape that goes into it is new.
+  const lib = makeLibrarySnapshot();
+  const aiPost = makeAdjustedInputs(lib.id); // current (post-gate) shape; maturityDate: null
+  const { id: _id, loan, ...rest } = aiPost;
+  void _id;
+  // Strip maturityDate to simulate the pre-gate shape (this is the body the
+  // hash would have seen before the gate; documented here so the cascade is
+  // explicit in the test surface, not implicit).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { maturityDate: _md, ...loanPreGate } = loan;
+  void _md;
+  const preGateBody = { ...rest, loan: loanPreGate };
+  const preGateId = computeAdjustedInputsId(preGateBody as Parameters<typeof computeAdjustedInputsId>[0]);
+  assert(preGateId !== aiPost.id,
+    'pre-gate body shape (no maturityDate) hashes to a DIFFERENT id from post-gate (maturityDate=null) — documented schema evolution; AnalysisId cascades');
 }
 
 store.close();
