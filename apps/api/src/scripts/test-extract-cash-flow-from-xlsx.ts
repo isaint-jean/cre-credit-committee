@@ -51,12 +51,12 @@ function assertClose(actual: number | null, expected: number, tol: number, m: st
   console.log('Sunroad CF — extractCashFlowFromXlsx (default worksheet auto-detect):');
   const result = await extractCashFlowFromXlsx(buffer);
 
-  assert(result.t12 !== null, 't12 (In-Place) snapshot is populated');
+  assert(result.inPlace !== null, 'inPlace snapshot is populated');
   assert(result.sellerUwOperatingStatement !== null, 'sellerUwOperatingStatement (GS U/W) snapshot is populated');
 
   // ---- In-Place column (expected from Cash Flow Extract sheet, column 7) ---- //
-  if (result.t12) {
-    const t = result.t12;
+  if (result.inPlace) {
+    const t = result.inPlace;
     console.log('\n  In-Place period & line items:');
     assert(/in[\s-]*place/i.test(t.period), `period label looks in-place ("${t.period}")`);
 
@@ -117,14 +117,14 @@ function assertClose(actual: number | null, expected: number, tol: number, m: st
 
   console.log('\nExplicit worksheet name:');
   const explicit = await extractCashFlowFromXlsx(buffer, { worksheetName: 'Cash Flow Extract' });
-  assert(explicit.t12 !== null, 'explicit "Cash Flow Extract" produces t12');
+  assert(explicit.inPlace !== null, 'explicit "Cash Flow Extract" produces inPlace');
   assert(explicit.sellerUwOperatingStatement !== null, 'explicit "Cash Flow Extract" produces UW snapshot');
 
   /* ------------------------- unknown worksheet → null ----------------------- */
 
   console.log('\nUnknown worksheet → null on both fields:');
   const missingSheet = await extractCashFlowFromXlsx(buffer, { worksheetName: 'Does Not Exist' });
-  assertEqual(missingSheet.t12, null, 'unknown worksheet → t12 null');
+  assertEqual(missingSheet.inPlace, null, 'unknown worksheet → inPlace null');
   assertEqual(missingSheet.sellerUwOperatingStatement, null, 'unknown worksheet → sellerUwOperatingStatement null');
 
   /* ----------- non-cashflow workbook → null (no header row found) ---------- */
@@ -137,7 +137,7 @@ function assertClose(actual: number | null, expected: number, tol: number, m: st
   ws.addRow(['', '', '', '']);
   const emptyBuf = Buffer.from(await wb.xlsx.writeBuffer());
   const empty = await extractCashFlowFromXlsx(emptyBuf);
-  assertEqual(empty.t12, null, 'no recognizable header → t12 null');
+  assertEqual(empty.inPlace, null, 'no recognizable header → inPlace null');
   assertEqual(empty.sellerUwOperatingStatement, null, 'no recognizable header → sellerUwOperatingStatement null');
 
   /* --------------------------- summary / exit code -------------------------- */

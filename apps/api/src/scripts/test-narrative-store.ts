@@ -171,6 +171,8 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       expenseRatio: 0.195,
       top1IncomeShare: 0.18,
       pctIncomeExpiringWithinTerm: 0.22,
+      issuerCfUwNoi: null,
+      inPlaceNoi: null,
       trailingActualNoi: null,
       issuerStatedNoiSellerUw: null,
       issuerStatedNoiAsr: null,

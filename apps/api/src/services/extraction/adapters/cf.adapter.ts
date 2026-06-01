@@ -1,28 +1,35 @@
 /**
  * CF adapter — sole call site of extractCashFlowFromXlsx in the composer path.
  *
- * Status mapping (mirrors the extractor's documented behavior at
- * extract-cash-flow-from-xlsx.ts:279-329):
+ * Status mapping (mirrors the extractor's documented behavior):
  *
  *   - wb.xlsx.load throws (corrupt / not-an-xlsx buffer)               → 'failed'
- *   - both columns returned null (no period-header / label structure)  → 'empty'
+ *   - all THREE column slots returned null (no period-header / label
+ *     structure)                                                       → 'empty'
  *   - at least one column populated                                    → 'ok'
  *     (the other-column-null case is genuine null fidelity — the workbook
  *     simply didn't have that period; NOT an extractor failure)
  *
+ * Three-slot output (locked 2026-05-31):
+ *
+ *   - `t12Actual`: strict T-12 / trailing-twelve column. Most CMBS-style CFs
+ *     don't expose one; this slot will be null on most fixtures.
+ *   - `inPlace`: In-Place / current column. The misleading `t12` slot was
+ *     renamed here as part of the period-classification fix.
+ *   - `sellerUwOperatingStatement`: the issuer's UW column.
+ *
  * SourceDocumentRef emission:
  *
- *   - ok: one ref per POPULATED kind. Both columns populated → two refs with the
- *     SAME contentHash and distinct kinds ('t12' and 'seller_uw'). This is
- *     dual-kind emission: same physical document, two semantic extractions —
+ *   - ok: one ref per POPULATED slot. All three populated → three refs with
+ *     the SAME contentHash and distinct kinds ('t12_actual', 'in_place',
+ *     'seller_uw'). Same physical document, three semantic extractions —
  *     contract-allowed and preserves lineage at the layer contentHash was
  *     designed for (drift detection on re-uploads).
- *   - empty / failed: zero refs. Stamping a kind we didn't actually extract would
- *     mislead future readers of ExtractionResult.sourceDocuments.
+ *   - empty / failed: zero refs. Stamping a kind we didn't actually extract
+ *     would mislead future readers of ExtractionResult.sourceDocuments.
  *
- * Adapter version is local to this file (CF_ADAPTER_VERSION). Ticket D will harvest
- * per-extractor versions into a new ExtractionResult field; until then the composer
- * projects only EXTRACTION_ENGINE_VERSION into the result.
+ * Adapter version is local to this file (CF_ADAPTER_VERSION). Bumped 0.1.0
+ * → 0.2.0 with the three-slot output (contract shape change).
  */
 
 import type { OperatingStatementExtraction, SourceDocumentRef } from '@cre/contracts';
@@ -30,23 +37,30 @@ import { computeBufferContentHash } from '../../../util/content-hash.js';
 import { extractCashFlowFromXlsx } from '../../extract-cash-flow-from-xlsx.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 
-/** Bump when this adapter's contract with downstream changes. Post-Ticket-D this
- *  becomes the per-extractor version stamped into ExtractionResult.extractorVersions['cf']. */
-export const CF_ADAPTER_VERSION = '0.1.0';
+/** Bump when this adapter's contract with downstream changes. Bumped 0.1.0 →
+ *  0.2.0 on 2026-05-31 with the three-slot output (t12 → inPlace rename +
+ *  new t12Actual slot). */
+export const CF_ADAPTER_VERSION = '0.2.0';
 
-/** Single value, two ExtractionResult fields. The composer's projection step splits:
- *    value.t12                        → extractionResult.t12
+/** Single value, three ExtractionResult fields. The composer's projection step splits:
+ *    value.t12Actual                  → extractionResult.t12Actual
+ *    value.inPlace                    → extractionResult.inPlace
  *    value.sellerUwOperatingStatement → extractionResult.sellerUwOperatingStatement
  *  Preserves the 1:1 slot-to-outcome invariant in BuildReport. */
 export interface CfAdapterValue {
-  readonly t12: OperatingStatementExtraction | null;
+  readonly t12Actual: OperatingStatementExtraction | null;
+  readonly inPlace: OperatingStatementExtraction | null;
   readonly sellerUwOperatingStatement: OperatingStatementExtraction | null;
 }
 
 export async function runCfAdapter(slot: SlotInput): Promise<ExtractorOutcome<CfAdapterValue>> {
   const t0 = Date.now();
 
-  let result: { t12: OperatingStatementExtraction | null; sellerUwOperatingStatement: OperatingStatementExtraction | null };
+  let result: {
+    t12Actual: OperatingStatementExtraction | null;
+    inPlace: OperatingStatementExtraction | null;
+    sellerUwOperatingStatement: OperatingStatementExtraction | null;
+  };
   try {
     result = await extractCashFlowFromXlsx(slot.buffer);
   } catch (err) {
@@ -63,10 +77,11 @@ export async function runCfAdapter(slot: SlotInput): Promise<ExtractorOutcome<Cf
     };
   }
 
-  const hasT12 = result.t12 !== null;
+  const hasT12Actual = result.t12Actual !== null;
+  const hasInPlace = result.inPlace !== null;
   const hasUw = result.sellerUwOperatingStatement !== null;
 
-  if (!hasT12 && !hasUw) {
+  if (!hasT12Actual && !hasInPlace && !hasUw) {
     return {
       status: 'empty',
       sourceRefs: [],
@@ -78,13 +93,15 @@ export async function runCfAdapter(slot: SlotInput): Promise<ExtractorOutcome<Cf
 
   const bufferHash = computeBufferContentHash(slot.buffer);
   const refs: SourceDocumentRef[] = [];
-  if (hasT12) refs.push({ kind: 't12', contentHash: bufferHash });
+  if (hasT12Actual) refs.push({ kind: 't12_actual', contentHash: bufferHash });
+  if (hasInPlace) refs.push({ kind: 'in_place', contentHash: bufferHash });
   if (hasUw) refs.push({ kind: 'seller_uw', contentHash: bufferHash });
 
   return {
     status: 'ok',
     value: {
-      t12: result.t12,
+      t12Actual: result.t12Actual,
+      inPlace: result.inPlace,
       sellerUwOperatingStatement: result.sellerUwOperatingStatement,
     },
     sourceRefs: refs,

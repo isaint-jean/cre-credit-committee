@@ -16,7 +16,40 @@
 export const JudgmentEngineRules = {
   // §1 missing-doc penalties — adjust `confidenceReduction`
   JE_RENT_ROLL_MISSING:                          'JE_RENT_ROLL_MISSING',
-  JE_T12_MISSING:                                'JE_T12_MISSING',
+  /**
+   * RENAMED 2026-05-31 from JE_T12_MISSING. The old name fired when
+   * extraction.t12 (which actually held In-Place data) was null — i.e., it
+   * fired only when the entire seller CF was missing. After the
+   * period-classification fix, the rule fires when
+   * extraction.t12Actual === null (strict trailing-twelve column absent),
+   * which is the case for EVERY deal whose seller CF doesn't expose a
+   * separate T-12 column — most CMBS-style CFs today. Until the class-(b)
+   * trailing-actuals ingest slot lands, this rule will fire on essentially
+   * every deal. That's intentional: it honestly signals "no trailing
+   * actuals in the record" rather than borrowing the In-Place column to
+   * pretend the gap doesn't exist.
+   */
+  JE_TRAILING_ACTUALS_MISSING:                   'JE_TRAILING_ACTUALS_MISSING',
+  /**
+   * Added 2026-05-31. Fires when `extraction.inPlace === null` — i.e., the
+   * seller CF carried no In-Place / current column. Distinct from
+   * JE_TRAILING_ACTUALS_MISSING (which signals absence of T-12 data) and
+   * from a missing CF document entirely (which is now covered by the
+   * combination of both flags being null + appraisal/CF kind absent in
+   * sourceDocuments). Docks data_confidence at the same weight as the
+   * trailing-actuals flag.
+   */
+  JE_IN_PLACE_MISSING:                           'JE_IN_PLACE_MISSING',
+  /**
+   * Added 2026-05-31. Informational (delta=0) — fires when an
+   * OperatingStatementExtraction slot's `period` label does not match the
+   * expected pattern for that slot (e.g., inPlace.period reads "GS U/W"
+   * suggesting the extractor classified a column wrong). Surfaces in
+   * dataQualityFlags for audit but does NOT dock the data_confidence
+   * doctrine score — the slot's data is still consumable; this is a
+   * safeguard against silent misclassification.
+   */
+  JE_PERIOD_LABEL_MISMATCH:                      'JE_PERIOD_LABEL_MISMATCH',
   JE_LOAN_TERMS_MISSING:                         'JE_LOAN_TERMS_MISSING',
   JE_PCA_MISSING:                                'JE_PCA_MISSING',
   JE_APPRAISAL_MISSING:                          'JE_APPRAISAL_MISSING',
@@ -107,11 +140,25 @@ export type JudgmentEngineRuleId = (typeof JudgmentEngineRules)[keyof typeof Jud
  * contribution to `AdjustedInputs.confidenceReduction` (after normalizing the sum).
  */
 export const JE_MISSING_DOC_PENALTIES = {
-  JE_RENT_ROLL_MISSING:  12,
-  JE_T12_MISSING:        12,
-  JE_LOAN_TERMS_MISSING: 10,
-  JE_PCA_MISSING:         6,
-  JE_APPRAISAL_MISSING:   4,
+  JE_RENT_ROLL_MISSING:        12,
+  /**
+   * 2026-05-31 rename — penalty weight preserved from the legacy JE_T12_MISSING.
+   * Fires on every deal today (no class-(b) ingest slot yet); the weight
+   * stays at 12 because the trailing-actual gap remains real even though it's
+   * universal. When class-(b) lands, deals carrying a T-12 statement clear
+   * the flag and recover the 12 penalty points.
+   */
+  JE_TRAILING_ACTUALS_MISSING:  12,
+  /**
+   * Added 2026-05-31. Penalty weight 8 — slightly lower than
+   * JE_TRAILING_ACTUALS_MISSING (12) because In-Place absence on a CMBS-style
+   * CF is rare and structurally a CF-document gap, whereas trailing-actuals
+   * absence is the deal-state-of-the-world today (every-deal universal).
+   */
+  JE_IN_PLACE_MISSING:           8,
+  JE_LOAN_TERMS_MISSING:        10,
+  JE_PCA_MISSING:                6,
+  JE_APPRAISAL_MISSING:          4,
 } as const;
 
 /**

@@ -70,7 +70,7 @@ function makeExtraction(o: Partial<ExtractionResult> = {}): ExtractionResult {
     id: 'a'.repeat(64) as never,
     analysisAsOfDate: AS_OF,
     extractionEngineVersion: '1.5',
-    dealRef: 'TEST', rentRoll: null, t12: null, pca: null,
+    dealRef: 'TEST', rentRoll: null, inPlace: null, t12Actual: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
     extractorVersions: {},
@@ -156,7 +156,7 @@ console.log('\nbuildEffectiveGrossIncome:');
 console.log('\nbuildTotalOperatingExpenses:');
 {
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: {
@@ -167,6 +167,7 @@ console.log('\nbuildTotalOperatingExpenses:');
       },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const r = buildTotalOperatingExpenses({
     extraction: ext,
@@ -175,7 +176,7 @@ console.log('\nbuildTotalOperatingExpenses:');
     effectiveGrossIncome: lineItem(1_000_000),
   });
   assertEqual(r.adjusted, 218_000, 'T-12 total used directly when above library floor');
-  assertEqual(r.source, 'T12_ACTUAL', 'source = T12_ACTUAL');
+  assertEqual(r.source, 'IN_PLACE', 'source = IN_PLACE (data in inPlace slot post-2026-05-31)');
   assertEqual(r.adjustments.length, 0, 'no floor adjustment when T-12 above library floor');
 }
 {
@@ -205,7 +206,7 @@ console.log('\nbuildTotalOperatingExpenses:');
 {
   // E.1 sum-of-sub-lines fallback: T-12 partial (sub-lines present, totalOpEx null) → sum
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: {
@@ -216,6 +217,7 @@ console.log('\nbuildTotalOperatingExpenses:');
       },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const r = buildTotalOperatingExpenses({
     extraction: ext,
@@ -224,18 +226,19 @@ console.log('\nbuildTotalOperatingExpenses:');
     effectiveGrossIncome: lineItem(1_000_000),
   });
   assertEqual(r.adjusted, 218_000, 'sum-of-sub-lines (100k+18k+24k+36k+40k = 218k) above library floor');
-  assertEqual(r.source, 'T12_ACTUAL', 'source = T12_ACTUAL even when total is derived from sub-lines');
+  assertEqual(r.source, 'IN_PLACE', 'source = IN_PLACE even when total is derived from sub-lines (data in inPlace slot)');
   assertEqual(r.adjustments.length, 0, 'no substitution OR floor rule fires (sum above floor)');
 }
 {
   // NEW: library floor raises T-12 totalOpEx when T-12 < library × EGI
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: 1_000_000 },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: 200_000 },  // ratio 0.20
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const r = buildTotalOperatingExpenses({
     extraction: ext,

@@ -98,7 +98,15 @@ function evaluateFalseNegativeGuard(args: {
   const { mechanicalScore, adjustedInputs, narrativeFacts, valuationConclusion } = args;
 
   const mechWeak = mechanicalScore < 50;
-  const t12Present = !adjustedInputs.dataQualityFlags.includes('JE_T12_MISSING');
+  // 2026-05-31: JE_T12_MISSING renamed JE_TRAILING_ACTUALS_MISSING. The guard's
+  // semantic remains "is there usable CF data" — both the trailing-actuals flag
+  // (which now fires on every deal until class-(b) lands) AND the in-place flag
+  // signal absence of CF data, so we check both. The guard requires BOTH to be
+  // ABSENT to consider CF "present" — symmetric to the old single-flag check
+  // (now widened across the two new flags).
+  const t12Present =
+    !adjustedInputs.dataQualityFlags.includes('JE_TRAILING_ACTUALS_MISSING') ||
+    !adjustedInputs.dataQualityFlags.includes('JE_IN_PLACE_MISSING');
   const t12TrendOk = narrativeFacts.t12NoiTrend !== null && narrativeFacts.t12NoiTrend !== 'down';
   const rollover = adjustedInputs.metrics.pctIncomeExpiringWithinTerm;
   const lowRollover = rollover !== null && rollover <= 0.30;

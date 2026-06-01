@@ -36,4 +36,13 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // (JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED) covering the buildUpfrontReplacementReserves
   // MANUAL-default path (fires when PCA capex schedule is null).
   '1.2': 'a34151a7568cf30e31fab531ab3dd95af6b4190f6609ce7fb124fc44c6144bf5' as ContentHash,
+  // Period-classification fix (2026-05-31). Three new rules:
+  // JE_TRAILING_ACTUALS_MISSING (rename of JE_T12_MISSING — re-source: fires on
+  // extraction.t12Actual === null instead of the historical extraction.t12 === null),
+  // JE_IN_PLACE_MISSING (new — fires on extraction.inPlace === null), and
+  // JE_PERIOD_LABEL_MISMATCH (new — informational delta=0 surface for sanity-checking
+  // extractor period-label assignments). JE_MISSING_DOC_PENALTIES gains a key for
+  // JE_TRAILING_ACTUALS_MISSING (weight 12, inherited from JE_T12_MISSING) and
+  // JE_IN_PLACE_MISSING (weight 8). Hash placeholder until print-judgment-engine-hash runs.
+  '1.3': 'abfc5a2fe1e61bc020349b9e3f14a9bf8c3d02dd53e8bc00237153cf7049d110' as ContentHash,
 };

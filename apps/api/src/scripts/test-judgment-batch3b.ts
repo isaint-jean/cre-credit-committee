@@ -113,7 +113,7 @@ function makeAdjustedInputs(overrides: { vacancyPct?: number; dscr?: number | nu
       ltvAppraisal: overrides.ltv === undefined ? 0.42 : overrides.ltv,
       debtYield: 0.1534, expenseRatio: 0.193,
       top1IncomeShare: 0.30, pctIncomeExpiringWithinTerm: 0.22,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],
@@ -127,7 +127,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
     analysisAsOfDate: AS_OF,
     extractionEngineVersion: '1.5',
     dealRef: 'TEST-1',
-    rentRoll: null, t12: null, pca: null,
+    rentRoll: null, inPlace: null, t12Actual: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
     extractorVersions: {},
@@ -183,20 +183,25 @@ console.log('Source cascade — pickFirstNonNull:');
 
 console.log('\nSource cascade — vacancyPctCascade:');
 {
+  // 2026-05-31: cascade rewrite — T12_ACTUAL → SELLER_UW → IN_PLACE. The
+  // fixture's data (in the inPlace slot, period label "In-Place") is now
+  // correctly attributed to the IN_PLACE tier; falling back to it requires
+  // t12Actual + sellerUwOperatingStatement BOTH null.
   const ext = makeExtraction({
-    t12: {
-      period: 'T-12', noi: null, vacancyLoss: 60_000,
+    inPlace: {
+      period: 'In-Place', noi: null, vacancyLoss: 60_000,
       income: { grossPotentialRent: 1_200_000, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
     sellerUw: { underwrittenNOI: null, underwrittenRentGrowth: null, underwrittenVacancy: 0.03 },
     sellerUwOperatingStatement: null,
   });
   const cs = vacancyPctCascade(ext);
   const picked = pickFirstNonNull(cs);
-  assertEqual(picked.tier, 'T12_ACTUAL', 'T-12 preferred when both present');
-  assertClose(picked.value as number, 0.05, 1e-9, 'T-12 vacancy = 60k/1.2M = 0.05');
+  assertEqual(picked.tier, 'IN_PLACE', 'IN_PLACE tier when only inPlace slot has data');
+  assertClose(picked.value as number, 0.05, 1e-9, 'In-Place vacancy = 60k/1.2M = 0.05');
 }
 {
   const ext = makeExtraction({
@@ -222,12 +227,13 @@ console.log('\nSource cascade — capRateCascade:');
 console.log('\nSource cascade — bankNoiCascade:');
 {
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: 950_000, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const picked = pickFirstNonNull(bankNoiCascade(ext));
   assertEqual(picked.value, 950_000, 'T-12 NOI as bank NOI');
@@ -403,7 +409,7 @@ console.log('\nNOI cap:');
 console.log('\nConfidence reduction:');
 {
   assertEqual(penaltyWeightFor('JE_RENT_ROLL_MISSING'), 12, 'rent roll = 12');
-  assertEqual(penaltyWeightFor('JE_T12_MISSING'), 12, 't-12 = 12');
+  assertEqual(penaltyWeightFor('JE_TRAILING_ACTUALS_MISSING'), 12, 't-12 = 12');
   assertEqual(penaltyWeightFor('JE_LOAN_TERMS_MISSING'), 10, 'loan terms = 10');
   assertEqual(penaltyWeightFor('JE_PCA_MISSING'), 6, 'pca = 6');
   assertEqual(penaltyWeightFor('JE_APPRAISAL_MISSING'), 4, 'appraisal = 4');
@@ -418,7 +424,7 @@ console.log('\nConfidence reduction:');
   assertClose(
     computeConfidenceReduction([
       { ruleId: 'JE_RENT_ROLL_MISSING' },
-      { ruleId: 'JE_T12_MISSING' },
+      { ruleId: 'JE_TRAILING_ACTUALS_MISSING' },
       { ruleId: 'JE_LOAN_TERMS_MISSING' },
       { ruleId: 'JE_PCA_MISSING' },
       { ruleId: 'JE_APPRAISAL_MISSING' },
@@ -430,7 +436,7 @@ console.log('\nConfidence reduction:');
   assertClose(
     computeConfidenceReduction([
       { ruleId: 'JE_RENT_ROLL_MISSING' },
-      { ruleId: 'JE_T12_MISSING' },
+      { ruleId: 'JE_TRAILING_ACTUALS_MISSING' },
       { ruleId: 'JE_LOAN_TERMS_MISSING' },
       { ruleId: 'JE_PCA_MISSING' },
       { ruleId: 'JE_APPRAISAL_MISSING' },
@@ -454,7 +460,7 @@ console.log('\nConfidence reduction:');
   // Cap at 1.0
   // (architecture v1.0 max is 0.56, but verify clamp is correct)
   const fakeMax = computeConfidenceReduction(
-    Array.from({ length: 20 }, () => ({ ruleId: 'JE_T12_MISSING' as const })),
+    Array.from({ length: 20 }, () => ({ ruleId: 'JE_TRAILING_ACTUALS_MISSING' as const })),
   );
   // Dedup makes this just 1 entry → 0.12
   assertEqual(fakeMax, 0.12, 'duplicates clamped to single entry');

@@ -48,8 +48,10 @@ function assertEqual<T>(a: T, b: T, m: string): void {
   assert(outcome.durationMs >= 0, 'durationMs non-negative');
 
   if (outcome.status === 'ok') {
-    /* Value carries both columns. */
-    assert(outcome.value.t12 !== null, 'value.t12 populated');
+    /* Value carries the three-slot shape. Sunroad has In-Place + GS U/W only;
+       t12Actual is null. */
+    assertEqual(outcome.value.t12Actual, null, 'value.t12Actual null (Sunroad CF has no strict T-12 column)');
+    assert(outcome.value.inPlace !== null, 'value.inPlace populated');
     assert(outcome.value.sellerUwOperatingStatement !== null, 'value.sellerUwOperatingStatement populated');
 
     /* Adapter does not transform: outcome.value === extractor output, field by field.
@@ -62,17 +64,17 @@ function assertEqual<T>(a: T, b: T, m: string): void {
        returning `undefined` when the field is null; we then compare null===null.
        This is a test-only pattern. Do not import this license into adapter or composer code. */
     const raw = await extractCashFlowFromXlsx(sunroadBuf);
-    assertEqual(outcome.value.t12?.noi ?? null, raw.t12?.noi ?? null, 'value.t12.noi matches raw extractor output (no transformation)');
+    assertEqual(outcome.value.inPlace?.noi ?? null, raw.inPlace?.noi ?? null, 'value.inPlace.noi matches raw extractor output (no transformation)');
     assertEqual(
       outcome.value.sellerUwOperatingStatement?.noi ?? null,
       raw.sellerUwOperatingStatement?.noi ?? null,
       'value.sellerUwOperatingStatement.noi matches raw extractor output',
     );
 
-    /* Dual-kind sourceRefs: two entries, same hash, distinct kinds. */
-    assertEqual(outcome.sourceRefs.length, 2, 'two sourceRefs (both columns populated)');
+    /* Two sourceRefs (Sunroad: in_place + seller_uw, no t12_actual). */
+    assertEqual(outcome.sourceRefs.length, 2, 'two sourceRefs (In-Place + GS U/W populated; no T-12 column)');
     const kinds = outcome.sourceRefs.map((r) => r.kind).sort();
-    assertEqual(kinds.join(','), 'seller_uw,t12', 'sourceRefs kinds are exactly t12 and seller_uw');
+    assertEqual(kinds.join(','), 'in_place,seller_uw', 'sourceRefs kinds are exactly in_place and seller_uw');
     const hashes = new Set(outcome.sourceRefs.map((r) => r.contentHash));
     assertEqual(hashes.size, 1, 'both refs share the same contentHash (same physical document)');
 

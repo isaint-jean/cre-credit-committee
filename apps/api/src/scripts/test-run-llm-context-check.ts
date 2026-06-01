@@ -97,7 +97,7 @@ const sampleAdjustedInputs = {
     noi: 793_800, value: 13_230_000, dscr: 0.904, ltvAppraisal: 0.667,
     debtYield: 0.0722, expenseRatio: 0.30,
     top1IncomeShare: null, pctIncomeExpiringWithinTerm: null,
-    trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+    issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
   },
   confidenceReduction: 0,
   topLevelAdjustments: [],

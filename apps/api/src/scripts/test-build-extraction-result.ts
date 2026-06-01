@@ -143,12 +143,12 @@ const ASR_HASH = 'c'.repeat(64) as ContentHash;
 function cfOkOutcome(): ExtractorOutcome<CfAdapterValue> {
   return {
     status: 'ok',
-    value: { t12: makeT12(), sellerUwOperatingStatement: makeSellerUwOS() },
+    value: { t12Actual: null, inPlace: makeT12(), sellerUwOperatingStatement: makeSellerUwOS() },
     sourceRefs: [
-      { kind: 't12', contentHash: CF_HASH },
+      { kind: 'in_place', contentHash: CF_HASH },
       { kind: 'seller_uw', contentHash: CF_HASH },
     ],
-    adapterVersion: '0.1.0',
+    adapterVersion: '0.2.0',
     durationMs: 5,
   };
 }
@@ -278,7 +278,7 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.report.slots.sellerCfXlsx.status, 'ok', '1.1 cf slot ok');
     assertEqual(o.report.slots.rentRollXlsx.status, 'ok', '1.2 rr slot ok');
     assertEqual(o.report.slots.asrPdf.status, 'ok', '1.3 asr slot ok');
-    assert(o.extractionResult.t12 !== null, '1.4 t12 populated from CF');
+    assert(o.extractionResult.inPlace !== null, '1.4 inPlace populated from CF');
     assert(o.extractionResult.sellerUwOperatingStatement !== null, '1.5 sellerUwOS populated from CF');
     assert(o.extractionResult.asr !== null, '1.6 asr populated from ASR');
     assert(o.extractionResult.rentRoll !== null, '1.7 rentRoll populated');
@@ -305,7 +305,7 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     assertEqual(o.report.slots.sellerCfXlsx.status, 'absent', '2.1 cf absent');
     assertEqual(o.report.slots.rentRollXlsx.status, 'absent', '2.2 rr absent');
     assertEqual(o.report.slots.asrPdf.status, 'ok', '2.3 asr ok');
-    assertEqual(o.extractionResult.t12, null, '2.4 t12 null (cf absent)');
+    assertEqual(o.extractionResult.inPlace, null, '2.4 inPlace null (cf absent)');
     assertEqual(o.extractionResult.sellerUwOperatingStatement, null, '2.5 sellerUwOS null');
     assert(o.extractionResult.rentRoll !== null, '2.6 rentRoll from ASR fallback (xlsx absent)');
     assertEqual(o.propertyMetadata !== null, true, '2.7 propertyMetadata populated');
@@ -353,7 +353,7 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
       assertEqual(o.report.slots.sellerCfXlsx.error.name, 'adapterThrew', '4.2 error.name = adapterThrew');
       assert(o.report.slots.sellerCfXlsx.error.message.includes('CF adapter unexpected throw'), '4.3 error.message includes original throw text');
     }
-    assertEqual(o.extractionResult.t12, null, '4.4 t12 null (CF threw)');
+    assertEqual(o.extractionResult.inPlace, null, '4.4 inPlace null (CF threw)');
     assertEqual(o.extractionResult.sellerUwOperatingStatement, null, '4.5 sellerUwOS null');
     // Other slots still produce their outputs
     assert(o.extractionResult.rentRoll !== null, '4.6 rr unaffected by CF throw');
@@ -374,7 +374,7 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
     );
     const kinds = o.extractionResult.sourceDocuments.map((r) => r.kind).sort();
     // CF: 't12' + 'seller_uw'; RR: 'rent_roll'; ASR: 'property_metadata' + 'rent_roll' (no asr because asr=null)
-    assertEqual(kinds.join(','), 'property_metadata,rent_roll,rent_roll,seller_uw,t12', '5.1 sourceDocs kinds (sorted, with duplicate rent_roll)');
+    assertEqual(kinds.join(','), 'in_place,property_metadata,rent_roll,rent_roll,seller_uw', '5.1 sourceDocs kinds (sorted, with duplicate rent_roll; t12 → in_place after 2026-05-31 fix)');
     const hashes = new Set(o.extractionResult.sourceDocuments.map((r) => r.contentHash));
     assertEqual(hashes.size, 3, '5.2 three distinct contentHashes (one per slot)');
   }
@@ -393,7 +393,7 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
   {
     const o = await buildExtractionResult(baseArgs({}), makeDeps({}));
     assert(typeof o.extractionResult.id === 'string' && o.extractionResult.id.length === 64, '7.1 id is 64-char hex');
-    assertEqual(o.extractionResult.t12, null, '7.2 t12 null');
+    assertEqual(o.extractionResult.inPlace, null, '7.2 inPlace null');
     assertEqual(o.extractionResult.rentRoll, null, '7.3 rentRoll null');
     assertEqual(o.extractionResult.asr, null, '7.4 asr null');
     assertEqual(o.extractionResult.sourceDocuments.length, 0, '7.5 sourceDocuments empty');
@@ -480,8 +480,8 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
       baseArgs({ sellerCfXlsx: SLOT }),
       makeDeps({ cf: cfOkOutcome() }),
     );
-    assertEqual(oCf.extractionResult.extractorVersions.t12, '0.1.0', '11.1 (a) t12 → CF adapter version');
-    assertEqual(oCf.extractionResult.extractorVersions.sellerUwOperatingStatement, '0.1.0', '11.2 (a) sellerUwOperatingStatement → CF adapter version');
+    assertEqual(oCf.extractionResult.extractorVersions.inPlace, '0.2.0', '11.1 (a) inPlace → CF adapter version');
+    assertEqual(oCf.extractionResult.extractorVersions.sellerUwOperatingStatement, '0.2.0', '11.2 (a) sellerUwOperatingStatement → CF adapter version');
     assertEqual('rentRoll' in oCf.extractionResult.extractorVersions, false, '11.3 (a) no rentRoll key (CF doesn\'t produce rent rolls)');
     assertEqual('asr' in oCf.extractionResult.extractorVersions, false, '11.4 (a) no asr key (no ASR slot)');
 
@@ -493,7 +493,8 @@ const baseArgs = (slots: BuildExtractionResultArgs['slots']): BuildExtractionRes
       }),
     );
     assertEqual('asr' in oAsr.extractionResult.extractorVersions, false, '11.5 (b) no asr key when asr-value is null (v0.1.0 placeholder)');
-    assertEqual('t12' in oAsr.extractionResult.extractorVersions, false, '11.6 (b) no t12 key when no CF slot');
+    assertEqual('inPlace' in oAsr.extractionResult.extractorVersions, false, '11.6 (b) no inPlace key when no CF slot');
+    assertEqual('t12Actual' in oAsr.extractionResult.extractorVersions, false, '11.6b (b) no t12Actual key when no CF slot');
 
     // (c) rentRoll precedence — XLSX wins
     const oRrXlsx = await buildExtractionResult(

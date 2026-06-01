@@ -12,7 +12,7 @@
  */
 
 export const DOCTRINE_VERSION = '1.0' as const;
-export const JUDGMENT_ENGINE_VERSION = '1.2' as const;
+export const JUDGMENT_ENGINE_VERSION = '1.3' as const;
 export const STRESS_ENGINE_VERSION = '1.0' as const;
 export const VALUATION_ENGINE_VERSION = '1.0' as const;
 export const RENDER_CONTRACT_VERSION = '1.0' as const;
@@ -83,8 +83,32 @@ export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
  *           2026.4-noi-recon. SYSTEM_PROMPT extends with the NOI-recon precedence rule.
  *           Spec-clean (§2.3): buildNoiReconciliationFacts reads AdjustedInputs only;
  *           judgment is the legitimate Stage-4 consumer of ExtractionResult.
+ *   1.6.0 — extraction.t12 renamed to inPlace (regex collision + dedup made the
+ *           t12 slot unreachable; the field has always actually held In-Place data).
+ *           New t12Actual slot added next to inPlace — always null today, will be
+ *           populated when a separate class-(b) trailing-actuals ingest slot lands.
+ *           Class-(a) builders (reserves, taxes, reimbursements, vacancyLoss,
+ *           totalOpEx) now cascade `t12Actual → sellerUwOperatingStatement → inPlace`
+ *           so the issuer's UW-column adjustments (Prop 13 taxes, market-rent
+ *           reimbursements, etc.) flow through to AdjustedInputs instead of being
+ *           silently overridden by In-Place values. This is THE fix that flipped
+ *           Sunroad's $0 monthly replacement reserves to the issuer's stated
+ *           $4,579/mo. Source tier IN_PLACE added between T12_ACTUAL and RENT_ROLL.
+ *           JE_T12_MISSING renamed JE_TRAILING_ACTUALS_MISSING (now fires on every
+ *           deal today since no source CF carries a separate strict-T-12 column);
+ *           new JE_IN_PLACE_MISSING and JE_PERIOD_LABEL_MISMATCH (informational —
+ *           delta=0; surfaces in audit but does NOT dock data_confidence).
+ *           AdjustedInputs.metrics gains issuerCfUwNoi (from CF's GS U/W column)
+ *           and inPlaceNoi (from CF's In-Place column) as cross-references next to
+ *           the unchanged trailingActualNoi/issuerStatedNoi* fields. trailingActualNoi
+ *           now sources from t12Actual.noi — honestly null today rather than
+ *           silently borrowing In-Place data. AdjustedInputs body grew →
+ *           AnalysisId cascade (4th in series). Invalidates 1.5.0 cache.
+ *           Companion handbook bump: 2026.4-noi-recon → 2026.5-period-fix. JUDGMENT_ENGINE
+ *           bumped 1.2 → 1.3 (rule registry change). Cleanup ticket logged:
+ *           trailing-actuals ingest slot (class-b).
  */
-export const HANDBOOK_ENGINE_VERSION = '1.5.0' as const;
+export const HANDBOOK_ENGINE_VERSION = '1.6.0' as const;
 
 /**
  * Narrative-engine simple version. Stamped onto every NarrativeEvaluation record
@@ -109,7 +133,7 @@ export type DoctrineVersion = typeof DOCTRINE_VERSION;
  * `JUDGMENT_ENGINE_VERSION` constant and EXTEND this union (do not replace) when adding
  * a new judgment-engine revision.
  */
-export type JudgmentEngineVersion = '1.0' | '1.1' | '1.2';
+export type JudgmentEngineVersion = '1.0' | '1.1' | '1.2' | '1.3';
 export type StressEngineVersion = typeof STRESS_ENGINE_VERSION;
 export type ValuationEngineVersion = typeof VALUATION_ENGINE_VERSION;
 export type RenderContractVersion = typeof RENDER_CONTRACT_VERSION;

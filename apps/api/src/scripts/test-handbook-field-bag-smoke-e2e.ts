@@ -240,7 +240,7 @@ function buildDefaultAdjustedInputs(args: {
     metrics: {
       noi: 0, value: 0, dscr: args.dscr, ltvAppraisal: 0, debtYield: args.debtYield,
       expenseRatio: 0, top1IncomeShare: 0, pctIncomeExpiringWithinTerm: 0,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
@@ -283,7 +283,7 @@ const defaultExtractionResult: ExtractionResult = {
   analysisAsOfDate: AS_OF,
   extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
   dealRef: 'SMOKE-E2E',
-  rentRoll: null, t12: null, pca: null, appraisal: null,
+  rentRoll: null, inPlace: null, t12Actual: null, pca: null, appraisal: null,
   sellerUw: null, sellerUwOperatingStatement: null,
   asr: null, loanTerms: null,
   sourceDocuments: [],

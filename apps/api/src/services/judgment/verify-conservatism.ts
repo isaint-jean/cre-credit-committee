@@ -61,12 +61,22 @@ export function verifyConservatism(args: {
   // 2. Expense ratio floor — adjusted >= max(library median, bank ratio).
   //
   // Same pattern as vacancy floor. Both null → skip enforcement, orchestrator emits flag.
+  //
+  // Class-(a) bank-slot pick (locked 2026-05-31): sellerUwOperatingStatement
+  // first (the GS U/W column carries the issuer's normalized totalIncome and
+  // totalOperatingExpenses — the relevant credit-view bank ratio), then
+  // inPlace as fallback. The previous version read extraction.t12 which
+  // actually held In-Place data due to the regex-collision bug; the new
+  // cascade preserves the cleaner read against the issuer's UW figures.
   const expenseRatio = adjustedInputs.metrics.expenseRatio;
   if (expenseRatio !== null) {
     const libraryRatioMedian = getLibraryMedian(librarySnapshot, assetProfile.propertyType, 'expenseRatio');
-    const t12 = extraction.t12;
-    const bankEgi = t12?.income.totalIncome ?? null;
-    const bankOpex = t12?.expenses.totalOperatingExpenses ?? null;
+    const bankSlot =
+      extraction.sellerUwOperatingStatement ??
+      extraction.inPlace ??
+      null;
+    const bankEgi = bankSlot?.income.totalIncome ?? null;
+    const bankOpex = bankSlot?.expenses.totalOperatingExpenses ?? null;
     const bankRatio =
       bankEgi !== null && bankOpex !== null && bankEgi > 0 ? bankOpex / bankEgi : null;
     if (libraryRatioMedian !== null || bankRatio !== null) {

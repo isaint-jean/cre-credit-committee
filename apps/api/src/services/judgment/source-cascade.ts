@@ -49,22 +49,59 @@ export function pickFirstNonNull(
 /* ---------------------- per-line-item cascades (subset for 3b) ---------------------- */
 
 /**
- * Vacancy as a fraction (0..1). T-12 derives from `vacancyLoss / grossPotentialRent`;
- * seller UW supplies the field directly.
+ * Helper: derive vacancyPct from an OperatingStatementExtraction snapshot via
+ * |vacancyLoss| / grossPotentialRent. Returns null when either field is null
+ * or GPR is non-positive. Sign-normalized (CMBS-style CFs record vacancyLoss
+ * as a negative dollar amount).
+ */
+function vacancyPctFromStatement(
+  s: import('@cre/contracts').OperatingStatementExtraction | null,
+): number | null {
+  if (s === null) return null;
+  const gpr = s.income.grossPotentialRent;
+  const vl = s.vacancyLoss;
+  if (gpr === null || gpr <= 0 || vl === null) return null;
+  return Math.abs(vl) / gpr;
+}
+
+/**
+ * Vacancy as a fraction (0..1).
+ *
+ * Class-(a) cascade (locked 2026-05-31): T12_ACTUAL → SELLER_UW → IN_PLACE.
+ * Vacancy is a class-(a) field because the issuer's UW column carries the
+ * issuer's adjusted vacancy assumption (e.g., "Commercial Adj. to Market
+ * Vacancy" on Sunroad), which is meaningful credit data; reading In-Place's
+ * vacancy (an artifact of the trailing period's actuals as recorded by the
+ * seller's accounting) understates the issuer's risk view.
+ *
+ * Each non-null slot contributes a candidate computed independently from
+ * that slot's vacancyLoss / GPR. SellerUW summary (the 3-field SellerUWExtraction
+ * triplet) is intentionally NOT in this cascade — it's a separate document
+ * type now distinct from the CF's GS U/W column; if a CF carries no GS U/W
+ * column the deriveSellerUwTriplet path produces null and the summary
+ * triplet is generally unavailable too. The summary's underwrittenVacancy
+ * was historically the SellerUW fallback for this cascade but is now
+ * superseded by reading sellerUwOperatingStatement directly (more
+ * consistent provenance).
  */
 export function vacancyPctCascade(extraction: ExtractionResult): readonly SourceCandidate[] {
   const cs: SourceCandidate[] = [];
 
-  // T-12: vacancyLoss / grossPotentialRent
-  if (extraction.t12 !== null) {
-    const gpr = extraction.t12.income.grossPotentialRent;
-    const vl = extraction.t12.vacancyLoss;
-    const value = gpr !== null && gpr > 0 && vl !== null ? vl / gpr : null;
-    cs.push({ tier: 'T12_ACTUAL', value });
+  if (extraction.t12Actual !== null) {
+    cs.push({ tier: 'T12_ACTUAL', value: vacancyPctFromStatement(extraction.t12Actual) });
   }
-
-  // Seller UW: underwrittenVacancy directly
-  if (extraction.sellerUw !== null) {
+  if (extraction.sellerUwOperatingStatement !== null) {
+    cs.push({ tier: 'SELLER_UW', value: vacancyPctFromStatement(extraction.sellerUwOperatingStatement) });
+  }
+  if (extraction.inPlace !== null) {
+    cs.push({ tier: 'IN_PLACE', value: vacancyPctFromStatement(extraction.inPlace) });
+  }
+  // SellerUW summary triplet — last-resort fallback for back-compat with
+  // existing tests that synthesize sellerUw without a sellerUwOperatingStatement.
+  if (
+    extraction.sellerUwOperatingStatement === null &&
+    extraction.sellerUw !== null
+  ) {
     cs.push({ tier: 'SELLER_UW', value: extraction.sellerUw.underwrittenVacancy });
   }
 
@@ -87,15 +124,31 @@ export function capRateCascade(extraction: ExtractionResult): readonly SourceCan
 }
 
 /**
- * Bank NOI for the §6 NOI ceiling. T-12 actual is the canonical bank baseline; seller UW is
- * the fallback when no T-12 is available.
+ * Bank NOI for the §6 NOI ceiling.
+ *
+ * Class-(a) cascade (locked 2026-05-31): T12_ACTUAL → SELLER_UW → IN_PLACE.
+ * The NOI ceiling tracks the issuer's representation (GS U/W) ahead of
+ * In-Place because the issuer's UW column carries the issuer's adjustments
+ * (e.g., Prop 13 taxes) that materially shift NOI; In-Place is a fallback
+ * when the issuer's UW column is also absent.
  */
 export function bankNoiCascade(extraction: ExtractionResult): readonly SourceCandidate[] {
   const cs: SourceCandidate[] = [];
-  if (extraction.t12 !== null) {
-    cs.push({ tier: 'T12_ACTUAL', value: extraction.t12.noi });
+  if (extraction.t12Actual !== null) {
+    cs.push({ tier: 'T12_ACTUAL', value: extraction.t12Actual.noi });
   }
-  if (extraction.sellerUw !== null) {
+  if (extraction.sellerUwOperatingStatement !== null) {
+    cs.push({ tier: 'SELLER_UW', value: extraction.sellerUwOperatingStatement.noi });
+  }
+  if (extraction.inPlace !== null) {
+    cs.push({ tier: 'IN_PLACE', value: extraction.inPlace.noi });
+  }
+  // SellerUW summary triplet last-resort fallback (back-compat with tests
+  // that synthesize sellerUw without sellerUwOperatingStatement).
+  if (
+    extraction.sellerUwOperatingStatement === null &&
+    extraction.sellerUw !== null
+  ) {
     cs.push({ tier: 'SELLER_UW', value: extraction.sellerUw.underwrittenNOI });
   }
   return cs;

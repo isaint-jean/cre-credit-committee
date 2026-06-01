@@ -119,7 +119,8 @@ function makeExtractionResult(dealRef = 'TEST-1'): ExtractionResult {
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef,
     rentRoll: null,
-    t12: null,
+    inPlace: null,
+    t12Actual: null,
     pca: null,
     appraisal: null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
@@ -261,6 +262,8 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       expenseRatio: 0.195,
       top1IncomeShare: 0.18,
       pctIncomeExpiringWithinTerm: 0.22,
+      issuerCfUwNoi: null,
+      inPlaceNoi: null,
       trailingActualNoi: null,
       issuerStatedNoiSellerUw: null,
       issuerStatedNoiAsr: null,
@@ -868,7 +871,7 @@ console.log('\nAdjustedInputs.loan.maturityDate — round-trip null and populate
       noi: 7_570_000, value: 116_461_538, dscr: 1.89, ltvAppraisal: 0.625,
       debtYield: 0.1514, expenseRatio: 0.195, top1IncomeShare: 0.18,
       pctIncomeExpiringWithinTerm: 0.22,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0.05, topLevelAdjustments: [], dataQualityFlags: [],
   };
@@ -925,12 +928,14 @@ console.log('\nAnalysisId / lineage cascade — NOI-recon Commit 1 shifts Adjust
   const { id: _id, metrics, ...rest } = aiPost;
   void _id;
   const {
+    issuerCfUwNoi: _ic,
+    inPlaceNoi: _ip,
     trailingActualNoi: _tn,
     issuerStatedNoiSellerUw: _isu,
     issuerStatedNoiAsr: _ia,
     ...metricsPre150
   } = metrics;
-  void _tn; void _isu; void _ia;
+  void _ic; void _ip; void _tn; void _isu; void _ia;
   const preBody = { ...rest, metrics: metricsPre150 };
   const preId = computeAdjustedInputsId(preBody as Parameters<typeof computeAdjustedInputsId>[0]);
   assert(preId !== aiPost.id,

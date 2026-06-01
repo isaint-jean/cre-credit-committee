@@ -304,6 +304,8 @@ export function recomputeDerivedFields(
     // expense overrides; the comparison floor (trailingActualNoi) stays anchored to
     // the original extraction so the reconciliation question is preserved.
     trailingActualNoi: body.metrics.trailingActualNoi,
+    issuerCfUwNoi: body.metrics.issuerCfUwNoi,
+    inPlaceNoi: body.metrics.inPlaceNoi,
     issuerStatedNoiSellerUw: body.metrics.issuerStatedNoiSellerUw,
     issuerStatedNoiAsr: body.metrics.issuerStatedNoiAsr,
   };

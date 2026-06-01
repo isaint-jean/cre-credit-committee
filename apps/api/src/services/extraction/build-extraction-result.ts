@@ -21,9 +21,9 @@
  *
  *   2. Project: each adapter's `value` projects into the corresponding
  *      ExtractionResult field(s). The CF adapter's single outcome carries
- *      two fields (t12 + sellerUwOperatingStatement); the projection step
- *      splits them. sourceRefs from every slot concatenate into
- *      ExtractionResult.sourceDocuments.
+ *      three fields (t12Actual + inPlace + sellerUwOperatingStatement); the
+ *      projection step splits them. sourceRefs from every slot concatenate
+ *      into ExtractionResult.sourceDocuments.
  *
  *   3. Resolve rent-roll precedence: pickRentRoll() runs over the rent-roll
  *      outcomes (xlsx vs AI-from-PDF). See pick-rent-roll.ts for the
@@ -312,9 +312,12 @@ export async function buildExtractionResult(
 
   /* Project adapter outputs into ExtractionResult-shaped fields. Explicit
      null-checks instead of `??` per the orchestration discipline (no `??`
-     in producer code beyond error-string defaulting in catch blocks). */
+     in producer code beyond error-string defaulting in catch blocks).
+     Three CF slots — t12Actual, inPlace, sellerUwOperatingStatement — map
+     one-to-one onto ExtractionResult fields of the same names. */
   const cfOk = cfOutcome !== null && cfOutcome.status === 'ok' ? cfOutcome.value : null;
-  const t12 = cfOk === null ? null : cfOk.t12;
+  const t12Actual = cfOk === null ? null : cfOk.t12Actual;
+  const inPlace = cfOk === null ? null : cfOk.inPlace;
   const sellerUwOperatingStatement = cfOk === null ? null : cfOk.sellerUwOperatingStatement;
 
   const asrOk = asrOutcome !== null && asrOutcome.status === 'ok' ? asrOutcome.value : null;
@@ -380,8 +383,11 @@ export async function buildExtractionResult(
    *     semver — see deriveSellerUwTriplet's JSDoc for the rationale. */
   const extractorVersions: Record<string, string> = {};
   if (cfOutcome !== null && cfOutcome.status === 'ok') {
-    if (t12 !== null) {
-      extractorVersions.t12 = cfOutcome.adapterVersion;
+    if (t12Actual !== null) {
+      extractorVersions.t12Actual = cfOutcome.adapterVersion;
+    }
+    if (inPlace !== null) {
+      extractorVersions.inPlace = cfOutcome.adapterVersion;
     }
     if (sellerUwOperatingStatement !== null) {
       extractorVersions.sellerUwOperatingStatement = cfOutcome.adapterVersion;
@@ -422,7 +428,8 @@ export async function buildExtractionResult(
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef: args.dealRef,
     rentRoll,
-    t12,
+    inPlace,
+    t12Actual,
     pca,
     appraisal: null,
     sellerUw,

@@ -64,7 +64,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
     analysisAsOfDate: AS_OF,
     extractionEngineVersion: '1.5',
     dealRef: 'TEST-1',
-    rentRoll: null, t12: null, pca: null,
+    rentRoll: null, inPlace: null, t12Actual: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
     extractorVersions: {},
@@ -131,12 +131,13 @@ console.log('buildVacancyPct:');
 {
   // raw above floor + library median, no normalization
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: 200_000,
       income: { grossPotentialRent: 1_000_000, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const result = buildVacancyPct({
     extraction: ext,
@@ -145,18 +146,19 @@ console.log('buildVacancyPct:');
     assetProfile: makeProfile('Office'),
   });
   assertClose(result.adjusted, 0.20, 1e-9, 'raw 0.20 (above 0.10 floor) preserved');
-  assertEqual(result.source, 'T12_ACTUAL', 'source = T12_ACTUAL');
+  assertEqual(result.source, 'IN_PLACE', 'source = IN_PLACE (fixture data lives in inPlace slot post-2026-05-31)');
   assertEqual(result.adjustments.length, 0, 'no adjustments fired');
 }
 {
   // raw below library floor → raised to library median
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: 30_000,
       income: { grossPotentialRent: 1_000_000, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const result = buildVacancyPct({
     extraction: ext,
@@ -171,12 +173,13 @@ console.log('buildVacancyPct:');
 {
   // bank floor (sellerUw vacancy) higher than library
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: 30_000,
       income: { grossPotentialRent: 1_000_000, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
     sellerUw: { underwrittenNOI: null, underwrittenRentGrowth: null, underwrittenVacancy: 0.12 },
     sellerUwOperatingStatement: null,
   });
@@ -283,16 +286,17 @@ console.log('\nbuildGrossRentalIncome:');
 
 {
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: 1_200_000, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const result = buildGrossRentalIncome({ extraction: ext });
   assertEqual(result.adjusted, 1_200_000, 'GRI from T-12');
-  assertEqual(result.source, 'T12_ACTUAL', 'source = T12_ACTUAL');
+  assertEqual(result.source, 'IN_PLACE', 'source = IN_PLACE (fixture data lives in inPlace slot post-2026-05-31)');
 }
 {
   const ext = makeExtraction(); // no T-12, no rent roll
@@ -308,12 +312,13 @@ console.log('\nbuildOtherIncome:');
 
 {
   const ext = makeExtraction({
-    t12: {
+    inPlace: {
       period: 'T-12', noi: null, vacancyLoss: null,
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: 50_000, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
   });
   const result = buildOtherIncome({ extraction: ext });
   assertEqual(result.adjusted, 50_000, 'other income preserved');

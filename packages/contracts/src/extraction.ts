@@ -27,7 +27,26 @@ import type {
 
 export const SOURCE_DOCUMENT_KINDS = [
   'rent_roll',
+  /**
+   * Generic CF / operating-statement document kind. Retained for back-compat;
+   * new emissions prefer one of the three column-specific kinds below
+   * ('t12_actual', 'in_place', 'seller_uw') so source-document refs are
+   * traceable to the SPECIFIC column inside the workbook that produced data.
+   */
   't12',
+  /**
+   * Strict T-12 / trailing-twelve column from the seller CF (the column whose
+   * header reads "T-12", "Trailing Twelve", etc.). Distinct from 'in_place'
+   * (current-rent column) and 'seller_uw' (issuer-underwriting column).
+   * Added 2026-05-31 with the period-classification fix.
+   */
+  't12_actual',
+  /**
+   * In-Place / current column from the seller CF. Historically emitted under
+   * the misleading kind 't12' due to a regex collision in the extractor that
+   * the 2026-05-31 split fixed. New emissions use this kind.
+   */
+  'in_place',
   'pca',
   'appraisal',
   'asr',
@@ -266,7 +285,41 @@ export interface ExtractionResult {
   readonly dealRef: string;
 
   readonly rentRoll: RentRollExtraction | null;
-  readonly t12: OperatingStatementExtraction | null;
+  /**
+   * In-Place / current column from the seller CF (contractual rents currently
+   * in effect, annualized).
+   *
+   * RENAMED 2026-05-31 from `t12` — that name was misleading because this slot
+   * has always held the In-Place column when both In-Place and T-12 columns
+   * exist in the source workbook (regex collision in the extractor + dedup
+   * made the t12 column unreachable). The collision was fixed and the field
+   * renamed in one atomic commit. Strict T-12 / trailing-twelve data, when
+   * present in the source, now flows into the separate `t12Actual` slot.
+   *
+   * Class-(a) downstream fields (reserves, taxes, reimbursements, vacancyLoss,
+   * totalOpEx) DO NOT read primarily from this slot — they cascade through
+   * `t12Actual → sellerUwOperatingStatement → inPlace`. Neutral income lines
+   * preserve the legacy semantic where In-Place wins the revenue baseline.
+   */
+  readonly inPlace: OperatingStatementExtraction | null;
+  /**
+   * Strict T-12 / trailing-twelve column extracted from the seller CF when
+   * the source workbook actually exposes one (most CMBS-style seller CFs do
+   * NOT — they show In-Place + GS U/W only, in which case this slot is null).
+   *
+   * Always null today on every deal whose source CF lacks a T-12 column. A
+   * separate class-(b) ingest slot for true trailing operating statements
+   * (T-12 P&L PDFs / spreadsheets uploaded as a 5th input) is planned but
+   * NOT in scope here — when that lands, this field gains a second producer
+   * and `JE_TRAILING_ACTUALS_MISSING` will stop firing on deals carrying a
+   * T-12 statement. Until then, the field documents the gap honestly rather
+   * than silently borrowing the In-Place column's data.
+   *
+   * Load-bearing consumer: `AdjustedInputs.metrics.trailingActualNoi` reads
+   * `t12Actual.noi`. The NOI-reconciliation rule (P-III-15) uses
+   * trailing-actual NOI as the truth floor for the issuer's underwritten NOI.
+   */
+  readonly t12Actual: OperatingStatementExtraction | null;
   readonly pca: PCAExtraction | null;
   readonly appraisal: AppraisalExtraction | null;
   readonly sellerUw: SellerUWExtraction | null;
@@ -274,8 +327,15 @@ export interface ExtractionResult {
    * Full operating-statement projection of the seller's underwriting column (the right-most
    * column in a Seller CF workbook — labels vary: "GS U/W", "Seller U/W", "Issuer UW"). Distinct
    * from `sellerUw` above, which carries only three summary fields (NOI / rent growth / vacancy)
-   * consumed by the judgment source-cascade. This field mirrors the shape of `t12` so the same
-   * downstream renderers can treat In-Place and Seller-UW columns symmetrically.
+   * consumed by the judgment source-cascade. This field mirrors the shape of `inPlace` so the
+   * same downstream renderers can treat In-Place and Seller-UW columns symmetrically.
+   *
+   * Load-bearing for class-(a) downstream fields. Reserves, taxes,
+   * reimbursements, vacancyLoss, and totalOpEx cascade through this slot
+   * (preferring t12Actual when present, falling back to inPlace) because the
+   * GS U/W column carries the issuer's adjustments — Prop 13 tax bases,
+   * market-rent reimbursements, etc. Reading In-Place for these fields
+   * understated reserves to $0 on Sunroad before the 2026-05-31 fix.
    *
    * Engine bump 1.0 → 1.1 introduced this field; pre-1.1 extractions did not carry it.
    */
@@ -289,10 +349,12 @@ export interface ExtractionResult {
    * Per-sub-record extractor versions, stamped by the composer (Ticket D #?).
    *
    * Open-shaped Record<string, string>: keys are sub-record field names from
-   * this contract (e.g., 't12', 'sellerUwOperatingStatement', 'rentRoll',
-   * 'asr'); values are the adapter version strings that produced the
-   * corresponding field's data. New adapters add new keys without contract
-   * widening.
+   * this contract (e.g., 'inPlace', 't12Actual', 'sellerUwOperatingStatement',
+   * 'rentRoll', 'asr'); values are the adapter version strings that produced
+   * the corresponding field's data. New adapters add new keys without contract
+   * widening. (The historical 't12' key was renamed to 'inPlace' alongside
+   * the 2026-05-31 field rename; producers that wrote 't12' before that date
+   * are interpreted as having written In-Place data.)
    *
    * Composer emission rule: a key appears IFF the sub-record value is
    * non-null. Empty `{}` is valid for "no extractor produced data" (e.g.,

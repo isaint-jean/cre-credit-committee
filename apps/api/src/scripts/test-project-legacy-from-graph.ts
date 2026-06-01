@@ -80,7 +80,7 @@ function makeFullExtraction(): ExtractionResult {
       ],
       summary: { totalUnits: 1, occupiedUnits: 1, economicOccupancy: 1.0 },
     },
-    t12: {
+    inPlace: {
       period: 'T-12 ending Apr 2026', noi: 800_000, vacancyLoss: 60_000,
       income: { grossPotentialRent: 1_200_000, effectiveRent: 1_140_000, otherIncome: 60_000, totalIncome: 1_200_000 },
       expenses: { taxes: 100_000, insurance: 18_000, utilities: 24_000,
@@ -89,6 +89,7 @@ function makeFullExtraction(): ExtractionResult {
                    totalOperatingExpenses: 218_000 },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
     pca: null, appraisal: { valueConclusion: 16_500_000, capRate: 0.06, methodology: 'Income' },
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: { loanAmount: 11_000_000, interestRate: 0.07, amortization: 360,

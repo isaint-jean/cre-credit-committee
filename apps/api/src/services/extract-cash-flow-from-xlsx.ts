@@ -1,9 +1,18 @@
 /**
- * extractCashFlowFromXlsx — convert an uploaded Seller CF .xlsx into two
+ * extractCashFlowFromXlsx — convert an uploaded Seller CF .xlsx into three
  * OperatingStatementExtraction snapshots:
- *   - `t12`: the seller's In-Place (T-12-equivalent) column
- *   - `sellerUwOperatingStatement`: the seller's underwriting column (label varies:
- *     "GS U/W", "Seller U/W", "Issuer UW", "UW")
+ *   - `t12Actual`: the strict T-12 / trailing-twelve column (when present in
+ *     the workbook). Distinct from In-Place. Most CMBS-style seller CFs do
+ *     NOT expose a separate T-12 column — they show In-Place + GS U/W only —
+ *     in which case this slot is null.
+ *   - `inPlace`: the In-Place / current column. Contractual rents currently
+ *     in effect (annualized). Historically held under the misleading name
+ *     "t12" because the regex matched both labels and dedup made the t12 slot
+ *     unreachable; the rename + regex split locked 2026-05-31 (this commit)
+ *     makes the field name match the data.
+ *   - `sellerUwOperatingStatement`: the seller's underwriting column (label
+ *     varies: "GS U/W", "Seller U/W", "Issuer UW", "UW"). Carries the
+ *     issuer's adjustments (Prop 13 taxes, market-rent reimbursements, etc.).
  *
  * Discipline (mirrors parse-rent-roll-xlsx.ts):
  *   - NO invented values. Missing line on a column → null.
@@ -14,7 +23,8 @@
  *   - NO LLM. Pure deterministic header + label matching.
  *
  * Worksheet selection: explicit name wins; otherwise the first sheet whose
- * (a) period-header row exposes both an In-Place column AND a UW column, and
+ * (a) period-header row exposes a UW column AND at least one of In-Place or
+ *     T-12, and
  * (b) line-item label column has ≥ 3 recognizable labels below the header.
  *
  * Output shape: each snapshot is the contract's `OperatingStatementExtraction`,
@@ -38,7 +48,8 @@ import ExcelJS from 'exceljs';
 import type { OperatingStatementExtraction } from '@cre/contracts';
 
 export interface ExtractCashFlowResult {
-  readonly t12: OperatingStatementExtraction | null;
+  readonly t12Actual: OperatingStatementExtraction | null;
+  readonly inPlace: OperatingStatementExtraction | null;
   readonly sellerUwOperatingStatement: OperatingStatementExtraction | null;
 }
 
@@ -56,8 +67,18 @@ interface PeriodColumn {
   readonly label: string;             // raw text from the workbook (preserved for `period`)
 }
 
+/**
+ * Pattern split (locked 2026-05-31):
+ *   - `in_place` matches In-Place / current variants STRICTLY. It does NOT
+ *     match T-12 / trailing-twelve — those go to `t12`. Before the split, both
+ *     patterns matched both labels and the dedup logic made the t12 slot
+ *     unreachable on workbooks that carried both columns (e.g., Sunroad).
+ *   - `t12` matches T-12 / trailing-twelve STRICTLY.
+ * Result-shape consumers cascade these slots independently (see judgment
+ * line-item-builders).
+ */
 const PERIOD_PATTERNS: { readonly kind: PeriodKind; readonly regex: RegExp }[] = [
-  { kind: 'in_place', regex: /in[\s-]*place|in[\s-]*place\s*rent|current(?!\s*rent)|trailing\s*twelve|t[\s-]?12/i },
+  { kind: 'in_place', regex: /in[\s-]*place|in[\s-]*place\s*rent|current(?!\s*rent)/i },
   { kind: 't12',      regex: /t[\s-]?12|trailing\s*twelve/i },
   { kind: 'uw',       regex: /\b(?:gs|seller|issuer)?\s*(?:u\/w|uw|underwrit\w*)\b/i },
   { kind: 'budget',   regex: /budget|forecast|proforma|pro[\s-]*forma/i },
@@ -196,9 +217,12 @@ function findPeriodHeaderRow(ws: ExcelJS.Worksheet): PeriodHeader | null {
       }
     });
 
-    const hasInPlace = candidates.some((c) => c.kind === 'in_place' || c.kind === 't12');
+    // Accept any header row that carries a UW column AND at least one of
+    // In-Place / T-12. A workbook that exposes ALL THREE (Sunroad does not, but
+    // some lenders' CFs do) gets all three slots populated downstream.
+    const hasInPlaceOrT12 = candidates.some((c) => c.kind === 'in_place' || c.kind === 't12');
     const hasUw = candidates.some((c) => c.kind === 'uw');
-    if (!hasInPlace || !hasUw) continue;
+    if (!hasInPlaceOrT12 || !hasUw) continue;
 
     // Snap to Amount sub-column if a sub-header row appears in the next 3 rows.
     const snapped = candidates.map((c) => snapToAmountColumn(ws, r, c));
@@ -336,10 +360,11 @@ export async function extractCashFlowFromXlsx(
     return true;
   };
 
+  const empty: ExtractCashFlowResult = { t12Actual: null, inPlace: null, sellerUwOperatingStatement: null };
   if (options.worksheetName) {
     const ws = wb.getWorksheet(options.worksheetName);
-    if (!ws) return { t12: null, sellerUwOperatingStatement: null };
-    if (!tryFit(ws)) return { t12: null, sellerUwOperatingStatement: null };
+    if (!ws) return empty;
+    if (!tryFit(ws)) return empty;
   } else {
     wb.eachSheet((ws) => {
       if (target !== null) return;
@@ -347,21 +372,25 @@ export async function extractCashFlowFromXlsx(
     });
   }
   if (!target || !header || labelCol === null) {
-    return { t12: null, sellerUwOperatingStatement: null };
+    return empty;
   }
   const ws = target as ExcelJS.Worksheet;
   const hdr = header as PeriodHeader;
 
   const lines = findLineItems(ws, labelCol, hdr.row);
 
-  // In-Place: prefer 'in_place', fall back to 't12' if only that variant present.
-  const inPlace = hdr.periods.find((p) => p.kind === 'in_place')
-    ?? hdr.periods.find((p) => p.kind === 't12')
-    ?? null;
-  const uw = hdr.periods.find((p) => p.kind === 'uw') ?? null;
+  // Three-slot result (locked 2026-05-31): each PeriodKind maps to its own
+  // ExtractionResult slot. No cross-fallback at this layer — a workbook that
+  // exposes only an In-Place column populates `inPlace` only; `t12Actual`
+  // stays null. Downstream judgment line-item builders cascade across the
+  // three slots according to per-line-item conservatism rules.
+  const inPlaceCol = hdr.periods.find((p) => p.kind === 'in_place') ?? null;
+  const t12Col = hdr.periods.find((p) => p.kind === 't12') ?? null;
+  const uwCol = hdr.periods.find((p) => p.kind === 'uw') ?? null;
 
   return {
-    t12: inPlace ? buildStatement(ws, inPlace, lines) : null,
-    sellerUwOperatingStatement: uw ? buildStatement(ws, uw, lines) : null,
+    t12Actual: t12Col ? buildStatement(ws, t12Col, lines) : null,
+    inPlace: inPlaceCol ? buildStatement(ws, inPlaceCol, lines) : null,
+    sellerUwOperatingStatement: uwCol ? buildStatement(ws, uwCol, lines) : null,
   };
 }

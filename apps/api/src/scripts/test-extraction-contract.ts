@@ -85,7 +85,7 @@ function makeFullExtractionBody() {
       },
     },
 
-    t12: {
+    inPlace: {
       period: 'T-12 ending Apr 2026',
       income: {
         grossPotentialRent: 1_200_000,
@@ -108,6 +108,7 @@ function makeFullExtractionBody() {
       vacancyLoss: 60_000,
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
 
     pca: {
       immediateRepairs: 50_000,
@@ -187,7 +188,8 @@ function makeSparseExtractionBody() {
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef: 'OPP-99999',
     rentRoll: null,
-    t12: null,
+    inPlace: null,
+    t12Actual: null,
     pca: null,
     appraisal: null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
@@ -205,7 +207,7 @@ console.log('ExtractionResult — full fixture:');
 
   assert(/^[0-9a-f]{64}$/.test(id), 'id is 64-char lowercase hex');
   assertEqual(record.dealRef, 'OPP-12345', 'dealRef preserved');
-  assertEqual(record.t12?.noi ?? null, 982_000, 't12 NOI preserved');
+  assertEqual(record.inPlace?.noi ?? null, 982_000, 't12 NOI preserved');
   assertEqual(record.rentRoll?.units.length ?? 0, 3, 'rent roll has 3 units');
   assertEqual(record.sourceDocuments.length, 7, 'all 7 source documents listed');
   assertEqual(record.extractionEngineVersion, EXTRACTION_ENGINE_VERSION, 'engine version stamped');
@@ -218,7 +220,7 @@ console.log('\nExtractionResult — sparse fixture (everything null):');
   const record: ExtractionResult = { id, ...body } as ExtractionResult;
 
   assert(/^[0-9a-f]{64}$/.test(id), 'sparse id is hex');
-  assertEqual(record.t12, null, 't12 is null');
+  assertEqual(record.inPlace, null, 't12 is null');
   assertEqual(record.rentRoll, null, 'rentRoll is null');
   assertEqual(record.sourceDocuments.length, 0, 'no source documents');
 }
@@ -242,7 +244,7 @@ console.log('\nExtractionResult — null preservation in canonical form:');
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef: 'OPP-NULL',
     rentRoll: null,
-    t12: {
+    inPlace: {
       period: 'T-12',
       income: { grossPotentialRent: null, effectiveRent: null, otherIncome: null, totalIncome: null },
       expenses: { taxes: null, insurance: null, utilities: null, repairsMaintenance: null, managementFees: null, generalAndAdmin: null, janitorial: null, reimbursements: null, totalOperatingExpenses: null },
@@ -250,6 +252,7 @@ console.log('\nExtractionResult — null preservation in canonical form:');
       vacancyLoss: null,
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
     pca: null,
     appraisal: null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
@@ -365,9 +368,13 @@ console.log('\nBranded id types are distinct:');
 
 console.log('\nSourceDocumentKind enumeration:');
 {
-  assertEqual(SOURCE_DOCUMENT_KINDS.length, 8, '8 source-document kinds');
+  // 8 historical + 2 added 2026-05-31 (t12_actual, in_place) = 10. The legacy
+  // 't12' kind stays for back-compat (existing extractions reference it).
+  assertEqual(SOURCE_DOCUMENT_KINDS.length, 10, '10 source-document kinds (8 historical + t12_actual + in_place)');
   assert(SOURCE_DOCUMENT_KINDS.includes('rent_roll'),         'rent_roll listed');
-  assert(SOURCE_DOCUMENT_KINDS.includes('t12'),               't12 listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('t12'),               't12 (legacy) listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('t12_actual'),        't12_actual (new) listed');
+  assert(SOURCE_DOCUMENT_KINDS.includes('in_place'),          'in_place (new) listed');
   assert(SOURCE_DOCUMENT_KINDS.includes('pca'),               'pca listed');
   assert(SOURCE_DOCUMENT_KINDS.includes('appraisal'),         'appraisal listed');
   assert(SOURCE_DOCUMENT_KINDS.includes('asr'),               'asr listed');

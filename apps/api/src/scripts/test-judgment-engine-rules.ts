@@ -40,7 +40,9 @@ console.log('Registry shape:');
   // = 35 (v1.1).
   // + 1 PCA upfront replacement reserves default (PCA producer ticket Phase 1+2)
   // = 36 (v1.2).
-  assertEqual(rules.length, 36, 'v1.2 registry has 36 rules');
+  // v1.3 registry: 36 rules (v1.2) + 2 added (JE_IN_PLACE_MISSING, JE_PERIOD_LABEL_MISMATCH) = 38.
+  // JE_T12_MISSING was RENAMED to JE_TRAILING_ACTUALS_MISSING (not an addition).
+  assertEqual(rules.length, 38, 'v1.3 registry has 38 rules (was 36 pre-period-fix; +2 new)');
   for (const r of rules) {
     assert(r.startsWith('JE_'), `rule '${r}' uses JE_ prefix`);
   }
@@ -57,14 +59,15 @@ console.log('Registry shape:');
 
 console.log('\nMissing-doc penalties (per architecture §1):');
 {
-  assertEqual(JE_MISSING_DOC_PENALTIES.JE_RENT_ROLL_MISSING,  12, 'rent roll = 12');
-  assertEqual(JE_MISSING_DOC_PENALTIES.JE_T12_MISSING,        12, 't-12 = 12');
-  assertEqual(JE_MISSING_DOC_PENALTIES.JE_LOAN_TERMS_MISSING, 10, 'loan terms = 10');
-  assertEqual(JE_MISSING_DOC_PENALTIES.JE_PCA_MISSING,         6, 'pca = 6');
-  assertEqual(JE_MISSING_DOC_PENALTIES.JE_APPRAISAL_MISSING,   4, 'appraisal = 4');
+  assertEqual(JE_MISSING_DOC_PENALTIES.JE_RENT_ROLL_MISSING,        12, 'rent roll = 12');
+  assertEqual(JE_MISSING_DOC_PENALTIES.JE_TRAILING_ACTUALS_MISSING,  12, 'trailing actuals = 12 (renamed from JE_T12_MISSING)');
+  assertEqual(JE_MISSING_DOC_PENALTIES.JE_IN_PLACE_MISSING,           8, 'in-place = 8 (added 2026-05-31)');
+  assertEqual(JE_MISSING_DOC_PENALTIES.JE_LOAN_TERMS_MISSING,        10, 'loan terms = 10');
+  assertEqual(JE_MISSING_DOC_PENALTIES.JE_PCA_MISSING,                6, 'pca = 6');
+  assertEqual(JE_MISSING_DOC_PENALTIES.JE_APPRAISAL_MISSING,          4, 'appraisal = 4');
 
   const totalMaxMissingDoc = Object.values(JE_MISSING_DOC_PENALTIES).reduce((s, n) => s + n, 0);
-  assertEqual(totalMaxMissingDoc, 44, 'total max missing-doc penalty = 44');
+  assertEqual(totalMaxMissingDoc, 52, 'total max missing-doc penalty = 52 (was 44 pre-period-fix; 12+12+8+10+6+4)');
 }
 
 console.log('\nDistrust penalties (per architecture §1):');

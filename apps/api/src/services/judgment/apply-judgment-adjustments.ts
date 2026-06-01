@@ -189,11 +189,71 @@ function computePctIncomeExpiringWithinTerm(
 function buildMissingDocLedger(extraction: ExtractionResult): readonly PenaltyEntry[] {
   const ledger: { ruleId: JudgmentEngineRuleId }[] = [];
   if (extraction.rentRoll === null) ledger.push({ ruleId: 'JE_RENT_ROLL_MISSING' });
-  if (extraction.t12 === null) ledger.push({ ruleId: 'JE_T12_MISSING' });
+  // 2026-05-31 — JE_T12_MISSING renamed JE_TRAILING_ACTUALS_MISSING. The flag
+  // now fires when extraction.t12Actual is null (strict trailing-twelve
+  // column absent), which is the case for every deal whose source CF lacks a
+  // separate T-12 column — most CMBS-style CFs today. Until the class-(b)
+  // trailing-actuals ingest slot lands, this flag will fire on essentially
+  // every deal. That's intentional: honest signal that the trailing-actual
+  // truth-floor for NOI-recon is unavailable.
+  if (extraction.t12Actual === null) ledger.push({ ruleId: 'JE_TRAILING_ACTUALS_MISSING' });
+  // 2026-05-31 — new flag. Fires when the seller CF's In-Place / current
+  // column is absent. Lighter penalty (8 vs 12) than trailing-actuals because
+  // most CFs do carry an In-Place column; absence usually means CF document
+  // was structurally broken or missing entirely.
+  if (extraction.inPlace === null) ledger.push({ ruleId: 'JE_IN_PLACE_MISSING' });
   if (extraction.loanTerms === null) ledger.push({ ruleId: 'JE_LOAN_TERMS_MISSING' });
   if (extraction.pca === null) ledger.push({ ruleId: 'JE_PCA_MISSING' });
   if (extraction.appraisal === null) ledger.push({ ruleId: 'JE_APPRAISAL_MISSING' });
   return ledger;
+}
+
+/**
+ * Safeguard 1 (period-label sanity). Emits JE_PERIOD_LABEL_MISMATCH (informational —
+ * delta=0) when a slot's `period` label doesn't match the expected pattern for that
+ * slot. This catches silent extractor misclassification: e.g., a workbook where the
+ * column headers are not in the canonical order and the regex matched the wrong
+ * label.
+ *
+ * Does NOT dock data_confidence (the orchestrator's flag handling keeps this rule
+ * out of the missing-doc penalty path). Audit-only.
+ */
+function checkPeriodLabels(extraction: ExtractionResult): readonly AdjustmentEntry[] {
+  const mismatches: AdjustmentEntry[] = [];
+  if (
+    extraction.t12Actual !== null &&
+    extraction.t12Actual.period &&
+    !/t.?12|trailing/i.test(extraction.t12Actual.period)
+  ) {
+    mismatches.push({
+      ruleId: 'JE_PERIOD_LABEL_MISMATCH',
+      delta: 0,
+      reason: `t12Actual slot's period label "${extraction.t12Actual.period}" does not match T-12/trailing pattern; possible misclassification.`,
+    });
+  }
+  if (
+    extraction.inPlace !== null &&
+    extraction.inPlace.period &&
+    !/in.?place|current/i.test(extraction.inPlace.period)
+  ) {
+    mismatches.push({
+      ruleId: 'JE_PERIOD_LABEL_MISMATCH',
+      delta: 0,
+      reason: `inPlace slot's period label "${extraction.inPlace.period}" does not match In-Place/current pattern; possible misclassification.`,
+    });
+  }
+  if (
+    extraction.sellerUwOperatingStatement !== null &&
+    extraction.sellerUwOperatingStatement.period &&
+    !/u\/?w|underwrit|gs|seller|issuer/i.test(extraction.sellerUwOperatingStatement.period)
+  ) {
+    mismatches.push({
+      ruleId: 'JE_PERIOD_LABEL_MISMATCH',
+      delta: 0,
+      reason: `sellerUwOperatingStatement slot's period label "${extraction.sellerUwOperatingStatement.period}" does not match UW pattern; possible misclassification.`,
+    });
+  }
+  return mismatches;
 }
 
 /* ------------------------------- orchestrator ------------------------------- */
@@ -386,12 +446,25 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       top1IncomeShare,
       pctIncomeExpiringWithinTerm,
       // §2.3-legitimate: Stage 4 is the ONLY pipeline stage allowed to read
-      // ExtractionResult. We denormalize trailing-actual NOI + the two issuer-stated
-      // NOI cross-references onto AdjustedInputs.metrics here so the Stage 5 handbook
-      // evaluator can build the noiReconciliation computedFacts entry without
-      // re-importing extraction. Trailing actual is the load-bearing input to the
-      // NOI-recon trigger (P-III-15); issuer-stated values are cross-reference context.
-      trailingActualNoi: extraction.t12?.noi ?? null,
+      // ExtractionResult. We denormalize trailing-actual NOI + the four
+      // cross-reference NOI values onto AdjustedInputs.metrics here so the
+      // Stage 5 handbook evaluator can build the noiReconciliation
+      // computedFacts entry without re-importing extraction.
+      //
+      // trailingActualNoi sources from t12Actual.noi (strict trailing-twelve)
+      // — null today for every deal until the class-(b) ingest slot lands.
+      // The load-bearing input to the NOI-recon trigger (P-III-15).
+      //
+      // issuerCfUwNoi sources from the seller CF's GS U/W column. inPlaceNoi
+      // sources from the seller CF's In-Place column. issuerStatedNoiSellerUw
+      // and issuerStatedNoiAsr source from the separate narrative SellerUW
+      // and ASR documents. ALL FOUR are cross-reference values — context for
+      // the LLM-context evaluator's flag_message prose; none is load-bearing
+      // for the NOI-recon verdict (which compares system UW NOI against
+      // trailingActualNoi).
+      trailingActualNoi: extraction.t12Actual?.noi ?? null,
+      issuerCfUwNoi: extraction.sellerUwOperatingStatement?.noi ?? null,
+      inPlaceNoi: extraction.inPlace?.noi ?? null,
       issuerStatedNoiSellerUw: extraction.sellerUw?.underwrittenNOI ?? null,
       issuerStatedNoiAsr: extraction.asr?.underwrittenNOI ?? null,
     },
@@ -444,13 +517,24 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   // reads these flags and downgrades the score accordingly.
 
   // Audit U12 + NR4 — expense-ratio + vacancy floor data availability for the conservatism gate.
+  //
+  // Class-(a) bank-slot pick (locked 2026-05-31): prefer sellerUwOperatingStatement
+  // (the GS U/W column carries the issuer's normalized totalIncome and
+  // totalOperatingExpenses), fall back to inPlace. Previous code read
+  // extraction.t12 which actually held In-Place data after the regex-collision
+  // bug; the new cascade is explicit and correct.
   const libVacancyMedian = getLibraryMedian(librarySnapshot, assetProfile.propertyType, 'vacancy');
   const bankVacancySource = pickFirstNonNull(vacancyPctCascade(extraction)).value;
   const libExpenseRatio = getLibraryMedian(librarySnapshot, assetProfile.propertyType, 'expenseRatio');
-  const t12 = extraction.t12;
+  const bankSlot =
+    extraction.sellerUwOperatingStatement ??
+    extraction.inPlace ??
+    null;
   const bankExpenseRatioComputable =
-    !!t12 && t12.income.totalIncome !== null && t12.expenses.totalOperatingExpenses !== null
-      && t12.income.totalIncome > 0;
+    !!bankSlot
+      && bankSlot.income.totalIncome !== null
+      && bankSlot.expenses.totalOperatingExpenses !== null
+      && bankSlot.income.totalIncome > 0;
 
   if (libExpenseRatio === null && !bankExpenseRatioComputable) {
     dataQualityFlags.push('JE_EXPENSE_RATIO_NO_FLOOR_AVAILABLE');
@@ -487,9 +571,21 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     dataQualityFlags.push('JE_RENT_ROLL_UNIT_INCOMPLETE');
   }
 
+  // Safeguard 1 (period-label sanity, 2026-05-31). Informational emission —
+  // delta=0; flags any slot whose `period` text doesn't match the expected
+  // pattern for that slot. Surfaces possible extractor misclassification
+  // (e.g., a workbook header layout the regex chose wrong). Pushed to
+  // topLevelAdjustments AND mirrored to dataQualityFlags (so doctrine sees
+  // the surface), but the rule is deliberately excluded from data_confidence
+  // weighting in the doctrine components (rule registry knows it).
+  const periodMismatches = checkPeriodLabels(extraction);
+  if (periodMismatches.length > 0) {
+    dataQualityFlags.push('JE_PERIOD_LABEL_MISMATCH');
+  }
+
   /* --------------------------- Phase 7: Final Assembly ---------------------- */
 
-  const allTopLevelAdjustments = [...noiCapAdjustments, ...manifestoEntries];
+  const allTopLevelAdjustments = [...noiCapAdjustments, ...manifestoEntries, ...periodMismatches];
 
   const body = {
     analysisAsOfDate,

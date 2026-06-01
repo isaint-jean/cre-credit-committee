@@ -109,7 +109,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       noi: 7_670_000, value: 118_000_000, dscr: 1.92,
       ltvAppraisal: 0.42, debtYield: 0.1534, expenseRatio: 0.193,
       top1IncomeShare: 0.30, pctIncomeExpiringWithinTerm: 0.22,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],

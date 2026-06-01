@@ -78,7 +78,7 @@ function makeAdjustedInputs(opts: Partial<{
 }> = {}): AdjustedInputs {
   const body = {
     analysisAsOfDate: AS_OF,
-    judgmentEngineVersion: '1.2' as const,
+    judgmentEngineVersion: '1.3' as const,
     librarySnapshotId: opts.librarySnapshotId ?? computeLibrarySnapshotId({ x: 1 }),
     income: {
       grossRentalIncome: lineItem(1_000_000),
@@ -140,7 +140,7 @@ function makeAdjustedInputs(opts: Partial<{
       top1IncomeShare: opts.top1IncomeShare === undefined ? 0.25 : opts.top1IncomeShare,
       pctIncomeExpiringWithinTerm:
         opts.pctIncomeExpiringWithinTerm === undefined ? 0.20 : opts.pctIncomeExpiringWithinTerm,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
@@ -372,18 +372,22 @@ console.log('\nFalse_negative_guard:');
   assertEqual(guard?.points ?? 1, 0, 'no points when not fired');
 }
 {
-  // T-12 missing → does not fire
+  // 2026-05-31: false_negative_guard's `t12Present` requires BOTH
+  // JE_TRAILING_ACTUALS_MISSING and JE_IN_PLACE_MISSING to be absent
+  // → the guard considers CF "missing" only when both flags are present.
+  // Trailing-actuals alone is universal today; In-Place absence is the
+  // structural CF-document gap.
   const r = buildDoctrineEvaluation({
     ...defaultArgs(),
     adjustedInputs: makeAdjustedInputs({
       dscr: 1.0,
       debtYield: 0.07,
       ltvAppraisal: 0.78,
-      dataQualityFlags: ['JE_T12_MISSING'],
+      dataQualityFlags: ['JE_TRAILING_ACTUALS_MISSING', 'JE_IN_PLACE_MISSING'],
     }),
   });
   const guard = r.scoreAdjustments.find(a => a.ruleId === 'FALSE_NEGATIVE_GUARD');
-  assertEqual(guard?.fired ?? true, false, 't12 missing → guard does not fire');
+  assertEqual(guard?.fired ?? true, false, 'CF entirely missing (both trailing-actuals + in-place flags) → guard does not fire');
 }
 {
   // T-12 trend down → does not fire
@@ -548,7 +552,7 @@ console.log('\nPersistence round-trip:');
     analysisAsOfDate: AS_OF,
     extractionEngineVersion: '1.5' as const,
     dealRef: 'PERSIST-DEAL',
-    rentRoll: null, t12: null, pca: null,
+    rentRoll: null, inPlace: null, t12Actual: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
     sourceDocuments: [],
     extractorVersions: {},
@@ -606,7 +610,7 @@ console.log('\nFK + version stamping:');
   assertEqual(r.valuationConclusionId, args.valuationConclusion.id, 'valuationConclusionId FK');
   assertEqual(r.rentRollId, null, 'rentRollId stamped null when rentRoll=null (Phase 1)');
   assertEqual(r.doctrineVersion, '1.0', 'doctrineVersion');
-  assertEqual(r.judgmentEngineVersion, '1.2', 'judgmentEngineVersion');
+  assertEqual(r.judgmentEngineVersion, '1.3', 'judgmentEngineVersion (bumped 1.2 → 1.3 for period-fix rule registry change)');
   assertEqual(r.stressEngineVersion, '1.0', 'stressEngineVersion');
   assertEqual(r.valuationEngineVersion, '1.0', 'valuationEngineVersion');
 }

@@ -1,27 +1,33 @@
 /**
- * Phase 11 — Sunroad re-run with the NOI-reconciliation rule (Commit 1 of the
- * Model-A value-add series).
+ * Phase 12 — Sunroad re-run with the period-classification fix (2026-05-31).
  *
- *   cd apps/api && npx tsx src/scripts/phase11-noi-recon-rerun.ts
+ *   cd apps/api && npx tsx src/scripts/phase12-period-fix-rerun.ts
  *
- * Writes to data/phase11-noi-recon.db (SEPARATE from data/cre.db,
- * phase8-rr-node.db, phase9-refi-gate.db, phase10-reserve-footnote-gate.db).
+ * Writes to data/phase12-period-fix.db (SEPARATE from data/cre.db and every
+ * prior phase db: phase8-rr-node.db, phase9-refi-gate.db,
+ * phase10-reserve-footnote-gate.db, phase11-noi-recon.db).
  *
- * Structure (modelled on phase10):
- *   1. Composer pass (same ASR/CF/PCA Sunroad fixtures).
- *   2. PREFLIGHT: inspect the noiReconciliation block the gate WILL surface to
- *      the LLM (systemUwNoi, trailingActualNoi, excessDollars, excessFraction,
- *      verdict, plus the signed-lease-status extractionGap marker).
- *   3. Mode A — ingest WITH placeholder per-tenant comps (phase8-style).
+ * Structure (modeled on phase11):
+ *   1. Composer pass (same Sunroad ASR / CF / PCA fixtures).
+ *   2. PREFLIGHT: inspect AdjustedInputs.capitalReserves to confirm the new
+ *      cascade flipped class-(a) values: monthlyReplacementReserves ~$4,579/mo
+ *      ($54,952/yr ÷ 12); reimbursements and taxes shifted to the GS U/W
+ *      column figures; vacancyLoss reflects the issuer's UW vacancy.
+ *      Inspect the new metrics cross-refs: issuerCfUwNoi, inPlaceNoi.
+ *   3. Mode A — ingest WITH placeholder per-tenant comps (phase11-style).
  *   4. Mode B — ingest WITHOUT comps.
  *   5. Report:
- *        - noiReconciliation block (verbatim).
- *        - P-III-15 outcome both modes — expected: needs_manual_input with
- *          kind='signed_lease_status_extraction_gap'. Verbatim.
- *        - Whether the gate principle (P-II-9) and any other principles cite the
- *          NOI-recon facts.
- *        - A/B/C bucket vs phase10.
- *        - Any principle that moved.
+ *        - Corrected class-(a) values verbatim.
+ *        - New AdjustedInputs.metrics.noi (it WILL shift; report).
+ *        - issuerCfUwNoi + inPlaceNoi cross-refs.
+ *        - JE_TRAILING_ACTUALS_MISSING firing? (expected YES)
+ *        - JE_IN_PLACE_MISSING firing? (expected NO)
+ *        - JE_PERIOD_LABEL_MISMATCH firing? (expected NO — Sunroad labels are sane)
+ *        - P-III-3 / P-III-4 / P-IV-OFF-3 verbatim both modes.
+ *        - P-III-15 (NOI recon) verbatim both modes (verdict=insufficient_data
+ *          expected because trailingActualNoi is now honestly null).
+ *        - A/B/C bucket vs phase11.
+ *        - Principles that moved.
  */
 
 import path from 'node:path';
@@ -56,18 +62,18 @@ import { ingestExtractionResult } from '../services/ingest-extraction-result.js'
 import { buildNoiReconciliationFacts } from '../services/handbook/run-llm-context-check.js';
 
 const REPO = '/Users/isabellesaint-jean/Desktop/CRE Credit Comittee';
-const DB_PATH = path.join(REPO, 'apps/api/data/phase11-noi-recon.db');
-const PHASE10_DB = path.join(REPO, 'apps/api/data/phase10-reserve-footnote-gate.db');
+const DB_PATH = path.join(REPO, 'apps/api/data/phase12-period-fix.db');
+const PHASE11_DB = path.join(REPO, 'apps/api/data/phase11-noi-recon.db');
 const ASR_PATH = '/Users/isabellesaint-jean/Downloads/010. Sunroad Centrum - ASR PRELIM (2023-07-19).pdf';
 const CF_PATH  = '/Users/isabellesaint-jean/Downloads/010. Sunroad Centrum - CF PRELIM (2023-07-25).xlsx';
 const PCA_PATH = '/Users/isabellesaint-jean/Downloads/23-414408.1 PCA Report- Sunroad Centrum, San Diego, CA 080323.pdf';
 const AS_OF = '2026-05-31T00:00:00Z' as ISODateTime;
 
 const WATCH_LIST = [
-  'P-II-9',      // The "read deal data before asset-class priors" gate principle (Phase 1)
-  'P-III-3',     // Recurring TI/LC/capex deducted from NOI
+  'P-II-9',
+  'P-III-3',     // Recurring TI/LC/capex deducted from NOI — class-(a) reserves change drives this
   'P-III-4',     // Cash on hand reserves
-  'P-III-15',    // The NEW NOI-recon rule (this commit's prime target)
+  'P-III-15',    // NOI-recon — should still return insufficient_data (trailingActualNoi null today)
   'P-IV-OFF-3',  // TI/LC adequacy (office)
 ] as const;
 
@@ -146,11 +152,7 @@ function ruleOutcome(he: HandbookEvaluation, pid: string): RuleOutcome {
   return { state: 'absent', msg: '(not in HE)' };
 }
 
-interface Buckets {
-  A: string[];
-  B: string[];
-  C: string[];
-}
+interface Buckets { A: string[]; B: string[]; C: string[]; }
 
 function bucket(he: HandbookEvaluation): Buckets {
   const A: string[] = [];
@@ -169,12 +171,12 @@ function bucket(he: HandbookEvaluation): Buckets {
   return { A, B, C };
 }
 
-function loadPhase10HE(): HandbookEvaluation | null {
-  if (!existsSync(PHASE10_DB)) {
-    console.log('  (phase10-reserve-footnote-gate.db not found — skipping baseline comparison)');
+function loadPhase11HE(): HandbookEvaluation | null {
+  if (!existsSync(PHASE11_DB)) {
+    console.log('  (phase11-noi-recon.db not found — skipping baseline comparison)');
     return null;
   }
-  const db = new Database(PHASE10_DB, { readonly: true });
+  const db = new Database(PHASE11_DB, { readonly: true });
   try {
     const row = db
       .prepare('SELECT id, payload FROM handbook_evaluations LIMIT 1')
@@ -198,25 +200,6 @@ function reportRule(label: string, r: RuleOutcome): void {
   }
 }
 
-/**
- * Detect any principle that returned a needs_manual_input citing the new
- * NOI-recon signed-lease-status extraction gap. Helps confirm the gate's
- * extractionGap marker is being consumed end-to-end.
- */
-function signedLeaseGapHits(he: HandbookEvaluation): Array<{ principleId: string; detail: string }> {
-  const out: Array<{ principleId: string; detail: string }> = [];
-  for (const s of he.skippedPrinciples) {
-    if (s.reason !== 'needs_manual_input' || !s.manualInputRequests) continue;
-    for (const req of s.manualInputRequests) {
-      if (req.kind === 'signed_lease_status_extraction_gap') {
-        out.push({ principleId: s.principleId, detail: req.detail });
-        break;
-      }
-    }
-  }
-  return out;
-}
-
 async function ingest(
   store: RecordGraphStore,
   composed: { extractionResult: import('@cre/contracts').ExtractionResult; rentRoll: RentRoll | null },
@@ -227,7 +210,7 @@ async function ingest(
   const t0 = Date.now();
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
-  const dealRef = `SUNROAD-PHASE11-${label}`;
+  const dealRef = `SUNROAD-PHASE12-${label}`;
   const er = { ...composed.extractionResult, dealRef };
   const { computeExtractionResultId } = await import('../util/content-hash.js');
   const { id: _oldId, ...erBody } = er;
@@ -261,7 +244,7 @@ async function ingest(
 
 (async () => {
   console.log('============================================================');
-  console.log('PHASE 11 — NOI-reconciliation Commit 1 live re-run (Sunroad)');
+  console.log('PHASE 12 — period-classification fix live re-run (Sunroad)');
   console.log('============================================================');
   for (const [label, p] of [['ASR', ASR_PATH], ['CF', CF_PATH], ['PCA', PCA_PATH]] as const) {
     if (!existsSync(p)) {
@@ -269,8 +252,8 @@ async function ingest(
       process.exit(1);
     }
   }
-  console.log(`DB:           ${DB_PATH}  (separate from cre.db, phase8/9/10 dbs)`);
-  console.log(`Baseline:     ${PHASE10_DB}`);
+  console.log(`DB:           ${DB_PATH}  (separate from cre.db + phase8/9/10/11 dbs)`);
+  console.log(`Baseline:     ${PHASE11_DB}`);
   console.log('');
 
   // -------- Composer pass
@@ -283,25 +266,27 @@ async function ingest(
       pcaPdf:       { buffer: readFileSync(PCA_PATH), filename: path.basename(PCA_PATH) },
     },
     analysisAsOfDate: AS_OF,
-    dealRef: 'SUNROAD-PHASE11-composer',
+    dealRef: 'SUNROAD-PHASE12-composer',
     loanTerms: LOAN_TERMS,
   });
   console.log(`  composer ms: ${Date.now() - tComp}`);
   console.log(`  typed RentRoll:   ${composed.rentRoll ? `present (${composed.rentRoll.lines.length} lines)` : 'null'}`);
   console.log(`  inPlace.noi:      ${composed.extractionResult.inPlace?.noi ?? 'null'}`);
   console.log(`  t12Actual.noi:    ${composed.extractionResult.t12Actual?.noi ?? 'null'}`);
+  console.log(`  sellerUwOS.noi:   ${composed.extractionResult.sellerUwOperatingStatement?.noi ?? 'null'}`);
+  console.log(`  inPlace.belowNoi.replReserves:    ${composed.extractionResult.inPlace?.belowNoiAdjustments.replacementReserves ?? 'null'}`);
+  console.log(`  sellerUwOS.belowNoi.replReserves: ${composed.extractionResult.sellerUwOperatingStatement?.belowNoiAdjustments.replacementReserves ?? 'null'}`);
   console.log(`  sellerUw.noi:     ${composed.extractionResult.sellerUw?.underwrittenNOI ?? 'null'}`);
   console.log(`  asr.noi:          ${composed.extractionResult.asr?.underwrittenNOI ?? 'null'}`);
 
-  // -------- Pre-LLM: ingest once into a SCRATCH store so we can pull AdjustedInputs
-  //          to compute the noiReconciliation preview.
+  // -------- Preview AdjustedInputs (scratch ingest)
   console.log('\n============================================================');
-  console.log('NOI-RECONCILIATION GATE PREVIEW (server-computed BEFORE any LLM call)');
+  console.log('ADJUSTED-INPUTS PREVIEW (server-computed, post period-fix cascades)');
   console.log('============================================================');
   const scratch = new RecordGraphStore(':memory:');
   const previewLib = makeSnapshot();
   scratch.insertLibrarySnapshot(previewLib);
-  const previewDealRef = 'SUNROAD-PHASE11-PREVIEW';
+  const previewDealRef = 'SUNROAD-PHASE12-PREVIEW';
   const erPrev = { ...composed.extractionResult, dealRef: previewDealRef };
   const { computeExtractionResultId } = await import('../util/content-hash.js');
   const { id: _oldId, ...erPrevBody } = erPrev;
@@ -325,10 +310,43 @@ async function ingest(
   if (!envelopePrev) throw new Error('preview envelope null');
   const adjustedInputsPrev = scratch.getAdjustedInputs(envelopePrev.adjustedInputsId);
   if (!adjustedInputsPrev) throw new Error('preview AdjustedInputs null');
+  const aip = adjustedInputsPrev;
+
+  console.log('  CORRECTED CLASS-(A) VALUES:');
+  console.log(`    monthlyReplacementReserves    adjusted=${aip.capitalReserves.monthlyReplacementReserves.adjusted.toFixed(2)}  source=${aip.capitalReserves.monthlyReplacementReserves.source}`);
+  console.log(`    monthlyTenantImprovements     adjusted=${aip.capitalReserves.monthlyTenantImprovements.adjusted.toFixed(2)}  source=${aip.capitalReserves.monthlyTenantImprovements.source}`);
+  console.log(`    monthlyLeasingCommissions     adjusted=${aip.capitalReserves.monthlyLeasingCommissions.adjusted.toFixed(2)}  source=${aip.capitalReserves.monthlyLeasingCommissions.source}`);
+  console.log(`    monthlyTiLc                   adjusted=${aip.capitalReserves.monthlyTiLc.adjusted.toFixed(2)}  source=${aip.capitalReserves.monthlyTiLc.source}`);
+  console.log(`    expenses.realEstateTaxes      adjusted=${aip.expenses.realEstateTaxes.adjusted.toFixed(2)}  source=${aip.expenses.realEstateTaxes.source}`);
+  console.log(`    expenses.reimbursements       adjusted=${aip.expenses.reimbursements.adjusted.toFixed(2)}  source=${aip.expenses.reimbursements.source}`);
+  console.log(`    income.vacancyPct             adjusted=${aip.income.vacancyPct.adjusted.toFixed(4)}  source=${aip.income.vacancyPct.source}`);
+  console.log(`    expenses.totalOperatingExp    adjusted=${aip.expenses.totalOperatingExpenses.adjusted.toFixed(2)}  source=${aip.expenses.totalOperatingExpenses.source}`);
+
+  console.log('\n  ADJUSTED-INPUTS METRICS:');
+  console.log(`    noi:                       ${aip.metrics.noi}`);
+  console.log(`    dscr:                      ${aip.metrics.dscr}`);
+  console.log(`    debtYield:                 ${aip.metrics.debtYield}`);
+  console.log(`    expenseRatio:              ${aip.metrics.expenseRatio}`);
+  console.log(`    trailingActualNoi:         ${aip.metrics.trailingActualNoi}  (sources from extraction.t12Actual.noi; null today)`);
+  console.log(`    issuerCfUwNoi:             ${aip.metrics.issuerCfUwNoi}  (NEW — from CF's GS U/W column)`);
+  console.log(`    inPlaceNoi:                ${aip.metrics.inPlaceNoi}  (NEW — from CF's In-Place column)`);
+  console.log(`    issuerStatedNoiSellerUw:   ${aip.metrics.issuerStatedNoiSellerUw}  (narrative SellerUW document)`);
+  console.log(`    issuerStatedNoiAsr:        ${aip.metrics.issuerStatedNoiAsr}`);
+
+  console.log('\n  DATA-QUALITY FLAGS:');
+  for (const f of aip.dataQualityFlags) console.log(`    - ${f}`);
+  console.log(`  Period-mismatch entries in topLevelAdjustments:`);
+  for (const a of aip.topLevelAdjustments) {
+    if (a.ruleId === 'JE_PERIOD_LABEL_MISMATCH') {
+      console.log(`    - delta=${a.delta} reason=${a.reason}`);
+    }
+  }
+
+  // NOI reconciliation preview (was the prime target of phase11; should now
+  // return verdict=insufficient_data because trailingActualNoi is null).
   const noiPreview = buildNoiReconciliationFacts(adjustedInputsPrev);
   scratch.close();
-
-  console.log('  noiReconciliation (verbatim — server-computed Stage-5 input):');
+  console.log('\n  NOI RECONCILIATION (server-computed Stage-5 input):');
   console.log('    source:                          ', noiPreview.source);
   console.log('    systemUwNoi:                     ', noiPreview.systemUwNoi);
   console.log('    trailingActualNoi:               ', noiPreview.trailingActualNoi);
@@ -340,9 +358,8 @@ async function ingest(
   console.log('    signedLeaseBackingAvailable:     ', noiPreview.signedLeaseBackingAvailable);
   console.log('    extractionGap.kind:              ', noiPreview.extractionGap.kind);
   console.log('    extractionGap.recommendedInputKind:', noiPreview.extractionGap.recommendedInputKind);
-  console.log('    extractionGap.detail:            ', noiPreview.extractionGap.detail);
 
-  // -------- Ingest twice (real store; one composer result reused)
+  // -------- Real ingest twice (Mode A + Mode B)
   const store = new RecordGraphStore(DB_PATH);
 
   console.log('\n============================================================');
@@ -357,7 +374,7 @@ async function ingest(
 
   // -------- Reports
   console.log('\n============================================================');
-  console.log('WATCH LIST (NOI-recon impacted principles) — verbatim, both modes');
+  console.log('WATCH LIST (period-fix impacted principles) — verbatim, both modes');
   console.log('============================================================');
   for (const pid of WATCH_LIST) {
     console.log(`\n[${pid}]`);
@@ -365,49 +382,38 @@ async function ingest(
     console.log('  MODE B:'); reportRule(pid, ruleOutcome(heB, pid));
   }
 
-  // -------- Signed-lease-gap hits (any principle that consumed the gap marker)
+  // -------- A / B / C buckets vs phase11
   console.log('\n============================================================');
-  console.log('SIGNED-LEASE-STATUS EXTRACTION-GAP HITS (any principle that returned the kind)');
+  console.log('A / B / C BUCKETS — phase11 vs phase12 Mode A vs phase12 Mode B');
   console.log('============================================================');
-  const gapA = signedLeaseGapHits(heA);
-  const gapB = signedLeaseGapHits(heB);
-  console.log(`Mode A: ${gapA.length} hits`);
-  for (const h of gapA) console.log(`  - ${h.principleId}: ${h.detail.slice(0, 240)}`);
-  console.log(`Mode B: ${gapB.length} hits`);
-  for (const h of gapB) console.log(`  - ${h.principleId}: ${h.detail.slice(0, 240)}`);
-
-  // -------- A / B / C buckets vs phase10
-  console.log('\n============================================================');
-  console.log('A / B / C BUCKETS — phase10 vs phase11 Mode A vs phase11 Mode B');
-  console.log('============================================================');
-  const p10 = loadPhase10HE();
+  const p11 = loadPhase11HE();
   const bA = bucket(heA);
   const bB = bucket(heB);
-  const b10 = p10 ? bucket(p10) : { A: [], B: [], C: [] };
+  const b11 = p11 ? bucket(p11) : { A: [], B: [], C: [] };
   console.log(`             |   A (fired) | B (need-input) | C (other skip) | total`);
-  console.log(`  phase10    |  ${String(b10.A.length).padStart(9)} | ${String(b10.B.length).padStart(13)} | ${String(b10.C.length).padStart(13)} | ${b10.A.length + b10.B.length + b10.C.length}`);
-  console.log(`  phase11 A  |  ${String(bA.A.length).padStart(9)} | ${String(bA.B.length).padStart(13)} | ${String(bA.C.length).padStart(13)} | ${bA.A.length + bA.B.length + bA.C.length}`);
-  console.log(`  phase11 B  |  ${String(bB.A.length).padStart(9)} | ${String(bB.B.length).padStart(13)} | ${String(bB.C.length).padStart(13)} | ${bB.A.length + bB.B.length + bB.C.length}`);
+  console.log(`  phase11    |  ${String(b11.A.length).padStart(9)} | ${String(b11.B.length).padStart(13)} | ${String(b11.C.length).padStart(13)} | ${b11.A.length + b11.B.length + b11.C.length}`);
+  console.log(`  phase12 A  |  ${String(bA.A.length).padStart(9)} | ${String(bA.B.length).padStart(13)} | ${String(bA.C.length).padStart(13)} | ${bA.A.length + bA.B.length + bA.C.length}`);
+  console.log(`  phase12 B  |  ${String(bB.A.length).padStart(9)} | ${String(bB.B.length).padStart(13)} | ${String(bB.C.length).padStart(13)} | ${bB.A.length + bB.B.length + bB.C.length}`);
 
   console.log('\nMode A — fired flags (Bucket A):');
   for (const a of bA.A) console.log(`  - ${a}`);
   console.log('\nMode A — needs_manual_input (Bucket B):');
   for (const b of bA.B) console.log(`  - ${b}`);
 
-  // -------- Diff: which principles moved between phase10 and phase11 Mode A?
-  if (p10) {
+  // -------- Diff: which principles moved between phase11 and phase12 Mode A?
+  if (p11) {
     console.log('\n============================================================');
-    console.log('PRINCIPLES THAT MOVED — phase10 → phase11 Mode A');
+    console.log('PRINCIPLES THAT MOVED — phase11 → phase12 Mode A');
     console.log('============================================================');
     const allPids = new Set<string>();
-    for (const f of p10.firedFlags) allPids.add(f.principleId);
-    for (const s of p10.skippedPrinciples) allPids.add(s.principleId);
+    for (const f of p11.firedFlags) allPids.add(f.principleId);
+    for (const s of p11.skippedPrinciples) allPids.add(s.principleId);
     for (const f of heA.firedFlags) allPids.add(f.principleId);
     for (const s of heA.skippedPrinciples) allPids.add(s.principleId);
     const sorted = [...allPids].sort();
     let moved = 0;
     for (const pid of sorted) {
-      const before = ruleOutcome(p10, pid);
+      const before = ruleOutcome(p11, pid);
       const after = ruleOutcome(heA, pid);
       const sameState = before.state === after.state;
       const sameReason = (before.state === 'skipped' && after.state === 'skipped' && before.msg === after.msg);
@@ -418,7 +424,7 @@ async function ingest(
         console.log(`  ${pid.padEnd(20)}  ${beforeLbl.padEnd(38)}  →  ${afterLbl}`);
       }
     }
-    if (moved === 0) console.log('  (no principles moved state between phase10 and phase11 Mode A)');
+    if (moved === 0) console.log('  (no principles moved state between phase11 and phase12 Mode A)');
     else console.log(`\n  ${moved} principles moved.`);
   }
 

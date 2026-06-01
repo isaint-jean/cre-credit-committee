@@ -124,7 +124,7 @@ function makeAdjustedInputs(opts: Partial<{
       expenseRatio: 0.25,
       top1IncomeShare: opts.top1IncomeShare === undefined ? 0.25 : opts.top1IncomeShare,
       pctIncomeExpiringWithinTerm: opts.pctIncomeExpiringWithinTerm === undefined ? 0.20 : opts.pctIncomeExpiringWithinTerm,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
@@ -450,7 +450,7 @@ console.log('\nData confidence:');
   // All 5 missing → contribution = 0
   const r = scoreDataConfidence({
     adjustedInputs: makeAdjustedInputs({
-      dataQualityFlags: ['JE_RENT_ROLL_MISSING', 'JE_T12_MISSING', 'JE_LOAN_TERMS_MISSING', 'JE_PCA_MISSING', 'JE_APPRAISAL_MISSING'],
+      dataQualityFlags: ['JE_RENT_ROLL_MISSING', 'JE_TRAILING_ACTUALS_MISSING', 'JE_LOAN_TERMS_MISSING', 'JE_PCA_MISSING', 'JE_APPRAISAL_MISSING'],
     }),
   });
   const totalContribution = r.reduce((sum, s) => sum + s.contribution, 0);

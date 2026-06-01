@@ -107,7 +107,7 @@ function makeAdjustedInputs(opts: {
       ltvAppraisal: 0.5, debtYield: 0.08, expenseRatio: 0.18,
       top1IncomeShare: opts.top1IncomeShare === undefined ? 0.30 : opts.top1IncomeShare,
       pctIncomeExpiringWithinTerm: 0.20,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],

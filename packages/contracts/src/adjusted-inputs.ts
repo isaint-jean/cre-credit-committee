@@ -251,28 +251,75 @@ export interface AdjustedMetrics {
   readonly top1IncomeShare: number | null;                // 0..1; from rent roll
   readonly pctIncomeExpiringWithinTerm: number | null;    // 0..1; from rent roll vs term
   /**
-   * Trailing-actual NOI threaded from `OperatingStatementExtraction.t12.noi`. This is the
-   * "truth floor" the NOI-reconciliation rule (P-III-15, universal_framework) compares the
-   * system's underwritten NOI (`metrics.noi`) against. When the system UW NOI exceeds the
-   * trailing actual NOI, the rule fires and requires the excess to be backed by durable
-   * documented drivers (signed/executed leases + contractual rent steps).
+   * Trailing-actual NOI — sourced from `OperatingStatementExtraction.t12Actual.noi`
+   * (strict T-12 trailing-actuals column). Null today for every deal until a
+   * separate class-(b) ingest slot for true trailing operating statements lands;
+   * do NOT confuse this with In-Place or GS U/W. When non-null, this is the
+   * truth-floor for NOI reconciliation.
    *
-   * §2.3-legitimate: Stage 4 (judgment) is the only pipeline stage allowed to read
-   * ExtractionResult. We denormalize this onto AdjustedInputs.metrics here so the Stage 5+
-   * handbook evaluator can build the noiReconciliation computedFacts entry without
-   * re-importing extraction. Null when ExtractionResult.t12 is absent.
+   * The NOI-reconciliation rule (P-III-15, universal_framework) compares the
+   * system's underwritten NOI (`metrics.noi`) against this value. When the
+   * system UW NOI exceeds the trailing actual NOI, the rule fires and requires
+   * the excess to be backed by durable documented drivers (signed/executed
+   * leases + contractual rent steps).
    *
-   * Field added in the "Model-A value-add" NOI-reconciliation rule (Commit 1). One-time
-   * AdjustedInputs body grow → AnalysisId cascade (third in series, after Phase 1
-   * maturityDate and Phase 2 reserve-read field additions). Documented schema evolution.
+   * NAME PRESERVED 2026-05-31. The field was renamed conceptually (it now
+   * reads `t12Actual.noi` instead of the misnamed `t12.noi` which was
+   * actually In-Place data) but the field NAME stays — it has always
+   * MEANT trailing-actual; only the source field underneath changed. This
+   * makes the field HONESTLY null today rather than silently borrowing
+   * In-Place data and pretending NOI-recon could derive a verdict. Cross-ref
+   * NOI values from the In-Place and GS U/W columns are surfaced separately
+   * in `inPlaceNoi` and `issuerCfUwNoi`.
+   *
+   * §2.3-legitimate: Stage 4 (judgment) is the only pipeline stage allowed
+   * to read ExtractionResult. We denormalize this onto AdjustedInputs.metrics
+   * here so the Stage 5+ handbook evaluator can build the noiReconciliation
+   * computedFacts entry without re-importing extraction.
    */
   readonly trailingActualNoi: number | null;
+  /**
+   * Issuer's underwritten NOI from the SELLER CF's GS U/W column. Sourced
+   * from `OperatingStatementExtraction.sellerUwOperatingStatement.noi`.
+   *
+   * DISTINCT FROM `issuerStatedNoiSellerUw` below — that field reads from
+   * the narrative `SellerUWExtraction` (a separate document type that summarizes
+   * the seller's underwriting), while THIS field reads from the issuer's UW
+   * column inside the seller CF workbook itself. The two MAY agree on a clean
+   * deal and disagree when the CF and the narrative carry different vintages of
+   * the issuer's UW.
+   *
+   * Cross-reference only — NOT a substitute for `trailingActualNoi` and NOT a
+   * load-bearing input to the NOI-recon verdict. The LLM-context evaluator can
+   * cite this number in flag_message prose.
+   *
+   * Added 2026-05-31 with the period-classification fix. One-time
+   * AdjustedInputs body grow → AnalysisId cascade (4th in series).
+   */
+  readonly issuerCfUwNoi: number | null;
+  /**
+   * In-Place NOI — sourced from `OperatingStatementExtraction.inPlace.noi`.
+   * The in-place column annualized; contractual rents currently in effect with
+   * trailing-period operating expenses. Cross-reference value — between
+   * "trailing actual" and "issuer underwriting" on the conservatism scale.
+   *
+   * Added 2026-05-31. Not load-bearing for any verdict; surfaced for audit
+   * and for narrative context. The judgment line-item builders cascade
+   * through inPlace as a fallback source for income lines.
+   */
+  readonly inPlaceNoi: number | null;
   /**
    * Issuer's underwritten NOI as carried on `SellerUWExtraction.underwrittenNOI`. Cross-
    * reference only — NOT a floor or ceiling on the NOI-reconciliation trigger (which
    * compares the system UW NOI against the trailing actual NOI). Surfaced so the
    * LLM-context evaluator can cite the issuer's number in flag_message prose without
    * making it a load-bearing input to the verdict.
+   *
+   * DISTINCT FROM `issuerCfUwNoi` above — that field reads from the issuer's UW
+   * column inside the seller CF workbook; this one reads from the narrative
+   * SellerUW document. Both are cross-references with the same role; both are
+   * surfaced separately because a deal may carry one, the other, or both, and
+   * they may disagree.
    *
    * Null when SellerUWExtraction is absent or did not carry an explicit number. Companion
    * to `issuerStatedNoiAsr` (which carries the same datum from the ASR side, when present).
@@ -321,10 +368,13 @@ export interface AdjustedInputs {
    * distrust rules fired during Stage 4. Distinct from `confidenceReduction` (which is the
    * normalized scalar penalty). Doctrine §1 (data-confidence component) reads these for
    * per-doc scoring; doctrine §12 (False_negative_guard) checks
-   * `dataQualityFlags.includes('JE_T12_MISSING')` for presence/absence predicates.
+   * `dataQualityFlags.includes('JE_TRAILING_ACTUALS_MISSING')` for presence/absence predicates.
+   * (The legacy `JE_T12_MISSING` flag was renamed `JE_TRAILING_ACTUALS_MISSING` on 2026-05-31
+   * alongside the period-classification fix. JE_IN_PLACE_MISSING and JE_PERIOD_LABEL_MISMATCH
+   * were added at the same time.)
    *
-   * Order is firing order from the orchestrator: missing-doc first (5 possible), distrust
-   * second (2 possible). Each entry deduplicated.
+   * Order is firing order from the orchestrator: missing-doc first (now up to 7 possible),
+   * distrust second (2 possible). Each entry deduplicated.
    */
   readonly dataQualityFlags: readonly JudgmentEngineRuleId[];
 }

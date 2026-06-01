@@ -101,8 +101,8 @@ function makeFullExtraction(asOf: string = AS_OF): ExtractionResult {
       ],
       summary: { totalUnits: 2, occupiedUnits: 2, economicOccupancy: 1.0 },
     },
-    t12: {
-      period: 'T-12 ending Apr 2026', noi: 800_000, vacancyLoss: 60_000,
+    inPlace: {
+      period: 'In-Place', noi: 800_000, vacancyLoss: 60_000,
       income: { grossPotentialRent: 1_200_000, effectiveRent: 1_140_000, otherIncome: 60_000, totalIncome: 1_200_000 },
       expenses: { taxes: 100_000, insurance: 18_000, utilities: 24_000,
                    repairsMaintenance: 36_000, managementFees: 40_000,
@@ -110,6 +110,7 @@ function makeFullExtraction(asOf: string = AS_OF): ExtractionResult {
                    totalOperatingExpenses: 218_000 },
       belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
     },
+    t12Actual: null,
     pca: {
       immediateRepairs: 50_000, shortTermRepairs: 150_000,
       evaluationPeriodYears: null, inflationRate: null,
@@ -247,10 +248,18 @@ console.log('\nHappy path:');
 console.log('\nNOI cap:');
 
 {
-  // Construct extraction with low T-12 NOI so derived NOI > bank NOI → cap fires.
+  // Construct extraction with low In-Place + GS-U/W NOI so derived NOI > bank NOI → cap fires.
+  // bankNoiCascade reads T12_ACTUAL → SELLER_UW → IN_PLACE; set both inPlace and
+  // sellerUwOperatingStatement (the two slots present in fixtures) to the low value.
   // Default fixture's derived NOI is ~794k after expense floor enforcement; set bank NOI = 600k.
   const ext = makeFullExtraction();
-  const lowBankExt = { ...ext, t12: { ...ext.t12!, noi: 600_000 } } as ExtractionResult;
+  const lowBankExt = {
+    ...ext,
+    inPlace: { ...ext.inPlace!, noi: 600_000 },
+    sellerUwOperatingStatement: ext.sellerUwOperatingStatement
+      ? { ...ext.sellerUwOperatingStatement, noi: 600_000 }
+      : null,
+  } as ExtractionResult;
   const result = applyJudgmentAdjustments({ ...defaultArgs(), extraction: lowBankExt });
   assertClose(result.metrics.noi as number, 600_000, 1, 'NOI capped to bank NOI 600k when derived > bank');
   const noiCapEntry = result.topLevelAdjustments.find(a => a.ruleId === 'JE_NOI_CAPPED_TO_BANK');
@@ -260,7 +269,13 @@ console.log('\nNOI cap:');
 {
   // Construct extraction where bank NOI is high → no cap
   const ext = makeFullExtraction();
-  const highBankExt = { ...ext, t12: { ...ext.t12!, noi: 5_000_000 } } as ExtractionResult;
+  const highBankExt = {
+    ...ext,
+    inPlace: { ...ext.inPlace!, noi: 5_000_000 },
+    sellerUwOperatingStatement: ext.sellerUwOperatingStatement
+      ? { ...ext.sellerUwOperatingStatement, noi: 5_000_000 }
+      : null,
+  } as ExtractionResult;
   const result = applyJudgmentAdjustments({ ...defaultArgs(), extraction: highBankExt });
   const noiCapEntry = result.topLevelAdjustments.find(a => a.ruleId === 'JE_NOI_CAPPED_TO_BANK');
   assert(noiCapEntry === undefined, 'no cap when derived NOI <= bank NOI');
@@ -333,7 +348,7 @@ console.log('\nConservatism gate (direct invocation):');
       noi: 750_000, value: 12_500_000, dscr: null, ltvAppraisal: null,
       debtYield: null, expenseRatio: 0.21, top1IncomeShare: null,
       pctIncomeExpiringWithinTerm: null,
-      trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
@@ -387,9 +402,11 @@ console.log('\nConfidence reduction:');
 
 {
   const result = applyJudgmentAdjustments(defaultArgs());
-  // Default: all 5 docs present → 0
-  assertEqual(result.confidenceReduction, 0, 'all docs present → 0');
-  assertEqual(result.dataQualityFlags.length, 0, 'all docs present → empty dataQualityFlags');
+  // Default: full extraction but t12Actual is null (fixture convention since
+  // class-(b) ingest hasn't shipped — In-Place + GS U/W only). So
+  // JE_TRAILING_ACTUALS_MISSING fires: 12/100 = 0.12.
+  assertClose(result.confidenceReduction, 0.12, 1e-9, 'default fixture → 0.12 (trailing-actuals missing)');
+  assert(result.dataQualityFlags.includes('JE_TRAILING_ACTUALS_MISSING'), 'JE_TRAILING_ACTUALS_MISSING flag set');
 }
 {
   // Sparse extraction: only T-12 + LoanTerms + Appraisal present
@@ -399,7 +416,8 @@ console.log('\nConfidence reduction:');
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef: 'TEST-SPARSE',
     rentRoll: null,            // 12-point penalty
-    t12: ext.t12,
+    inPlace: ext.inPlace,
+    t12Actual: null,
     pca: null,                 // 6-point penalty
     appraisal: ext.appraisal,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
@@ -410,16 +428,19 @@ console.log('\nConfidence reduction:');
   const sparseExt = { id: computeExtractionResultId(sparseBody), ...sparseBody } as ExtractionResult;
   const args = { ...defaultArgs(), extraction: sparseExt };
   const result = applyJudgmentAdjustments(args);
-  // RR + PCA missing = 12 + 6 = 18 → 0.18
-  assertClose(result.confidenceReduction, 0.18, 1e-9, 'rent roll + PCA missing → 0.18');
+  // 2026-05-31 update — JE_TRAILING_ACTUALS_MISSING now also fires because the
+  // fixture sets t12Actual: null (which it always does today — class-(b) ingest
+  // hasn't shipped). Sum: RR (12) + TRAILING_ACTUALS (12) + PCA (6) = 30 → 0.30.
+  assertClose(result.confidenceReduction, 0.30, 1e-9, 'rent roll + trailing-actuals + PCA missing → 0.30');
   assert(result.dataQualityFlags.includes('JE_RENT_ROLL_MISSING'), 'JE_RENT_ROLL_MISSING flag set');
+  assert(result.dataQualityFlags.includes('JE_TRAILING_ACTUALS_MISSING'), 'JE_TRAILING_ACTUALS_MISSING flag set (t12Actual null)');
   assert(result.dataQualityFlags.includes('JE_PCA_MISSING'), 'JE_PCA_MISSING flag set');
   // Batch 6.2 (audit U15): Office is tenant-driven; missing rent roll AND tenant-driven asset
   // class → TI/LC applicability cannot be determined. The flag explicitly surfaces the
   // degraded state (vs the legacy silent NOT_APPLICABLE downgrade).
   assert(result.dataQualityFlags.includes('JE_TILC_APPLICABILITY_UNKNOWN'),
     'JE_TILC_APPLICABILITY_UNKNOWN flag set (Office + null rent roll)');
-  assertEqual(result.dataQualityFlags.length, 3, 'flags: 2 missing-doc + 1 TI/LC unknown');
+  assertEqual(result.dataQualityFlags.length, 4, 'flags: 3 missing-doc + 1 TI/LC unknown');
 }
 
 /* ------------------------------- idempotency ---------------------------- */

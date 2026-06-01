@@ -186,19 +186,25 @@ export function buildCapRate(args: {
 /* ----------------------------- grossRentalIncome ---------------------------- */
 
 /**
- * Pattern 3 — no library distribution exists for gross rental income (deal-specific). T-12
- * preferred over rent-roll-derived (sum of in-place rents × 12) over seller UW. If all are
- * null, throws — the missing-doc penalty already fired upstream.
+ * Pattern 3 — no library distribution exists for gross rental income (deal-specific).
+ *
+ * NEUTRAL cascade (income lines are neutral, not class-(a)): T12_ACTUAL →
+ * RENT_ROLL → SELLER_UW → IN_PLACE. Rent-roll-derived (sum of in-place rents
+ * × 12) sits between trailing actuals and any seller-presentation source,
+ * because the rent roll is grounded in tenant contracts and thus more
+ * conservative than either UW projection or the CF In-Place column's
+ * accounting view. If all are null, throws — the missing-doc penalty already
+ * fired upstream.
  */
 export function buildGrossRentalIncome(args: {
   readonly extraction: ExtractionResult;
 }): AdjustedLineItem {
   const candidates: SourceCandidate[] = [];
 
-  if (args.extraction.t12 !== null) {
+  if (args.extraction.t12Actual !== null) {
     candidates.push({
       tier: 'T12_ACTUAL',
-      value: args.extraction.t12.income.grossPotentialRent,
+      value: args.extraction.t12Actual.income.grossPotentialRent,
     });
   }
   if (args.extraction.rentRoll !== null) {
@@ -213,13 +219,25 @@ export function buildGrossRentalIncome(args: {
       value: sum > 0 ? annualized : null,
     });
   }
+  if (args.extraction.sellerUwOperatingStatement !== null) {
+    candidates.push({
+      tier: 'SELLER_UW',
+      value: args.extraction.sellerUwOperatingStatement.income.grossPotentialRent,
+    });
+  }
+  if (args.extraction.inPlace !== null) {
+    candidates.push({
+      tier: 'IN_PLACE',
+      value: args.extraction.inPlace.income.grossPotentialRent,
+    });
+  }
 
   const picked = pickFirstNonNull(candidates);
 
   return requireRaw({
     raw: picked.value,
     extractionSource: picked.tier,
-    insufficientDataMessage: 'JE_GROSS_RENTAL_INCOME_MISSING: no T-12 or rent-roll-derived value',
+    insufficientDataMessage: 'JE_GROSS_RENTAL_INCOME_MISSING: no T-12 / rent-roll / sellerUw / inPlace value',
   });
 }
 
@@ -230,12 +248,28 @@ export function buildGrossRentalIncome(args: {
  * present" as "no other income," which is the most-conservative default — under-recognizing
  * income lowers NOI). Distinct from the substitution path: this is a domain-aware default
  * for an inherently-optional field.
+ *
+ * NEUTRAL cascade (income line): T12_ACTUAL → IN_PLACE → SELLER_UW. Other-income is
+ * neutral (not class-(a)) — In-Place wins the In-Place vs UW order because In-Place
+ * is closer to actual operations than UW for non-rental income (which is often
+ * episodic). When all are null, defaults to 0 with JE_OTHER_INCOME_DEFAULTED.
  */
 export function buildOtherIncome(args: {
   readonly extraction: ExtractionResult;
 }): AdjustedLineItem {
-  const t12Value = args.extraction.t12?.income.otherIncome ?? null;
-  const raw = t12Value;
+  // Cascade T12_ACTUAL → IN_PLACE → SELLER_UW.
+  let raw: number | null = null;
+  let source: 'T12_ACTUAL' | 'IN_PLACE' | 'SELLER_UW' = 'T12_ACTUAL';
+  if (args.extraction.t12Actual?.income.otherIncome !== undefined && args.extraction.t12Actual.income.otherIncome !== null) {
+    raw = args.extraction.t12Actual.income.otherIncome;
+    source = 'T12_ACTUAL';
+  } else if (args.extraction.inPlace?.income.otherIncome !== undefined && args.extraction.inPlace.income.otherIncome !== null) {
+    raw = args.extraction.inPlace.income.otherIncome;
+    source = 'IN_PLACE';
+  } else if (args.extraction.sellerUwOperatingStatement?.income.otherIncome !== undefined && args.extraction.sellerUwOperatingStatement.income.otherIncome !== null) {
+    raw = args.extraction.sellerUwOperatingStatement.income.otherIncome;
+    source = 'SELLER_UW';
+  }
 
   if (raw === null) {
     // Batch 6.2.1 (audit U9): explicit MANUAL-default emission. The conservative default of 0
@@ -249,7 +283,7 @@ export function buildOtherIncome(args: {
       adjustments: [{
         ruleId: 'JE_OTHER_INCOME_DEFAULTED',
         delta: 0,
-        reason: 'Other income missing from T-12; defaulted to 0 (conservative — under-recognizes income).',
+        reason: 'Other income missing from all CF columns (t12Actual, inPlace, sellerUwOperatingStatement); defaulted to 0 (conservative — under-recognizes income).',
       }],
     };
   }
@@ -257,7 +291,7 @@ export function buildOtherIncome(args: {
   return {
     raw,
     adjusted: raw,
-    source: 'T12_ACTUAL',
+    source,
     adjustments: [],
   };
 }
@@ -403,58 +437,104 @@ export function buildEffectiveGrossIncome(args: {
     });
   }
   const computed = totalIncome * (1 - lossFactor);
+  // Neutral cascade for the effective-rent raw — read t12Actual first, fall
+  // back to inPlace, then sellerUwOperatingStatement. The brand tracks
+  // whichever slot provided the raw.
+  let rawEffectiveRent: number | null = null;
+  let rawSource: 'T12_ACTUAL' | 'IN_PLACE' | 'SELLER_UW' = 'T12_ACTUAL';
+  if (args.extraction.t12Actual?.income.effectiveRent !== undefined && args.extraction.t12Actual.income.effectiveRent !== null) {
+    rawEffectiveRent = args.extraction.t12Actual.income.effectiveRent;
+    rawSource = 'T12_ACTUAL';
+  } else if (args.extraction.inPlace?.income.effectiveRent !== undefined && args.extraction.inPlace.income.effectiveRent !== null) {
+    rawEffectiveRent = args.extraction.inPlace.income.effectiveRent;
+    rawSource = 'IN_PLACE';
+  } else if (args.extraction.sellerUwOperatingStatement?.income.effectiveRent !== undefined && args.extraction.sellerUwOperatingStatement.income.effectiveRent !== null) {
+    rawEffectiveRent = args.extraction.sellerUwOperatingStatement.income.effectiveRent;
+    rawSource = 'SELLER_UW';
+  }
   return buildDerivedLineItem({
-    rawFromExtraction: args.extraction.t12?.income.effectiveRent ?? null,
-    extractionSource: 'T12_ACTUAL',
+    rawFromExtraction: rawEffectiveRent,
+    extractionSource: rawSource,
     computedAdjusted: computed,
   });
 }
 
 /* ------------------------------ expense sub-lines -------------------------- */
 
-function buildExpenseSubLine(args: {
-  readonly raw: number | null;
-}): AdjustedLineItem {
-  // Path A (audit §E.1, §E.3): if T-12 sub-line missing, default to 0 with MANUAL source.
-  // The library substitution applies to totalOperatingExpenses, not individual sub-lines.
-  if (args.raw === null) return buildNotApplicableLineItem();
+/**
+ * Helper: select an expense sub-line value via the class-(a) cascade
+ * `T12_ACTUAL → SELLER_UW → IN_PLACE`. The issuer's UW column (GS U/W) is
+ * preferred over In-Place because it carries the issuer's adjustments — Prop 13
+ * taxes, market-rent reimbursements, normalized utility figures — which In-Place
+ * does not. Brand reflects the slot that supplied the value; null means all
+ * three slots were missing the sub-line.
+ */
+function pickClassAExpense(
+  extraction: ExtractionResult,
+  reader: (s: import('@cre/contracts').OperatingStatementExtraction) => number | null,
+): { readonly raw: number | null; readonly source: 'T12_ACTUAL' | 'SELLER_UW' | 'IN_PLACE' | 'MANUAL' } {
+  if (extraction.t12Actual !== null) {
+    const v = reader(extraction.t12Actual);
+    if (v !== null) return { raw: v, source: 'T12_ACTUAL' };
+  }
+  if (extraction.sellerUwOperatingStatement !== null) {
+    const v = reader(extraction.sellerUwOperatingStatement);
+    if (v !== null) return { raw: v, source: 'SELLER_UW' };
+  }
+  if (extraction.inPlace !== null) {
+    const v = reader(extraction.inPlace);
+    if (v !== null) return { raw: v, source: 'IN_PLACE' };
+  }
+  return { raw: null, source: 'MANUAL' };
+}
+
+function buildExpenseSubLineFromPick(
+  pick: { readonly raw: number | null; readonly source: 'T12_ACTUAL' | 'SELLER_UW' | 'IN_PLACE' | 'MANUAL' },
+): AdjustedLineItem {
+  // Path A (audit §E.1, §E.3): if all CF columns omit the sub-line, default to 0 with MANUAL
+  // source. The library substitution applies to totalOperatingExpenses, not individual sub-lines.
+  if (pick.raw === null) return buildNotApplicableLineItem();
   return {
-    raw: args.raw,
-    adjusted: args.raw,
-    source: 'T12_ACTUAL',
+    raw: pick.raw,
+    adjusted: pick.raw,
+    source: pick.source,
     adjustments: [],
   };
 }
 
 export function buildRealEstateTaxes(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.taxes ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.taxes));
 }
 export function buildInsurance(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.insurance ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.insurance));
 }
 export function buildUtilities(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.utilities ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.utilities));
 }
 export function buildManagementFee(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.managementFees ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.managementFees));
 }
 export function buildMaintenance(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.repairsMaintenance ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.repairsMaintenance));
 }
 export function buildGeneralAndAdmin(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.generalAndAdmin ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.generalAndAdmin));
 }
 export function buildJanitorial(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.janitorial ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.janitorial));
 }
 /**
  * Reimbursements — revenue offset to operating expenses (CAM/tax/insurance recoveries).
  * Placed on AdjustedExpenses to mirror source-CF layout, but downstream consumers
  * computing totalOperatingExpenses must SUBTRACT this field (it nets against the
  * other expense fields). See AdjustedExpenses.reimbursements JSDoc for full semantics.
+ *
+ * Class-(a): the issuer's GS U/W column carries the issuer's reimbursement
+ * normalization (market-rent reimbursement schedule etc.) which is the
+ * relevant credit-view value; In-Place is fallback only.
  */
 export function buildReimbursements(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
-  return buildExpenseSubLine({ raw: args.extraction.t12?.expenses.reimbursements ?? null });
+  return buildExpenseSubLineFromPick(pickClassAExpense(args.extraction, (s) => s.expenses.reimbursements));
 }
 export function buildOtherExpenses(args: { readonly extraction: ExtractionResult }): AdjustedLineItem {
   // T-12 doesn't break out 'other' — return 0 unless explicitly tracked.
@@ -489,42 +569,60 @@ export function buildTotalOperatingExpenses(args: {
   readonly assetProfile: AssetProfile;
   readonly effectiveGrossIncome: AdjustedLineItem;
 }): AdjustedLineItem {
-  const t12 = args.extraction.t12;
-  const t12Total = t12?.expenses.totalOperatingExpenses ?? null;
+  // Class-(a) source pick: T12_ACTUAL → SELLER_UW → IN_PLACE. Use whichever
+  // slot first carries a totalOperatingExpenses figure; if none does but at
+  // least one carries sub-lines, sum sub-lines from the same priority order;
+  // if all are absent, library substitution.
+  const slots = [
+    { slot: args.extraction.t12Actual, source: 'T12_ACTUAL' as const },
+    { slot: args.extraction.sellerUwOperatingStatement, source: 'SELLER_UW' as const },
+    { slot: args.extraction.inPlace, source: 'IN_PLACE' as const },
+  ];
   const egi = args.effectiveGrossIncome.adjusted;
 
-  // Step 1: derive a raw adjusted value (T-12 → sum-of-sub-lines → library substitution).
+  // Step 1: derive a raw adjusted value (cascade → sum-of-sub-lines → library substitution).
   let raw: number | null = null;
   let initialAdjusted: number;
-  let source: 'T12_ACTUAL' | 'MANUAL' = 'MANUAL';
+  let source: 'T12_ACTUAL' | 'SELLER_UW' | 'IN_PLACE' | 'MANUAL' = 'MANUAL';
   const adjustments: { ruleId: 'JE_EXPENSE_RATIO_SUBSTITUTED_FROM_LIBRARY' | 'JE_EXPENSE_RAISED_TO_LIBRARY_MEDIAN' | 'JE_EXPENSE_RAISED_TO_BANK' | 'JE_EXPENSE_RATIO_NO_FLOOR_AVAILABLE'; delta: number; reason: string }[] = [];
 
-  if (t12Total !== null) {
-    raw = t12Total;
-    initialAdjusted = t12Total;
-    source = 'T12_ACTUAL';
-  } else if (t12 !== null) {
-    const e = t12.expenses;
-    // Sub-lines that comprise totalOpEx when the seller CF omits the explicit total row.
-    // generalAndAdmin and janitorial are real operating expenses (CMBS standard) and must
-    // contribute additively. reimbursements is EXCLUDED — per source-CF convention it is a
-    // revenue-side line (already netted into EGR upstream), not an offset to OpEx.
-    const subLines = [
-      e.taxes,
-      e.insurance,
-      e.utilities,
-      e.repairsMaintenance,
-      e.managementFees,
-      e.generalAndAdmin,
-      e.janitorial,
-    ];
-    const presentValues = subLines.filter((v): v is number => v !== null);
-    if (presentValues.length > 0) {
+  // First pass: try totalOperatingExpenses directly in cascade order.
+  const directTotal = slots.find((entry) => entry.slot?.expenses.totalOperatingExpenses != null);
+  if (directTotal && directTotal.slot) {
+    const t = directTotal.slot.expenses.totalOperatingExpenses!;
+    raw = t;
+    initialAdjusted = t;
+    source = directTotal.source;
+  } else {
+    // Second pass: try sum-of-sub-lines in cascade order.
+    const subLineSlot = slots.find((entry) => {
+      if (entry.slot === null) return false;
+      const e = entry.slot.expenses;
+      return [
+        e.taxes, e.insurance, e.utilities, e.repairsMaintenance,
+        e.managementFees, e.generalAndAdmin, e.janitorial,
+      ].some((v) => v !== null);
+    });
+    if (subLineSlot && subLineSlot.slot) {
+      const e = subLineSlot.slot.expenses;
+      // generalAndAdmin and janitorial are real operating expenses (CMBS standard) and must
+      // contribute additively. reimbursements is EXCLUDED — per source-CF convention it is a
+      // revenue-side line (already netted into EGR upstream), not an offset to OpEx.
+      const subLines = [
+        e.taxes,
+        e.insurance,
+        e.utilities,
+        e.repairsMaintenance,
+        e.managementFees,
+        e.generalAndAdmin,
+        e.janitorial,
+      ];
+      const presentValues = subLines.filter((v): v is number => v !== null);
       raw = null;
       initialAdjusted = presentValues.reduce((a, b) => a + b, 0);
-      source = 'T12_ACTUAL';
+      source = subLineSlot.source;
     } else {
-      // No sub-lines either → fall through to library substitution
+      // No slots carry data → fall through to library substitution.
       const libRatio = getLibraryMedian(args.librarySnapshot, args.assetProfile.propertyType, 'expenseRatio');
       if (libRatio === null) {
         throw new Error('JE_EXPENSE_RATIO_SUBSTITUTION_IMPOSSIBLE: no library expense ratio for asset type');
@@ -535,36 +633,30 @@ export function buildTotalOperatingExpenses(args: {
       adjustments.push({
         ruleId: 'JE_EXPENSE_RATIO_SUBSTITUTED_FROM_LIBRARY',
         delta: initialAdjusted,
-        reason: `T-12 missing; substituted via library expense ratio (${libRatio}) × adjusted EGI`,
+        reason: `All CF slots missing; substituted via library expense ratio (${libRatio}) × adjusted EGI`,
       });
     }
-  } else {
-    const libRatio = getLibraryMedian(args.librarySnapshot, args.assetProfile.propertyType, 'expenseRatio');
-    if (libRatio === null) {
-      throw new Error('JE_EXPENSE_RATIO_SUBSTITUTION_IMPOSSIBLE: no library expense ratio for asset type');
-    }
-    raw = null;
-    initialAdjusted = libRatio * egi;
-    source = 'MANUAL';
-    adjustments.push({
-      ruleId: 'JE_EXPENSE_RATIO_SUBSTITUTED_FROM_LIBRARY',
-      delta: initialAdjusted,
-      reason: `T-12 missing; substituted via library expense ratio (${libRatio}) × adjusted EGI`,
-    });
   }
 
   // Step 2: apply library/bank expense-ratio floor (architecture §6 conservatism).
   //
   // Batch 6.2 (audit U12): explicit null handling — distinguish "no floor data" from "floor of
-  // 0%". When both library distribution (n<20) and T-12 are missing, the floor cannot be
-  // enforced. Emit an INFORMATIONAL adjustment (delta 0) with JE_EXPENSE_RATIO_NO_FLOOR_AVAILABLE
-  // so the audit trail captures the missing-data state. The orchestrator separately adds
-  // JE_EXPENSE_RATIO_NO_FLOOR_AVAILABLE to dataQualityFlags so doctrine's data_confidence
-  // component reads the flag.
+  // 0%". When both library distribution (n<20) and the bank slot are missing, the floor cannot
+  // be enforced. Emit an INFORMATIONAL adjustment (delta 0) with
+  // JE_EXPENSE_RATIO_NO_FLOOR_AVAILABLE so the audit trail captures the missing-data state.
+  // The orchestrator separately adds JE_EXPENSE_RATIO_NO_FLOOR_AVAILABLE to dataQualityFlags so
+  // doctrine's data_confidence component reads the flag.
+  //
+  // Bank-ratio class-(a) read: prefer sellerUwOperatingStatement (the GS U/W column carries the
+  // issuer's normalized total + EGI), fall back to inPlace.
   if (egi > 0) {
     const libRatio = getLibraryMedian(args.librarySnapshot, args.assetProfile.propertyType, 'expenseRatio');
-    const bankEgi = t12?.income.totalIncome ?? null;
-    const bankOpex = t12?.expenses.totalOperatingExpenses ?? null;
+    const bankSlot =
+      args.extraction.sellerUwOperatingStatement ??
+      args.extraction.inPlace ??
+      null;
+    const bankEgi = bankSlot?.income.totalIncome ?? null;
+    const bankOpex = bankSlot?.expenses.totalOperatingExpenses ?? null;
     const bankRatio = bankEgi !== null && bankOpex !== null && bankEgi > 0 ? bankOpex / bankEgi : null;
     if (libRatio === null && bankRatio === null) {
       adjustments.push({
@@ -714,20 +806,49 @@ export function deriveMonthlyTiLc(
  * AdjustmentEntry.delta = adjusted - raw invariant (diverging units would show
  * the unit conversion as a misleading delta).
  *
- * Source-traceability for the annual figure lives in the extraction tier
- * (extraction.t12.belowNoiAdjustments.X); AdjustedCapitalReserves is canonical
- * monthly throughout.
+ * CLASS-(A) cascade (locked 2026-05-31): the source-of-truth is the issuer's
+ * normalized reserves view, which lives on the GS U/W column of the seller
+ * CF. Cascade:
  *
- * Null path: emits a JE_<FIELD>_DEFAULTED rule so doctrine can distinguish
- * "reserve = 0 (extracted)" from "reserve = 0 (defaulted because seller CF
- * didn't show the line)". Per P-III-3, absence of a reserve line is itself
- * a credit-negative signal.
+ *   t12Actual.belowNoiAdjustments.X      (strict trailing-actuals — null today)
+ *   sellerUwOperatingStatement...X       (issuer's UW — primary on most deals)
+ *   inPlace.belowNoiAdjustments.X        (fallback)
+ *
+ * Reading In-Place primarily understates reserves to $0 on every deal whose
+ * In-Place column does not break out the below-NOI lines (typical for
+ * CMBS-style CFs — the line items appear on the GS U/W column only). THIS
+ * is the fix that corrects Sunroad's $0 monthly replacement reserves to the
+ * issuer's stated $4,579/mo.
+ *
+ * Null path (all three slots null): emits a JE_<FIELD>_DEFAULTED rule so
+ * doctrine can distinguish "reserve = 0 (extracted)" from "reserve = 0
+ * (defaulted because seller CF didn't show the line)". Per P-III-3, absence
+ * of a reserve line is itself a credit-negative signal.
  */
+function pickBelowNoiAnnual(
+  extraction: ExtractionResult,
+  reader: (b: { readonly replacementReserves: number | null; readonly tenantImprovements: number | null; readonly leasingCommissions: number | null }) => number | null,
+): { readonly annual: number | null; readonly source: 'T12_ACTUAL' | 'SELLER_UW' | 'IN_PLACE' | 'MANUAL' } {
+  if (extraction.t12Actual !== null) {
+    const v = reader(extraction.t12Actual.belowNoiAdjustments);
+    if (v !== null) return { annual: v, source: 'T12_ACTUAL' };
+  }
+  if (extraction.sellerUwOperatingStatement !== null) {
+    const v = reader(extraction.sellerUwOperatingStatement.belowNoiAdjustments);
+    if (v !== null) return { annual: v, source: 'SELLER_UW' };
+  }
+  if (extraction.inPlace !== null) {
+    const v = reader(extraction.inPlace.belowNoiAdjustments);
+    if (v !== null) return { annual: v, source: 'IN_PLACE' };
+  }
+  return { annual: null, source: 'MANUAL' };
+}
+
 export function buildMonthlyReplacementReserves(args: {
   readonly extraction: ExtractionResult;
 }): AdjustedLineItem {
-  const annual = args.extraction.t12?.belowNoiAdjustments?.replacementReserves ?? null;
-  if (annual === null) {
+  const pick = pickBelowNoiAnnual(args.extraction, (b) => b.replacementReserves);
+  if (pick.annual === null) {
     return {
       raw: null,
       adjusted: 0,
@@ -735,15 +856,15 @@ export function buildMonthlyReplacementReserves(args: {
       adjustments: [{
         ruleId: 'JE_REPLACEMENT_RESERVES_DEFAULTED',
         delta: 0,
-        reason: 'Seller CF below-NOI replacement reserves line absent; defaulted to 0 monthly.',
+        reason: 'Seller CF below-NOI replacement reserves line absent from t12Actual / sellerUwOperatingStatement / inPlace; defaulted to 0 monthly.',
       }],
     };
   }
-  const monthly = annual / 12;
+  const monthly = pick.annual / 12;
   return {
     raw: monthly,
     adjusted: monthly,
-    source: 'T12_ACTUAL',
+    source: pick.source,
     adjustments: [],
   };
 }
@@ -751,8 +872,8 @@ export function buildMonthlyReplacementReserves(args: {
 export function buildMonthlyTenantImprovements(args: {
   readonly extraction: ExtractionResult;
 }): AdjustedLineItem {
-  const annual = args.extraction.t12?.belowNoiAdjustments?.tenantImprovements ?? null;
-  if (annual === null) {
+  const pick = pickBelowNoiAnnual(args.extraction, (b) => b.tenantImprovements);
+  if (pick.annual === null) {
     return {
       raw: null,
       adjusted: 0,
@@ -760,15 +881,15 @@ export function buildMonthlyTenantImprovements(args: {
       adjustments: [{
         ruleId: 'JE_TENANT_IMPROVEMENTS_DEFAULTED',
         delta: 0,
-        reason: 'Seller CF below-NOI tenant improvements line absent; defaulted to 0 monthly.',
+        reason: 'Seller CF below-NOI tenant improvements line absent from t12Actual / sellerUwOperatingStatement / inPlace; defaulted to 0 monthly.',
       }],
     };
   }
-  const monthly = annual / 12;
+  const monthly = pick.annual / 12;
   return {
     raw: monthly,
     adjusted: monthly,
-    source: 'T12_ACTUAL',
+    source: pick.source,
     adjustments: [],
   };
 }
@@ -776,8 +897,8 @@ export function buildMonthlyTenantImprovements(args: {
 export function buildMonthlyLeasingCommissions(args: {
   readonly extraction: ExtractionResult;
 }): AdjustedLineItem {
-  const annual = args.extraction.t12?.belowNoiAdjustments?.leasingCommissions ?? null;
-  if (annual === null) {
+  const pick = pickBelowNoiAnnual(args.extraction, (b) => b.leasingCommissions);
+  if (pick.annual === null) {
     return {
       raw: null,
       adjusted: 0,
@@ -785,15 +906,15 @@ export function buildMonthlyLeasingCommissions(args: {
       adjustments: [{
         ruleId: 'JE_LEASING_COMMISSIONS_DEFAULTED',
         delta: 0,
-        reason: 'Seller CF below-NOI leasing commissions line absent; defaulted to 0 monthly.',
+        reason: 'Seller CF below-NOI leasing commissions line absent from t12Actual / sellerUwOperatingStatement / inPlace; defaulted to 0 monthly.',
       }],
     };
   }
-  const monthly = annual / 12;
+  const monthly = pick.annual / 12;
   return {
     raw: monthly,
     adjusted: monthly,
-    source: 'T12_ACTUAL',
+    source: pick.source,
     adjustments: [],
   };
 }

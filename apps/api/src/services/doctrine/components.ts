@@ -342,17 +342,39 @@ export function scoreMaturityRisk(inputs: {
 /* ---------------------------- data confidence ----------------------------- */
 
 /**
- * Per-doc rule configuration. Weights mirror architecture §1 penalty points (12, 12, 10, 6, 4
- * → sum 44 → normalized to data_confidence's 3-point component weight).
+ * Per-doc rule configuration. Weights mirror architecture §1 penalty points
+ * (12, 12, 10, 6, 4 → sum 44 → normalized to data_confidence's 3-point
+ * component weight).
+ *
+ * 2026-05-31 update — JE_T12_MISSING renamed JE_TRAILING_ACTUALS_MISSING with
+ * a new firing condition (extraction.t12Actual === null) that's true for every
+ * deal until the class-(b) ingest slot lands. The DoctrineRules.T12_MISSING
+ * public surface stays unchanged; the rule fires when EITHER of the two new
+ * JE flags fires (`jeFlag` widened to `JudgmentEngineRuleId | readonly
+ * JudgmentEngineRuleId[]`). JE_IN_PLACE_MISSING shares the doctrine T12_MISSING
+ * slot here because it represents the same conceptual "no CF data available"
+ * surface from the public-doctrine perspective. JE_PERIOD_LABEL_MISMATCH is
+ * EXCLUDED — period-label mismatches surface as informational adjustments and
+ * do NOT dock data_confidence (see brief §D Safeguard 1).
  */
+type JeFlagSet = import('@cre/contracts').JudgmentEngineRuleId | readonly import('@cre/contracts').JudgmentEngineRuleId[];
+
 const DATA_CONFIDENCE_RULES: readonly {
   ruleId: DoctrineRuleId;
-  jeFlag: import('@cre/contracts').JudgmentEngineRuleId;
+  jeFlag: JeFlagSet;
   reasonIfMissing: DoctrineReasonCode;
   penaltyPoints: number;
 }[] = [
   { ruleId: DoctrineRules.RENT_ROLL_MISSING, jeFlag: 'JE_RENT_ROLL_MISSING', reasonIfMissing: DoctrineReasonCodes.RENT_ROLL_MISSING, penaltyPoints: 12 },
-  { ruleId: DoctrineRules.T12_MISSING,        jeFlag: 'JE_T12_MISSING',        reasonIfMissing: DoctrineReasonCodes.T12_MISSING,        penaltyPoints: 12 },
+  {
+    ruleId: DoctrineRules.T12_MISSING,
+    // EITHER trailing-actuals absent OR in-place absent → T12_MISSING doctrine
+    // surface fires. The trailing-actuals flag fires on every deal today; the
+    // in-place flag fires when the seller CF itself is structurally absent.
+    jeFlag: ['JE_TRAILING_ACTUALS_MISSING', 'JE_IN_PLACE_MISSING'],
+    reasonIfMissing: DoctrineReasonCodes.T12_MISSING,
+    penaltyPoints: 12,
+  },
   { ruleId: DoctrineRules.LOAN_TERMS_MISSING, jeFlag: 'JE_LOAN_TERMS_MISSING', reasonIfMissing: DoctrineReasonCodes.LOAN_TERMS_MISSING, penaltyPoints: 10 },
   { ruleId: DoctrineRules.PCA_MISSING,        jeFlag: 'JE_PCA_MISSING',        reasonIfMissing: DoctrineReasonCodes.PCA_MISSING,        penaltyPoints: 6 },
   { ruleId: DoctrineRules.APPRAISAL_MISSING,  jeFlag: 'JE_APPRAISAL_MISSING',  reasonIfMissing: DoctrineReasonCodes.APPRAISAL_MISSING,  penaltyPoints: 4 },
@@ -360,12 +382,22 @@ const DATA_CONFIDENCE_RULES: readonly {
 
 const TOTAL_PENALTY_POINTS = DATA_CONFIDENCE_RULES.reduce((s, r) => s + r.penaltyPoints, 0); // 44
 
+function flagPresent(
+  flags: readonly import('@cre/contracts').JudgmentEngineRuleId[],
+  spec: JeFlagSet,
+): boolean {
+  if (Array.isArray(spec)) {
+    return (spec as readonly import('@cre/contracts').JudgmentEngineRuleId[]).some((f) => flags.includes(f));
+  }
+  return flags.includes(spec as import('@cre/contracts').JudgmentEngineRuleId);
+}
+
 export function scoreDataConfidence(inputs: {
   readonly adjustedInputs: AdjustedInputs;
 }): readonly DoctrineComponentScore[] {
   const componentWeight = DOCTRINE_COMPONENT_WEIGHTS.data_confidence; // 3
   return DATA_CONFIDENCE_RULES.map(rule => {
-    const isMissing = inputs.adjustedInputs.dataQualityFlags.includes(rule.jeFlag);
+    const isMissing = flagPresent(inputs.adjustedInputs.dataQualityFlags, rule.jeFlag);
     const score = isMissing ? 0 : 100;
     const ruleWeight = (rule.penaltyPoints / TOTAL_PENALTY_POINTS) * componentWeight;
     return buildScore({

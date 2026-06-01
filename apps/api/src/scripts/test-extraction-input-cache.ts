@@ -126,7 +126,7 @@ console.log('\nrecord-graph-store — extraction_input_cache ops:');
     analysisAsOfDate: '2026-05-21T00:00:00Z',
     extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
     dealRef: 'TEST',
-    rentRoll: null, t12: null, pca: null, appraisal: null,
+    rentRoll: null, inPlace: null, t12Actual: null, pca: null, appraisal: null,
     asr: null, sellerUw: null, sellerUwOperatingStatement: null, loanTerms: null,
     sourceDocuments: [],
     extractorVersions: {} as Record<string, string>,
