@@ -12,6 +12,7 @@ import { renderV2Routes } from './render-v2.routes.js';
 import { workflowRoutes } from './workflow.routes.js';
 import { registryRoutes } from './registry.routes.js';
 import { kicksRoutes } from './kicks.routes.js';
+import { sourceDocsRoutes } from './source-docs.routes.js';
 import { requireAuth } from '../middleware/auth.js';
 import { observabilityMiddleware } from '../middleware/observability.middleware.js';
 
@@ -58,3 +59,8 @@ apiRouter.use('/kicks', requireAuth, kicksRoutes);
 // GET /api/committee-timeline, GET /api/audit-replay). Auth + permission enforced
 // per-endpoint inside the router.
 apiRouter.use(workflowRoutes);
+
+// Phase 1 — source-doc intake. Per-deal typed slots for source documents
+// paired with HistoricalUnderwriting records. Upload-and-organize ONLY;
+// not wired to extraction or ingest. See routes/source-docs.routes.ts.
+apiRouter.use('/source-docs', requireAuth, sourceDocsRoutes);

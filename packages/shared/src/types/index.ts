@@ -8,3 +8,4 @@ export * from './underwriting-context';
 export * from './render';
 export * from './render-migration';
 export * from './field-authority';
+export * from './source-docs';
