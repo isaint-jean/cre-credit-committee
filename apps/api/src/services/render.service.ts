@@ -115,9 +115,12 @@ export function buildRenderPayload(
   assertResolvedByResolver(resolvedContext);
   const projectionInput: ProjectionInput = { ...input, resolvedContext };
 
-  const cellBindings = projectCellBindings(projectionInput, contractVersion);
+  const projection = projectCellBindings(projectionInput, contractVersion);
+  const { bindings: cellBindings, states: cellStates, comments: cellComments } = projection;
   // Closed-system invariant — throws RenderSchemaError on any drift.
-  assertProjectionMatchesSchema(assetClass, structuralVariantKey, underwritingMode, cellBindings, contractVersion);
+  // Verifies cellBindings + cellStates + cellComments form a consistent
+  // address-keyed graph (states ⊇ bindings; comments ⊆ bindings).
+  assertProjectionMatchesSchema(assetClass, structuralVariantKey, underwritingMode, projection, contractVersion);
   // Provenance guard: hard-fail if any cell value carries filesystem paths
   // (Z:\, /Users/, /Volumes/, …) or known ingestion markers (AFSBR, etc.).
   // No silent stripping — a leak indicates a producer bug that must be
@@ -133,6 +136,8 @@ export function buildRenderPayload(
     structuralIdentity: getStructuralIdentity(assetClass, structuralVariantKey, underwritingMode, contractVersion),
     visibleTabs: getVisibleTabs(assetClass, structuralVariantKey, underwritingMode, contractVersion),
     cellBindings,
+    cellStates,
+    cellComments,
     schemaAddresses: getSchemaAddresses(assetClass, structuralVariantKey, underwritingMode, contractVersion),
     managedNamespace: getManagedNamespace(assetClass, structuralVariantKey, underwritingMode, contractVersion),
     tables: buildTables(input, contractVersion),

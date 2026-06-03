@@ -225,6 +225,11 @@ function composeForAnalysis(analysis: Analysis): ComposeResult {
   const conservatismStatus: RenderConservatismStatus = {
     approved: analysis.overallAdjustmentBias === 'conservative' && flags.length === 0,
     flags,
+    // Phase B (v8): expose floor-binding disclosure. Empty here because
+    // adaptAnalysisToAdjustedInputs ships the legacy uwModel path whose
+    // adjustments[] ledger is empty — no judgment-engine rule ledger is
+    // surfaced through the bridge.
+    floorBindings: [],
   };
   const libraryBaselineMeta: RenderLibraryBaselineMeta = {
     assetType: analysis.assetType,

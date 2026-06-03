@@ -170,6 +170,34 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     { address: 'Conclusions & Escrows!Concluded_Cap_Rate',      group: 'financial_core', state: 'LEGACY' },
     { address: 'Conclusions & Escrows!Concluded_Value',         group: 'financial_core', state: 'LEGACY' },
   ],
+  // v8 is a SHAPE bump (Phase B, populated-workbook initiative). No new
+  // cells, no source-surface migrations. Every cell carries over from v7
+  // with the same state — the payload contract gains cellStates +
+  // cellComments + floorBindings, but the per-cell migration state is
+  // unchanged.
+  8: [
+    { address: 'Property & Loan Summary!Property_Name',         group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Address',               group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!City',                  group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!State',                 group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!ZIP',                   group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!County',                group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Property_Type',         group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Year_Built',            group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Occupancy',             group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Ownership_Interest',    group: 'property', state: 'FULL_MODERN' },
+    { address: 'Borrower!Borrower',                             group: 'party',    state: 'FULL_MODERN' },
+    { address: 'Borrower!Sponsor',                              group: 'party',    state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Balloon_Term',          group: 'loan',     state: 'HYBRID' },
+    { address: 'Property & Loan Summary!Amortization_Term',     group: 'loan',     state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Interest_Only_Period',  group: 'loan',     state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Current_Balance',       group: 'financial_core', state: 'LEGACY' },
+    { address: 'Property & Loan Summary!Original_Balance',      group: 'financial_core', state: 'LEGACY' },
+    { address: 'Property & Loan Summary!Coupon',                group: 'financial_core', state: 'LEGACY' },
+    { address: 'Property & Loan Summary!Annual_Debt_Service',   group: 'financial_core', state: 'LEGACY' },
+    { address: 'Conclusions & Escrows!Concluded_Cap_Rate',      group: 'financial_core', state: 'LEGACY' },
+    { address: 'Conclusions & Escrows!Concluded_Value',         group: 'financial_core', state: 'LEGACY' },
+  ],
 };
 
 // --- Legal cross-version transitions ---------------------------------------

@@ -13,8 +13,16 @@ import type { AdjustedInputs } from './adjusted-inputs';
 import type { UnderwritingContext, UnderwritingMode } from './underwriting-context';
 import type { MigrationManifest } from './render-migration';
 
-/** Bumped on any breaking change to RenderPayload or BINDING_SCHEMA. */
-export const RENDER_CONTRACT_VERSION = 7;
+/**
+ * Bumped on any breaking change to RenderPayload or BINDING_SCHEMA.
+ *
+ * v7 → v8 (Phase B, populated-workbook initiative): RenderPayload gains
+ * `cellStates` + `cellComments` parallel maps; RenderConservatismStatus
+ * gains `floorBindings`. No new cells. Same (assetClass, variantKey,
+ * underwritingMode) renders the same structural surface as v7 — every
+ * v7 cell is marked `cellState: 'concluded'` at v8.
+ */
+export const RENDER_CONTRACT_VERSION = 8;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,
@@ -63,9 +71,87 @@ export type CellValue = number | string | boolean | null;
  */
 export type CellBindings = Record<string, CellValue>;
 
+/**
+ * Three-state classification for every cell the workbook will render.
+ * Parallel to CellBindings — every address in cellBindings has exactly
+ * one CellState in cellStates.
+ *
+ *   concluded      — engine value-add; the cell carries the engine value
+ *                    with no special fill or comment. Template formatting
+ *                    is preserved verbatim.
+ *   hitl           — deliberately blank; analyst input required (site
+ *                    visit, broker interview, market commentary, sales
+ *                    comps). The cell value is null, a GRAY fill is
+ *                    applied, and a comment naming the HITL category is
+ *                    written.
+ *   awaiting_input — a rule fired that needs a manual input which does
+ *                    not yet exist (extraction gap, manualInputs gap,
+ *                    missing field). The cell value is null, a RED fill
+ *                    is applied (the existing "missing data" visual is
+ *                    preserved), and a comment naming the rule + the
+ *                    specific gap is written.
+ */
+export type CellState = 'concluded' | 'hitl' | 'awaiting_input';
+
+/**
+ * Parallel to cellBindings: every address declared by the schema also
+ * has a state declaring how the workbook should render it. Keys MUST
+ * exactly match the keys of cellBindings (well-formedness invariant).
+ */
+export type CellStateMap = Record<string, CellState>;
+
+/**
+ * Optional cell comment attached to non-'concluded' cells. Only `hitl`
+ * and `awaiting_input` cells emit comments — `concluded` cells never do.
+ * The `text` field is the comment body written into the Excel cell note.
+ */
+export interface CellComment {
+  readonly state: 'hitl' | 'awaiting_input';
+  readonly text: string;
+}
+
+/**
+ * Parallel to cellBindings, but sparse: only `hitl` and `awaiting_input`
+ * cells appear. A 'concluded' cell address NEVER has an entry here.
+ */
+export type CellCommentMap = Record<string, CellComment>;
+
+/**
+ * Surfaces an AdjustedInputs line item whose adjusted value was raised
+ * by a library or bank floor (e.g. `JE_EXPENSE_RAISED_TO_LIBRARY_MEDIAN`,
+ * `JE_VACANCY_RAISED_TO_LIBRARY_MEDIAN`,
+ * `JE_EXPENSE_RATIO_SUBSTITUTED_FROM_LIBRARY`). Downstream consumers
+ * — including the populated workbook's Conclusions tab — surface this
+ * as a visible disclosure so floor-driven metrics aren't read as
+ * source-derived. Keeps the floor-chain honest.
+ */
+export interface FloorBinding {
+  /** Line-item field name on AdjustedInputs (e.g. 'totalOperatingExpenses', 'vacancyPct', 'noi'). */
+  readonly lineItem: string;
+  /** The rule id that fired the floor (e.g. 'JE_EXPENSE_RAISED_TO_LIBRARY_MEDIAN'). */
+  readonly ruleId: string;
+  /**
+   * Dollars (or unit-appropriate magnitude) the floor raised the value
+   * by, signed positive. For non-dollar line items (e.g. vacancyPct), the
+   * delta is in that field's native units; consumers display it through
+   * the same renderer the line item itself uses.
+   */
+  readonly delta: number;
+  /** Human-readable reason; mirrors the source AdjustmentEntry.reason. */
+  readonly reason: string;
+}
+
 export interface RenderConservatismStatus {
   approved: boolean;
   flags: string[];
+  /**
+   * Line items whose adjusted value was raised by a library or bank
+   * floor. Empty array when no floor-binding rule fired during judgment.
+   * Order is deterministic over the judgment-ledger walk: top-level
+   * adjustments first (in their original order), then per-line-item
+   * adjustments (walked in a stable, alphabetized structural path).
+   */
+  readonly floorBindings: ReadonlyArray<FloorBinding>;
 }
 
 export interface RenderLibraryBaselineMeta {
@@ -189,6 +275,19 @@ export interface RenderPayload {
   structuralIdentity: StructuralIdentity;
   visibleTabs: string[];
   cellBindings: CellBindings;
+  /**
+   * Parallel to `cellBindings`. Every address present in cellBindings
+   * MUST appear in cellStates. The state classifies how the workbook
+   * should render the cell — 'concluded' (no fill), 'hitl' (gray fill +
+   * comment), or 'awaiting_input' (red fill + comment).
+   */
+  cellStates: CellStateMap;
+  /**
+   * Sparse map: only `hitl` and `awaiting_input` cells emit comments.
+   * 'concluded' cells never have an entry here. Comment.state MUST
+   * agree with cellStates[address] for the same address.
+   */
+  cellComments: CellCommentMap;
   /**
    * Canonical, sorted list of every address declared by the schema for this
    * asset class. Equal to `Object.keys(cellBindings)` after backend runtime

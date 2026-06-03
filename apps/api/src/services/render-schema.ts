@@ -63,6 +63,10 @@ import type {
   AdjustedLineItem,
   AssetType,
   CellBindings,
+  CellComment,
+  CellCommentMap,
+  CellState,
+  CellStateMap,
   CellValue,
   ManagedNamespacePolicy,
   RenderInput,
@@ -278,10 +282,31 @@ const meta = (pick: (i: ProjectionInput) => CellValue): Selector =>
   tagSelector((input) => pick(input), ['meta']);
 
 // --- Schema entries ---------------------------------------------------------
+/**
+ * A single schema entry — one cell the workbook will render.
+ *
+ * `cellState` (added in v8 — Phase B of the populated-workbook initiative)
+ * classifies how the cell should be drawn:
+ *   - 'concluded'      — engine value-add; no fill, no comment. DEFAULT.
+ *   - 'hitl'           — deliberately blank, analyst input required;
+ *                        gray fill + comment.
+ *   - 'awaiting_input' — rule fired needing a manual input that doesn't
+ *                        exist; red fill + comment.
+ *
+ * `comment` is consulted only when cellState is 'hitl' or 'awaiting_input'.
+ * For 'concluded' it is ignored. The function receives the same
+ * ProjectionInput the selector consumes and returns the comment text
+ * (or null/undefined to skip emitting a comment).
+ *
+ * Both fields default to the 'concluded' / no-comment shape so every
+ * v6 and v7 entry continues to render with identical behavior.
+ */
 interface SchemaEntry {
   slot: SheetSlot;
   range: string;
   selector: Selector;
+  cellState?: CellState;
+  comment?: (input: ProjectionInput) => string | null | undefined;
 }
 
 /**
@@ -320,20 +345,20 @@ const SHARED_TEN_TAB_ENTRIES: SchemaEntry[] = [
   // is `analysis.name` (the uploaded filename), which is provenance data.
   // Add Property_Name back once the extraction pipeline produces a clean
   // property-name field via AdjustedInputs / UnderwritingContext.
-  { slot: 'Property_Loan_Summary', range: 'Current_Balance',      selector: num((a) => a.loan.loanAmount) },
-  { slot: 'Property_Loan_Summary', range: 'Original_Balance',     selector: num((a) => a.loan.loanAmount) },
+  { slot: 'Property_Loan_Summary', range: 'Current_Balance',      selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Original_Balance',     selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
   // Coupon and Amortization_Term: the CRE convention in this workbook is
   // decimal interest (0.0716 → "7.16%") and amortization in YEARS (30, not
   // 360 months). Unit conversion lives at the producer (adapter) for
   // interestRate and at the selector for amortization (schema declares the
   // shape of the cell value the artifact expects).
-  { slot: 'Property_Loan_Summary', range: 'Coupon',               selector: num((a) => a.loan.interestRate) },
-  { slot: 'Property_Loan_Summary', range: 'Amortization_Term',    selector: amortizationYears },
-  { slot: 'Property_Loan_Summary', range: 'Interest_Only_Period', selector: num((a) => a.loan.ioMonths) },
-  { slot: 'Property_Loan_Summary', range: 'Annual_Debt_Service',  selector: num((a) => a.metrics.annualDebtService) },
+  { slot: 'Property_Loan_Summary', range: 'Coupon',               selector: num((a) => a.loan.interestRate),          cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Amortization_Term',    selector: amortizationYears,                        cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Interest_Only_Period', selector: num((a) => a.loan.ioMonths),              cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Annual_Debt_Service',  selector: num((a) => a.metrics.annualDebtService),  cellState: 'concluded' },
   // Conclusions & Escrows — value / cap-rate output.
-  { slot: 'Conclusion_Escrows',    range: 'Concluded_Cap_Rate',   selector: num((a) => a.metrics.capRate) },
-  { slot: 'Conclusion_Escrows',    range: 'Concluded_Value',      selector: num((a) => a.metrics.impliedValue) },
+  { slot: 'Conclusion_Escrows',    range: 'Concluded_Cap_Rate',   selector: num((a) => a.metrics.capRate),            cellState: 'concluded' },
+  { slot: 'Conclusion_Escrows',    range: 'Concluded_Value',      selector: num((a) => a.metrics.impliedValue),       cellState: 'concluded' },
 ];
 
 // --- Managed namespace policy (v6) ------------------------------------------
@@ -432,37 +457,37 @@ function defsFor(assetClass: AssetType): SchemaDefinition[] {
 // ships matching named ranges.
 const V7_SHARED_ENTRIES: SchemaEntry[] = [
   // --- Property block (resolvedContext-only authority) ---
-  { slot: 'Property_Loan_Summary', range: 'Property_Name',     selector: ctx((c) => c.property.name) },
-  { slot: 'Property_Loan_Summary', range: 'Address',           selector: ctx((c) => c.property.street) },
-  { slot: 'Property_Loan_Summary', range: 'City',              selector: ctx((c) => c.property.city) },
-  { slot: 'Property_Loan_Summary', range: 'State',             selector: ctx((c) => c.property.state) },
-  { slot: 'Property_Loan_Summary', range: 'ZIP',               selector: ctx((c) => c.property.zip) },
-  { slot: 'Property_Loan_Summary', range: 'County',            selector: ctx((c) => c.property.county) },
-  { slot: 'Property_Loan_Summary', range: 'Property_Type',     selector: ctx((c) => c.property.type) },
-  { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => c.property.yearBuilt) },
-  { slot: 'Property_Loan_Summary', range: 'Occupancy',         selector: ctx((c) => c.property.occupancy) },
-  { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => c.property.ownershipInterest) },
+  { slot: 'Property_Loan_Summary', range: 'Property_Name',     selector: ctx((c) => c.property.name),                cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Address',           selector: ctx((c) => c.property.street),              cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'City',              selector: ctx((c) => c.property.city),                cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'State',             selector: ctx((c) => c.property.state),               cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'ZIP',               selector: ctx((c) => c.property.zip),                 cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'County',            selector: ctx((c) => c.property.county),              cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Property_Type',     selector: ctx((c) => c.property.type),                cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => c.property.yearBuilt),           cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Occupancy',         selector: ctx((c) => c.property.occupancy),           cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => c.property.ownershipInterest),   cellState: 'concluded' },
 
   // --- Loan block (hybrid authority — single-sourced per cell) ---
   // adjustedInputs-authoritative cells (carried over from v6):
-  { slot: 'Property_Loan_Summary', range: 'Current_Balance',     selector: num((a) => a.loan.loanAmount) },
-  { slot: 'Property_Loan_Summary', range: 'Original_Balance',    selector: num((a) => a.loan.loanAmount) },
-  { slot: 'Property_Loan_Summary', range: 'Coupon',              selector: num((a) => a.loan.interestRate) },
-  { slot: 'Property_Loan_Summary', range: 'Annual_Debt_Service', selector: num((a) => a.metrics.annualDebtService) },
+  { slot: 'Property_Loan_Summary', range: 'Current_Balance',     selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Original_Balance',    selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Coupon',              selector: num((a) => a.loan.interestRate),          cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Annual_Debt_Service', selector: num((a) => a.metrics.annualDebtService),  cellState: 'concluded' },
   // resolvedContext-authoritative cells (months → years for cell display):
   // Term: hydrator falls back to AdjustedInputs when extraction missing.
   // Amort / IO: extraction-only per spec (no fallback in hydrator).
-  { slot: 'Property_Loan_Summary', range: 'Balloon_Term',        selector: ctxLoanMonthsToYears((l) => l.termMonths) },
-  { slot: 'Property_Loan_Summary', range: 'Amortization_Term',   selector: ctxLoanMonthsToYears((l) => l.amortizationMonths) },
-  { slot: 'Property_Loan_Summary', range: 'Interest_Only_Period',selector: ctx((c) => c.loan.ioMonths) },
+  { slot: 'Property_Loan_Summary', range: 'Balloon_Term',        selector: ctxLoanMonthsToYears((l) => l.termMonths),         cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Amortization_Term',   selector: ctxLoanMonthsToYears((l) => l.amortizationMonths), cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Interest_Only_Period',selector: ctx((c) => c.loan.ioMonths),              cellState: 'concluded' },
 
   // --- Valuation block (adjustedInputs-only authority, carry-over) ---
-  { slot: 'Conclusion_Escrows',    range: 'Concluded_Cap_Rate',  selector: num((a) => a.metrics.capRate) },
-  { slot: 'Conclusion_Escrows',    range: 'Concluded_Value',     selector: num((a) => a.metrics.impliedValue) },
+  { slot: 'Conclusion_Escrows',    range: 'Concluded_Cap_Rate',  selector: num((a) => a.metrics.capRate),            cellState: 'concluded' },
+  { slot: 'Conclusion_Escrows',    range: 'Concluded_Value',     selector: num((a) => a.metrics.impliedValue),       cellState: 'concluded' },
 
   // --- Party block (resolvedContext-only authority) ---
-  { slot: 'Borrower',              range: 'Borrower',            selector: ctx((c) => c.parties.borrowerName) },
-  { slot: 'Borrower',              range: 'Sponsor',             selector: ctx((c) => c.parties.sponsorName) },
+  { slot: 'Borrower',              range: 'Borrower',            selector: ctx((c) => c.parties.borrowerName),       cellState: 'concluded' },
+  { slot: 'Borrower',              range: 'Sponsor',             selector: ctx((c) => c.parties.sponsorName),        cellState: 'concluded' },
 ];
 
 const V7_MANAGED_NAMESPACE: ManagedNamespacePolicy = {
@@ -535,6 +560,63 @@ const SCHEMA_V7: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v7DefsFor('manufactured_housing') },
 };
 
+// --- v8 SCHEMA ENTRIES ------------------------------------------------------
+// v8 is the populated-workbook initiative's Phase-B SHAPE bump. Per the
+// brief: no new cells. v8 is structurally identical to v7 — every entry
+// is carried forward verbatim — but the RenderPayload contract now
+// carries `cellStates` and `cellComments` parallel maps and
+// RenderConservatismStatus carries a `floorBindings` array. v8 entries
+// continue to render at cellState='concluded' (the v7 behavior), so the
+// rendered workbook surface is byte-identical to v7 today. Cells that
+// will mark `hitl` or `awaiting_input` will be added in subsequent
+// phases that gate on the GATE diff.
+const V8_SHARED_ENTRIES: SchemaEntry[] = V7_SHARED_ENTRIES.map((e) => ({ ...e }));
+
+const V8_MANAGED_NAMESPACE: ManagedNamespacePolicy = {
+  prefixes: [],
+  literals: V8_SHARED_ENTRIES.map((e) => e.range),
+  excludedSheets: [...SHARED_MANAGED_NAMESPACE.excludedSheets],
+};
+
+function v8Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V8_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V8_MANAGED_NAMESPACE,
+  };
+}
+
+function v8DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v8Definition(assetClass)];
+}
+
+const SCHEMA_V8: ContractSchema = {
+  office: {
+    office_core:       v8DefsFor('office'),
+    office_trophy:     v8DefsFor('office'),
+    office_value_add:  v8DefsFor('office'),
+    office_distressed: v8DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v8DefsFor('multifamily'),
+    mf_large_scale: v8DefsFor('multifamily'),
+    mf_workforce:   v8DefsFor('multifamily'),
+    mf_value_add:   v8DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v8DefsFor('industrial'),
+    ind_logistics: v8DefsFor('industrial'),
+    ind_light:     v8DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v8DefsFor('retail') },
+  hotel:                { hotel_core:                v8DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v8DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v8DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v8DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -574,6 +656,7 @@ const SCHEMA_V7: ContractSchema = {
 const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   6: SCHEMA_V6,
   7: SCHEMA_V7,
+  8: SCHEMA_V8,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -805,6 +888,11 @@ function assertSchemaWellFormed(): void {
   const ALLOWED_SOURCES_BY_VERSION: Readonly<Record<number, ReadonlySet<SourceSurface>>> = {
     6: new Set<SourceSurface>(['adjustedInputs']),
     7: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta']),
+    // v8 is a SHAPE bump (cellStates + cellComments + floorBindings on the
+    // payload contract). No cells move source surfaces — every v8 entry is
+    // carried over verbatim from v7 with cellState='concluded'. The allowed-
+    // source set therefore equals v7.
+    8: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta']),
   };
 
   const sourceViolations: Array<{
@@ -982,45 +1070,92 @@ function assertFieldStatesConsistentWithSchema(
 }
 
 /**
+ * Result of projecting a ProjectionInput against the schema. The three
+ * maps are address-keyed:
+ *   - bindings: every declared address → CellValue (number/string/bool/null)
+ *   - states:   every declared address → CellState (matches bindings keys)
+ *   - comments: SPARSE — only addresses whose state is 'hitl' or
+ *               'awaiting_input' AND whose `comment` selector returned
+ *               non-null text emit an entry.
+ *
+ * Adopted in v8 (Phase B of the populated-workbook initiative). v6/v7
+ * callers see the bindings map under the same keys; the additional maps
+ * are simply empty-of-comments and uniformly 'concluded' for those
+ * versions (every v6/v7 entry was annotated cellState: 'concluded').
+ */
+export interface ProjectionResult {
+  bindings: CellBindings;
+  states: CellStateMap;
+  comments: CellCommentMap;
+}
+
+/**
  * Project a ProjectionInput (RenderInput + pre-resolved underwriting
- * context) into the complete cellBindings map for its
- * (asset class, structural variant, underwriting mode) at the given contract
- * version. Pure projection — selectors do not branch.
+ * context) into the complete cellBindings + cellStates + cellComments
+ * maps for its (asset class, structural variant, underwriting mode) at
+ * the given contract version. Pure projection — selectors do not branch.
+ *
+ * The three maps share their key set (states ⊇ bindings; comments ⊆
+ * bindings). `assertProjectionMatchesSchema` verifies this invariant
+ * downstream.
  */
 export function projectCellBindings(
   input: ProjectionInput,
   contractVersion: number = RENDER_CONTRACT_VERSION,
-): CellBindings {
+): ProjectionResult {
   const def = definitionFor(
     input.assetClass,
     input.structuralVariantKey,
     input.underwritingMode,
     contractVersion,
   );
-  const out: CellBindings = {};
+  const bindings: CellBindings = {};
+  const states: CellStateMap = {};
+  const comments: CellCommentMap = {};
   for (const e of def.entries) {
     const sheetName = sheet(input.assetClass, e.slot);
     const address = `${sheetName}!${e.range}`;
-    out[address] = e.selector(input);
+    bindings[address] = e.selector(input);
+    const state: CellState = e.cellState ?? 'concluded';
+    states[address] = state;
+    // Comments are emitted ONLY for non-'concluded' states. 'concluded'
+    // cells are engine value-add — they render with template formatting
+    // and never carry a comment. A 'hitl' or 'awaiting_input' entry
+    // whose comment callback returns null/undefined still has its
+    // state recorded (driving the fill); the comment map simply does
+    // not gain an entry.
+    if (state !== 'concluded' && e.comment) {
+      const text = e.comment(input);
+      if (text != null && text !== '') {
+        comments[address] = { state, text };
+      }
+    }
   }
-  return out;
+  return { bindings, states, comments };
 }
 
 /**
  * Per-request invariant: bindings emitted by projectCellBindings must equal
  * (set-wise) the canonical schema addresses for the four-axis tuple. Any
  * drift — extra key, missing key, mistyped address — is a hard error.
+ *
+ * v8 extension: also verifies that `states` shares its key set with
+ * `bindings`, and that `comments` is a SUBSET of bindings (sparse map).
+ * For each non-'concluded' state, no further structural check — the
+ * comment map may legitimately omit a cell whose comment selector
+ * returned null.
  */
 export function assertProjectionMatchesSchema(
   assetClass: AssetType,
   variantKey: StructuralVariantKey,
   underwritingMode: UnderwritingMode,
-  bindings: CellBindings,
+  result: CellBindings | ProjectionResult,
   contractVersion: number = RENDER_CONTRACT_VERSION,
 ): void {
   const expected = new Set(
     getSchemaAddresses(assetClass, variantKey, underwritingMode, contractVersion),
   );
+  const bindings: CellBindings = isProjectionResult(result) ? result.bindings : result;
   const actual = new Set(Object.keys(bindings));
   const missing: string[] = [];
   const unexpected: string[] = [];
@@ -1033,6 +1168,53 @@ export function assertProjectionMatchesSchema(
       { contractVersion, assetClass, structuralVariantKey: variantKey, underwritingMode, missing, unexpected },
     );
   }
+  if (isProjectionResult(result)) {
+    const stateKeys = new Set(Object.keys(result.states));
+    const stateMissing: string[] = [];
+    const stateUnexpected: string[] = [];
+    for (const k of actual) if (!stateKeys.has(k)) stateMissing.push(k);
+    for (const k of stateKeys) if (!actual.has(k)) stateUnexpected.push(k);
+    if (stateMissing.length || stateUnexpected.length) {
+      throw new RenderSchemaError(
+        'PROJECTION_CELL_STATES_MISMATCH',
+        `cellStates keys do not match cellBindings keys for (contractVersion=${contractVersion}, assetClass=${assetClass}, structuralVariantKey=${variantKey}, underwritingMode=${underwritingMode}).`,
+        {
+          contractVersion, assetClass, structuralVariantKey: variantKey, underwritingMode,
+          missingStateKeys: stateMissing,
+          unexpectedStateKeys: stateUnexpected,
+        },
+      );
+    }
+    // Comments are sparse — they MUST be a subset of bindings, and each
+    // entry's state MUST agree with cellStates for the same address.
+    const commentExtras: string[] = [];
+    const commentStateDisagreements: Array<{ address: string; commentState: string; cellState: string }> = [];
+    for (const [addr, c] of Object.entries(result.comments)) {
+      if (!actual.has(addr)) {
+        commentExtras.push(addr);
+        continue;
+      }
+      const cs = result.states[addr];
+      if (cs !== c.state) {
+        commentStateDisagreements.push({ address: addr, commentState: c.state, cellState: cs });
+      }
+    }
+    if (commentExtras.length || commentStateDisagreements.length) {
+      throw new RenderSchemaError(
+        'PROJECTION_CELL_COMMENTS_MISMATCH',
+        `cellComments contains entries that are not addresses in cellBindings, or whose state disagrees with cellStates.`,
+        {
+          contractVersion, assetClass, structuralVariantKey: variantKey, underwritingMode,
+          unexpectedCommentKeys: commentExtras,
+          stateDisagreements: commentStateDisagreements,
+        },
+      );
+    }
+  }
+}
+
+function isProjectionResult(v: CellBindings | ProjectionResult): v is ProjectionResult {
+  return v != null && typeof v === 'object' && 'bindings' in v && 'states' in v && 'comments' in v;
 }
 
 export function getManagedNamespace(

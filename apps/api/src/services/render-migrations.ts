@@ -459,6 +459,46 @@ const MIGRATIONS: RenderContractMigration[] = [
       'CMBS_Comps_Refs cells requires (a) artifact-side named-range ' +
       'additions and (b) a v8 bump that only ADDs entries.',
   },
+  {
+    fromVersion: 7,
+    toVersion: 8,
+    description:
+      'Phase B of the populated-workbook initiative — payload shape bump, ' +
+      'NO new cells. RenderPayload gains two parallel address-keyed maps: ' +
+      '`cellStates` (every address declared by the schema → CellState; ' +
+      'one of \'concluded\' | \'hitl\' | \'awaiting_input\') and ' +
+      '`cellComments` (sparse map of hitl + awaiting_input addresses → ' +
+      '{ state, text }). RenderConservatismStatus gains a `floorBindings: ' +
+      'ReadonlyArray<FloorBinding>` field surfacing line items whose ' +
+      'adjusted value was raised by a library or bank floor rule ' +
+      '(JE_*_RAISED_TO_(LIBRARY|BANK), JE_*_SUBSTITUTED_FROM_LIBRARY, ' +
+      'JE_*_FLOOR, JE_*_CAPPED_TO_BANK). The populated workbook\'s ' +
+      'Conclusions tab uses floorBindings as a visible disclosure so ' +
+      'floor-driven metrics aren\'t read as source-derived. The schema ' +
+      'surface is identical to v7 — every entry carries forward with ' +
+      'cellState=\'concluded\'. Template engine\'s writeCellValue now ' +
+      'takes (cell, value, state, comment) and applies a GRAY fill ' +
+      '(FFD9D9D9) for hitl + RED fill (FFFFC7CE, preserved from v7) for ' +
+      'awaiting_input. concluded cells take no fill and no comment — ' +
+      'template formatting wins, byte-identical to v7.',
+    autoApplicable: true,
+    addresses: [],
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [
+      { kind: 'payload-field-added', field: 'cellStates' },
+      { kind: 'payload-field-added', field: 'cellComments' },
+      { kind: 'payload-field-added', field: 'conservatismStatus.floorBindings' },
+    ],
+    notes:
+      'Purely additive on the wire for clients that ignore the new ' +
+      'fields. v7-pinned workbooks continue to render identically — every ' +
+      'v8 cell is cellState=\'concluded\', so the visual surface is the ' +
+      'same as v7 even when v8 is used. New cells with hitl / ' +
+      'awaiting_input semantics are gated on the parent\'s Sunroad diff ' +
+      'GATE and land in a separate phase.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

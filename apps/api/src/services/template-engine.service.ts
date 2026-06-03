@@ -8,6 +8,8 @@
 
 import ExcelJS from 'exceljs';
 import type {
+  CellComment,
+  CellState,
   CellValue,
   RenderPayload,
   TablePayload,
@@ -1667,30 +1669,84 @@ function scrubProvenanceFromText(text: string): string {
 }
 
 /**
- * ARGB for the red flag fill applied to empty / missing cells.
- * Light-red so existing dark text remains legible, but unmistakably
- * different from the artifact's default cell fills.
+ * ARGB for the red flag fill applied to AWAITING_INPUT cells (rule fired
+ * needing a manual input that doesn't exist). Light-red so existing dark
+ * text remains legible, but unmistakably different from the artifact's
+ * default cell fills. Preserved from v6/v7 — this is the existing
+ * "missing data" visual.
  */
 const MISSING_DATA_FILL_ARGB = 'FFFFC7CE';
 
-function writeCellValue(cell: ExcelJS.Cell, value: CellValue): void {
-  if (value === null) {
-    cell.value = null;
-  } else {
-    cell.value = value as any;
+/**
+ * ARGB for the gray fill applied to HITL ("deliberately blank,
+ * analyst-input required") cells. Visually distinct from the
+ * MISSING_DATA red — HITL cells signal "the engine cannot know this
+ * value; please fill it in" rather than "a rule needs an input that
+ * doesn't exist yet." Light gray so the analyst can read template
+ * formatting and any comment text.
+ */
+const HITL_FILL_ARGB = 'FFD9D9D9';
+
+function applyFill(cell: ExcelJS.Cell, argb: string): void {
+  try {
+    (cell as any).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb },
+    };
+  } catch {
+    /* styling failure must not block the write */
   }
-  // Per spec §4 "If a value is missing → write empty cell value, apply RED
-  // CELL STYLE". Empty string is also treated as missing.
-  const isMissing = value === null || value === '';
-  if (isMissing) {
+}
+
+/**
+ * Write a value to a cell with the appropriate visual treatment for its
+ * cell state. The three states:
+ *
+ *   'concluded'      — engine value-add. Value written verbatim; no fill
+ *                      applied (template formatting wins). No comment.
+ *   'hitl'           — deliberately blank, analyst input required. Value
+ *                      is null; GRAY fill applied; comment text (when
+ *                      provided) attached as a cell note.
+ *   'awaiting_input' — rule fired needing a manual input that doesn't
+ *                      exist. Value is null; RED fill applied; comment
+ *                      text (when provided) attached as a cell note.
+ *
+ * The fill and comment writes are wrapped in try/catch — styling /
+ * commenting failure must NEVER block the value write.
+ *
+ * NOTE: this signature changed in v8 (Phase B, populated-workbook
+ * initiative). v6/v7 callers passed (cell, value); the prior
+ * implementation auto-applied a red fill on null/'' values. That
+ * implicit behavior is GONE — callers now declare the state
+ * explicitly. `applyRenderPayloadToTemplate` reads the state from
+ * `payload.cellStates`; when the payload is from an older client that
+ * does not carry cellStates, the route is required to default to
+ * 'concluded' (which preserves the v6/v7 surface for cells where the
+ * value is also non-null).
+ */
+function writeCellValue(
+  cell: ExcelJS.Cell,
+  value: CellValue,
+  state: CellState,
+  comment: CellComment | null,
+): void {
+  cell.value = value === null ? null : (value as any);
+  if (state === 'hitl') {
+    applyFill(cell, HITL_FILL_ARGB);
+  } else if (state === 'awaiting_input') {
+    applyFill(cell, MISSING_DATA_FILL_ARGB);
+  }
+  // 'concluded': no fill.
+
+  if (comment !== null && state !== 'concluded') {
     try {
-      (cell as any).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: MISSING_DATA_FILL_ARGB },
+      (cell as any).note = {
+        texts: [{ text: comment.text }],
+        margins: { insetmode: 'auto' },
       };
     } catch {
-      /* styling failure must not block the write */
+      /* commenting failure must not block the write */
     }
   }
 }
@@ -1704,7 +1760,10 @@ function writeTable(workbook: ExcelJS.Workbook, table: TablePayload): boolean {
   table.rows.forEach((row, rIdx) => {
     table.layout.columns.forEach((col, cIdx) => {
       const v = row[col.sourceField];
-      writeCellValue(ws.getCell(table.layout.dataStartRow + rIdx, cIdx + 1), v ?? null);
+      // Tables are concluded-only today. Driver tables never use the
+      // HITL or AWAITING_INPUT visual semantics — they list cross-check
+      // findings the engine produced.
+      writeCellValue(ws.getCell(table.layout.dataStartRow + rIdx, cIdx + 1), v ?? null, 'concluded', null);
     });
   });
   return true;
@@ -1729,6 +1788,15 @@ export async function applyRenderPayloadToTemplate(
   const writtenAddresses: string[] = [];
   const unresolvedAddresses: string[] = [];
 
+  // payload.cellStates is REQUIRED at v8+. For pre-v8 payloads that may
+  // still flow through here (legacy callers, fixtures), default each
+  // address to 'concluded' — that matches the v6/v7 visual surface for
+  // engine values and avoids the prior implicit "null → red" auto-fill
+  // (now an explicit 'awaiting_input' state). cellComments is sparse;
+  // missing addresses simply emit no comment.
+  const cellStates = payload.cellStates ?? {};
+  const cellComments = payload.cellComments ?? {};
+
   for (const [address, value] of Object.entries(payload.cellBindings)) {
     const parts = splitAddress(address);
     if (!parts) {
@@ -1740,8 +1808,10 @@ export async function applyRenderPayloadToTemplate(
       unresolvedAddresses.push(address);
       continue;
     }
+    const state: CellState = cellStates[address] ?? 'concluded';
+    const comment: CellComment | null = cellComments[address] ?? null;
     if (A1_PATTERN.test(parts.ref)) {
-      writeCellValue(ws.getCell(parts.ref), value);
+      writeCellValue(ws.getCell(parts.ref), value, state, comment);
       writtenAddresses.push(address);
       continue;
     }
@@ -1750,7 +1820,7 @@ export async function applyRenderPayloadToTemplate(
       unresolvedAddresses.push(address);
       continue;
     }
-    for (const c of cells) writeCellValue(c, value);
+    for (const c of cells) writeCellValue(c, value, state, comment);
     writtenAddresses.push(address);
   }
 

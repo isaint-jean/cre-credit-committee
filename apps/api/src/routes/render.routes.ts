@@ -32,6 +32,7 @@ import {
   getMigrationManifest,
 } from '../services/render-migrations.js';
 import { adaptAnalysisToAdjustedInputs } from '../services/analysis-to-adjusted-inputs.adapter.js';
+import { buildFloorBindings } from '../services/build-floor-bindings.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import { hydrateUnderwritingContext } from '../services/hydrate-underwriting-context.js';
@@ -52,6 +53,7 @@ import {
 } from '../services/template-engine.service.js';
 import { RENDER_CONTRACT_VERSION } from '@cre/shared';
 import type {
+  AdjustedInputs,
   Analysis,
   AssetType,
   MigrationManifest,
@@ -71,13 +73,16 @@ const VALID_ASSET_TYPES: AssetType[] = [
   'hotel', 'self_storage', 'mixed_use', 'manufactured_housing',
 ];
 
-function buildConservatismStatus(analysis: Analysis): RenderConservatismStatus {
+function buildConservatismStatus(
+  analysis: Analysis,
+  adjustedInputs: AdjustedInputs,
+): RenderConservatismStatus {
   const findings = analysis.crossCheckFindings ?? [];
   const flags = findings
     .filter((f) => f.severity === 'high' || f.severity === 'critical')
     .map((f) => `${f.metric} [${f.flag}]`);
   const approved = analysis.overallAdjustmentBias === 'conservative' && flags.length === 0;
-  return { approved, flags };
+  return { approved, flags, floorBindings: buildFloorBindings(adjustedInputs) };
 }
 
 const VALID_UNDERWRITING_MODES: UnderwritingMode[] = ['single_loan', 'roll_up'];
@@ -308,7 +313,7 @@ function composeRenderPayloadFromQuery(
       mode: underwritingMode,
     }),
     drivers: analysis.crossCheckFindings ?? [],
-    conservatismStatus: buildConservatismStatus(analysis),
+    conservatismStatus: buildConservatismStatus(analysis, adjustedInputs),
     libraryBaselineMeta: buildLibraryBaselineMeta(analysis),
   };
 
