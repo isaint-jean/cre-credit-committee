@@ -771,42 +771,37 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
     cellState: 'concluded',
   },
   // P38 — Capital Expenditures / Replacement Reserves. Engine $54,952 (= answer
-  // key $54,952 EXACT). @cre/shared stores annual replacementReserves directly.
+  // key $54,952 EXACT). Source: `AdjustedInputs.capitalReserves.monthlyReplacementReserves`
+  // (monthly $; × 12 for annual). The legacy `expenses.replacementReserves`
+  // slot stays at 0 by design (NOI tie-out — the new-spine engine treats
+  // reserves as below-NOI / capital). Reading from capitalReserves
+  // surfaces the real value without breaking the NOI build-up that
+  // downstream tabs depend on.
   {
     slot: 'Operating_ProForma',
     range: 'P38',
-    selector: adj((a) => a.expenses.replacementReserves),
+    selector: num((a) => a.capitalReserves.monthlyReplacementReserves.adjusted * 12),
     cellState: 'concluded',
   },
 
   // ----- v9 NEW: Conclusions & Escrows — CONCLUDED metrics ------------------
-  // After the loan-terms fix (LOAN_TERMS phase12 → real Sunroad: $82.46M
-  // @ 7.9% IO-only), per the phase13 re-run diff vs the answer key:
+  // After the Phase-14 IO-only debt-service fix (Bugs 1+2 — both
+  // `judgment/amortization.ts:annualDebtService` and the legacy
+  // `uw-calc.ts:calculateAnnualDebtService` now return
+  // `loanAmount × interestRate` for `amortizationMonths === 0`), the
+  // Sunroad metrics close cleanly against the answer key:
   //   Debt Yield: engine 0.1033 vs answer 0.106 (-2.54% conservative, in
   //     ±5% band) — CONCLUDED.
-  //   DSCR (NOI): engine null vs answer 1.343 — does NOT diff clean.
-  //     The upstream adapter chain (analysis-to-adjusted-inputs.adapter)
-  //     does not propagate LoanTermsExtraction into the legacy uwModel's
-  //     loan-detail fields that feed debtServiceAnnual; the resulting
-  //     metrics.dscr is null. Per the brief's gate condition ("IF they
-  //     then diff clean and non-optimistic"), DSCR ships as AWAITING_INPUT
-  //     pending the adapter wiring fix (logged as cleanup ticket #8 in
-  //     the body of this commit).
+  //   DSCR (NOI): engine ~1.31 vs answer 1.343 (-2.5% conservative; in
+  //     ±5% band and ±50bps) — CONCLUDED (Phase-14 flip from AWAITING_INPUT).
   // Cell I-column on Conclusions & Escrows; no defined names for these
   // specific rows; A1 addresses below.
-  // I16 — DSCR (NOI). AWAITING_INPUT until adapter wiring lands.
+  // I16 — DSCR (NOI). CONCLUDED post Bugs 1+2 fix.
   {
     slot: 'Conclusion_Escrows',
     range: 'I16',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
-    comment: () =>
-      'Engine adjustedInputs.metrics.dscr is null today on Sunroad post the ' +
-      'loan-terms fix: the legacy adapter (analysis-to-adjusted-inputs) does ' +
-      'not propagate LoanTermsExtraction into the loan-detail fields that ' +
-      'feed debtServiceAnnual, so dscr = noi / 0 = null. Debt Yield diffs ' +
-      'clean (engine 0.1033 vs answer 0.106, -2.5% conservative) and ships ' +
-      'as concluded; DSCR awaits the adapter wiring fix.',
+    selector: num((a) => a.metrics.dscr),
+    cellState: 'concluded',
   },
   // J16 — Debt Yield (NOI). Conclusions sheet J16 is the paired debt-yield
   // output cell. Engine 0.1033 vs answer 0.106 — in band (±50bps),

@@ -6,12 +6,20 @@
  * where r = annual rate / 12, n = amortization months.
  *
  * v1.0 simplifications (audit §E.4):
- *   - IO period NOT handled in `annualDebtService` — we use the amortizing payment as the
- *     annual debt service. For loans with an IO period, this overstates year-1 debt service
- *     (under-DSCR), which is conservative. v1.1 may produce IO-aware annual schedules.
+ *   - IO-ONLY loans (`amortizationMonths === 0` / `<= 0`) are CORRECTLY handled now:
+ *     `annualDebtService = loanAmount × interestRate`. Interest-only loans are
+ *     common in CRE (the entire term pays interest only; principal balloons at
+ *     maturity). Previously this branch returned 0, causing DSCR = NOI / 0 = null
+ *     for every IO-only deal — the system couldn't underwrite them at all.
+ *   - PARTIAL-IO loans (an IO period followed by an amortizing tail, e.g.
+ *     `ioMonths > 0` with `amortizationMonths > 0`) are STILL handled by the
+ *     amortizing formula below — the IO period is ignored here. For partial-IO
+ *     this overstates year-1 debt service (under-DSCR), which is conservative.
+ *     v1.1 may produce IO-aware annual schedules that honor the partial-IO
+ *     period explicitly.
  *   - Zero interest rate handled (special case: monthly = P/n).
- *   - Zero loan amount or zero amortization → 0 debt service (caller's responsibility to
- *     handle null inputs upstream).
+ *   - Zero loan amount → 0 debt service (caller's responsibility to handle
+ *     null inputs upstream).
  */
 
 export function annualDebtService(args: {
@@ -20,7 +28,12 @@ export function annualDebtService(args: {
   readonly amortizationMonths: number;
 }): number {
   if (args.loanAmount <= 0) return 0;
-  if (args.amortizationMonths <= 0) return 0;
+  if (args.amortizationMonths <= 0) {
+    // IO-only loan: debt service = loanAmount × annual rate (interest payments only).
+    // Without this branch, the formula below divides by (factor - 1) === 0 — and
+    // the prior "return 0" gate silently broke DSCR for every IO-only deal.
+    return args.loanAmount * args.interestRate;
+  }
 
   const r = args.interestRate / 12;
   if (r === 0) {

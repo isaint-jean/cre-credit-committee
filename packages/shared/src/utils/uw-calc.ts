@@ -63,8 +63,16 @@ export function calculateAnnualDebtService(
   annualRate: number,
   amortizationYears: number
 ): number | null {
-  if (!isValidPositive(loanAmount) || !isValidPositive(annualRate) || !isValidPositive(amortizationYears)) {
+  if (!isValidPositive(loanAmount) || !isValidPositive(annualRate)) {
     return null;
+  }
+  // IO-only loan: amortizationYears === 0 (or non-positive). Annual debt
+  // service is loanAmount × annual rate (interest payments only). Unit
+  // convention here is PERCENT for annualRate — see the monthlyRate
+  // computation below which divides by 100. Without this branch IO-only
+  // loans yielded null DSCR and the system could not underwrite them.
+  if (amortizationYears <= 0 || !Number.isFinite(amortizationYears)) {
+    return loanAmount * (annualRate / 100);
   }
   const monthlyRate = annualRate / 100 / 12;
   const totalPayments = amortizationYears * 12;

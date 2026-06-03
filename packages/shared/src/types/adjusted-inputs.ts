@@ -55,8 +55,46 @@ export interface AdjustedExpenses {
   management: AdjustedLineItem;
   generalAndAdmin: AdjustedLineItem;
   payroll: AdjustedLineItem;
+  /**
+   * Operating-side replacement reserves slot. KEPT AT 0 BY DESIGN for the
+   * NOI tie-out — the new-spine engine treats reserves as below-NOI / capital
+   * (they don't enter `metrics.netOperatingIncome`). If you need the real
+   * reserve value, read `AdjustedInputs.capitalReserves.monthlyReplacementReserves.adjusted`
+   * (monthly $; multiply by 12 for annual). The render-schema's P38
+   * Replacement Reserves cell sources from there, not from this field.
+   */
   replacementReserves: AdjustedLineItem;
   totalExpenses: AdjustedLineItem;
+}
+
+/**
+ * Capital reserves (below-NOI / capital).
+ *
+ * The new-spine judgment engine treats these as separate from operating
+ * expenses — they don't enter the NOI build-up. Surfaced on the @cre/shared
+ * projection so the populated workbook can show real reserve values without
+ * breaking the NOI tie-out that `AdjustedExpenses.replacementReserves`
+ * preserves (which stays zero by design).
+ *
+ * Source: the rich `@cre/contracts.AdjustedCapitalReserves` produced by the
+ * new-spine engine. The adapter `analysis-to-adjusted-inputs.adapter.ts`
+ * projects from the legacy `UnderwritingModel.capitalReserves` slot (filled
+ * in by `synthesize-uw-model-from-graph.ts` at synthesis time); legacy
+ * non-promoted analyses without graph state surface an all-zeros default
+ * marked `source: 'missing-data-penalty'`.
+ *
+ * Unit convention: ALL `monthly*` fields are MONTHLY dollars (multiply by 12
+ * for annual). `upfront*` and `pcaImmediateRepairs` are dollar TOTALS
+ * (closing-time cash reserves; not annualized).
+ */
+export interface AdjustedCapitalReserves {
+  monthlyReplacementReserves: AdjustedLineItem;
+  monthlyTenantImprovements: AdjustedLineItem;
+  monthlyLeasingCommissions: AdjustedLineItem;
+  monthlyCapex: AdjustedLineItem;
+  upfrontReplacementReserves: AdjustedLineItem;
+  upfrontTiLc: AdjustedLineItem;
+  pcaImmediateRepairs: AdjustedLineItem;
 }
 
 export interface AdjustedLoan {
@@ -90,6 +128,17 @@ export interface AdjustmentEntry {
 export interface AdjustedInputs {
   income: AdjustedIncome;
   expenses: AdjustedExpenses;
+  /**
+   * Below-NOI / capital reserves. Surfaced separately from `expenses` so
+   * the NOI tie-out (`metrics.netOperatingIncome === EGI - totalExpenses`)
+   * is preserved. See `AdjustedCapitalReserves` JSDoc for unit conventions.
+   *
+   * Adapter contract: legacy analyses without graph state emit an
+   * all-zeros default with `source: 'missing-data-penalty'` on each
+   * line item — never undefined. Selectors can read this field
+   * unconditionally.
+   */
+  capitalReserves: AdjustedCapitalReserves;
   loan: AdjustedLoan;
   metrics: AdjustedMetrics;
   /** Append-only ledger of every change applied by the judgment engine. */

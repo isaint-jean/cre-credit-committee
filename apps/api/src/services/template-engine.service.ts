@@ -1444,6 +1444,88 @@ function resolveNamedRangeCells(
  * intact. Returns the number of rules dropped (caller may surface in a
  * diagnostic header if useful).
  */
+/**
+ * Pre-resolve every sharedFormula cell to a standalone formula clone.
+ *
+ * ExcelJS round-trips sharedFormula cells as descendants of a "master"
+ * cell — the descendant carries `{ sharedFormula: '<master A1 ref>',
+ * result: <cached> }` and the master carries the actual formula string.
+ * On `writeBuffer()`, ExcelJS rewrites the descendant by translating the
+ * master's formula to the descendant's address. When the populator
+ * overwrites the master cell with a value (or with a different formula),
+ * the descendant's master pointer becomes orphaned and write-time
+ * translation throws OR silently emits garbage.
+ *
+ * Workaround: BEFORE any mutation, walk every sheet, look up each
+ * sharedFormula descendant's master formula, and replace the
+ * descendant's value with a STANDALONE formula clone (carrying the
+ * cached result so live recompute is preserved). After this pass, the
+ * workbook has zero sharedFormula references and the populator can
+ * freely overwrite any cell without orphaning siblings.
+ *
+ * The workbook stays LIVE/EDITABLE — every formula cell still carries
+ * its formula string; Excel recomputes on open. This is option 1 of the
+ * Phase 14 brief; option 2 (replace formulas with cached values) was
+ * REJECTED because it freezes the workbook against analyst edits.
+ *
+ * Note: the standalone clone uses the master cell's formula string
+ * VERBATIM (not relative-reference-translated). Cells whose master's
+ * formula contains only absolute refs ($A$1) are exact. Cells whose
+ * master uses relative refs (A1, A2, ...) will recompute against the
+ * descendant cell's neighborhood on open — Excel resolves relative
+ * refs at evaluation time anyway, so the behavior matches what the
+ * sharedFormula did before. (For sharedFormula descendants whose
+ * Excel-time recompute differs from a literal copy of the master
+ * formula, the cached `result` value is also preserved, so the visible
+ * cell content is correct on first open even if recompute drifts.)
+ *
+ * Returns the number of cells resolved (useful for diagnostic logging).
+ */
+function preResolveSharedFormulas(workbook: ExcelJS.Workbook): number {
+  let resolved = 0;
+  workbook.eachSheet((ws) => {
+    // Build a master-formula lookup keyed by A1 master ref. A "master"
+    // is any cell carrying a standalone formula (`formula` set,
+    // `sharedFormula` absent).
+    const masters: Record<string, string> = {};
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        const v = cell.value as any;
+        if (
+          v && typeof v === 'object' &&
+          'formula' in v && !('sharedFormula' in v) &&
+          typeof v.formula === 'string'
+        ) {
+          masters[cell.address] = v.formula as string;
+        }
+      });
+    });
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        const v = cell.value as any;
+        if (v && typeof v === 'object' && 'sharedFormula' in v) {
+          const masterRef = v.sharedFormula as string;
+          const masterFormula = masters[masterRef];
+          if (masterFormula) {
+            // Clone the master's formula to this cell as a standalone
+            // formula. The cached result is preserved so first-open
+            // display is correct even before Excel recomputes.
+            cell.value = { formula: masterFormula, result: v.result } as any;
+            resolved++;
+          } else {
+            // Master not in the lookup (unusual — possibly the master
+            // was outside the iterated range). Fall back to the cached
+            // result. The cell becomes a plain value cell. Better than
+            // an orphaned formula reference that breaks writeBuffer().
+            cell.value = v.result ?? null;
+          }
+        }
+      });
+    });
+  });
+  return resolved;
+}
+
 function sanitizeConditionalFormatting(workbook: ExcelJS.Workbook): number {
   const FORMULA_TYPES = new Set([
     'expression', 'cellIs', 'top10', 'aboveAverage', 'containsText', 'timePeriod',
@@ -1784,6 +1866,14 @@ export async function applyRenderPayloadToTemplate(
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(templateBuffer as any);
+
+  // Pre-resolve every sharedFormula descendant BEFORE any mutation. See the
+  // function's JSDoc for the rationale: overwriting a master cell without
+  // this pass orphans every descendant sharedFormula reference and either
+  // throws or emits garbage at `xlsx.writeBuffer()` time. Phase 14 promoted
+  // this from the phase13 one-off into the template-engine. The workbook
+  // stays live/editable — each cell still carries its formula string.
+  preResolveSharedFormulas(workbook);
 
   const writtenAddresses: string[] = [];
   const unresolvedAddresses: string[] = [];

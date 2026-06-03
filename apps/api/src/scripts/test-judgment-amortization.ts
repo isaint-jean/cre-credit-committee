@@ -37,7 +37,26 @@ console.log('annualDebtService:');
 }
 {
   assertEqual(annualDebtService({ loanAmount: 0, interestRate: 0.07, amortizationMonths: 360 }), 0, 'zero loan → 0');
-  assertEqual(annualDebtService({ loanAmount: 100_000, interestRate: 0.07, amortizationMonths: 0 }), 0, 'zero amort → 0');
+}
+
+// IO-only loans (amortizationMonths === 0). Previously returned 0; now
+// returns loanAmount × interestRate (interest payments only). Without this,
+// every IO-only deal's DSCR was null and the system could not underwrite
+// IO paper — which is common in CRE (most agency / CMBS post-2015).
+{
+  // Sunroad answer-key: $82.46M @ 7.9% IO-only → $6,514,340 annual.
+  const r = annualDebtService({ loanAmount: 82_460_000, interestRate: 0.079, amortizationMonths: 0 });
+  assertClose(r, 6_514_340, 1, 'IO-only Sunroad: $82.46M @ 7.9% → $6,514,340 annual');
+}
+{
+  // Simple round-number IO-only check.
+  const r = annualDebtService({ loanAmount: 1_000_000, interestRate: 0.05, amortizationMonths: 0 });
+  assertClose(r, 50_000, 0.01, 'IO-only: $1M @ 5% → $50k annual');
+}
+{
+  // Negative amortizationMonths defensively maps to IO-only too.
+  const r = annualDebtService({ loanAmount: 1_000_000, interestRate: 0.05, amortizationMonths: -12 });
+  assertClose(r, 50_000, 0.01, 'Negative amort defensively treated as IO-only');
 }
 
 console.log('\nmaturityBalance:');

@@ -19,12 +19,14 @@
  *   - Not a metric computer. Whatever uwModel reports is passed through.
  */
 import type {
+  AdjustedCapitalReserves,
   AdjustedExpenses,
   AdjustedIncome,
   AdjustedInputs,
   AdjustedLineItem,
   AdjustedLoan,
   AdjustedMetrics,
+  AdjustmentEntry,
   Analysis,
   LineItem,
   UnderwritingModel,
@@ -98,6 +100,151 @@ function buildLoan(model: UnderwritingModel): AdjustedLoan {
   };
 }
 
+/**
+ * Project the synthesized `UnderwritingModel.capitalReserves` slot onto
+ * the @cre/shared `AdjustedCapitalReserves` shape. Legacy non-promoted
+ * analyses (no graph) leave the slot undefined; emit an all-zeros default
+ * with `source: 'missing-data-penalty'` so the render-schema selectors
+ * can read unconditionally.
+ *
+ * Unit convention is preserved: `monthly*` are monthly $, `upfront*` and
+ * `pcaImmediateRepairs` are closing-time $.
+ *
+ * Without a real judgment engine surfacing raw vs adjusted distinctions
+ * on the legacy synthesized model, we treat the carried value as both
+ * raw and adjusted (delta = 0, source = 'raw'). When the engine cutover
+ * lands and the render layer reads directly from @cre/contracts, this
+ * function (and the whole adapter) goes away.
+ */
+function buildCapitalReserves(model: UnderwritingModel): AdjustedCapitalReserves {
+  const cr = model.capitalReserves;
+  if (!cr) {
+    // Legacy / non-promoted analysis without graph state. Emit a coherent
+    // all-zeros default so selectors can read unconditionally; the missing-
+    // data-penalty source flag signals "not derivable" to downstream
+    // disclosure surfaces.
+    const missing: AdjustedLineItem = {
+      raw: null, adjusted: 0, delta: 0, source: 'missing-data-penalty',
+    };
+    return {
+      monthlyReplacementReserves: { ...missing },
+      monthlyTenantImprovements:  { ...missing },
+      monthlyLeasingCommissions:  { ...missing },
+      monthlyCapex:               { ...missing },
+      upfrontReplacementReserves: { ...missing },
+      upfrontTiLc:                { ...missing },
+      pcaImmediateRepairs:        { ...missing },
+    };
+  }
+  const li = (v: number): AdjustedLineItem => ({
+    raw: Number.isFinite(v) ? v : null,
+    adjusted: Number.isFinite(v) ? v : 0,
+    delta: 0,
+    source: 'raw',
+  });
+  return {
+    monthlyReplacementReserves: li(cr.monthlyReplacementReserves),
+    monthlyTenantImprovements:  li(cr.monthlyTenantImprovements),
+    monthlyLeasingCommissions:  li(cr.monthlyLeasingCommissions),
+    monthlyCapex:               li(cr.monthlyCapex),
+    upfrontReplacementReserves: li(cr.upfrontReplacementReserves),
+    upfrontTiLc:                li(cr.upfrontTiLc),
+    pcaImmediateRepairs:        li(cr.pcaImmediateRepairs),
+  };
+}
+
+/**
+ * Project the synthesized `UnderwritingModel.expenses.additionalItems[]`
+ * back into the `@cre/shared.AdjustedInputs.adjustments[]` ledger. The
+ * synthesis at synthesize-uw-model-from-graph.ts encodes each adjustment
+ * as a LineItem with `id: 'exp_${ruleId.toLowerCase()}'` (Source A —
+ * OpEx-level adjustments) or `id: 'exp_je_${ruleId.toLowerCase()}'`
+ * (Source B — NOI-level adjustments from topLevelAdjustments). The
+ * reverse projection strips the prefix and uppercases the result.
+ *
+ * Downstream `buildFloorBindings` filters by a JE_*_RAISED_TO_LIBRARY /
+ * _RAISED_TO_BANK / _SUBSTITUTED_FROM_LIBRARY / _FLOOR / _CAPPED_TO_BANK
+ * regex, so non-floor items (e.g. JE_NOI_RECONCILED) pass through harmlessly.
+ */
+function extractRuleIdFromLineItemId(id: string): string {
+  // Match the longest prefix first — 'exp_je_' must be tried before 'exp_'.
+  // Income-side bindings use the `inc_` prefix (Bug 3 widening — surfaces
+  // vacancy/concessions/otherIncome floor bindings); 'inc_egi_residual'
+  // is a defensive placeholder, not an adjustment — it stays out.
+  const stripped = id.startsWith('exp_je_')
+    ? id.slice('exp_je_'.length)
+    : id.startsWith('exp_')
+      ? id.slice('exp_'.length)
+      : id.startsWith('inc_')
+        ? id.slice('inc_'.length)
+        : id;
+  // Reverse synthesis's `.toLowerCase()` so the resulting ruleId can match
+  // the JudgmentEngineRuleId catalogue and the floor-binding regex.
+  return stripped.toUpperCase();
+}
+
+/**
+ * Inferred field-name on the adjustments ledger based on the synthesized
+ * line-item id prefix. Determines which schema-layer field the binding is
+ * disclosed against on the populated workbook:
+ *   - 'inc_*' (synthesis Phase 14 widening) → 'vacancyPct' etc.
+ *   - 'exp_*' / 'exp_je_*'                   → 'totalOperatingExpenses'.
+ *
+ * The downstream `buildFloorBindings` filter regex matches on ruleId, not
+ * field, so a mis-bucketed field doesn't break the disclosure. The field
+ * label is informational only.
+ */
+function inferAdjustmentField(id: string, ruleId: string): string {
+  if (id.startsWith('inc_')) {
+    // Best-effort: route vacancy / concessions rule ids to their
+    // respective fields. Anything else lands on a generic income field.
+    if (ruleId.includes('VACANCY')) return 'vacancyPct';
+    if (ruleId.includes('CONCESSION')) return 'concessionsPct';
+    if (ruleId.includes('OTHER_INCOME') || ruleId.includes('OTHERINCOME')) return 'otherIncome';
+    return 'income';
+  }
+  return 'totalOperatingExpenses';
+}
+
+/**
+ * Skip-list: items the adapter must NOT project as adjustments. The synthesis
+ * emits `inc_egi_residual` as a defensive EGI tie-out residual; it carries no
+ * judgment-engine semantics and must not pollute the adjustments ledger.
+ */
+const ADJUSTMENT_LINE_ITEM_SKIP = new Set<string>([
+  'exp_opex_residual',
+  'inc_egi_residual',
+]);
+
+function buildAdjustments(model: UnderwritingModel): AdjustmentEntry[] {
+  const out: AdjustmentEntry[] = [];
+  const expenseItems = model.expenses?.additionalItems ?? [];
+  const incomeItems = model.income?.additionalItems ?? [];
+  for (const item of [...incomeItems, ...expenseItems]) {
+    if (ADJUSTMENT_LINE_ITEM_SKIP.has(item.id)) continue;
+    const ruleId = extractRuleIdFromLineItemId(item.id);
+    out.push({
+      ruleId,
+      field: inferAdjustmentField(item.id, ruleId),
+      before: null,
+      after: item.annualAmount,
+      reason: item.label,
+      // The synthesis catalogue distinguishes:
+      //   - Source A items (`exp_${ruleId}`) — library / bank floor lifts →
+      //     map to 'library-baseline'.
+      //   - Source B items (`exp_je_${ruleId}`) — NOI-level haircuts (e.g.
+      //     JE_NOI_CAPPED_TO_BANK). These are still judgment-engine
+      //     bindings; flag with 'library-baseline' as well so the floor-
+      //     binding regex sees a consistent source. (The regex itself
+      //     filters by ruleId, not source.)
+      //   - 'inc_*' income-side bindings — Phase 14 widening for vacancy /
+      //     concessions / otherIncome floors. Same 'library-baseline' flag.
+      source: 'library-baseline',
+    });
+  }
+  return out;
+}
+
 function buildMetrics(model: UnderwritingModel): AdjustedMetrics {
   return {
     netOperatingIncome: model.netOperatingIncome,
@@ -116,11 +263,16 @@ export function adaptAnalysisToAdjustedInputs(analysis: Analysis): AdjustedInput
   return {
     income: buildIncome(model),
     expenses: buildExpenses(model),
+    // Below-NOI / capital reserves. Populated from the synthesized graph
+    // when present, all-zeros default with missing-data-penalty otherwise.
+    capitalReserves: buildCapitalReserves(model),
     loan: buildLoan(model),
     metrics: buildMetrics(model),
-    // Legacy uwModel does not carry an adjustment ledger — return empty.
-    // The judgment engine will populate this once it lands.
-    adjustments: [],
+    // Projects synthesized `model.expenses.additionalItems[]` back into the
+    // flat adjustments ledger. `buildFloorBindings` filters by floor-rule
+    // ruleId pattern; non-floor entries (e.g. JE_NOI_CAPPED_TO_BANK if not
+    // a floor) flow through harmlessly.
+    adjustments: buildAdjustments(model),
     confidenceReduction: 0,
   };
 }

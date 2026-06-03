@@ -36,6 +36,7 @@
 
 import { recalculateFullModel } from '@cre/shared';
 import type {
+  CapitalReservesSection,
   ExpenseSection,
   IncomeSection,
   LineItem,
@@ -84,6 +85,37 @@ export function synthesizeUwModelFromGraph(
       'inc_egi_residual',
       'Income Adjustment',
       egiGap,
+    ));
+  }
+  /* Income-side floor / library bindings (Phase 14 — Bug 3 widening).
+   * The graph's vacancy / concessions / other-income line items each carry
+   * an `adjustments[]` ledger; rules like JE_VACANCY_RAISED_TO_LIBRARY_MEDIAN
+   * fire here. The legacy UnderwritingModel has no income-side ledger; we
+   * surface each rule as a zero-dollar additionalItem labeled with the real
+   * ruleId so the adapter can lift it onto AdjustedInputs.adjustments[] and
+   * buildFloorBindings can pick it up. Zero-dollar so the EGI tie-out is not
+   * perturbed (vacancy etc. is already accounted for in vacancyLoss above —
+   * this is metadata only). The downstream adapter prefixes them with
+   * `inc_` so the reverse projection lifts the ruleId cleanly. */
+  for (const adj of ai.income.vacancyPct.adjustments) {
+    incomeAdditionalItems.push(stubLineItem(
+      `inc_${adj.ruleId.toLowerCase()}`,
+      humanizeRuleId(adj.ruleId),
+      0,
+    ));
+  }
+  for (const adj of ai.income.concessionsPct.adjustments) {
+    incomeAdditionalItems.push(stubLineItem(
+      `inc_${adj.ruleId.toLowerCase()}`,
+      humanizeRuleId(adj.ruleId),
+      0,
+    ));
+  }
+  for (const adj of ai.income.otherIncome.adjustments) {
+    incomeAdditionalItems.push(stubLineItem(
+      `inc_${adj.ruleId.toLowerCase()}`,
+      humanizeRuleId(adj.ruleId),
+      0,
     ));
   }
   const income: IncomeSection = {
@@ -186,6 +218,24 @@ export function synthesizeUwModelFromGraph(
     additionalItems,
   };
 
+  /* Capital reserves — below-NOI / capital. The new-spine
+   * `AdjustedCapitalReserves` carries split TI / LC + monthly capex +
+   * upfront one-time reserves; we bridge them onto the synthesized
+   * UnderwritingModel so the adapter can project them onto
+   * `@cre/shared.AdjustedInputs.capitalReserves` without re-importing
+   * graph state. NOI tie-out is preserved at the expenses tab (which
+   * still zeros `replacementReserves`). The values surface only on the
+   * capital-reserves slot the render-schema reads. */
+  const capitalReserves: CapitalReservesSection = {
+    monthlyReplacementReserves: ai.capitalReserves.monthlyReplacementReserves.adjusted,
+    monthlyTenantImprovements:  ai.capitalReserves.monthlyTenantImprovements.adjusted,
+    monthlyLeasingCommissions:  ai.capitalReserves.monthlyLeasingCommissions.adjusted,
+    monthlyCapex:               ai.capitalReserves.monthlyCapex.adjusted,
+    upfrontReplacementReserves: ai.capitalReserves.upfrontReplacementReserves.adjusted,
+    upfrontTiLc:                ai.capitalReserves.upfrontTiLc.adjusted,
+    pcaImmediateRepairs:        ai.capitalReserves.pcaImmediateRepairs.adjusted,
+  };
+
   const loanDetails: LoanDetails = {
     loanAmount:         ai.loan.loanAmount.adjusted,
     interestRate:       ai.loan.interestRate.adjusted * 100,
@@ -210,6 +260,7 @@ export function synthesizeUwModelFromGraph(
   const skeleton: UnderwritingModel = {
     income,
     expenses,
+    capitalReserves,
     netOperatingIncome: 0,
     capRate:            ai.assumptions.capRate.adjusted,
     impliedValue:       null,

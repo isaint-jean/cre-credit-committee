@@ -22,6 +22,7 @@
     "test:judgment-line-item-builders": "tsx src/scripts/test-judgment-line-item-builders.ts",
     "test:judgment-date-math": "tsx src/scripts/test-judgment-date-math.ts",
     "test:judgment-amortization": "tsx src/scripts/test-judgment-amortization.ts",
+    "test:uw-calc": "tsx src/scripts/test-uw-calc.ts",
     "test:judgment-applicability": "tsx src/scripts/test-judgment-applicability.ts",
     "test:judgment-builders-3c2a": "tsx src/scripts/test-judgment-line-item-builders-3c2a.ts",
     "test:judgment-orchestrator": "tsx src/scripts/test-judgment-orchestrator.ts",

@@ -232,14 +232,32 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   // applied to (GPR + otherIncome) base). The defensive residual fires only
   // when a graph-side adjustment lands outside that formula — should be empty
   // in normal cases.
-  assert(uw.income.additionalItems.length <= 1, '2.7 income.additionalItems at most one defensive residual entry');
-  if (uw.income.additionalItems.length === 1) {
-    assertEqual(uw.income.additionalItems[0].id, 'inc_egi_residual', '2.7b defensive residual item id');
-    assertEqual(uw.income.additionalItems[0].isEditable, false, '2.7c residual item non-editable');
+  //
+  // Phase 14 widening (Bug 3) — income.additionalItems now ALSO carries
+  // income-side floor / library bindings (vacancyPct, concessionsPct,
+  // otherIncome adjustments) projected as zero-dollar metadata items so the
+  // adapter can lift them onto AdjustedInputs.adjustments[] and downstream
+  // buildFloorBindings can surface vacancy-floor disclosures. Each carries
+  // an `inc_` prefix and zero annualAmount (EGI tie-out preserved).
+  const incomeBindingCount =
+    ai.income.vacancyPct.adjustments.length +
+    ai.income.concessionsPct.adjustments.length +
+    ai.income.otherIncome.adjustments.length;
+  // Defensive EGI residual is at most one entry; income bindings add N.
+  assert(
+    uw.income.additionalItems.length <= 1 + incomeBindingCount,
+    `2.7 income.additionalItems <= 1 residual + N bindings (got ${uw.income.additionalItems.length}, max ${1 + incomeBindingCount})`,
+  );
+  // Each income-side binding lands as a zero-dollar inc_*-prefixed entry.
+  for (const it of uw.income.additionalItems) {
+    if (it.id === 'inc_egi_residual') continue;
+    assert(it.id.startsWith('inc_'), `2.7b income binding ${it.id} starts with inc_`);
+    assertEqual(it.annualAmount, 0, `2.7c income binding ${it.id} is zero-dollar (EGI tie-out preserved)`);
+    assertEqual(it.isEditable, false, `2.7d income binding ${it.id} non-editable`);
   }
-  // For this fixture (vacancy + concessions are the only income-side
-  // adjustments), the residual should NOT fire.
-  assertEqual(uw.income.additionalItems.length, 0, '2.7d standard fixture has zero residual (line items sum to graph EGI exactly)');
+  // Defensive residual must NOT fire for this fixture.
+  const residualCount = uw.income.additionalItems.filter((it) => it.id === 'inc_egi_residual').length;
+  assertEqual(residualCount, 0, '2.7e standard fixture has zero defensive EGI residual (line items sum to graph EGI exactly)');
 
   console.log('\n3. expenses — direct + namespace/granularity conversions');
   assertEqual(uw.expenses.realEstateTaxes.annualAmount, ai.expenses.realEstateTaxes.adjusted, '3.1 taxes direct map');
@@ -359,6 +377,41 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   assertEqual(uw.modifiedCells.length, 0, '8.2 modifiedCells = []');
   assertEqual(uw.totalUnits, 2, '8.3 totalUnits from PropertyMetadata');
   assertEqual(uw.totalSqFt, 50_000, '8.4 totalSqFt from PropertyMetadata');
+
+  console.log('\n9. capitalReserves bridged from graph (Phase 14 widening)');
+  // The synthesized model carries a capitalReserves section sourced from
+  // ai.capitalReserves — the new-spine engine's authoritative producer.
+  // Without this, the @cre/shared adapter cannot project the real reserve
+  // values onto the render layer (the P38 cell would land at 0 instead
+  // of $54,952 / 12 × 12).
+  assert(uw.capitalReserves != null, '9.1 capitalReserves slot populated on synthesized model');
+  if (uw.capitalReserves != null) {
+    assertEqual(
+      uw.capitalReserves.monthlyReplacementReserves,
+      ai.capitalReserves.monthlyReplacementReserves.adjusted,
+      '9.2 monthlyReplacementReserves bridged verbatim (monthly $)',
+    );
+    assertEqual(
+      uw.capitalReserves.monthlyTenantImprovements,
+      ai.capitalReserves.monthlyTenantImprovements.adjusted,
+      '9.3 monthlyTenantImprovements bridged verbatim',
+    );
+    assertEqual(
+      uw.capitalReserves.monthlyLeasingCommissions,
+      ai.capitalReserves.monthlyLeasingCommissions.adjusted,
+      '9.4 monthlyLeasingCommissions bridged verbatim',
+    );
+    assertEqual(
+      uw.capitalReserves.upfrontReplacementReserves,
+      ai.capitalReserves.upfrontReplacementReserves.adjusted,
+      '9.5 upfrontReplacementReserves bridged verbatim',
+    );
+    assertEqual(
+      uw.capitalReserves.pcaImmediateRepairs,
+      ai.capitalReserves.pcaImmediateRepairs.adjusted,
+      '9.6 pcaImmediateRepairs bridged verbatim',
+    );
+  }
 
   // ---------------- Sample dump (faithfulness checkpoint) ----------------
   console.log('\n\n=== SAMPLE SYNTHESIZED uwModel (faithfulness checkpoint) ===');

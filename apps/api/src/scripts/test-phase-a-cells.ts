@@ -91,8 +91,21 @@ function makeAdjustedInputs(opts: Partial<{
       management:             li(opts.management ?? 408_842),
       generalAndAdmin:        li(314_303),
       payroll:                li(0),
-      replacementReserves:    li(opts.replacementReserves ?? 54_952),
+      // Operating-side reserves stay at 0 by design (NOI tie-out). The real
+      // value lives at capitalReserves.monthlyReplacementReserves below.
+      replacementReserves:    li(0),
       totalExpenses:          li(0),
+    },
+    capitalReserves: {
+      // Sunroad: $54,952 annual / 12 = $4,579.33/mo. Surfaced here (not on
+      // expenses.replacementReserves) so the NOI build-up tie-out is preserved.
+      monthlyReplacementReserves: li((opts.replacementReserves ?? 54_952) / 12),
+      monthlyTenantImprovements:  li(0),
+      monthlyLeasingCommissions:  li(0),
+      monthlyCapex:               li(0),
+      upfrontReplacementReserves: li(0),
+      upfrontTiLc:                li(0),
+      pcaImmediateRepairs:        li(0),
     },
     loan: {
       loanAmount:         opts.loanAmount ?? 82_460_000,
@@ -274,14 +287,13 @@ const EXPECTED_V9_ADDRESSES_OFFICE = {
     'Operating History and Pro Forma!P38',
     // NEW at v9 — Debt Yield (post loan-terms fix); diffs clean against answer key
     'Conclusions & Escrows!J16',
+    // FLIPPED Phase 14 — DSCR (NOI) post Bugs 1+2 IO-only fix; now CONCLUDED
+    'Conclusions & Escrows!I16',
   ],
   AWAITING_INPUT: [
     // FLIPPED v8 → v9 (cap-rate + value)
     'Conclusions & Escrows!Concluded_Cap_Rate',
     'Conclusions & Escrows!Concluded_Value',
-    // NEW at v9 — DSCR does NOT diff clean (engine null vs answer 1.343);
-    // adapter chain does not propagate LoanTermsExtraction → debtServiceAnnual.
-    'Conclusions & Escrows!I16',
     // NEW at v9 — dangerous expense markup pending
     'Operating History and Pro Forma!P25',
     'Operating History and Pro Forma!P22',
@@ -391,10 +403,16 @@ function testConcludedSelectorsReturnEngineValues(): void {
     projection.bindings['Operating History and Pro Forma!P30'],
     408_842, 'P30 = management.adjusted',
   );
-  assertEqual(
-    projection.bindings['Operating History and Pro Forma!P38'],
-    54_952, 'P38 = replacementReserves.adjusted',
-  );
+  // P38 = capitalReserves.monthlyReplacementReserves.adjusted × 12.
+  // Float-imprecision-tolerant (54952 / 12 × 12 may yield 54951.999...).
+  const p38 = projection.bindings['Operating History and Pro Forma!P38'];
+  assert(typeof p38 === 'number', 'P38 is a number');
+  if (typeof p38 === 'number') {
+    assert(
+      Math.abs(p38 - 54_952) < 0.01,
+      `P38 = capitalReserves.monthlyReplacementReserves × 12 (got ${p38}, expected ~54,952)`,
+    );
+  }
   // Vacancy % derivation
   const p6 = projection.bindings['Operating History and Pro Forma!P6'];
   assert(typeof p6 === 'number', 'P6 vacancy pct is a number');
@@ -430,10 +448,13 @@ async function testWriteThroughTemplateEngine(): Promise<void> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(result.populatedBuffer as any);
 
-  // CONCLUDED P38 — replacement reserves
+  // CONCLUDED P38 — replacement reserves (capitalReserves.monthlyReplacementReserves × 12)
   const opf = wb.getWorksheet('Operating History and Pro Forma')!;
   const snapP38 = snapshotCell(opf.getCell('P38'));
-  assertEqual(snapP38.value, 54_952, 'P38 (concluded) value written verbatim');
+  assert(
+    typeof snapP38.value === 'number' && Math.abs((snapP38.value as number) - 54_952) < 0.01,
+    `P38 (concluded) value written verbatim ≈ 54,952 (got ${snapP38.value})`,
+  );
   assertEqual(snapP38.fillArgb, null, 'P38 (concluded) — no fill');
   assertEqual(snapP38.noteText, null, 'P38 (concluded) — no comment');
 

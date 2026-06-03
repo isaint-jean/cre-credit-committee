@@ -69,6 +69,18 @@ function makeAdjustedInputs(adjustments: AdjustmentEntry[]): AdjustedInputs {
       replacementReserves:    { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
       totalExpenses:          { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
     },
+    // Phase 14 widening — capitalReserves is now part of the @cre/shared
+    // AdjustedInputs shape. All-zero filler is fine; this test exercises only
+    // the adjustments ledger.
+    capitalReserves: {
+      monthlyReplacementReserves: { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
+      monthlyTenantImprovements:  { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
+      monthlyLeasingCommissions:  { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
+      monthlyCapex:               { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
+      upfrontReplacementReserves: { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
+      upfrontTiLc:                { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
+      pcaImmediateRepairs:        { raw: 0, adjusted: 0, delta: 0, source: 'raw' },
+    },
     loan: {
       loanAmount: 0, interestRate: 0, rateType: 'fixed' as any,
       amortizationMonths: 360, termMonths: 60, ioMonths: 0,

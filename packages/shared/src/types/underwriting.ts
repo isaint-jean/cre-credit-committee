@@ -99,9 +99,45 @@ export interface RepaymentSchedule {
   };
 }
 
+/**
+ * Capital-reserves section on the synthesized UnderwritingModel.
+ *
+ * Mirrors `@cre/contracts.AdjustedCapitalReserves` shape (the new-spine
+ * engine's authoritative producer). Carried on UnderwritingModel solely as
+ * a bridge so the legacy `analysis-to-adjusted-inputs.adapter.ts` can
+ * project the same values onto `@cre/shared.AdjustedInputs.capitalReserves`
+ * without re-importing graph state.
+ *
+ * Unit convention matches the contracts side: `monthly*` are monthly $
+ * (multiply by 12 for annual); `upfront*` and `pcaImmediateRepairs` are
+ * one-time closing-time $. All values are post-judgment "adjusted" figures
+ * — the synthesized model is a read-time projection of immutable graph
+ * data, so raw vs adjusted distinctions collapse to a single value here.
+ */
+export interface CapitalReservesSection {
+  /** Monthly $ — from AdjustedCapitalReserves.monthlyReplacementReserves */
+  monthlyReplacementReserves: number;
+  monthlyTenantImprovements: number;
+  monthlyLeasingCommissions: number;
+  monthlyCapex: number;
+  /** Closing-time $ — sized against PCA Table 1 (immediate repairs coverage) */
+  upfrontReplacementReserves: number;
+  upfrontTiLc: number;
+  /** Raw PCA Table 1 figure — cross-reference for upfront-capex sizing */
+  pcaImmediateRepairs: number;
+}
+
 export interface UnderwritingModel {
   income: IncomeSection;
   expenses: ExpenseSection;
+  /**
+   * Below-NOI capital reserves slot. Populated by
+   * `synthesize-uw-model-from-graph.ts` from the AdjustedCapitalReserves
+   * record on the graph. Legacy non-promoted analyses (no graph) leave
+   * this `undefined`; the adapter then emits an all-zeros default on
+   * the projected `@cre/shared.AdjustedInputs.capitalReserves`.
+   */
+  capitalReserves?: CapitalReservesSection;
   netOperatingIncome: number;
   capRate: number;
   // Derived fields are nullable: null means "not computable from current
