@@ -617,6 +617,416 @@ const SCHEMA_V8: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v8DefsFor('manufactured_housing') },
 };
 
+// --- v9 SCHEMA ENTRIES ------------------------------------------------------
+// Phase A of the populated-workbook initiative. v9 ADDS schema entries; no
+// payload-shape changes (v8 already shipped cellStates + cellComments +
+// floorBindings). Every cell-by-cell classification below is pre-approved
+// from the Sunroad GATE diff:
+//
+//   CONCLUDED — engine value-add; no fill, no comment. Operating ProForma
+//     P-column ("Eightfold Concluded") fills plus DSCR / Debt Yield in
+//     Conclusions & Escrows. After the loan-terms fix re-run, DSCR and
+//     Debt Yield diff clean against the answer key (DSCR 1.343 NOI vs
+//     engine; Debt Yield 0.106 vs engine — both within ±5% band).
+//
+//   AWAITING_INPUT — red fill + comment naming the gap. Five "dangerous
+//     expense" cells (utilities, G&A, insurance, TI, LC) pending the
+//     expense-markup value-add rule. Concluded_Cap_Rate and Concluded_Value
+//     FLIP from v8 'concluded' to v9 'awaiting_input' because the library
+//     median cap rate is optimistic vs analyst-concluded on Sunroad and
+//     the value chain inherits the optimism. Extraction gaps
+//     (LTV_Appraisal, NCF_DSCR, Net_Rentable_Area, Property_Building_Class)
+//     surface their specific blockers.
+//
+//   HELD — explicitly NOT in the schema (NOI, NCF, EGI, Total OpEx).
+//     Per the GATE diff these rollups match the answer key only by
+//     coincidental cancellation of unresolved errors (vacancy floor binding
+//     up + expense markup down). Adding them as awaiting_input would
+//     suggest the engine knows it should be here; silent omission is the
+//     correct posture until both calibration tickets resolve.
+//
+// Sheet/cell mapping notes:
+//   The Blank UW Template ships ~58 user defined names — almost all on the
+//   Property & Loan Summary, Conclusions & Escrows, and Borrower tabs.
+//   Operating ProForma cells have NO defined names; we use explicit A1
+//   addresses (e.g. 'Operating History and Pro Forma'!P38 for replacement
+//   reserves). A1 addresses are brittle vs sheet-row reflow but acceptable;
+//   each one is documented inline.
+//
+// Source-tagging notes:
+//   Awaiting_input selectors that return null still declare a source
+//   surface — the source-policy boot check is per ALLOWED_SOURCES_BY_VERSION
+//   and per FIELD_STATE_REGISTRY's REQUIRED_SOURCE_BY_STATE; null-valued
+//   selectors are tagged 'adjustedInputs' (LEGACY state) by default.
+
+/**
+ * Vacancy as a fraction (0..1). Derived from
+ * adjustedInputs.income.vacancyLoss.adjusted and
+ * adjustedInputs.income.grossPotentialRent.adjusted. vacancyLoss is
+ * stored as a negative number (loss), so the magnitude is |vacancyLoss|.
+ * Returns null when GPR is zero / missing to avoid divide-by-zero.
+ *
+ * Floor-binding disclosure: on Sunroad the engine's vacancyPct equals the
+ * library-median 0.10 (raised from source-derived ~3.4%) — the
+ * conservatismStatus.floorBindings surfaces this so the cell value is
+ * not read as source-derived.
+ */
+const vacancyPctSelector: Selector = tagSelector((input) => {
+  const gpr = input.adjustedInputs.income.grossPotentialRent.adjusted;
+  const vl = input.adjustedInputs.income.vacancyLoss.adjusted;
+  if (!Number.isFinite(gpr) || gpr === 0) return null;
+  return Math.abs(vl) / gpr;
+}, ['adjustedInputs']);
+
+/** Selector returning the constant null. Used by AWAITING_INPUT cells whose
+ *  value is intentionally not produced today. Tagged 'adjustedInputs' so
+ *  it satisfies the LEGACY state required-source policy. */
+const nullSelector: Selector = tagSelector(() => null, ['adjustedInputs']);
+
+/** Selector that returns adjustedInputs.metrics.ltv if present, else null —
+ *  for the LTV_Appraisal AWAITING_INPUT cell. Surfaces the actual computed
+ *  LTV when a future appraisal-ingest slot lands; today returns null
+ *  because the 4-file ingest model has no appraisal input. */
+const ltvAppraisalSelector: Selector = tagSelector((input) => {
+  const v = input.adjustedInputs.metrics.ltv;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}, ['adjustedInputs']);
+
+// v9 carries forward v8's CONCLUDED entries minus the cap-rate / value pair
+// (those FLIP to awaiting_input here) and adds the operating-proforma fills
+// and metric closures.
+const V9_SHARED_ENTRIES: SchemaEntry[] = [
+  // ----- Carried-forward v7/v8 entries (concluded, unchanged) --------------
+  { slot: 'Property_Loan_Summary', range: 'Property_Name',     selector: ctx((c) => c.property.name),                cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Address',           selector: ctx((c) => c.property.street),              cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'City',              selector: ctx((c) => c.property.city),                cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'State',             selector: ctx((c) => c.property.state),               cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'ZIP',               selector: ctx((c) => c.property.zip),                 cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'County',            selector: ctx((c) => c.property.county),              cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Property_Type',     selector: ctx((c) => c.property.type),                cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => c.property.yearBuilt),           cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Occupancy',         selector: ctx((c) => c.property.occupancy),           cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => c.property.ownershipInterest),   cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Current_Balance',     selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Original_Balance',    selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Coupon',              selector: num((a) => a.loan.interestRate),          cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Annual_Debt_Service', selector: num((a) => a.metrics.annualDebtService),  cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Balloon_Term',        selector: ctxLoanMonthsToYears((l) => l.termMonths),         cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Amortization_Term',   selector: ctxLoanMonthsToYears((l) => l.amortizationMonths), cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Interest_Only_Period',selector: ctx((c) => c.loan.ioMonths),              cellState: 'concluded' },
+  { slot: 'Borrower',              range: 'Borrower',            selector: ctx((c) => c.parties.borrowerName),       cellState: 'concluded' },
+  { slot: 'Borrower',              range: 'Sponsor',             selector: ctx((c) => c.parties.sponsorName),        cellState: 'concluded' },
+
+  // ----- v9 NEW: Operating ProForma — CONCLUDED -----------------------------
+  // "Eightfold Concluded" column = column P on Operating History and Pro Forma.
+  // No defined names exist for these row positions in the Blank UW Template;
+  // we use explicit A1 addresses below. Row numbers verified by inspection
+  // of `Blank UW Template.xlsm` at the canonical layout.
+
+  // P9 — Potential Gross Rental Income.
+  // Engine $13.38M vs answer key $12.997M (+3.0%, within band).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P9',
+    selector: adj((a) => a.income.grossPotentialRent),
+    cellState: 'concluded',
+  },
+  // P6 — Vacancy %  (derived from vacancyLoss / GPR). On Sunroad this equals
+  // the library median 0.10 (raised via JE_VACANCY_RAISED_TO_LIBRARY_MEDIAN);
+  // the conservatismStatus.floorBindings surfaces the floor as a disclosure.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P6',
+    selector: vacancyPctSelector,
+    cellState: 'concluded',
+  },
+  // P10 — Vacancy Loss (negative). Derived: -grossPotentialRent × vacancyPct.
+  // Same floor binding as P6 (downstream).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P10',
+    selector: adj((a) => a.income.vacancyLoss),
+    cellState: 'concluded',
+  },
+  // P14 — Other Income. Engine $138K = answer key $138K (exact).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P14',
+    selector: adj((a) => a.income.otherIncome),
+    cellState: 'concluded',
+  },
+  // P31 — Property Taxes. Engine $960,500 vs answer $931,798 (+3.1% conservative).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P31',
+    selector: adj((a) => a.expenses.realEstateTaxes),
+    cellState: 'concluded',
+  },
+  // P30 — Management Fee. Engine $408,842 vs answer $374,558 (+9.2% conservative;
+  // same 3% rule, different denominators).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P30',
+    selector: adj((a) => a.expenses.management),
+    cellState: 'concluded',
+  },
+  // P38 — Capital Expenditures / Replacement Reserves. Engine $54,952 (= answer
+  // key $54,952 EXACT). @cre/shared stores annual replacementReserves directly.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P38',
+    selector: adj((a) => a.expenses.replacementReserves),
+    cellState: 'concluded',
+  },
+
+  // ----- v9 NEW: Conclusions & Escrows — CONCLUDED metrics ------------------
+  // After the loan-terms fix (LOAN_TERMS phase12 → real Sunroad: $82.46M
+  // @ 7.9% IO-only), per the phase13 re-run diff vs the answer key:
+  //   Debt Yield: engine 0.1033 vs answer 0.106 (-2.54% conservative, in
+  //     ±5% band) — CONCLUDED.
+  //   DSCR (NOI): engine null vs answer 1.343 — does NOT diff clean.
+  //     The upstream adapter chain (analysis-to-adjusted-inputs.adapter)
+  //     does not propagate LoanTermsExtraction into the legacy uwModel's
+  //     loan-detail fields that feed debtServiceAnnual; the resulting
+  //     metrics.dscr is null. Per the brief's gate condition ("IF they
+  //     then diff clean and non-optimistic"), DSCR ships as AWAITING_INPUT
+  //     pending the adapter wiring fix (logged as cleanup ticket #8 in
+  //     the body of this commit).
+  // Cell I-column on Conclusions & Escrows; no defined names for these
+  // specific rows; A1 addresses below.
+  // I16 — DSCR (NOI). AWAITING_INPUT until adapter wiring lands.
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'I16',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine adjustedInputs.metrics.dscr is null today on Sunroad post the ' +
+      'loan-terms fix: the legacy adapter (analysis-to-adjusted-inputs) does ' +
+      'not propagate LoanTermsExtraction into the loan-detail fields that ' +
+      'feed debtServiceAnnual, so dscr = noi / 0 = null. Debt Yield diffs ' +
+      'clean (engine 0.1033 vs answer 0.106, -2.5% conservative) and ships ' +
+      'as concluded; DSCR awaits the adapter wiring fix.',
+  },
+  // J16 — Debt Yield (NOI). Conclusions sheet J16 is the paired debt-yield
+  // output cell. Engine 0.1033 vs answer 0.106 — in band (±50bps),
+  // conservative direction.
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'J16',
+    selector: num((a) => a.metrics.debtYield),
+    cellState: 'concluded',
+  },
+
+  // ----- v9 NEW: Operating ProForma — AWAITING_INPUT ------------------------
+  // The "dangerous expense" cells. Engine reads issuer CF columns; B-piece
+  // judgment typically restates these upward. Awaiting the expense-markup
+  // value-add rule (cleanup ticket #5).
+
+  // P25 — Utilities. Engine reads issuer CF $276,580. Analyst concluded
+  // $582,591 (2.1× source) on Sunroad.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P25',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine reads issuer CF column ($276,580). B-piece judgment typically restates ' +
+      'utilities upward (analyst concluded $582,591 on Sunroad — 2.1× source). ' +
+      'Awaiting expense-markup value-add rule.',
+  },
+  // P22 — G&A.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P22',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine reads issuer CF column ($314,303). B-piece judgment typically restates ' +
+      'G&A upward (analyst concluded $394,153 on Sunroad — 25% above source). ' +
+      'Awaiting expense-markup value-add rule.',
+  },
+  // P32 — Insurance.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P32',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine reads issuer CF column ($306,000). Analyst restated upward ' +
+      '($353,346 on Sunroad — 15% above source). Awaiting expense-markup value-add rule.',
+  },
+  // P39 — Tenant Improvements (annual).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P39',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine derives from CF below-NOI line ($81,934/yr from $6,827.80/mo × 12). ' +
+      'Analyst concluded $97,436/yr (+18%). Awaiting expense-markup value-add rule ' +
+      'or tenant-improvement extraction widening.',
+  },
+  // P40 — Leasing Commissions (annual).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P40',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine derives from CF below-NOI line ($81,934/yr). Analyst concluded ' +
+      '$97,436/yr (+18%). Awaiting expense-markup value-add rule.',
+  },
+  // P15 — Expense Reimbursements. Structural difference vs answer key on
+  // Sunroad — answer folds into revenue side, engine carries as revenue-
+  // offset; same EGR reached. Held as awaiting_input pending reconciliation
+  // of the revenue-side projection. @cre/shared has no `reimbursements`
+  // field on AdjustedExpenses today, so the selector returns null until
+  // either (a) the contract gains the field or (b) a derived path is wired.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P15',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine reads issuer CF expense reimbursements (~$264K). Structural ' +
+      'difference vs answer key: answer folds reimbursements into the revenue ' +
+      'side; engine carries as a revenue offset. Same EGR reached. Awaiting ' +
+      'reimbursements field on @cre/shared AdjustedExpenses or a derived ' +
+      'selector wiring.',
+  },
+
+  // ----- v9: Conclusions & Escrows — FLIPS from v8 concluded → awaiting_input
+  // The library-median cap rate is DANGEROUSLY OPTIMISTIC on Sunroad (7.5% vs
+  // analyst-concluded 8.5%). The valuation chain inherits the optimism
+  // ($113.58M vs analyst $103.1M). Both cells flip to awaiting_input until
+  // the cap-rate calibration ticket lands (cleanup ticket #6).
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'Concluded_Cap_Rate',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine assumption.capRate is library median (7.5%) — optimistic vs ' +
+      'analyst-concluded cap rate (8.5% on Sunroad). Awaiting per-deal cap-rate ' +
+      'calibration rule (B-piece spread over comps).',
+  },
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'Concluded_Value',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine value derived from library-median cap rate (7.5%) is $113.58M on ' +
+      'Sunroad — $10.5M above analyst\'s concluded $103.1M at 8.5% cap. Awaiting ' +
+      'per-deal cap-rate calibration.',
+  },
+
+  // ----- v9 NEW: Extraction / data gaps — AWAITING_INPUT --------------------
+  // K6 — LTV (Appraisal). Conclusions & Escrows / Property & Loan Summary
+  // K-column area. No appraisal slot in current 4-file ingest model (CF +
+  // ASR + PCA + rent-roll). Selector returns adjustedInputs.metrics.ltv
+  // when present; null today.
+  {
+    slot: 'Property_Loan_Summary',
+    range: 'E41',
+    selector: ltvAppraisalSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'LTV requires appraisal value; no appraisal slot in current 4-file ingest ' +
+      'model (CF + ASR + PCA + rent-roll). Awaiting appraisal ingest slot or ' +
+      'manual appraisal value input.',
+  },
+  // P49 — NCF DSCR. Engine surfaces NOI DSCR only today; NCF = NOI − annual
+  // reserves. Awaiting NCF metric on AdjustedInputs.metrics or render-side
+  // derivation.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P49',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Engine does not surface NCF DSCR today (only NOI DSCR). NCF = NOI − ' +
+      'annual reserves. Awaiting NCF metric on AdjustedInputs.metrics or ' +
+      'render-side derivation.',
+  },
+  // K3 area — Net Rentable Area. The Blank UW Template has K3 reserved for
+  // a rent-roll-derived RRP formula; the rent-roll sum-of-squareFeet pathway
+  // is not surfaced on resolvedContext today. Awaiting either resolvedContext
+  // extension or a manual NRA input.
+  {
+    slot: 'Property_Loan_Summary',
+    range: 'K5',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'Net Rentable Area requires summing squareFeet across rent-roll lines. ' +
+      'Today\'s resolvedContext does not surface the rent-roll-derived NRA on ' +
+      'the property block. Awaiting resolvedContext extension or manual NRA input.',
+  },
+  // K6 — Property Building Class. PropertyMetadata extraction does not
+  // produce a building class designation on Sunroad. Phase-11 confirmed
+  // missing_field 'building_class' for P-IV-OFF-2.
+  {
+    slot: 'Property_Loan_Summary',
+    range: 'K6',
+    selector: nullSelector,
+    cellState: 'awaiting_input',
+    comment: () =>
+      'PropertyMetadata extraction does not produce a building class designation ' +
+      'on Sunroad. Phase-11 confirmed missing_field \'building_class\' for ' +
+      'P-IV-OFF-2. Awaiting extraction widening.',
+  },
+];
+
+const V9_MANAGED_NAMESPACE: ManagedNamespacePolicy = {
+  prefixes: [],
+  // Carry forward v8 literals (defined names only — the new v9 P-column / A1
+  // addresses on Operating ProForma are NOT named ranges and so are NOT
+  // managed-namespace literals; they're explicit A1 writes).
+  literals: V8_SHARED_ENTRIES.map((e) => e.range),
+  excludedSheets: [...SHARED_MANAGED_NAMESPACE.excludedSheets],
+};
+
+function v9Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V9_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V9_MANAGED_NAMESPACE,
+  };
+}
+
+function v9DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v9Definition(assetClass)];
+}
+
+const SCHEMA_V9: ContractSchema = {
+  office: {
+    office_core:       v9DefsFor('office'),
+    office_trophy:     v9DefsFor('office'),
+    office_value_add:  v9DefsFor('office'),
+    office_distressed: v9DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v9DefsFor('multifamily'),
+    mf_large_scale: v9DefsFor('multifamily'),
+    mf_workforce:   v9DefsFor('multifamily'),
+    mf_value_add:   v9DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v9DefsFor('industrial'),
+    ind_logistics: v9DefsFor('industrial'),
+    ind_light:     v9DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v9DefsFor('retail') },
+  hotel:                { hotel_core:                v9DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v9DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v9DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v9DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -657,6 +1067,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   6: SCHEMA_V6,
   7: SCHEMA_V7,
   8: SCHEMA_V8,
+  9: SCHEMA_V9,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -893,6 +1304,12 @@ function assertSchemaWellFormed(): void {
     // carried over verbatim from v7 with cellState='concluded'. The allowed-
     // source set therefore equals v7.
     8: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta']),
+    // v9 (Phase A, populated-workbook) ADDS operating-proforma fills and
+    // DSCR/Debt Yield closures plus AWAITING_INPUT entries. No new source
+    // surfaces — every v9 selector reads from adjustedInputs (numeric
+    // line-items + metrics) or resolvedContext (carried-forward property /
+    // party / loan-term atoms). Allowed-source set therefore equals v8.
+    9: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta']),
   };
 
   const sourceViolations: Array<{

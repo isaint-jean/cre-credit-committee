@@ -115,11 +115,14 @@ function makeManifesto(): CreditManifesto {
  * principles can comment on substantively (vs the prior synthetic
  * $11M loan which trivially yielded DSCR 9.7 / LTV ~10%).
  */
+// Corrected per the Sunroad answer-key Property & Loan Summary (Phase A loan-
+// fix prerequisite — 2026-06-02). Real Sunroad loan: $82.46M @ 7.9% IO-only
+// (60mo IO over 60mo term, amortization=0).
 const REALISTIC_LOAN_TERMS: LoanTermsExtraction = {
-  loanAmount: 80_000_000,
-  interestRate: 0.07,
-  amortization: 360,
-  interestOnlyPeriod: 0,
+  loanAmount: 82_460_000,
+  interestRate: 0.079,
+  amortization: 0,
+  interestOnlyPeriod: 60,
   maturityDate: '2031-05-31T00:00:00Z' as ISODateTime,
 };
 

@@ -198,6 +198,80 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     { address: 'Conclusions & Escrows!Concluded_Cap_Rate',      group: 'financial_core', state: 'LEGACY' },
     { address: 'Conclusions & Escrows!Concluded_Value',         group: 'financial_core', state: 'LEGACY' },
   ],
+  // v9 (Phase A, populated-workbook initiative): ADDS schema entries. The
+  // per-cell field-migration state for every carried-forward cell is
+  // unchanged (cellState changes — Concluded_Cap_Rate and Concluded_Value
+  // flip from cellState='concluded' to cellState='awaiting_input' — but the
+  // field-migration state is about source-surface authority, NOT cellState,
+  // and the source surface stays adjustedInputs / LEGACY). New CONCLUDED
+  // and AWAITING_INPUT cells are declared at LEGACY by default (their
+  // selectors read from adjustedInputs; nullSelector for awaiting_input
+  // is tagged adjustedInputs).
+  9: [
+    // ---- carried forward unchanged ----
+    { address: 'Property & Loan Summary!Property_Name',         group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Address',               group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!City',                  group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!State',                 group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!ZIP',                   group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!County',                group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Property_Type',         group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Year_Built',            group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Occupancy',             group: 'property', state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Ownership_Interest',    group: 'property', state: 'FULL_MODERN' },
+    { address: 'Borrower!Borrower',                             group: 'party',    state: 'FULL_MODERN' },
+    { address: 'Borrower!Sponsor',                              group: 'party',    state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Balloon_Term',          group: 'loan',     state: 'HYBRID' },
+    { address: 'Property & Loan Summary!Amortization_Term',     group: 'loan',     state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Interest_Only_Period',  group: 'loan',     state: 'FULL_MODERN' },
+    { address: 'Property & Loan Summary!Current_Balance',       group: 'financial_core', state: 'LEGACY' },
+    { address: 'Property & Loan Summary!Original_Balance',      group: 'financial_core', state: 'LEGACY' },
+    { address: 'Property & Loan Summary!Coupon',                group: 'financial_core', state: 'LEGACY' },
+    { address: 'Property & Loan Summary!Annual_Debt_Service',   group: 'financial_core', state: 'LEGACY' },
+    { address: 'Conclusions & Escrows!Concluded_Cap_Rate',      group: 'financial_core', state: 'LEGACY', notes: 'v9 Phase A: cellState flipped concluded → awaiting_input (cap-rate calibration ticket); source surface unchanged.' },
+    { address: 'Conclusions & Escrows!Concluded_Value',         group: 'financial_core', state: 'LEGACY', notes: 'v9 Phase A: cellState flipped concluded → awaiting_input (inherits cap-rate optimism); source surface unchanged.' },
+    // ---- NEW at v9 (CONCLUDED) ----
+    { address: 'Operating History and Pro Forma!P9',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Income_Gross_Potential_Rental — adjustedInputs.income.grossPotentialRent.' },
+    { address: 'Operating History and Pro Forma!P6',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Income_Vacancy_Pct — derived |vacancyLoss| / GPR.' },
+    { address: 'Operating History and Pro Forma!P10',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Income_Vacancy_Loss — adjustedInputs.income.vacancyLoss.' },
+    { address: 'Operating History and Pro Forma!P14',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Other_Income.' },
+    { address: 'Operating History and Pro Forma!P31',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. OpEx_Real_Estate_Taxes.' },
+    { address: 'Operating History and Pro Forma!P30',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. OpEx_Management_Fee.' },
+    { address: 'Operating History and Pro Forma!P38',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. OpEx_Replacement_Reserves_Annual.' },
+    { address: 'Conclusions & Escrows!I16',                     group: 'financial_core', state: 'LEGACY', notes: 'New at v9. NOI_DSCR (post loan-terms fix).' },
+    { address: 'Conclusions & Escrows!J16',                     group: 'financial_core', state: 'LEGACY', notes: 'New at v9. NOI_Debt_Yield (post loan-terms fix).' },
+    // ---- NEW at v9 (AWAITING_INPUT) ----
+    { address: 'Operating History and Pro Forma!P25',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. OpEx_Utilities — awaiting_input pending expense-markup rule.' },
+    { address: 'Operating History and Pro Forma!P22',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. OpEx_GA — awaiting_input pending expense-markup rule.' },
+    { address: 'Operating History and Pro Forma!P32',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. OpEx_Insurance — awaiting_input pending expense-markup rule.' },
+    { address: 'Operating History and Pro Forma!P39',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Reserve_TI_Annual — awaiting_input pending expense-markup rule.' },
+    { address: 'Operating History and Pro Forma!P40',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Reserve_LC_Annual — awaiting_input pending expense-markup rule.' },
+    { address: 'Operating History and Pro Forma!P15',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Income_Reimbursements — awaiting_input pending @cre/shared field or derived selector.' },
+    { address: 'Property & Loan Summary!E41',                   group: 'financial_core', state: 'LEGACY', notes: 'New at v9. LTV_Appraisal — awaiting_input pending appraisal ingest slot.' },
+    { address: 'Operating History and Pro Forma!P49',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. NCF_DSCR — awaiting_input pending NCF metric.' },
+    { address: 'Property & Loan Summary!K5',                    group: 'property',       state: 'LEGACY', notes: 'New at v9. Net_Rentable_Area — awaiting_input pending resolvedContext extension. (LEGACY because nullSelector reads adjustedInputs.)' },
+    { address: 'Property & Loan Summary!K6',                    group: 'property',       state: 'LEGACY', notes: 'New at v9. Property_Building_Class — awaiting_input pending PropertyMetadata extraction widening.' },
+    // Hotel asset class maps Operating_ProForma → 'Hotel Op History and Pro
+    // Forma' (SHEET_MAPPING_OPERATING_PROFORMA[hotel]). Each Operating-ProForma
+    // schema entry resolves to TWO addresses across asset classes — the
+    // canonical 'Operating History and Pro Forma!*' for non-hotel and the
+    // 'Hotel Op History and Pro Forma!*' variant for hotel. Field-state
+    // registry must declare both.
+    { address: 'Hotel Op History and Pro Forma!P9',             group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P9.' },
+    { address: 'Hotel Op History and Pro Forma!P6',             group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P6.' },
+    { address: 'Hotel Op History and Pro Forma!P10',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P10.' },
+    { address: 'Hotel Op History and Pro Forma!P14',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P14.' },
+    { address: 'Hotel Op History and Pro Forma!P31',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P31.' },
+    { address: 'Hotel Op History and Pro Forma!P30',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P30.' },
+    { address: 'Hotel Op History and Pro Forma!P38',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P38.' },
+    { address: 'Hotel Op History and Pro Forma!P25',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P25.' },
+    { address: 'Hotel Op History and Pro Forma!P22',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P22.' },
+    { address: 'Hotel Op History and Pro Forma!P32',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P32.' },
+    { address: 'Hotel Op History and Pro Forma!P39',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P39.' },
+    { address: 'Hotel Op History and Pro Forma!P40',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P40.' },
+    { address: 'Hotel Op History and Pro Forma!P15',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P15.' },
+    { address: 'Hotel Op History and Pro Forma!P49',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P49.' },
+  ],
 };
 
 // --- Legal cross-version transitions ---------------------------------------

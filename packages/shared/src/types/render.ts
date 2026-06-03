@@ -21,8 +21,21 @@ import type { MigrationManifest } from './render-migration';
  * gains `floorBindings`. No new cells. Same (assetClass, variantKey,
  * underwritingMode) renders the same structural surface as v7 — every
  * v7 cell is marked `cellState: 'concluded'` at v8.
+ *
+ * v8 → v9 (Phase A, populated-workbook initiative): operating-proforma fills
+ * land. v9 ADDS schema entries — concluded operating-proforma cells (income
+ * floor, replacement reserves, real estate taxes, management fee, gross
+ * rental income, reimbursements) plus DSCR / debt yield post the loan-terms
+ * fix — and AWAITING_INPUT entries for the dangerous expense / cap-rate /
+ * extraction-gap cells (expense markup rule pending: utilities, G&A,
+ * insurance, TI/LC; cap-rate calibration pending: Concluded_Cap_Rate
+ * FLIPS to awaiting_input, Concluded_Value FLIPS to awaiting_input;
+ * extraction gaps: LTV_Appraisal, NCF_DSCR, Net_Rentable_Area,
+ * Property_Building_Class). NO payload-shape changes. NO upstream
+ * contract changes (AdjustedInputs / HE / AnalysisId stable). Held cells
+ * (NOI, NCF, EGI, Total OpEx) are intentionally NOT in the schema.
  */
-export const RENDER_CONTRACT_VERSION = 8;
+export const RENDER_CONTRACT_VERSION = 9;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

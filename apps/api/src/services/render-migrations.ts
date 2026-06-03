@@ -499,6 +499,124 @@ const MIGRATIONS: RenderContractMigration[] = [
       'awaiting_input semantics are gated on the parent\'s Sunroad diff ' +
       'GATE and land in a separate phase.',
   },
+  {
+    fromVersion: 8,
+    toVersion: 9,
+    description:
+      'Phase A of the populated-workbook initiative — operating-proforma ' +
+      'cell fills, DSCR / Debt Yield closures, and AWAITING_INPUT entries ' +
+      'for the cells the Sunroad GATE diff flagged as dangerous (expense ' +
+      'markup pending, cap-rate calibration pending, extraction gaps). ' +
+      'v9 ADDS schema entries; the payload contract shape is unchanged ' +
+      'from v8 (cellStates + cellComments + floorBindings already shipped). ' +
+      'No upstream contract changes: AdjustedInputs, HE, AnalysisId all ' +
+      'stable; §2.3 lint policy untouched. ' +
+      'CONCLUDED additions (sheet \'Operating History and Pro Forma\'): ' +
+      'P9 (Income_Gross_Potential_Rental), P6 (Vacancy %), P10 (Vacancy ' +
+      'Loss), P14 (Other Income), P30 (Management Fee), P31 (Real Estate ' +
+      'Taxes), P38 (Replacement Reserves). CONCLUDED additions (sheet ' +
+      '\'Conclusions & Escrows\'): J16 (NOI_Debt_Yield). Debt Yield ships ' +
+      'CONCLUDED because the loan-terms placeholder ($80M @ 7% / 30-yr ' +
+      'amort) was corrected to the real Sunroad loan ($82.46M @ 7.9% ' +
+      'IO-only, 60mo IO over 60mo) and the engine value then diffs clean ' +
+      '(engine 0.1033 vs answer 0.106, -2.54% conservative, within ±50bps). ' +
+      'AWAITING_INPUT additions: P25 (Utilities), P22 (G&A), P32 ' +
+      '(Insurance), P39 (TI), P40 (LC), P15 (Reimbursements), P49 ' +
+      '(NCF_DSCR), Property & Loan Summary!E41 (LTV_Appraisal), K5 ' +
+      '(Net_Rentable_Area), K6 (Property_Building_Class), Conclusions & ' +
+      'Escrows!I16 (NOI_DSCR — see ticket #8 below). ' +
+      'NOI_DSCR was originally classified CONCLUDED in the brief\'s ' +
+      'cell-by-cell map under the gate "IF DSCR diffs clean post the ' +
+      'loan-terms fix." The phase13 re-run reveals the engine\'s metrics. ' +
+      'dscr is null today: the legacy adapter (analysis-to-adjusted-inputs) ' +
+      'does NOT propagate LoanTermsExtraction into the loan-detail fields ' +
+      'that feed debtServiceAnnual, so dscr = noi / 0 = null. Per the ' +
+      'gate condition ("IF they then diff clean and non-optimistic") and ' +
+      'the brief\'s discipline ("after the loan-terms fix + re-run: DSCR ' +
+      'and Debt Yield IF they then diff clean and non-optimistic"), DSCR ' +
+      'flips to AWAITING_INPUT pending the adapter wiring fix (ticket #8). ' +
+      'Concluded_Cap_Rate and Concluded_Value FLIP from cellState=' +
+      '\'concluded\' (v8) to cellState=\'awaiting_input\' (v9) — the ' +
+      'library-median cap rate is optimistic on Sunroad (7.5% vs ' +
+      'analyst-concluded 8.5%) and the value chain inherits the optimism ' +
+      '($113.58M vs analyst $103.1M). Source-surface authority is ' +
+      'unchanged (still LEGACY / adjustedInputs); only the cellState ' +
+      'classification flips. HELD intentionally (NOT in schema): NOI ' +
+      '(OPF row 35), NCF (row 44), EGI / Total Revenues (row 17), Total ' +
+      'Operating Expenses (row 33). These rollups match the answer key ' +
+      'on Sunroad only by coincidental cancellation of unresolved errors ' +
+      '(vacancy floor binding up + expense markup down). Adding them as ' +
+      'awaiting_input would suggest the engine knows it should be here; ' +
+      'silent omission is the correct posture until both calibration ' +
+      'tickets resolve. ' +
+      'Operating-proforma cell addresses use explicit A1 references ' +
+      '(P-column = "Eightfold Concluded") because the Blank UW Template ' +
+      'has no defined names on this sheet. A1 addresses are brittle vs ' +
+      'sheet-row reflow but acceptable per the brief; each is documented ' +
+      'inline in render-schema.ts.',
+    autoApplicable: true,
+    addresses: [
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P9'  },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P6'  },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P10' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P14' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P30' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P31' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P38' },
+      { kind: 'address-added', address: 'Conclusions & Escrows!I16'           },
+      { kind: 'address-added', address: 'Conclusions & Escrows!J16'           },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P25' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P22' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P32' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P39' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P40' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P15' },
+      { kind: 'address-added', address: 'Operating History and Pro Forma!P49' },
+      { kind: 'address-added', address: 'Property & Loan Summary!E41'         },
+      { kind: 'address-added', address: 'Property & Loan Summary!K5'          },
+      { kind: 'address-added', address: 'Property & Loan Summary!K6'          },
+    ],
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v9 is additive on the schema surface (new addresses, no payload-' +
+      'shape changes). v8-pinned templates keep rendering identically; ' +
+      'v9 becomes the default for new exports. Cleanup tickets carried ' +
+      'forward + extended:\n' +
+      '  1. Id-cascade migration plan (4 record-shape bumps to date; ' +
+      'no growth in v9).\n' +
+      '  2. handbook.ts / handbook.json dual-source-of-truth.\n' +
+      '  3. Signed-lease-status extraction gap.\n' +
+      '  4. Trailing-actuals ingest slot (class-b).\n' +
+      '  5. NEW: Expense-markup value-add rule. Model-A: issuer expense ' +
+      'lines on the CF are a FLOOR; restate up where a line reads ' +
+      'understated vs market (Utilities/G&A/Insurance pattern on ' +
+      'Sunroad). Consumes a market-norm signal (library benchmark? a ' +
+      'manualInputs expense-comp layer parallel to marketRentComps?) and ' +
+      'produces an upward markup with disclosure. PRIORITY — five ' +
+      'Phase-A cells are AWAITING_INPUT until this lands.\n' +
+      '  6. NEW: Cap-rate calibration. Library-median cap rate is ' +
+      'optimistic on most B-piece deals (analyst typically applies a ' +
+      'spread over comps + conservatism widening). Either source from a ' +
+      'manualInputs cap-rate-comp layer OR apply a calibrated spread + ' +
+      'conservatism. Concluded_Cap_Rate + Concluded_Value AWAITING_INPUT ' +
+      'until this lands.\n' +
+      '  7. NEW: Loan terms as a real ingest input. The form-field ' +
+      'already exists (build-and-ingest accepts `loanTerms`); the ' +
+      'cleanup is doc/path for how the analyst supplies real loan terms ' +
+      'in production. The phase scripts hardcoded a placeholder; the ' +
+      'placeholder is now fixed to match Sunroad reality.\n' +
+      '  8. NEW: Adapter wiring — LoanTermsExtraction → uwModel.' +
+      'loanDetails. The legacy adapter (analysis-to-adjusted-inputs.' +
+      'adapter.ts) does NOT propagate LoanTermsExtraction values through ' +
+      'the synthesized uwModel into AdjustedInputs.loan.debtServiceAnnual, ' +
+      'so dscr = noi / 0 = null on the phase13 re-run despite the ' +
+      'corrected loan terms. NOI_DSCR (Conclusions & Escrows!I16) ships ' +
+      'as AWAITING_INPUT until this wiring lands; Debt Yield is unaffected ' +
+      'because it does not divide by debtServiceAnnual.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

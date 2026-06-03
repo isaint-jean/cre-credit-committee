@@ -114,11 +114,17 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
+// Corrected per the Sunroad answer-key Property & Loan Summary (Phase A loan-
+// fix prerequisite). Previously this const carried placeholder values inherited
+// through phase7→8→9→10→11→12 (loanAmount $80M, 7% rate, 30yr amort, 0 IO).
+// The real Sunroad loan is $82.46M @ 7.9% IO-only (60 mo IO over a 60 mo term,
+// amortization=0). Phase A's DSCR / Debt Yield CONCLUDED-vs-AWAITING_INPUT
+// decision depends on these flowing through to AdjustedInputs.metrics.
 const LOAN_TERMS: LoanTermsExtraction = {
-  loanAmount: 80_000_000,
-  interestRate: 0.07,
-  amortization: 360,
-  interestOnlyPeriod: 0,
+  loanAmount: 82_460_000,
+  interestRate: 0.079,
+  amortization: 0,
+  interestOnlyPeriod: 60,
   maturityDate: '2031-05-31T00:00:00Z' as ISODateTime,
 };
 
