@@ -74,6 +74,51 @@ const OUTCOMES: { value: DealOutcome; label: string }[] = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
+// Source-doc slot display order + short labels for the per-row chip strip.
+// Matches the slot taxonomy from commit 1d48478. Kept module-scoped so the
+// component definition below has no extra hooks/state.
+const SOURCE_DOC_SLOT_DISPLAY: Array<{ slot: string; short: string; full: string }> = [
+  { slot: 'asr',       short: 'ASR',  full: 'ASR (Anticipated Sale Report)' },
+  { slot: 'cf',        short: 'CF',   full: 'Cash Flow (Seller CF)' },
+  { slot: 'rent_roll', short: 'RR',   full: 'Rent Roll' },
+  { slot: 'pca',       short: 'PCA',  full: 'PCA (Property Condition Assessment)' },
+  { slot: 'seller_uw', short: 'sUW',  full: 'Seller Underwriting' },
+  { slot: 't12',       short: 'T12',  full: 'T-12 (Trailing Operating Statement)' },
+  { slot: 'appraisal', short: 'Appr', full: 'Appraisal' },
+];
+
+/** Compact 7-chip strip — one chip per source-doc slot. Lit when present,
+ *  dimmed when absent. NON-JUDGMENTAL: a dim chip is "not uploaded yet,"
+ *  not an error. No red/warning styling on absent slots. */
+function SourceDocChipStrip({ completeness }: { completeness: any | null | undefined }): JSX.Element {
+  const slots = completeness?.slots ?? {};
+  return (
+    <div className="flex items-center gap-0.5 flex-wrap" aria-label="Source documents">
+      {SOURCE_DOC_SLOT_DISPLAY.map(({ slot, short, full }) => {
+        const status = slots?.[slot];
+        const present = status?.present === true;
+        const count = typeof status?.count === 'number' ? status.count : 0;
+        const title = present
+          ? `${full}: ${count} file${count !== 1 ? 's' : ''} uploaded`
+          : `${full}: not uploaded`;
+        return (
+          <span
+            key={slot}
+            title={title}
+            className={`text-[9px] font-mono px-1 py-0.5 rounded leading-none ${
+              present
+                ? 'bg-accent/20 text-accent font-semibold'
+                : 'bg-bg-tertiary/40 text-text-muted/50'
+            }`}
+          >
+            {short}{count > 1 ? `×${count}` : ''}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 const LIBRARY_ASSET_CLASSES: { value: LegacyAssetType | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'office', label: 'Office' },
@@ -173,6 +218,12 @@ export default function UnderwritingLibraryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Library filters
+  // Source-doc completeness map (historicalUwId → DealCompleteness from the
+  // intake API). Bulk-fetched once on page load + after any
+  // SourceDocUpload commit. Non-judgmental: empty slots are just visible
+  // state, never red/warning.
+  const [completenessById, setCompletenessById] = useState<Record<string, any>>({});
+  const [filterSourceDocs, setFilterSourceDocs] = useState<'all' | 'has_any' | 'has_minimum' | 'none'>('all');
   const [filterAssetClass, setFilterAssetClass] = useState<LegacyAssetType | 'all'>('all');
   const [filterLoanType, setFilterLoanType] = useState<'all' | 'single_asset' | 'portfolio'>('all');
   const [filterYears, setFilterYears] = useState<Set<string>>(new Set());
@@ -229,7 +280,25 @@ export default function UnderwritingLibraryPage() {
     setLoading(false);
   }, []);
 
+  /** Bulk-fetch source-doc completeness (one request returns all deals).
+   *  Mapped by historicalUwId for O(1) row joins. Non-fatal on error — the
+   *  chips simply render as all-absent which matches a "pre-intake" state. */
+  const loadCompleteness = useCallback(async () => {
+    try {
+      const data = await api.listSourceDocCompleteness();
+      const arr: any[] = data?.completeness ?? [];
+      const map: Record<string, any> = {};
+      for (const c of arr) {
+        if (c && typeof c.historicalUwId === 'string') map[c.historicalUwId] = c;
+      }
+      setCompletenessById(map);
+    } catch {
+      setCompletenessById({});
+    }
+  }, []);
+
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
+  useEffect(() => { loadCompleteness(); }, [loadCompleteness]);
 
   // Load market intelligence
   const loadMarketIntelligence = useCallback(async (cluster?: MarketCluster | null) => {
@@ -353,7 +422,7 @@ export default function UnderwritingLibraryPage() {
   // Derived data
   // ---------------------------------------------------------------------------
   const uniqueYears = useMemo(() => [...new Set(underwritings.map((u) => u.year))].sort((a, b) => b - a), [underwritings]);
-  const hasActiveFilters = filterAssetClass !== 'all' || filterLoanType !== 'all' || filterYears.size > 0 || filterStates.size > 0 || filterOutcome !== 'all' || searchQuery.trim().length > 0;
+  const hasActiveFilters = filterAssetClass !== 'all' || filterLoanType !== 'all' || filterYears.size > 0 || filterStates.size > 0 || filterOutcome !== 'all' || filterSourceDocs !== 'all' || searchQuery.trim().length > 0;
 
   const filteredUWs = useMemo(() => {
     if (!filtersApplied) return [];
@@ -365,6 +434,19 @@ export default function UnderwritingLibraryPage() {
     if (filterYears.size > 0) items = items.filter((u) => filterYears.has(String(u.year)));
     if (filterStates.size > 0) items = items.filter((u) => filterStates.has(u.state));
     if (filterOutcome !== 'all') items = items.filter((u) => u.outcome === filterOutcome);
+    if (filterSourceDocs !== 'all') {
+      items = items.filter((u) => {
+        const c = completenessById[u.id];
+        // Non-judgmental: a missing record === all slots absent. NOT an error,
+        // just visible state. The filter buckets are inclusive-presence checks.
+        const totalDocs = c?.totalDocsPresent ?? 0;
+        const hasMin   = c?.hasMinimum ?? false;
+        if (filterSourceDocs === 'has_any')     return totalDocs > 0;
+        if (filterSourceDocs === 'has_minimum') return hasMin === true;
+        if (filterSourceDocs === 'none')        return totalDocs === 0;
+        return true;
+      });
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       items = items.filter((u) => u.dealName.toLowerCase().includes(q) || u.city.toLowerCase().includes(q) || u.state.toLowerCase().includes(q) || u.assetType.includes(q));
@@ -377,7 +459,7 @@ export default function UnderwritingLibraryPage() {
       case 'location': items.sort((a, b) => `${a.state}${a.city}`.localeCompare(`${b.state}${b.city}`)); break;
     }
     return items;
-  }, [underwritings, filterAssetClass, filterLoanType, filterYears, filterStates, filterOutcome, searchQuery, sortKey, filtersApplied]);
+  }, [underwritings, completenessById, filterAssetClass, filterLoanType, filterYears, filterStates, filterOutcome, filterSourceDocs, searchQuery, sortKey, filtersApplied]);
 
   const totalPages = Math.max(1, Math.ceil(filteredUWs.length / PAGE_SIZE));
   const paginatedUWs = useMemo(() => {
@@ -388,7 +470,7 @@ export default function UnderwritingLibraryPage() {
   const applyFilters = () => { setFiltersApplied(true); setCurrentPage(1); };
   const clearAllFilters = () => {
     setFilterAssetClass('all'); setFilterLoanType('all'); setFilterYears(new Set()); setFilterStates(new Set());
-    setFilterOutcome('all'); setSearchQuery(''); setFiltersApplied(false); setCurrentPage(1);
+    setFilterOutcome('all'); setFilterSourceDocs('all'); setSearchQuery(''); setFiltersApplied(false); setCurrentPage(1);
   };
 
   const togglePortfolio = (id: string) => {
@@ -501,7 +583,7 @@ export default function UnderwritingLibraryPage() {
           isOpen={showSourceDocUpload}
           onClose={() => setShowSourceDocUpload(false)}
           underwritings={underwritings}
-          onCommitted={() => { loadLibrary(); }}
+          onCommitted={() => { loadLibrary(); loadCompleteness(); }}
         />
 
         {error && <div className="card mb-4 border-risk-high/30 bg-risk-high/5"><p className="text-sm text-risk-high">{error}</p></div>}
@@ -650,6 +732,15 @@ export default function UnderwritingLibraryPage() {
               <option value="portfolio">Portfolio</option>
             </select>
 
+            {/* Source-Docs Filter — non-judgmental presence buckets. Empty
+                is just a state, not an error. */}
+            <select className="input-field text-xs" value={filterSourceDocs} onChange={(e) => setFilterSourceDocs(e.target.value as any)} title="Filter by source-document presence">
+              <option value="all">Source Docs: Any</option>
+              <option value="has_any">Has source docs (any slot)</option>
+              <option value="has_minimum">Has ASR + CF (minimum)</option>
+              <option value="none">No source docs yet</option>
+            </select>
+
             {/* Search */}
             <div className="flex-1 min-w-[200px]">
               <input className="input-field w-full text-xs" placeholder="Search by deal name, location..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
@@ -736,6 +827,7 @@ export default function UnderwritingLibraryPage() {
                     <th className="table-header text-center">Outcome</th>
                     <th className="table-header text-center">Commentary</th>
                     <th className="table-header text-left">Notes</th>
+                    <th className="table-header text-left">Source Docs</th>
                     <th className="table-header text-center w-28">Actions</th>
                   </tr>
                 </thead>
@@ -768,6 +860,7 @@ export default function UnderwritingLibraryPage() {
                           </td>
                           <td className="table-cell text-center text-xs text-text-muted">{(uw.brokerNarratives || []).length}</td>
                           <td className="table-cell"><input className="input-field text-xs w-full" value={editForm.notes ?? uw.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} /></td>
+                          <td className="table-cell"><SourceDocChipStrip completeness={completenessById[uw.id]} /></td>
                           <td className="table-cell text-center space-x-1">
                             <button onClick={saveEdit} className="text-xs text-risk-positive hover:underline">Save</button>
                             <button onClick={() => { setEditingId(null); setEditForm({}); }} className="text-xs text-text-muted hover:underline">Cancel</button>
@@ -813,6 +906,7 @@ export default function UnderwritingLibraryPage() {
                               : <span className="text-xs text-text-muted">—</span>}
                           </td>
                           <td className="table-cell text-xs text-text-muted truncate max-w-[120px]">{uw.notes || '—'}</td>
+                          <td className="table-cell"><SourceDocChipStrip completeness={completenessById[uw.id]} /></td>
                           <td className="table-cell text-center space-x-2">
                             <a href={api.getUWDownloadUrl(uw.id)} download className="text-xs text-accent hover:underline">Download</a>
                             <button onClick={() => startEdit(uw)} className="text-xs text-accent hover:underline">Edit</button>
@@ -841,6 +935,7 @@ export default function UnderwritingLibraryPage() {
                           <td className="table-cell text-center text-xs text-text-muted">
                             {prop.units ? `${prop.units} units` : prop.sf ? `${prop.sf.toLocaleString()} SF` : '—'}
                           </td>
+                          <td className="table-cell"></td>
                           <td className="table-cell"></td>
                           <td className="table-cell"></td>
                         </tr>
