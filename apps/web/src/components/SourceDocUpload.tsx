@@ -178,6 +178,22 @@ export default function SourceDocUpload({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // -------------------------------------------------------------------------
+  // ALL hooks below MUST sit above the `if (!isOpen) return null` early-return.
+  // Conditionally-called hooks change the hook count between renders → React
+  // throws "Rendered more hooks than during the previous render." (Rules of
+  // Hooks: hooks always at the top, same order, every render.)
+  // -------------------------------------------------------------------------
+  const buckets = useMemo(() => bucketRows(rows), [rows]);
+
+  const uwById = useMemo(() => {
+    const m = new Map<string, UWRecordLike>();
+    for (const u of underwritings) m.set(u.id, u);
+    return m;
+  }, [underwritings]);
+
+  // Early-return AFTER all hook calls. Safe — hook count is identical for the
+  // `!isOpen` render and the `isOpen` render (every render runs the same set).
   if (!isOpen) return null;
 
   // -------------------------------------------------------------------------
@@ -234,9 +250,9 @@ export default function SourceDocUpload({
 
   // -------------------------------------------------------------------------
   // Process All gating
+  // (`buckets` is computed at the top of the component above the early-return;
+  // see the hooks-rules note there.)
   // -------------------------------------------------------------------------
-  const buckets = useMemo(() => bucketRows(rows), [rows]);
-
   const allRowsHaveSlot = rows
     .filter((r) => r.bucket !== 'unmatched')
     .every((r) => r.chosenSlot !== null);
@@ -345,16 +361,9 @@ export default function SourceDocUpload({
   );
 
   // -------------------------------------------------------------------------
-  // Lookup helper (memoized for picker rendering)
-  // -------------------------------------------------------------------------
-  const uwById = useMemo(() => {
-    const m = new Map<string, UWRecordLike>();
-    for (const u of underwritings) m.set(u.id, u);
-    return m;
-  }, [underwritings]);
-
-  // -------------------------------------------------------------------------
   // Render
+  // (`uwById` is computed at the top of the component above the early-return;
+  // see the hooks-rules note there.)
   // -------------------------------------------------------------------------
   return (
     <div className="card mb-6 border-accent/30">
