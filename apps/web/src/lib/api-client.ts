@@ -731,4 +731,80 @@ export const api = {
   },
 
   getKicksFacets: () => request<any>('/kicks/facets'),
+
+  // ---------------------------------------------------------------------------
+  // Source-doc intake (commit 1d48478). Upload-and-organize layer for the
+  // historical-UW library: bulk upload supporting documents (ASR, CF, rent
+  // roll, PCA, seller UW, T-12, appraisal) and route them per-slot to a deal
+  // or stage them for later assignment. NO extraction wired here.
+  // ---------------------------------------------------------------------------
+  uploadSourceDoc: async (
+    historicalUwId: string,
+    slot: string,
+    files: File[],
+    notes?: string,
+  ) => {
+    const formData = new FormData();
+    for (const f of files) formData.append('files', f);
+    if (notes !== undefined) formData.append('notes', notes);
+    const res = await fetch(`${API_BASE}/source-docs/${historicalUwId}/${slot}`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+      body: formData,
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'Source-doc upload failed');
+    }
+    return res.json();
+  },
+
+  uploadSourceDocStaging: async (files: File[]) => {
+    const formData = new FormData();
+    for (const f of files) formData.append('files', f);
+    const res = await fetch(`${API_BASE}/source-docs/staging`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+      body: formData,
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'Staging upload failed');
+    }
+    return res.json();
+  },
+
+  assignStagedFiles: (
+    batchId: string,
+    assignments: ReadonlyArray<{
+      stagingId: string;
+      historicalUwId: string;
+      slot: string;
+      notes?: string;
+    }>,
+  ) =>
+    request<any>(`/source-docs/staging/${batchId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ assignments }),
+    }),
+
+  discardStagingBatch: (batchId: string) =>
+    request<any>(`/source-docs/staging/${batchId}`, { method: 'DELETE' }),
+
+  listSourceDocCompleteness: (historicalUwId?: string) =>
+    request<any>(
+      `/source-docs/completeness${historicalUwId ? `?historicalUwId=${historicalUwId}` : ''}`,
+    ),
+
+  listSourceDocSlots: () => request<any>('/source-docs/slots'),
 };

@@ -10,6 +10,7 @@ import { ASSET_TYPES, type AssetType } from '@cre/contracts';
 import type { AssetType as LegacyAssetType, DealOutcome, MarketIntelligence } from '@cre/shared';
 import dynamic from 'next/dynamic';
 import type { MarketCluster } from './broker-map';
+import SourceDocUpload from '@/components/SourceDocUpload';
 
 const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   Office: 'Office',
@@ -161,6 +162,7 @@ export default function UnderwritingLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showDropZone, setShowDropZone] = useState(false);
+  const [showSourceDocUpload, setShowSourceDocUpload] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -487,8 +489,20 @@ export default function UnderwritingLibraryPage() {
             <h1 className="text-xl font-bold text-text-primary tracking-wide">UNDERWRITING LIBRARY</h1>
             <p className="text-sm text-text-secondary mt-1">Central archive — {underwritings.length} records</p>
           </div>
-          <button onClick={() => { setShowDropZone(true); setError(null); setSuccess(null); }} className="btn-primary text-sm">Upload Underwritings</button>
+          <div className="flex gap-2">
+            <button onClick={() => { setShowDropZone(true); setError(null); setSuccess(null); }} className="btn-primary text-sm">Upload Underwritings</button>
+            <button onClick={() => { setShowSourceDocUpload(true); setError(null); setSuccess(null); }} className="btn-primary text-sm">Upload Supporting Documents</button>
+          </div>
         </div>
+
+        {/* Source-doc bulk upload — conservative three-bucket review. No
+            server state changes until the user clicks "Process All". */}
+        <SourceDocUpload
+          isOpen={showSourceDocUpload}
+          onClose={() => setShowSourceDocUpload(false)}
+          underwritings={underwritings}
+          onCommitted={() => { loadLibrary(); }}
+        />
 
         {error && <div className="card mb-4 border-risk-high/30 bg-risk-high/5"><p className="text-sm text-risk-high">{error}</p></div>}
         {success && <div className="card mb-4 border-risk-positive/30 bg-risk-positive/5"><p className="text-sm text-risk-positive">{success}</p></div>}
