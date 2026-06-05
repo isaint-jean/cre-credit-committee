@@ -142,6 +142,14 @@ export const NARRATIVE_ENGINE_VERSION = '1.3' as const;
  *   3. Run `npm run mitigation-engine:print-hash` and append to
  *      MITIGATION_ENGINE_MANIFEST.
  *   4. Run `npm run check:mitigation-engine` to verify boot check passes.
+ *
+ * Coupling with RENDER_VERSION (rendered-analysis.ts): the rendered-analysis
+ * cache is keyed by (rootId, renderVersion, narrativeId). On any engine bump
+ * that materially changes proposal output, ALSO bump RENDER_VERSION — old
+ * cache rows otherwise continue to return the prior proposal projection for
+ * the same root/narrative pair. This is the existing manual-invalidation
+ * convention; the render layer does not key its cache on the mitigation set
+ * id directly.
  */
 export const MITIGATION_ENGINE_VERSION = '1.0' as const;
 

@@ -38,7 +38,10 @@
 // ============================================================================
 
 import type {
+  MitigationProposal,
+  MitigationProposalSet,
   NarrativeEvaluation,
+  RecalcSnapshot,
   RenderBadge,
   RenderedAdjustment,
   RenderedAnalysis,
@@ -47,9 +50,12 @@ import type {
   RenderedFinding,
   RenderedLineItem,
   RenderedLoanSection,
+  RenderedMitigationProposal,
   RenderedNarrativeSection,
+  RenderedRecalcSnapshot,
   RenderedStressScenario,
   RenderedStressSection,
+  RenderCell,
   UnderwritingContext,
 } from '@cre/contracts';
 import { RENDER_VERSION } from '@cre/contracts';
@@ -58,6 +64,7 @@ import {
   applyNumericSentinel,
   applyStringSentinel,
   badgeFromFlag,
+  NULL_SENTINEL,
 } from './render-sentinels.js';
 import { computeRenderedAnalysisId } from '../util/content-hash.js';
 
@@ -105,9 +112,75 @@ function projectLineItem(name: string, item: AdjustedLineItem): RenderedLineItem
   };
 }
 
+/* ----- mitigation projection helpers (render version 7.10) ---------------- */
+// Display formatters for the four metric flavors in the mitigation recalc
+// snapshot + dollar amounts. Render-side only: produces byte-stable canonical
+// strings for `displayValue`; consumers read the string as-is (no client-side
+// locale formatting per the read-pole convention).
+
+function fmtDollarsCompact(n: number | null): string {
+  if (n === null) return NULL_SENTINEL;
+  if (Math.abs(n) >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
+  if (Math.abs(n) >= 1_000)     return '$' + (n / 1_000).toFixed(0) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+function fmtDscr(n: number | null): string {
+  if (n === null) return NULL_SENTINEL;
+  return n.toFixed(2) + 'x';
+}
+
+function fmtRate(n: number | null): string {
+  if (n === null) return NULL_SENTINEL;
+  return (n * 100).toFixed(2) + '%';
+}
+
+function dollarCell(n: number | null | undefined): RenderCell<number> {
+  const v = n === undefined ? null : n;
+  return { value: v, displayValue: fmtDollarsCompact(v) };
+}
+
+function projectRecalcSnapshot(s: RecalcSnapshot): RenderedRecalcSnapshot {
+  return {
+    dscr:         { value: s.dscr,         displayValue: fmtDscr(s.dscr) },
+    ltv:          { value: s.ltv,          displayValue: fmtRate(s.ltv) },
+    debtYield:    { value: s.debtYield,    displayValue: fmtRate(s.debtYield) },
+    impliedValue: { value: s.impliedValue, displayValue: fmtDollarsCompact(s.impliedValue) },
+  };
+}
+
+function projectMitigationProposal(p: MitigationProposal): RenderedMitigationProposal {
+  return {
+    id: p.id,
+    principleIds: p.principleIds,
+    lever: p.lever,
+    leverKind: p.leverKind,
+    title: p.title,
+    description: p.description,
+    structuralChanges: p.structuralChanges,
+    requiredEquity:  dollarCell(p.requiredEquity),
+    requiredReserve: dollarCell(p.requiredReserve),
+    recalcBefore: p.recalcBefore ? projectRecalcSnapshot(p.recalcBefore) : null,
+    recalcAfter:  p.recalcAfter  ? projectRecalcSnapshot(p.recalcAfter)  : null,
+    targetMetric: p.targetMetric ?? null,
+    coverageStatement: p.coverageStatement ?? null,
+    riskReduction: p.riskReduction,
+    severity: p.severity,
+    bandIndex: p.bandIndex ?? null,
+  };
+}
+
+function projectMitigations(
+  set: MitigationProposalSet | null,
+): readonly RenderedMitigationProposal[] {
+  if (set === null || set.proposals.length === 0) return [];
+  return set.proposals.map(projectMitigationProposal);
+}
+
 export function renderUnderwritingContext(
   ctx: UnderwritingContext,
   narrative: NarrativeEvaluation | null = null,
+  mitigationSet: MitigationProposalSet | null = null,
 ): RenderedAnalysis {
   const {
     rootId,
@@ -294,11 +367,12 @@ export function renderUnderwritingContext(
     findings,
     narrative: renderNarrativeSection(narrative),
 
-    // 7.9 (mitigations doctrine v1). Commit 1 ships the contract + render shell
-    // only — no producer, no MitigationProposalSet record yet — so the projection
-    // is the empty array. The UI hides the Mitigations section when empty so
-    // existing deals render unchanged. Commit 2 wires the producer's output.
-    mitigations: [],
+    // 7.10 (mitigations doctrine v1, commit 2d). Project the persisted
+    // MitigationProposalSet (fetched by the materializer alongside the
+    // narrative). Empty array when no set was found (engine version mismatch
+    // / pre-2c deals) — UI hides the section. RENDER_VERSION bumped 7.9 → 7.10
+    // to invalidate cache rows that pre-date this projection.
+    mitigations: projectMitigations(mitigationSet),
 
     metadata: {
       hashedAt: doctrineEvaluation.analysisAsOfDate,

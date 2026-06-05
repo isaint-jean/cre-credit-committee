@@ -27,6 +27,7 @@
 //     for previous versions; can be GC'd later if storage growth becomes an issue).
 
 import {
+  MITIGATION_ENGINE_VERSION,
   NARRATIVE_ENGINE_VERSION,
   RENDER_VERSION,
   type DoctrineEvaluationId,
@@ -79,9 +80,21 @@ export function materializeRenderedAnalysisWithMeta(
     return { rendered: cached, cacheHit: true };
   }
 
-  // Cold path: project + render (passing narrative through to renderUnderwritingContext).
+  // Mitigations doctrine v1 (commit 2d) — fetch the persisted set for the
+  // bundle's AdjustedInputs at the current engine version. Absent / pre-2c
+  // deals → null → renderer projects an empty `mitigations` array → UI
+  // hides the section. Engine bumps that change proposal output should be
+  // paired with a RENDER_VERSION bump (see MITIGATION_ENGINE_VERSION
+  // docstring) so cache rows under the old proposal projection don't
+  // shadow the new one.
+  const mitigationSet = store.getLatestMitigationProposalSetForAdjustedInputs(
+    bundle.adjustedInputs.id,
+    MITIGATION_ENGINE_VERSION,
+  );
+
+  // Cold path: project + render (passing narrative + mitigationSet through to renderUnderwritingContext).
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
-  const rendered = renderUnderwritingContext(ctx, narrative);
+  const rendered = renderUnderwritingContext(ctx, narrative, mitigationSet);
   store.insertRenderedAnalysis(rendered, narrativeId);
   return { rendered, cacheHit: false };
 }

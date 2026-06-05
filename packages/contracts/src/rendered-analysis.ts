@@ -10,7 +10,7 @@ import type { ISODateTime, NarrativeEngineVersion } from './versioning.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.9' as const;
+export const RENDER_VERSION = '7.10' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
