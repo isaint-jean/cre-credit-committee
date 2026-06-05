@@ -8,7 +8,7 @@
  * conceptual names (e.g., `RENT_ROLL_MISSING` is a doctrine scoring rule; `JE_RENT_ROLL_MISSING`
  * is the corresponding judgment-engine adjustment rule that fires the confidence penalty).
  *
- * Frozen for `JUDGMENT_ENGINE_VERSION = '1.2'`. Adding a rule means adding a literal here AND
+ * Frozen for `JUDGMENT_ENGINE_VERSION = '1.4'`. Adding a rule means adding a literal here AND
  * appending an entry to `JUDGMENT_ENGINE_MANIFEST` for hash-drift protection. The naming +
  * literal-union enforcement gives compile-time discrimination across the adjustment ledger.
  */
@@ -129,6 +129,32 @@ export const JudgmentEngineRules = {
   // this one fires on absent PCA capex schedule. Doctrine reads both flags via
   // its data_confidence component.
   JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED:        'JE_UPFRONT_REPLACEMENT_RESERVES_DEFAULTED',
+
+  // §14 cap-rate stress doctrine v1 (office) — Batch 1.4 (2026-06-05).
+  //
+  // Scaffolding for the cap-rate stress step (see docs/cap-rate-stress-doctrine-v1.md
+  // and the implementation brief). The literals are DEFINED here so the rule registry
+  // and hash-drift manifest stay locked, but they are NOT emitted yet — orchestrator
+  // wire-up lands in subsequent commits. Each rule (when emitted) will push an
+  // AdjustmentEntry to capRate.adjustments[] with a fixed bps delta off the cap base,
+  // following the existing line-item-builders.ts adjustment pattern.
+  //
+  // Tier corrections — bidirectional; de-bias the tier-blind library median. Calibration
+  // R²=0.22 against analyst answer key; corrections vs. flat default RMSE 1.16 → 1.00.
+  JE_CAP_TIER_GATEWAY:                              'JE_CAP_TIER_GATEWAY',
+  JE_CAP_TIER_SECONDARY:                            'JE_CAP_TIER_SECONDARY',
+  JE_CAP_TIER_TERTIARY:                             'JE_CAP_TIER_TERTIARY',
+  // Risk-stress widening — judgment magnitudes (conservative starting bands).
+  // v1 uses the existing 2-value businessPlan enum (Stabilized / LeaseUp_or_Transitional);
+  // a 3-bucket widening (value-add @ +50) is deferred to v1.1.
+  JE_CAP_STRESS_BUSINESS_PLAN:                      'JE_CAP_STRESS_BUSINESS_PLAN',
+  JE_CAP_STRESS_TENANCY_ROLLOVER:                   'JE_CAP_STRESS_TENANCY_ROLLOVER',
+  JE_CAP_STRESS_TENANCY_CONCENTRATION:              'JE_CAP_STRESS_TENANCY_CONCENTRATION',
+  // Guardrails. CLAMPED_TO_RANGE is mutative (snaps concludedCap to the [4.5%, 12.0%]
+  // band and records the snap delta). NET_ADJ_OUT_OF_BAND is informational (delta=0;
+  // surfaces in dataQualityFlags when |Σ stress deltas| exceeds 150bps).
+  JE_CAP_CLAMPED_TO_RANGE:                          'JE_CAP_CLAMPED_TO_RANGE',
+  JE_CAP_NET_ADJ_OUT_OF_BAND:                       'JE_CAP_NET_ADJ_OUT_OF_BAND',
 } as const;
 
 export type JudgmentEngineRuleId = (typeof JudgmentEngineRules)[keyof typeof JudgmentEngineRules];

@@ -45,4 +45,13 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // JE_TRAILING_ACTUALS_MISSING (weight 12, inherited from JE_T12_MISSING) and
   // JE_IN_PLACE_MISSING (weight 8). Hash placeholder until print-judgment-engine-hash runs.
   '1.3': 'abfc5a2fe1e61bc020349b9e3f14a9bf8c3d02dd53e8bc00237153cf7049d110' as ContentHash,
+  // Cap-rate stress doctrine v1 scaffolding (2026-06-05). Eight new rule literals added
+  // to the JudgmentEngineRules registry: JE_CAP_TIER_GATEWAY, JE_CAP_TIER_SECONDARY,
+  // JE_CAP_TIER_TERTIARY (bidirectional tier corrections off library median),
+  // JE_CAP_STRESS_BUSINESS_PLAN, JE_CAP_STRESS_TENANCY_ROLLOVER,
+  // JE_CAP_STRESS_TENANCY_CONCENTRATION (widen-only risk stress), JE_CAP_CLAMPED_TO_RANGE
+  // (mutative clamp into [4.5%, 12.0%] band), and JE_CAP_NET_ADJ_OUT_OF_BAND
+  // (informational net-adjustment review flag). Scaffolding only — literals defined,
+  // not yet emitted. No JE_MISSING_DOC_PENALTIES / JE_DISTRUST_PENALTIES additions.
+  '1.4': '7ab706aa52063cb4d044268a7868eef87ec4bc0c765be0e8440403c4f883d2e9' as ContentHash,
 };
