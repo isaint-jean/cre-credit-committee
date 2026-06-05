@@ -96,6 +96,7 @@ import {
   type IngestExtractionResultArgs,
   type IngestionResult,
 } from '../services/ingest-extraction-result.js';
+import { cityStateToMarketLiquidity } from '../services/metro-tier-lookup.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 import { blobStore, BlobStoreError } from '../storage/blob-store.js';
@@ -424,6 +425,28 @@ export function makeBuildAndIngestHandler(
          the ExtractionResult row. */
     }
 
+    /* marketLiquidity hint chain (cap-stress doctrine v1, commit 2). Explicit
+       body hint wins (preserves Sunroad-style 'Secondary' override); otherwise
+       derive from the composer's PropertyMetadata via the seed table; otherwise
+       fall through to the profiler's 'Unknown' default. Derivation lives at the
+       route, not in the profiler or orchestrator — build-and-ingest is the sole
+       production funnel into ingestExtractionResult today, so a single seam is
+       enough. apply-revision-delta reuses the stored AssetProfile via
+       store.getAssetProfile, so revisions inherit this derived hint
+       deterministically without re-running the lookup. */
+    const explicitHint =
+      body.marketLiquidityHint !== undefined && body.marketLiquidityHint !== null
+        ? (body.marketLiquidityHint as MarketLiquidity)
+        : undefined;
+    const derivedHint: MarketLiquidity =
+      composed.propertyMetadata !== null
+        ? cityStateToMarketLiquidity(
+            composed.propertyMetadata.city,
+            composed.propertyMetadata.state,
+          )
+        : 'Unknown';
+    const effectiveLiquidityHint: MarketLiquidity = explicitHint ?? derivedHint;
+
     /* Run ingest against the composed ExtractionResult. Async since
        Phase 1 batch 2 (the coupled `evaluateAndNarrate` wrapper performs
        an LLM round-trip for the narrative producer). */
@@ -433,9 +456,7 @@ export function makeBuildAndIngestHandler(
         {
           extractionResult: composed.extractionResult,
           propertyType: body.propertyType as AssetType,
-          ...(body.marketLiquidityHint !== undefined && body.marketLiquidityHint !== null
-            ? { marketLiquidityHint: body.marketLiquidityHint as MarketLiquidity }
-            : {}),
+          marketLiquidityHint: effectiveLiquidityHint,
           librarySnapshotId: body.librarySnapshotId as LibrarySnapshotId,
           ...(bmInlinePresent
             ? { marketBenchmarks: marketBenchmarks as MarketBenchmarks }
