@@ -10,7 +10,7 @@ import type { ISODateTime, NarrativeEngineVersion } from './versioning.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.8' as const;
+export const RENDER_VERSION = '7.9' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -204,6 +204,39 @@ export interface RenderedComponentScore {
   readonly reasonCodes: readonly RenderBadge[];   // typed reason codes promoted to badges
 }
 
+// Mitigations doctrine v1 (render version 7.9). Render-side counterpart to
+// MitigationProposal (packages/contracts/src/mitigation.ts). Bijective passthrough
+// of the producer's typed proposal with numeric fields wrapped in RenderCell so
+// the UI prints the server's displayValue. NO re-derivation: render must not
+// recompute requiredEquity/requiredReserve/recalc snapshots. When the producer
+// has not run yet (commit 1 ships the contract only), the projection emits an
+// empty array; consumers SHOULD hide the section.
+export interface RenderedRecalcSnapshot {
+  readonly dscr:          RenderCell<number>;
+  readonly ltv:           RenderCell<number>;
+  readonly debtYield:     RenderCell<number>;
+  readonly impliedValue:  RenderCell<number>;
+}
+
+export interface RenderedMitigationProposal {
+  readonly id: string;
+  readonly principleIds: readonly string[];
+  readonly lever: string;                            // MitigationLever passthrough
+  readonly leverKind: string;                        // LeverKind passthrough
+  readonly title: string;
+  readonly description: string;
+  readonly structuralChanges: readonly string[];
+  readonly requiredEquity: RenderCell<number>;       // populated for reduce_proceeds; sentinel otherwise
+  readonly requiredReserve: RenderCell<number>;      // populated for fund_reserve; sentinel otherwise
+  readonly recalcBefore: RenderedRecalcSnapshot | null;
+  readonly recalcAfter: RenderedRecalcSnapshot | null;
+  readonly targetMetric: string | null;              // MitigationTargetMetric | null passthrough
+  readonly coverageStatement: string | null;
+  readonly riskReduction: string;                    // RiskReduction passthrough
+  readonly severity: string;                         // Severity passthrough
+  readonly bandIndex: number | null;
+}
+
 export interface RenderedAnalysis {
   readonly id: RenderedAnalysisId;
   readonly rootId: DoctrineEvaluationId;
@@ -277,6 +310,13 @@ export interface RenderedAnalysis {
   // exists for the AdjustedInputs at the current engine version (pre-Phase-1
   // deals or narrative-build failed). Nullable per SPEC §14.4 Q-R2.
   readonly narrative: RenderedNarrativeSection | null;
+
+  // 7.9 (mitigations doctrine v1): structured mitigation proposals projected from
+  // MitigationProposalSet.proposals[]. Empty array when no producer has run for the
+  // current AdjustedInputs (commit 1 ships the contract only; the producer arrives
+  // in commit 2). Consumers SHOULD hide the section when empty so existing deals
+  // render unchanged.
+  readonly mitigations: readonly RenderedMitigationProposal[];
 
   readonly metadata: RenderedAnalysisMetadata;
 }

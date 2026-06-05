@@ -294,6 +294,12 @@ export function renderUnderwritingContext(
     findings,
     narrative: renderNarrativeSection(narrative),
 
+    // 7.9 (mitigations doctrine v1). Commit 1 ships the contract + render shell
+    // only — no producer, no MitigationProposalSet record yet — so the projection
+    // is the empty array. The UI hides the Mitigations section when empty so
+    // existing deals render unchanged. Commit 2 wires the producer's output.
+    mitigations: [],
+
     metadata: {
       hashedAt: doctrineEvaluation.analysisAsOfDate,
       renderVersion: RENDER_VERSION,

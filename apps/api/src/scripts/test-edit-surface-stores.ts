@@ -219,6 +219,7 @@ function makeMinimalRendered(): RenderedAnalysis {
     stress: { method: 'DEFAULT', scenarios: [] },
     findings: [],
     narrative: null,
+    mitigations: [],
     metadata: { hashedAt: NOW, renderVersion: RENDER_VERSION },
   };
   // The contract requires id; recompute it from body via the same content-hash

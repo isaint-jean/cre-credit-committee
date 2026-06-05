@@ -27,6 +27,7 @@ import type {
   RenderBadgeSeverity,
   RenderedFinding,
   RenderedLineItem,
+  RenderedMitigationProposal,
   RenderedNarrativeSection,
   RenderedStressScenario,
   SkippedPrinciple,
@@ -258,6 +259,122 @@ function HandbookEvaluationSection(
         {' · '}
         {new Date(evaluation.analysisAsOfDate).toISOString().slice(0, 10)}
       </p>
+    </section>
+  );
+}
+
+// Mitigations doctrine v1 output (render version 7.9). Bijective passthrough of
+// RenderedAnalysis.mitigations[] — one card per structured MitigationProposal.
+// reduce_proceeds proposals render a before/after metric table (concluded-model
+// snapshot vs. counterfactual-recalc snapshot) and the required-equity line.
+// fund_reserve proposals render the required-reserve dollars and the coverage
+// statement. Mounted ABOVE NarrativeSection so structured proposals lead and
+// the Piece A prose substantiates them. Renders nothing when the array is empty
+// (commit 1 ships with empty arrays for all deals; commit 2 wires the producer).
+function MitigationsSection(
+  { proposals }: { proposals: readonly RenderedMitigationProposal[] },
+): React.ReactElement | null {
+  if (proposals.length === 0) return null;
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">
+        Mitigations
+      </h2>
+      <div className="space-y-3">
+        {proposals.map((p) => (
+          <div key={p.id} className="border border-gray-200 rounded bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-gray-900">{p.title}</h3>
+              <Badge
+                badge={{
+                  code: p.lever,
+                  label: p.severity,
+                  severity: p.severity === 'critical' || p.severity === 'high'
+                    ? 'warning' as RenderBadgeSeverity
+                    : 'info' as RenderBadgeSeverity,
+                }}
+              />
+              {p.targetMetric !== null ? (
+                <span className="font-mono text-xs text-gray-500">
+                  binding: {p.targetMetric}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-sm text-gray-700">{p.description}</p>
+            {p.structuralChanges.length > 0 ? (
+              <ul className="text-xs text-gray-600 list-disc list-inside space-y-0.5">
+                {p.structuralChanges.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            ) : null}
+            {p.leverKind === 'recalc_delta' && p.recalcBefore !== null && p.recalcAfter !== null ? (
+              <div className="overflow-x-auto border border-gray-100 rounded">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-gray-50 text-gray-500 uppercase tracking-wide">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Metric</th>
+                      <th className="px-3 py-2 text-right font-medium">Before</th>
+                      <th className="px-3 py-2 text-right font-medium">After</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-700">DSCR</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcBefore.dscr.displayValue}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcAfter.dscr.displayValue}</td>
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-700">LTV</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcBefore.ltv.displayValue}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcAfter.ltv.displayValue}</td>
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-700">Debt Yield</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcBefore.debtYield.displayValue}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcAfter.debtYield.displayValue}</td>
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-700">Implied Value</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcBefore.impliedValue.displayValue}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{p.recalcAfter.impliedValue.displayValue}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-4 text-xs">
+              {p.requiredEquity.value !== null ? (
+                <div>
+                  <span className="text-gray-500">Required Equity: </span>
+                  <span className="font-mono text-gray-900">{p.requiredEquity.displayValue}</span>
+                </div>
+              ) : null}
+              {p.requiredReserve.value !== null ? (
+                <div>
+                  <span className="text-gray-500">Required Reserve: </span>
+                  <span className="font-mono text-gray-900">{p.requiredReserve.displayValue}</span>
+                </div>
+              ) : null}
+              {p.coverageStatement !== null ? (
+                <div className="text-gray-700 italic">{p.coverageStatement}</div>
+              ) : null}
+              <div>
+                <span className="text-gray-500">Risk reduction: </span>
+                <span className="text-gray-900">{p.riskReduction}</span>
+              </div>
+            </div>
+            {p.principleIds.length > 0 ? (
+              <div className="text-xs text-gray-500">
+                Addresses:{' '}
+                {p.principleIds.map((id, i) => (
+                  <span key={id + ':' + i} className="font-mono">
+                    {i > 0 ? ', ' : ''}{id}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -820,6 +937,8 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
       {handbookEvaluation !== undefined && handbookEvaluation !== null && (
         <HandbookEvaluationSection evaluation={handbookEvaluation} />
       )}
+
+      <MitigationsSection proposals={data.mitigations} />
 
       <NarrativeSection narrative={data.narrative} />
 

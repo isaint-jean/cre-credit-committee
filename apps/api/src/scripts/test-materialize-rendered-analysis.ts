@@ -351,6 +351,7 @@ console.log('\nFK enforcement: cannot insert RenderedAnalysis with non-existent 
     stress: { method: 'DEFAULT', scenarios: [] },
     findings: [],
     narrative: null,
+    mitigations: [],
     metadata: { hashedAt: AS_OF, renderVersion: RENDER_VERSION },
   };
   // Compute a valid id for this body so we don't trip RecordIdMismatchError
