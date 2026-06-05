@@ -760,6 +760,33 @@ function populateConclusionsAndEscrowsTab(
         cell: CONCLUSIONS_CAP_RATE_CELL,
         value: uwModel.capRate,
       });
+      // Concluded-cap disclosure (cap-rate stress doctrine v1). Attach the
+      // adjustments ledger + cap-relevant dataQualityFlags as an Excel cell
+      // note so an analyst opening the workbook sees the build-up without
+      // modifying the cell layout. Cell notes are non-disruptive (no rows
+      // shifted; no formulas affected). Skipped when the disclosure is
+      // empty (legacy non-promoted analyses) or has no entries.
+      const disclosure = uwModel.capRateDisclosure;
+      if (
+        disclosure !== undefined &&
+        (disclosure.adjustments.length > 0 || disclosure.flags.length > 0)
+      ) {
+        const lines: string[] = [
+          `Concluded cap = ${(uwModel.capRate * 100).toFixed(2)}%`,
+          '',
+        ];
+        for (const adj of disclosure.adjustments) {
+          const sign = adj.deltaBps >= 0 ? '+' : '−';
+          lines.push(`  ${sign}${Math.abs(adj.deltaBps)} bps  ${adj.ruleId}`);
+          lines.push(`      ${adj.reason}`);
+        }
+        if (disclosure.flags.length > 0) {
+          lines.push('');
+          lines.push('Data-quality flags:');
+          for (const f of disclosure.flags) lines.push(`  - ${f}`);
+        }
+        cell.note = lines.join('\n');
+      }
     }
   }
 

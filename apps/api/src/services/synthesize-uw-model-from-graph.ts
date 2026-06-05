@@ -37,6 +37,8 @@
 import { recalculateFullModel } from '@cre/shared';
 import type {
   CapitalReservesSection,
+  CapRateDisclosure,
+  CapRateDisclosureEntry,
   ExpenseSection,
   IncomeSection,
   LineItem,
@@ -248,6 +250,23 @@ export function synthesizeUwModelFromGraph(
     originationDate:    new Date().toISOString().slice(0, 10),
   };
 
+  /* Concluded-cap disclosure (cap-rate stress doctrine v1). Each
+   * AdjustmentEntry on AI.assumptions.capRate.adjustments[] becomes a
+   * deltaBps-typed row (decimal fraction × 10_000). The cap-relevant
+   * dataQualityFlags are filtered to JE_CAP_* and surfaced alongside.
+   * Workbook template uses both to attach an Excel cell note on the
+   * concluded-cap cell; web page renders capRate.adjustments through the
+   * separate rendered-analysis path (render-underwriting-context.ts),
+   * which is already bijective and needs no projection here. */
+  const capRateDisclosure: CapRateDisclosure = {
+    adjustments: ai.assumptions.capRate.adjustments.map((a): CapRateDisclosureEntry => ({
+      ruleId: a.ruleId,
+      reason: a.reason,
+      deltaBps: Math.round(a.delta * 10_000),
+    })),
+    flags: ai.dataQualityFlags.filter((f) => f.startsWith('JE_CAP_')),
+  };
+
   /* Pre-recalc skeleton. recalculateFullModel will overwrite the derived
      fields (NOI, impliedValue, dscr, ltv [= loan/impliedValue],
      debtYield, annualDebtService, repaymentSchedule, effectiveGrossIncome,
@@ -263,6 +282,7 @@ export function synthesizeUwModelFromGraph(
     capitalReserves,
     netOperatingIncome: 0,
     capRate:            ai.assumptions.capRate.adjusted,
+    capRateDisclosure,
     impliedValue:       null,
     loanAmount:         loanDetails.loanAmount,
     interestRate:       loanDetails.interestRate,

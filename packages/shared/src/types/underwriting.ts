@@ -127,6 +127,33 @@ export interface CapitalReservesSection {
   pcaImmediateRepairs: number;
 }
 
+/**
+ * Concluded-cap disclosure entry. One row per AdjustmentEntry from the
+ * graph-side `AdjustedInputs.assumptions.capRate.adjustments[]`. Carried on
+ * the synthesized UnderwritingModel so the workbook template can surface
+ * the cap-rate stress doctrine's ledger (tier correction, risk widens,
+ * clamp, etc.) at the concluded-cap cell without lumping cap adjustments
+ * into the expense additionalItems catch-all.
+ *
+ * Cap-rate-specific shape (deltaBps), distinct from the dollar-oriented
+ * LineItem used elsewhere on UnderwritingModel.
+ */
+export interface CapRateDisclosureEntry {
+  readonly ruleId: string;
+  readonly reason: string;
+  readonly deltaBps: number;
+}
+
+/** Concluded-cap disclosure section on the synthesized UnderwritingModel.
+ *  Optional (undefined for legacy non-promoted analyses with no graph). */
+export interface CapRateDisclosure {
+  readonly adjustments: ReadonlyArray<CapRateDisclosureEntry>;
+  /** dataQualityFlags entries relevant to the cap-rate disclosure.
+   *  Subset of AdjustedInputs.dataQualityFlags filtered to JE_CAP_* codes
+   *  by the synthesizer so consumers don't have to re-filter. */
+  readonly flags: ReadonlyArray<string>;
+}
+
 export interface UnderwritingModel {
   income: IncomeSection;
   expenses: ExpenseSection;
@@ -140,6 +167,15 @@ export interface UnderwritingModel {
   capitalReserves?: CapitalReservesSection;
   netOperatingIncome: number;
   capRate: number;
+  /**
+   * Concluded-cap disclosure (cap-rate stress doctrine v1). Populated by
+   * `synthesize-uw-model-from-graph.ts` from the graph's
+   * AdjustedInputs.assumptions.capRate.adjustments[] + the cap-relevant
+   * dataQualityFlags. Workbook templates surface it on the concluded-cap
+   * cell (via an Excel cell note). Optional — legacy non-promoted
+   * analyses leave this undefined.
+   */
+  capRateDisclosure?: CapRateDisclosure;
   // Derived fields are nullable: null means "not computable from current
   // inputs" (per validation contract — never coerce missing into 0).
   impliedValue: number | null;
