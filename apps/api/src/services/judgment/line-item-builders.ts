@@ -1054,6 +1054,14 @@ export function buildTerminalCapRate(args: {
     substitutionRuleId = 'JE_TERMINAL_CAP_RATE_FROM_SPOT_PLUS_SPREAD';
     substitutionReason = `terminal cap rate substituted from spot cap + 50bps (${substitutionValue}) [library degraded]`;
   }
+  // No-exit-compression-credit floor. A B-piece underwrite gives no credit for
+  // cap compression at exit: the terminal cap is never tighter than the
+  // (already-stressed) going-in. capRate arrives here post-stress (orchestrator
+  // runs applyCapRateStress before buildTerminalCapRate), so args.capRate.adjusted
+  // is the stressed spot. Silent for v1 — when the floor binds, substitutionReason
+  // understates slightly; an auditable JE_TERMINAL_CAP_RATE_FLOORED_AT_GOING_IN
+  // entry is queued for v1.1.
+  substitutionValue = Math.max(substitutionValue, args.capRate.adjusted);
   return adjustSubstituteOnly({
     raw: null,
     extractionSource: 'MANUAL',
