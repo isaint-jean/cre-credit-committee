@@ -126,6 +126,25 @@ export const HANDBOOK_ENGINE_VERSION = '1.6.0' as const;
  */
 export const NARRATIVE_ENGINE_VERSION = '1.3' as const;
 
+/**
+ * Mitigation-engine semantic version. Stamped onto every MitigationProposalSet
+ * record so the content-hash id changes when the engine's desk constants,
+ * lever set, or sizing doctrine change — replay determinism + idempotent
+ * re-evaluation on bump. Bump rules:
+ *   MINOR (1.0 → 1.1): add a lever; widen the principle-enrichment table;
+ *     adjust a desk constant.
+ *   MAJOR (1.0 → 2.0): change a sizing formula or restructure the proposal
+ *     contract semantics.
+ *
+ * Workflow when changing engine state:
+ *   1. Edit the engine (apps/api/src/services/mitigation/produce-mitigations.ts).
+ *   2. Bump MITIGATION_ENGINE_VERSION here.
+ *   3. Run `npm run mitigation-engine:print-hash` and append to
+ *      MITIGATION_ENGINE_MANIFEST.
+ *   4. Run `npm run check:mitigation-engine` to verify boot check passes.
+ */
+export const MITIGATION_ENGINE_VERSION = '1.0' as const;
+
 export type DoctrineVersion = typeof DOCTRINE_VERSION;
 /**
  * Historical-replay union: includes every JUDGMENT_ENGINE_VERSION ever shipped so
@@ -147,6 +166,14 @@ export type HandbookEngineVersion = typeof HANDBOOK_ENGINE_VERSION;
  * when adding a new narrative-engine revision.
  */
 export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3';
+
+/**
+ * Historical-replay union: includes every MITIGATION_ENGINE_VERSION ever shipped so
+ * MITIGATION_ENGINE_MANIFEST can carry an append-only history of state hashes.
+ * Bump the `MITIGATION_ENGINE_VERSION` constant and EXTEND this union (do not
+ * replace) when adding a new mitigation-engine revision.
+ */
+export type MitigationEngineVersion = '1.0';
 
 /**
  * ISO 8601 UTC timestamp, frozen at extraction time. Used as `analysisAsOfDate` everywhere a

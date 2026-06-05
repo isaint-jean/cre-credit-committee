@@ -6,12 +6,14 @@ import { registerCurrentModelVersion } from './services/consistency-engine.servi
 import { performDoctrineBootCheck } from './util/doctrine-boot-check.js';
 import { performJudgmentEngineBootCheck } from './util/judgment-engine-boot-check.js';
 import { performNarrativeEngineBootCheck } from './util/narrative-engine-boot-check.js';
+import { performMitigationEngineBootCheck } from './util/mitigation-engine-boot-check.js';
 
 // Boot-time invariants. Throws on weight-sum / rule-coverage / hash drift / penalty-key validity;
 // process exits non-zero before the HTTP listener starts.
 performDoctrineBootCheck();
 performJudgmentEngineBootCheck();
 performNarrativeEngineBootCheck();
+performMitigationEngineBootCheck();
 
 const app = express();
 

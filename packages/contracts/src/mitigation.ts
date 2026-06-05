@@ -32,6 +32,7 @@ import type {
   MitigationProposalSetId,
 } from './identity.js';
 import type { Severity } from './handbook.js';
+import type { MitigationEngineVersion } from './versioning.js';
 
 export const MITIGATION_LEVERS = ['reduce_proceeds', 'fund_reserve'] as const;
 export type MitigationLever = (typeof MITIGATION_LEVERS)[number];
@@ -97,11 +98,15 @@ export interface MitigationProposal {
 
 /**
  * Persisted sibling graph record. Content-hashed over
- * (adjustedInputsId, handbookEvaluationId, proposals[]).
+ * (adjustedInputsId, handbookEvaluationId, mitigationEngineVersion, proposals[]).
+ * Bumping `mitigationEngineVersion` changes the id even for the same proposals;
+ * intentional cache-invalidation so re-evaluation under a new engine version
+ * produces a fresh record rather than colliding.
  */
 export interface MitigationProposalSet {
   readonly id: MitigationProposalSetId;
   readonly adjustedInputsId: AdjustedInputsId;
   readonly handbookEvaluationId: HandbookEvaluationId;
+  readonly mitigationEngineVersion: MitigationEngineVersion;
   readonly proposals: readonly MitigationProposal[];
 }

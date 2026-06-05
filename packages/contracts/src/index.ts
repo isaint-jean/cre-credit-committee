@@ -110,12 +110,13 @@ export * from './handbook-evaluation.js';
 export * from './narrative-evaluation.js';
 export * from './narrative-engine-manifest.js';
 
-// Mitigations doctrine v1 (Commit 1 — contract only). Defines MitigationProposal,
-// MitigationProposalSet, MitigationLever, LeverKind, RecalcSnapshot, etc. The
-// producer + record-graph wiring lands in Commit 2; this commit ships the contract
-// shell so the render projection + UI can compile and degrade gracefully (empty
-// proposal arrays).
+// Mitigations doctrine v1 (Commits 1+2c). Defines MitigationProposal,
+// MitigationProposalSet, MitigationLever, LeverKind, RecalcSnapshot, plus the
+// MITIGATION_ENGINE_MANIFEST hash registry. Producer lives in
+// apps/api/src/services/mitigation/produce-mitigations.ts; persistence in
+// record-graph-store; surfacing arrives in 2d.
 export * from './mitigation.js';
+export * from './mitigation-engine-manifest.js';
 
 // Typed error payloads
 export * from './errors.js';

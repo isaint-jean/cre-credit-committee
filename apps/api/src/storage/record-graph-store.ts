@@ -49,6 +49,9 @@ import type {
   LibrarySnapshotId,
   MarketBenchmarks,
   MarketBenchmarksId,
+  MitigationEngineVersion,
+  MitigationProposalSet,
+  MitigationProposalSetId,
   NarrativeFacts,
   NarrativeFactsId,
   PropertyMetadata,
@@ -260,6 +263,29 @@ export class RecordGraphStore {
         FOREIGN KEY (adjusted_inputs_id)       REFERENCES adjusted_inputs(id),
         FOREIGN KEY (handbook_evaluation_id)   REFERENCES handbook_evaluations(id)
       );
+
+      -- Mitigation engine output (doctrine v1, commit 2c). Sibling to
+      -- handbook_evaluations + narratives: produced between HE and NE in
+      -- evaluate-and-narrate.ts. Content-hashed over
+      -- (adjusted_inputs_id, handbook_evaluation_id, mitigation_engine_version,
+      -- proposals body). Deterministic — multiple rows per AdjustedInputs only
+      -- when the engine version is bumped and old deals are re-evaluated; same
+      -- (AI, HE, version) always content-collapses to one id (ON CONFLICT DO
+      -- NOTHING). FK to handbook_evaluations(id) so the consumed HE is
+      -- recoverable for audit/replay.
+      CREATE TABLE IF NOT EXISTS mitigation_proposal_sets (
+        id TEXT PRIMARY KEY,
+        adjusted_inputs_id TEXT NOT NULL,
+        handbook_evaluation_id TEXT NOT NULL,
+        mitigation_engine_version TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (adjusted_inputs_id)       REFERENCES adjusted_inputs(id),
+        FOREIGN KEY (handbook_evaluation_id)   REFERENCES handbook_evaluations(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_mitigation_proposal_sets_ai_ver
+        ON mitigation_proposal_sets(adjusted_inputs_id, mitigation_engine_version);
 
       CREATE TABLE IF NOT EXISTS valuation_conclusions (
         id TEXT PRIMARY KEY,
@@ -951,6 +977,56 @@ export class RecordGraphStore {
       )
       .get(adjustedInputsId, engineVersion) as RecordRow | undefined;
     return row ? this.parseRow<NarrativeEvaluation>(row) : null;
+  }
+
+  /* ----------------------- mitigation_proposal_sets ---------------------- */
+
+  insertMitigationProposalSet(record: MitigationProposalSet): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'MitigationProposalSet');
+    const result = this.db
+      .prepare(
+        `INSERT INTO mitigation_proposal_sets
+         (id, adjusted_inputs_id, handbook_evaluation_id, mitigation_engine_version, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(
+        id,
+        body.adjustedInputsId,
+        body.handbookEvaluationId,
+        body.mitigationEngineVersion,
+        payload,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  getMitigationProposalSet(id: MitigationProposalSetId): MitigationProposalSet | null {
+    const row = this.db
+      .prepare(`SELECT id, payload FROM mitigation_proposal_sets WHERE id = ?`)
+      .get(id) as RecordRow | undefined;
+    return row ? this.parseRow<MitigationProposalSet>(row) : null;
+  }
+
+  /**
+   * Latest MitigationProposalSet for the given AdjustedInputs at the given
+   * engine version. The producer is deterministic — multiple rows under the
+   * same (AI, version) are content-collapsed on insert via ON CONFLICT, so
+   * "latest" here is really a defensive ORDER BY against the index. The
+   * render path uses this accessor to fetch the set for a given root.
+   */
+  getLatestMitigationProposalSetForAdjustedInputs(
+    adjustedInputsId: string,
+    engineVersion: MitigationEngineVersion,
+  ): MitigationProposalSet | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, payload FROM mitigation_proposal_sets
+         WHERE adjusted_inputs_id = ? AND mitigation_engine_version = ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(adjustedInputsId, engineVersion) as RecordRow | undefined;
+    return row ? this.parseRow<MitigationProposalSet>(row) : null;
   }
 
   /* --------------------------- valuation_conclusions --------------------------- */

@@ -1,0 +1,40 @@
+/**
+ * `MITIGATION_ENGINE_MANIFEST` — append-only registry of canonical-content
+ * hashes per `MitigationEngineVersion`.
+ *
+ * Mirrors the `JUDGMENT_ENGINE_MANIFEST` pattern. Boot check
+ * (`apps/api/src/util/mitigation-engine-boot-check.ts`) recomputes the hash
+ * of the frozen mitigation-engine state at startup and compares against the
+ * entry for `MITIGATION_ENGINE_VERSION`. If they disagree, the api refuses
+ * to start with `MITIGATION_ENGINE_HASH_DRIFT`.
+ *
+ * The hashed state covers: desk constants (DEFAULT_MITIGATION_DESK), the
+ * reserve clamp ceiling, the v1 lever set (MITIGATION_LEVERS), and the
+ * principle-enrichment table mapping target metric → corroborating principle
+ * ids. Bumping any of these changes the hash and requires a new manifest
+ * entry under a bumped version.
+ *
+ * Workflow when changing engine state:
+ *   1. Edit `apps/api/src/services/mitigation/produce-mitigations.ts`.
+ *   2. Bump `MITIGATION_ENGINE_VERSION` in `versioning.ts` AND extend the
+ *      MitigationEngineVersion union.
+ *   3. Run `npm run mitigation-engine:print-hash` (in apps/api).
+ *   4. APPEND a new entry below — DO NOT edit existing entries.
+ *   5. Run `npm run check:mitigation-engine` to verify boot check passes.
+ */
+
+import type { MitigationEngineVersion } from './versioning.js';
+import type { ContentHash } from './identity.js';
+
+export type MitigationEngineManifest = { readonly [V in MitigationEngineVersion]: ContentHash };
+
+export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
+  // v1.0 (2026-06-05). Initial release. Two levers (reduce_proceeds,
+  // fund_reserve), metrics-driven trigger per doctrine v1.2, desk constants
+  // T_DSCR=1.25, T_DY=0.085, T_LTV=0.65, T_ROLLOVER=0.20,
+  // COVERAGE_FACTOR=0.75, MATERIALITY_MIN_PROCEEDS_CUT_PCT=0.02; reserve
+  // clamp ceiling $25M. Principle-enrichment table covers self-storage and
+  // mall coverage/leverage flags; ltv and rollover targets enrich from no
+  // deterministic principle (handbook gap, see doctrine v1.2 §7).
+  '1.0': '36aa36e344e7787f9f52b0e32bdcdeb22a24cd1f227ee2c9567b1ef88cac09c9' as ContentHash,
+};

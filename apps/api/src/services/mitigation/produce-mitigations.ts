@@ -62,19 +62,34 @@ export const DEFAULT_MITIGATION_DESK: MitigationDeskConstants = {
 };
 
 /** Sane reserve ceiling (clamped + flagged in the description if it binds). */
-const RESERVE_CAP_USD = 25_000_000;
+export const RESERVE_CAP_USD = 25_000_000;
 
 /* ----------------- principle-enrichment table (handbook today) ------------ */
 // Today's deterministic handbook has these principles whose firing would
 // corroborate a metric breach. Coverage is intentionally thin (the recon
 // flagged this — see doctrine v1.2 §7 v1.1/open). When the handbook later
 // grows generic DSCR/DY/LTV/rollover principles, expand here.
-const PRINCIPLES_BY_METRIC: Record<MitigationTargetMetric, readonly string[]> = {
+export const PRINCIPLES_BY_METRIC: Record<MitigationTargetMetric, readonly string[]> = {
   dscr:      ['P-IV-SS-4', 'P-IV-OFF-6'],
   debtYield: ['P-IV-SS-3', 'P-IV-RET-5'],
   ltv:       [],
 };
-const ROLLOVER_PRINCIPLES: readonly string[] = [];
+export const ROLLOVER_PRINCIPLES: readonly string[] = [];
+
+/**
+ * Frozen snapshot of the engine state that defines version 1.x behavior.
+ * Boot check hashes this (canonical JSON) and compares against the manifest
+ * entry for `MITIGATION_ENGINE_VERSION`. Bumping any of these values changes
+ * the hash and requires a new manifest entry under a bumped version.
+ */
+export function buildMitigationEngineHashSnapshot() {
+  return {
+    desk: DEFAULT_MITIGATION_DESK,
+    reserveCapUsd: RESERVE_CAP_USD,
+    principlesByMetric: PRINCIPLES_BY_METRIC,
+    rolloverPrinciples: ROLLOVER_PRINCIPLES,
+  };
+}
 
 /* --------------------------------- API ---------------------------------- */
 

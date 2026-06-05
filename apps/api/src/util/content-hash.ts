@@ -26,6 +26,7 @@ import type {
   ExtractionResultId,
   LibrarySnapshotId,
   MarketBenchmarksId,
+  MitigationProposalSetId,
   NarrativeFactsId,
   OverlayPatchId,
   PropertyMetadataId,
@@ -82,6 +83,7 @@ export const computeAssetProfileId        = (content: unknown): AssetProfileId  
 export const computeRenderedAnalysisId    = (content: unknown): RenderedAnalysisId    => computeContentHash(content) as RenderedAnalysisId;
 export const computeMarketBenchmarksId    = (content: unknown): MarketBenchmarksId    => computeContentHash(content) as MarketBenchmarksId;
 export const computeCreditManifestoId     = (content: unknown): CreditManifestoId     => computeContentHash(content) as CreditManifestoId;
+export const computeMitigationProposalSetId = (content: unknown): MitigationProposalSetId => computeContentHash(content) as MitigationProposalSetId;
 // Phase 2 (post-7.2) edit-surface hash factories. Same SHA-256 / JCS-canonical scheme
 // as the spine record factories; the only difference is what the input body contains
 // (overlay patches, audit events, committee snapshots).

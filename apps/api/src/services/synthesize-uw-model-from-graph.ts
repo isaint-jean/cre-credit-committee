@@ -45,9 +45,15 @@ import type {
   LoanDetails,
   UnderwritingModel,
 } from '@cre/shared';
-import type { RevisionId } from '@cre/contracts';
+import type { AdjustedInputs, PropertyMetadata, RevisionId } from '@cre/contracts';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
+/**
+ * Graph wrapper: walk the record graph from `rootRevisionId` to the inputs the
+ * pure synthesis needs (DoctrineEvaluation → AdjustedInputs → best-effort
+ * PropertyMetadata via the extraction id), then delegate. Returns null when
+ * any required graph hop is broken (FK dangle / pre-graph deals).
+ */
 export function synthesizeUwModelFromGraph(
   rootRevisionId: RevisionId,
   store: RecordGraphStore,
@@ -65,6 +71,19 @@ export function synthesizeUwModelFromGraph(
     doctrine.extractionResultId,
   );
 
+  return synthesizeUwModelFromInputs(ai, propertyMetadata);
+}
+
+/**
+ * Pure synthesis: AdjustedInputs + best-effort PropertyMetadata → legacy
+ * UnderwritingModel. No store access; safe to call mid-pipeline (e.g., from
+ * evaluate-and-narrate.ts to feed the mitigation producer) when ai + pm are
+ * already in scope, without round-tripping through the record graph.
+ */
+export function synthesizeUwModelFromInputs(
+  ai: AdjustedInputs,
+  propertyMetadata: PropertyMetadata | null,
+): UnderwritingModel {
   /* Income — economically-faithful unit conversion. Vacancy and concessions
    * apply to (GPR + otherIncome) rather than GPR alone (a vacant unit reduces
    * BOTH base rent and other income); this matches the graph's EGI formula

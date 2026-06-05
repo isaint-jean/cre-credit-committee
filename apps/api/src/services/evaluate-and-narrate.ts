@@ -29,13 +29,18 @@
 import type {
   DoctrineEvaluation,
   HandbookEvaluation,
+  MitigationProposalSet,
   NarrativeEvaluation,
 } from '@cre/contracts';
+import { MITIGATION_ENGINE_VERSION } from '@cre/contracts';
 import { buildNarrative, type LLMCallFn } from './narrative/build-narrative.js';
 import {
   evaluateFromAdjustedInputs,
   type EvaluateFromAdjustedInputsArgs,
 } from './evaluate-from-adjusted-inputs.js';
+import { synthesizeUwModelFromInputs } from './synthesize-uw-model-from-graph.js';
+import { produceMitigations } from './mitigation/produce-mitigations.js';
+import { computeMitigationProposalSetId } from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 export interface EvaluateAndNarrateDeps {
@@ -49,6 +54,7 @@ export interface EvaluateAndNarrateResult {
   readonly evaluation: DoctrineEvaluation;
   readonly handbookEvaluation: HandbookEvaluation;
   readonly narrative: NarrativeEvaluation;
+  readonly mitigationProposalSet: MitigationProposalSet;
 }
 
 export async function evaluateAndNarrate(
@@ -66,6 +72,32 @@ export async function evaluateAndNarrate(
     { llmContextDeps: { llmCall: deps.llmCall, manualInputs: deps.manualInputs } },
   );
 
+  // Mitigation engine v1 (commit 2c). Runs between HE and NE; deterministic,
+  // no LLM. Reads the concluded metrics off args.adjustedInputs + a uwModel
+  // synthesized from (ai, pm) and emits structured MitigationProposal[].
+  // firedFlags are consulted for principle enrichment only (per doctrine v1.2
+  // §0 metrics-driven trigger). Idempotent on content-hash.
+  const uwModelForMitigations = synthesizeUwModelFromInputs(
+    args.adjustedInputs,
+    args.propertyMetadata,
+  );
+  const proposals = produceMitigations({
+    adjustedInputs: args.adjustedInputs,
+    uwModel: uwModelForMitigations,
+    firedFlags: handbookEvaluation.firedFlags,
+  });
+  const mitigationSetBody = {
+    adjustedInputsId: args.adjustedInputs.id,
+    handbookEvaluationId: handbookEvaluation.id,
+    mitigationEngineVersion: MITIGATION_ENGINE_VERSION,
+    proposals,
+  };
+  const mitigationProposalSet: MitigationProposalSet = {
+    id: computeMitigationProposalSetId(mitigationSetBody),
+    ...mitigationSetBody,
+  };
+  store.insertMitigationProposalSet(mitigationProposalSet);
+
   const narrative = await buildNarrative(
     {
       handbookEvaluation,
@@ -76,5 +108,5 @@ export async function evaluateAndNarrate(
   );
   store.insertNarrative(narrative);
 
-  return { evaluation, handbookEvaluation, narrative };
+  return { evaluation, handbookEvaluation, narrative, mitigationProposalSet };
 }

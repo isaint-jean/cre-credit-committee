@@ -14,6 +14,8 @@
     "judgment-engine:print-hash": "tsx src/scripts/print-judgment-engine-hash.ts",
     "check:narrative-engine": "tsx src/scripts/check-narrative-engine.ts",
     "narrative-engine:print-hash": "tsx src/scripts/print-narrative-engine-hash.ts",
+    "check:mitigation-engine": "tsx src/scripts/check-mitigation-engine.ts",
+    "mitigation-engine:print-hash": "tsx src/scripts/print-mitigation-engine-hash.ts",
     "test:judgment-engine-rules": "tsx src/scripts/test-judgment-engine-rules.ts",
     "test:manifesto-contract": "tsx src/scripts/test-manifesto-contract.ts",
     "test:library-snapshot-producer": "tsx src/scripts/test-library-snapshot-producer.ts",
