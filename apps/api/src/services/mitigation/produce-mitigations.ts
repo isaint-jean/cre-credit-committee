@@ -55,7 +55,7 @@ export interface MitigationDeskConstants {
 export const DEFAULT_MITIGATION_DESK: MitigationDeskConstants = {
   T_DSCR: 1.25,
   T_DY: 0.085,
-  T_LTV: 0.65,
+  T_LTV: 0.70,
   T_ROLLOVER: 0.20,
   COVERAGE_FACTOR: 0.75,
   MATERIALITY_MIN_PROCEEDS_CUT_PCT: 0.02,
@@ -227,7 +227,8 @@ function buildReduceProceedsProposal(
       ' breaches the ' + targetLabel + ' target of ' + formatMetric(binding.metric, targetVal) + '. ' +
       'Lowering proceeds from ' + fmtUsd(currentLoan) + ' to ' + fmtUsd(lPrime) +
       ' (sponsor fills ' + fmtUsd(requiredEquity) + ') brings ' + targetLabel +
-      ' to ' + formatMetric(binding.metric, afterVal) + '.',
+      ' to ' + formatMetric(binding.metric, afterVal) + '.' +
+      collateralBenefitClause(binding.metric, before, afterSnap),
     structuralChanges: [
       'Reduce loan amount from ' + fmtUsd(currentLoan) + ' to ' + fmtUsd(lPrime),
       'Sponsor funds ' + fmtUsd(requiredEquity) + ' equity gap at closing',
@@ -305,8 +306,9 @@ function buildFundReserveProposal(
 
   const principleIds = enrichPrincipleIds(firedFlags, ROLLOVER_PRINCIPLES);
   const coverageStatement =
-    'funds ~' + (desk.COVERAGE_FACTOR * 12).toFixed(0) +
-    ' months of TI/LC on ' + (pctRollover * 100).toFixed(1) + '% rollover-exposed income';
+    'pre-funds re-tenanting cost (TI/LC + downtime) at ' +
+    (desk.COVERAGE_FACTOR * 100).toFixed(0) + '% of the ' +
+    (pctRollover * 100).toFixed(1) + '% rollover-exposed annual income';
 
   return {
     id: 'fund_reserve_tilc_rollover',
@@ -361,6 +363,32 @@ function beatsOnTarget(metric: MitigationTargetMetric, before: RecalcSnapshot, a
   if (b === null || a === null) return false;
   // DSCR / DY are minima (raise is good). LTV is a ceiling (drop is good).
   return metric === 'ltv' ? a < b : a > b;
+}
+
+/**
+ * Returns " Also improves <Metric> <b>→<a>, <Metric> <b>→<a>." for the non-
+ * binding metrics among {dscr, debtYield, ltv} that moved favorably under the
+ * applied lever. Empty string when nothing else moved. Verb is "improves" so
+ * the clause stays direction-agnostic across mixed metric semantics.
+ */
+function collateralBenefitClause(
+  bindingMetric: MitigationTargetMetric,
+  before: RecalcSnapshot,
+  after: RecalcSnapshot,
+): string {
+  const others: MitigationTargetMetric[] = (['dscr', 'debtYield', 'ltv'] as const)
+    .filter((m) => m !== bindingMetric);
+  const moved: string[] = [];
+  for (const m of others) {
+    const b = pickMetric(m, before);
+    const a = pickMetric(m, after);
+    if (b === null || a === null) continue;
+    const favorable = m === 'ltv' ? a < b : a > b;
+    if (!favorable) continue;
+    moved.push(TARGET_LABELS[m] + ' ' + formatMetric(m, b) + '→' + formatMetric(m, a));
+  }
+  if (moved.length === 0) return '';
+  return ' Also improves ' + moved.join(', ') + '.';
 }
 
 function enrichPrincipleIds(

@@ -150,8 +150,15 @@ export const NARRATIVE_ENGINE_VERSION = '1.3' as const;
  * the same root/narrative pair. This is the existing manual-invalidation
  * convention; the render layer does not key its cache on the mitigation set
  * id directly.
+ *
+ * Prose / copy-template changes ALSO require a version bump. The manifest
+ * hash covers the engine-state snapshot (desk constants + reserve cap +
+ * principle-enrichment tables) but NOT the prose templates (title,
+ * description, structuralChanges, coverageStatement) — copy drift won't be
+ * caught by the boot check. Treat copy changes the same way as constant
+ * changes: bump MITIGATION_ENGINE_VERSION (and RENDER_VERSION) by convention.
  */
-export const MITIGATION_ENGINE_VERSION = '1.0' as const;
+export const MITIGATION_ENGINE_VERSION = '1.1' as const;
 
 export type DoctrineVersion = typeof DOCTRINE_VERSION;
 /**
@@ -181,7 +188,7 @@ export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3';
  * Bump the `MITIGATION_ENGINE_VERSION` constant and EXTEND this union (do not
  * replace) when adding a new mitigation-engine revision.
  */
-export type MitigationEngineVersion = '1.0';
+export type MitigationEngineVersion = '1.0' | '1.1';
 
 /**
  * ISO 8601 UTC timestamp, frozen at extraction time. Used as `analysisAsOfDate` everywhere a

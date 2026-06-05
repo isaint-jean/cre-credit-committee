@@ -37,4 +37,13 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   // mall coverage/leverage flags; ltv and rollover targets enrich from no
   // deterministic principle (handbook gap, see doctrine v1.2 §7).
   '1.0': '36aa36e344e7787f9f52b0e32bdcdeb22a24cd1f227ee2c9567b1ef88cac09c9' as ContentHash,
+  // v1.1 (2026-06-05). Desk-vet pass. T_LTV 0.65 → 0.70 (hash-driving).
+  // Lever-1 description gains a collateral-benefit clause ("Also improves
+  // DSCR <b>→<a>, Debt Yield <b>→<a>.") naming the non-binding metrics that
+  // moved favorably. Lever-2 coverageStatement rewritten to an income-honest
+  // form ("pre-funds re-tenanting cost (TI/LC + downtime) at X% of the Y.Y%
+  // rollover-exposed annual income"). Copy changes are convention-managed
+  // version bumps — the snapshot hashes constants + tables, not prose
+  // (see MITIGATION_ENGINE_VERSION docstring).
+  '1.1': '6e2489128977dd8887c2d96bb1127ff06096237fdcd5b1b0cabbebd181decfec' as ContentHash,
 };
