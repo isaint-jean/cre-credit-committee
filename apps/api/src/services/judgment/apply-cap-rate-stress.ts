@@ -85,13 +85,24 @@ export function applyCapRateStress(args: {
   readonly assetProfile: AssetProfile;
   readonly top1IncomeShare: number | null;
   readonly pctIncomeExpiringWithinTerm: number | null;
-}): { readonly capRate: AdjustedLineItem; readonly netBandOutOfRange: boolean } {
+}): {
+  readonly capRate: AdjustedLineItem;
+  readonly netBandOutOfRange: boolean;
+  readonly tierUnresolved: boolean;
+} {
   const { capRate, assetProfile, top1IncomeShare, pctIncomeExpiringWithinTerm } = args;
 
   // v1 guard — office only. Other asset classes deferred.
   if (assetProfile.propertyType !== 'Office') {
-    return { capRate, netBandOutOfRange: false };
+    return { capRate, netBandOutOfRange: false, tierUnresolved: false };
   }
+
+  // Tier-unresolved degraded-state flag (v1.5). Fires on Office when no tier
+  // signal is available (neither explicit hint nor metro lookup resolved).
+  // Independent of baseSource — the flag reports input absence, not whether
+  // the doctrine would have applied a tier delta. Informational only;
+  // delta=0; pushed to dataQualityFlags by the orchestrator.
+  const tierUnresolved = assetProfile.marketLiquidity === 'Unknown';
 
   const baseSource = detectBaseSource(capRate);
   const newEntries: AdjustmentEntry[] = [];
@@ -199,5 +210,5 @@ export function applyCapRateStress(args: {
     source: capRate.source,
     adjustments: [...capRate.adjustments, ...newEntries],
   };
-  return { capRate: stressedCapRate, netBandOutOfRange };
+  return { capRate: stressedCapRate, netBandOutOfRange, tierUnresolved };
 }

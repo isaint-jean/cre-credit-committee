@@ -54,4 +54,12 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // (informational net-adjustment review flag). Scaffolding only — literals defined,
   // not yet emitted. No JE_MISSING_DOC_PENALTIES / JE_DISTRUST_PENALTIES additions.
   '1.4': '7ab706aa52063cb4d044268a7868eef87ec4bc0c765be0e8440403c4f883d2e9' as ContentHash,
+  // Cap-rate stress doctrine v1, commit 4a (2026-06-05). One new rule literal
+  // added: JE_CAP_TIER_UNRESOLVED — informational (delta=0) degraded-state
+  // flag that fires on Office deals when AssetProfile.marketLiquidity ===
+  // 'Unknown' (neither explicit hint nor metro lookup resolved a tier).
+  // Pushed to dataQualityFlags by the orchestrator, same shape as Phase 6.5
+  // degraded-state flags. No JE_MISSING_DOC_PENALTIES / JE_DISTRUST_PENALTIES
+  // additions. No emit-site changes elsewhere in the pipeline.
+  '1.5': 'b184cfffa710174716a6ff3f053bdeb0c4eb49ef4cb4bd59736115c0fefe6bc1' as ContentHash,
 };

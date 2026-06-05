@@ -540,6 +540,13 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   if (capStressResult.netBandOutOfRange) {
     dataQualityFlags.push('JE_CAP_NET_ADJ_OUT_OF_BAND');
   }
+  // v1.5 degraded-state flag — Office deal with no resolved market tier
+  // (neither explicit hint nor metro lookup matched). Doctrine's
+  // data_confidence component reads this so a no-tier-signal deal scores
+  // honestly rather than silently riding the tier-blind library median.
+  if (capStressResult.tierUnresolved) {
+    dataQualityFlags.push('JE_CAP_TIER_UNRESOLVED');
+  }
 
   /* ----------- Phase 6.5: Degraded-state flag emission (Batch 6.2) --------- */
   //

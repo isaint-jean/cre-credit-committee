@@ -8,7 +8,7 @@
  * conceptual names (e.g., `RENT_ROLL_MISSING` is a doctrine scoring rule; `JE_RENT_ROLL_MISSING`
  * is the corresponding judgment-engine adjustment rule that fires the confidence penalty).
  *
- * Frozen for `JUDGMENT_ENGINE_VERSION = '1.4'`. Adding a rule means adding a literal here AND
+ * Frozen for `JUDGMENT_ENGINE_VERSION = '1.5'`. Adding a rule means adding a literal here AND
  * appending an entry to `JUDGMENT_ENGINE_MANIFEST` for hash-drift protection. The naming +
  * literal-union enforcement gives compile-time discrimination across the adjustment ledger.
  */
@@ -155,6 +155,14 @@ export const JudgmentEngineRules = {
   // surfaces in dataQualityFlags when |Σ stress deltas| exceeds 150bps).
   JE_CAP_CLAMPED_TO_RANGE:                          'JE_CAP_CLAMPED_TO_RANGE',
   JE_CAP_NET_ADJ_OUT_OF_BAND:                       'JE_CAP_NET_ADJ_OUT_OF_BAND',
+  // Tier-unresolved degraded-state flag (v1.5). Informational (delta=0;
+  // surfaces in dataQualityFlags). Fires on Office deals when
+  // AssetProfile.marketLiquidity === 'Unknown' — i.e., neither an explicit
+  // marketLiquidityHint nor the metro→tier seed table resolved a tier. Honest
+  // signal that the doctrine's tier-correction step was skipped for lack of
+  // input rather than for doctrinal reasons. Same shape as Phase 6.5
+  // degraded-state flags; doctrine's data_confidence component reads it.
+  JE_CAP_TIER_UNRESOLVED:                           'JE_CAP_TIER_UNRESOLVED',
 } as const;
 
 export type JudgmentEngineRuleId = (typeof JudgmentEngineRules)[keyof typeof JudgmentEngineRules];
