@@ -76,6 +76,8 @@ import {
   deriveMonthlyTiLc,
 } from './line-item-builders.js';
 
+import { applyCapRateStress } from './apply-cap-rate-stress.js';
+
 import {
   concessionsApplies,
   ioPeriodApplies,
@@ -295,8 +297,11 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     applicable: ioPeriodApplies(extraction),
   });
 
-  const capRate = buildCapRate({ extraction, librarySnapshot, marketBenchmarks, assetProfile });
-  const terminalCapRate = buildTerminalCapRate({ extraction, librarySnapshot, assetProfile, capRate });
+  // Cap-rate doctrine v1: capRate is built tier-blind here; the cap-stress step
+  // (after tenancy metrics, below) applies tier correction + risk widen + clamp
+  // and may rebind. buildTerminalCapRate is intentionally deferred until AFTER
+  // the stress step so the spot+spread fallback path inherits the stressed cap.
+  let capRate = buildCapRate({ extraction, librarySnapshot, marketBenchmarks, assetProfile });
   const rentGrowthPct = buildRentGrowthPct({ extraction });
   const expenseGrowthPct = buildExpenseGrowthPct({ extraction });
 
@@ -351,7 +356,6 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
 
   const preCapNoi = effectiveGrossIncome.adjusted - totalOperatingExpenses.adjusted;
 
-  const capRateAdj = capRate.adjusted;
   const dsAdj = debtServiceAnnual.adjusted;
   const loanAdj = loanAmount.adjusted;
   const egiAdj = effectiveGrossIncome.adjusted;
@@ -365,6 +369,27 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     extraction,
     termMonths.adjusted,
   );
+
+  /* --------------------- Cap-rate stress doctrine v1 ------------------------ */
+  // Apply tier correction (on tier-blind bases — library/benchmark) + risk
+  // widen (business plan, tenancy rollover, tenancy concentration), then
+  // clamp into [4.5%, 12.0%] band. Office-only in v1; non-Office is a no-op.
+  // Rebinds `capRate`; terminalCapRate now built downstream off the post-
+  // stress cap so the spot+spread fallback inherits the stress.
+  const capStressResult = applyCapRateStress({
+    capRate,
+    assetProfile,
+    top1IncomeShare,
+    pctIncomeExpiringWithinTerm,
+  });
+  capRate = capStressResult.capRate;
+  const terminalCapRate = buildTerminalCapRate({
+    extraction,
+    librarySnapshot,
+    assetProfile,
+    capRate,
+  });
+  const capRateAdj = capRate.adjusted;
 
   /* ----------------------------- Phase 3: NOI Cap --------------------------- */
 
@@ -508,6 +533,13 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   // v1.0: distrust ledger is empty — auto-cascade picks highest tier (audit B.5)
   const confidenceReduction = computeConfidenceReduction(missingDocLedger);
   const dataQualityFlags: JudgmentEngineRuleId[] = missingDocLedger.map(e => e.ruleId);
+
+  // Cap-rate stress doctrine v1: informational flag fired when the absolute
+  // sum of stress deltas (tier + risk widen, pre-clamp) exceeds 150bps.
+  // Delta=0; no value change — surfaces in the audit only.
+  if (capStressResult.netBandOutOfRange) {
+    dataQualityFlags.push('JE_CAP_NET_ADJ_OUT_OF_BAND');
+  }
 
   /* ----------- Phase 6.5: Degraded-state flag emission (Batch 6.2) --------- */
   //
