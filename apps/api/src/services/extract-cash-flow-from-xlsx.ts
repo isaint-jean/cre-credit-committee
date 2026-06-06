@@ -79,7 +79,7 @@ interface PeriodColumn {
  */
 const PERIOD_PATTERNS: { readonly kind: PeriodKind; readonly regex: RegExp }[] = [
   { kind: 'in_place', regex: /in[\s-]*place|in[\s-]*place\s*rent|current(?!\s*rent)/i },
-  { kind: 't12',      regex: /t[\s-]?12|trailing\s*twelve/i },
+  { kind: 't12',      regex: /t[\s-]?12|trailing[\s-]*(?:twelve|12)|\bttm\b/i },
   { kind: 'uw',       regex: /\b(?:gs|seller|issuer)?\s*(?:u\/w|uw|underwrit\w*)\b/i },
   { kind: 'budget',   regex: /budget|forecast|proforma|pro[\s-]*forma/i },
 ];
