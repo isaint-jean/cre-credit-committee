@@ -67,6 +67,7 @@ import {
   NULL_SENTINEL,
 } from './render-sentinels.js';
 import { computeRenderedAnalysisId } from '../util/content-hash.js';
+import { checkNoiDivergence } from './judgment/noi-divergence.js';
 
 // 7.5 (Phase 1) + 7.6 (Phase 2 red_flag_assessment) + 7.7 (Phase 3
 // mitigation_suggestions) + 7.8 (Phase 4 committee_recommendation) helper.
@@ -325,6 +326,31 @@ export function renderUnderwritingContext(
           ? 'Unvalidated'
           : 'Validated',
       },
+      // v7.13 — NOI divergence axis. Re-derived via the same helper the
+      // judgment engine uses (single source of truth for the 0.20 threshold).
+      // Null when no reference NOI is available (t12Actual absent on this
+      // deal). Server-builds the caveat displayValue so the UI does not
+      // need to compose prose.
+      noiDivergence: (() => {
+        const derived = adjustedInputs.metrics.noi;
+        const ref = adjustedInputs.metrics.trailingActualNoi;
+        if (derived === null || ref === null) return null;
+        const r = checkNoiDivergence({ derivedNoi: derived, trailingActualNoi: ref });
+        if (r === null) return null;
+        const status: 'flagged' | 'within_band' = r.flagged ? 'flagged' : 'within_band';
+        const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
+        const pct = (r.shortfallPct * 100).toFixed(1);
+        const caveat = r.flagged
+          ? `Concluded NOI ${usd(derived)} is ${pct}% below the trailing-12 actual of ${usd(ref)} — review the conservatism floors and recovery assumptions before relying on the recommendation.`
+          : '';
+        return {
+          status: { value: status, displayValue: status === 'flagged' ? 'Flagged' : 'Within band' },
+          derivedNoi: { value: derived, displayValue: applyNumericSentinel(derived) },
+          referenceNoi: { value: ref, displayValue: applyNumericSentinel(ref) },
+          shortfallPct: { value: r.shortfallPct, displayValue: applyNumericSentinel(r.shortfallPct) },
+          caveat: { value: caveat, displayValue: caveat },
+        };
+      })(),
     },
 
     metrics: {

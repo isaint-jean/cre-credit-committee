@@ -11,7 +11,7 @@ import type { DataConfidence } from './adjusted-inputs.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.12' as const;
+export const RENDER_VERSION = '7.13' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -255,6 +255,32 @@ export interface RenderedAnalysis {
      * See packages/contracts/src/adjusted-inputs.ts → DataConfidence.
      */
     readonly dataConfidence: RenderCell<DataConfidence>;
+    /**
+     * NOI divergence axis (render v7.13 — surfaces engine v1.8's
+     * JE_NOI_BELOW_TRAILING_ACTUAL detect). Re-derived in the projector
+     * from `AdjustedInputs.metrics.{noi, trailingActualNoi}` via the same
+     * helper (apps/api/src/services/judgment/noi-divergence.ts) that the
+     * judgment engine uses — single source of truth for the 20% threshold.
+     *
+     * `null` when no reference NOI is available (t12Actual absent — i.e.
+     * the deal has no validated trailing-twelve cash-flow column).
+     * Otherwise carries the figures the UI banner needs.
+     *
+     * `status.value === 'flagged'` is the banner condition; 'within_band'
+     * means the deal was checked but the gap fell below threshold (UI may
+     * choose to surface the figures quietly or not at all).
+     *
+     * `caveat.displayValue` is server-built so the UI doesn't repeat the
+     * compose logic. Meaningful when flagged; an empty string when
+     * within_band.
+     */
+    readonly noiDivergence: {
+      readonly status: RenderCell<'flagged' | 'within_band'>;
+      readonly derivedNoi: RenderCell<number>;
+      readonly referenceNoi: RenderCell<number>;   // t12Actual.noi
+      readonly shortfallPct: RenderCell<number>;   // (ref - derived) / ref
+      readonly caveat: RenderCell<string>;
+    } | null;
   };
 
   readonly metrics: {

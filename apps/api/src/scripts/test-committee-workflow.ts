@@ -120,6 +120,7 @@ function makeMinimalRendered(): RenderedAnalysis {
       ratingBand: { value: 'Acceptable' as const, displayValue: 'Acceptable' },
       finalScore: { value: 50, displayValue: '50' },
       dataConfidence: { value: 'validated', displayValue: 'Validated' },
+      noiDivergence: null,
     },
     metrics: {
       dscr: { value: null, displayValue: '-' },

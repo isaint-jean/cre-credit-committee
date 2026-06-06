@@ -859,6 +859,25 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         </section>
       ) : null}
 
+      {/* Render v7.13 — NOI divergence banner. Fires when the engine's
+        concluded NOI is ≥ 20% below the trailing-12 actual on the same
+        deal (JE_NOI_BELOW_TRAILING_ACTUAL). Distinct red styling so a
+        deal that is BOTH unvalidated AND flagged reads "provisional"
+        first (amber, above) then "divergence" (red, here). Hidden when
+        within band or no t12 reference. */}
+      {data.summary.noiDivergence?.status.value === 'flagged' ? (
+        <section className="space-y-3">
+          <div className="border-l-4 border-red-600 bg-red-50 p-4 rounded">
+            <div className="text-sm font-semibold text-red-900 mb-1">
+              NOI materially below trailing-twelve actual
+            </div>
+            <p className="text-sm text-red-800">
+              {data.summary.noiDivergence.caveat.displayValue}
+            </p>
+          </div>
+        </section>
+      ) : null}
+
       <section className="space-y-3">
         <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Summary</h2>
         <div className="grid grid-cols-2 gap-3">
