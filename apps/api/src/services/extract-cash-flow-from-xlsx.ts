@@ -201,6 +201,24 @@ interface PeriodHeader {
  */
 function findPeriodHeaderRow(ws: ExcelJS.Worksheet): PeriodHeader | null {
   const maxScan = Math.min(30, ws.rowCount);
+
+  // Two-pass header detection (commit A — 2026-06-06):
+  //   PASS 1 (strict): first row where (in_place OR t12) AND uw → use it.
+  //     Identical predicate to the pre-change code, so any deal that qualified
+  //     today picks the SAME row. Byte-identical pick.
+  //   PASS 2 (relaxed): first row where (in_place OR t12) alone → use it.
+  //     Fires only when PASS 1 returns nothing. Recovers MS-style sponsor UWs
+  //     that expose a T-12 (or In-Place) column without a sibling UW column —
+  //     today those workbooks yield null across all three slots and produce
+  //     dataConfidence='unvalidated'. Extracting bankNoi from the available
+  //     cashflow source is strictly better than null.
+  //
+  // Non-regression argument: deals that qualified under the old single-pass
+  // predicate hit PASS 1 first and return identically. PASS 2 can only turn a
+  // null into an extraction; it cannot alter a working deal's selection.
+
+  const fallbackRows: { row: number; candidates: PeriodColumn[] }[] = [];
+
   for (let r = 1; r <= maxScan; r++) {
     const candidates: PeriodColumn[] = [];
     const row = ws.getRow(r);
@@ -217,17 +235,27 @@ function findPeriodHeaderRow(ws: ExcelJS.Worksheet): PeriodHeader | null {
       }
     });
 
-    // Accept any header row that carries a UW column AND at least one of
-    // In-Place / T-12. A workbook that exposes ALL THREE (Sunroad does not, but
-    // some lenders' CFs do) gets all three slots populated downstream.
     const hasInPlaceOrT12 = candidates.some((c) => c.kind === 'in_place' || c.kind === 't12');
-    const hasUw = candidates.some((c) => c.kind === 'uw');
-    if (!hasInPlaceOrT12 || !hasUw) continue;
+    const hasUw           = candidates.some((c) => c.kind === 'uw');
 
-    // Snap to Amount sub-column if a sub-header row appears in the next 3 rows.
-    const snapped = candidates.map((c) => snapToAmountColumn(ws, r, c));
-    return { row: r, periods: snapped };
+    // PASS 1 — strict (in_place OR t12) AND uw. Early-return preserves the
+    // pre-existing first-row-wins semantic.
+    if (hasInPlaceOrT12 && hasUw) {
+      const snapped = candidates.map((c) => snapToAmountColumn(ws, r, c));
+      return { row: r, periods: snapped };
+    }
+
+    // Remember rows that carry an in_place / t12 column for PASS 2 below.
+    if (hasInPlaceOrT12) fallbackRows.push({ row: r, candidates });
   }
+
+  // PASS 2 — relaxed (in_place OR t12) alone. First fallback row wins.
+  if (fallbackRows.length > 0) {
+    const { row, candidates } = fallbackRows[0];
+    const snapped = candidates.map((c) => snapToAmountColumn(ws, row, c));
+    return { row, periods: snapped };
+  }
+
   return null;
 }
 
