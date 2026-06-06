@@ -25,6 +25,7 @@ import type {
   AdjustmentEntry,
   AssetProfile,
   CreditManifesto,
+  DataConfidence,
   ExtractionResult,
   ISODateTime,
   JudgmentEngineRuleId,
@@ -395,12 +396,22 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   /* ----------------------------- Phase 3: NOI Cap --------------------------- */
 
   const bankNoi = pickFirstNonNull(bankNoiCascade(extraction)).value;
-  // Data-confidence axis (v1.6). Binary: 'unvalidated' iff the bankNoi cascade
-  // (t12Actual → sellerUwOperatingStatement → inPlace) returned null — no
-  // independent cashflow source extracted, NOI is unvalidatable. Showcase I
-  // pattern. Pure derivation from a cascade we already computed; no extra work.
-  // See packages/contracts/src/adjusted-inputs.ts for downstream policy notes.
-  const dataConfidence = bankNoi === null ? 'unvalidated' : 'validated';
+  // Data-confidence axis (v1.9 — widened from v1.6 binary to 3-tier ordinal).
+  // The three tiers distinguish "have-trailing-actual" from "have-projection-only":
+  //   - validated      : t12Actual.noi present — engine has a trailing-12 ACTUAL.
+  //   - low_confidence : no t12, but bankNoi cascade resolved via inPlace or
+  //                      sellerUwOperatingStatement (Sunroad pattern) — engine has
+  //                      a source, but only a seller projection (no trailing actual
+  //                      to check the conclusion against).
+  //   - unvalidated    : bankNoi null entirely — no source at all (post-two-pass
+  //                      Showcase I pre-recovery pattern; now rare).
+  // Pure derivation from the same cascade + the t12Actual slot we already have
+  // in scope; no extra work. See packages/contracts/src/adjusted-inputs.ts for
+  // the full downstream policy.
+  const dataConfidence: DataConfidence =
+    extraction.t12Actual?.noi != null ? 'validated'
+    : bankNoi === null ? 'unvalidated'
+    : 'low_confidence';
   const capResult = applyNoiCap({ derivedNoi: preCapNoi, bankNoi });
   const finalNoi = capResult.capped;
   const noiCapAdjustments: AdjustmentEntry[] = capResult.entry ? [capResult.entry] : [];

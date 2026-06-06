@@ -18,6 +18,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type {
   CommitteeTimeline,
+  DataConfidence,
   DealWorkflowState,
   FieldValue,
   FiredFlag,
@@ -274,7 +275,7 @@ function HandbookEvaluationSection(
 function MitigationsSection(
   { proposals, dataConfidence }: {
     proposals: readonly RenderedMitigationProposal[];
-    dataConfidence: 'validated' | 'unvalidated';
+    dataConfidence: DataConfidence;
   },
 ): React.ReactElement | null {
   if (proposals.length === 0) return null;

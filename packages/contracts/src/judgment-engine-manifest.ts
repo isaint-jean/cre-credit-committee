@@ -94,4 +94,15 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // the render surface (RENDER_VERSION bump + summary.noiDivergence + UI banner). See
   // noi-divergence-flag-design-v1.md.
   '1.8': '9a34fe04deca1b2d7cb9bb37afe9e5a1532197dc672f625f1803a06648a1e6b8' as ContentHash,
+  // Low-confidence middle tier — commit 1 of 2 (2026-06-06). Widens DataConfidence
+  // from binary ('validated' | 'unvalidated') to 3-tier ordinal ('validated' |
+  // 'low_confidence' | 'unvalidated'). low_confidence = no t12 but bankNoi cascade
+  // resolved via inPlace or sellerUwOperatingStatement (Sunroad pattern). Pure
+  // derived-field shape change: the judgment-engine hashed snapshot covers
+  // {rules, missingDocPenalties, distrustPenalties} only, so the v1.9 hash equals
+  // v1.8 by construction (expected; same precedent as v1.5 → v1.6 — the version
+  // bump anchors the AdjustedInputs UNION change rather than an engine-state
+  // change). Commit 2 lands the render surface (RENDER_VERSION bump + 3-way
+  // displayValue mapping + low_confidence banner). See low-confidence-tier-design-v1.md.
+  '1.9': '9a34fe04deca1b2d7cb9bb37afe9e5a1532197dc672f625f1803a06648a1e6b8' as ContentHash,
 };

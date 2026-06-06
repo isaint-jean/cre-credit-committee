@@ -28,11 +28,14 @@ import type { JudgmentEngineRuleId } from './judgment-engine-rules.js';
 import type { CreditManifestoRuleId } from './manifesto.js';
 
 /**
- * Data-confidence axis (v1.6). Binary: 'validated' when `bankNoi` resolved to a
- * real number; 'unvalidated' when the entire bankNoi cascade returned null. See
- * AdjustedInputs.dataConfidence below for the full semantics + downstream policy.
+ * Data-confidence axis. v1.9 widens the v1.6 binary into a 3-tier ordinal:
+ *   'validated'      — t12Actual.noi present (trailing-12 actual checks the conclusion).
+ *   'low_confidence' — no t12, but bankNoi cascade still resolved (in-place or seller-UW
+ *                      only); engine has SOME source but no trailing actual.
+ *   'unvalidated'    — bankNoi null (no source at all).
+ * See AdjustedInputs.dataConfidence below for the full semantics + downstream policy.
  */
-export const DATA_CONFIDENCE_LEVELS = ['validated', 'unvalidated'] as const;
+export const DATA_CONFIDENCE_LEVELS = ['validated', 'low_confidence', 'unvalidated'] as const;
 export type DataConfidence = (typeof DATA_CONFIDENCE_LEVELS)[number];
 
 /**
@@ -369,22 +372,34 @@ export interface AdjustedInputs {
   readonly metrics: AdjustedMetrics;
 
   /**
-   * Data-confidence axis (v1.6 — 2026-06-05). Binary:
-   *   - 'validated'   — `bankNoi` cascade (t12Actual → sellerUwOperatingStatement →
-   *                     inPlace) resolved to a real number. The engine had an
-   *                     independent cashflow source to check against.
-   *   - 'unvalidated' — `bankNoi` resolved null: no independent cashflow source
-   *                     extracted, NOI is unvalidatable. Concluded metrics are
-   *                     still produced (per design: "thin data is not bad credit"
-   *                     — the score remains a pure credit-quality measure) but
-   *                     downstream consumers MUST surface this as provisional.
-   *                     The committee-recommendation slot is gated to a deterministic
-   *                     "insufficient to recommend" message; mitigation cards
-   *                     carry a caveat banner. See docs/data-confidence-design-v1.md.
+   * Data-confidence axis. v1.6 introduced a binary (validated / unvalidated);
+   * v1.9 widens to a 3-tier ordinal that distinguishes "have-actual" from
+   * "have-projection-only":
+   *
+   *   - 'validated'      — `extraction.t12Actual.noi` present. The engine
+   *                        had a trailing-12 ACTUAL to check the conclusion
+   *                        against. Strongest tier.
+   *   - 'low_confidence' — no t12, but the bankNoi cascade resolved via
+   *                        `inPlace` or `sellerUwOperatingStatement`. There
+   *                        IS a source, but it is a seller projection — not
+   *                        a trailing actual. Concluded metrics are still
+   *                        produced; downstream consumers may surface this
+   *                        tier with an interim label (commit 2 ships the
+   *                        render surface; commit 1 ships detect only).
+   *   - 'unvalidated'    — bankNoi cascade returned null entirely. No
+   *                        independent cashflow source extracted, NOI is
+   *                        unvalidatable. Concluded metrics still produced
+   *                        (per design: "thin data is not bad credit") but
+   *                        downstream consumers MUST surface as provisional.
+   *                        The committee-recommendation slot is gated to a
+   *                        deterministic "insufficient to recommend"
+   *                        message; mitigation cards carry a caveat banner.
+   *                        See docs/data-confidence-design-v1.md and
+   *                        docs/low-confidence-tier-design-v1.md.
    *
    * Top-level field (not inside `metrics`) because it's a property of the INPUTS,
-   * not a scored output. v1.6 commit 1 (DETECT) ships the field only — downstream
-   * gating logic lands in subsequent commits.
+   * not a scored output. v1.9 commit 1 (DETECT) ships the widened union + 3-way
+   * derivation only — render surface + UI banner land in commit 2 (render 7.14).
    */
   readonly dataConfidence: DataConfidence;
 
