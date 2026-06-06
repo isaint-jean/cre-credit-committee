@@ -90,6 +90,7 @@ import {
 
 import { evaluateManifestoRule } from './manifesto-evaluator.js';
 import { applyNoiCap } from './noi-cap.js';
+import { checkNoiDivergence } from './noi-divergence.js';
 import {
   computeConfidenceReduction,
   type PenaltyEntry,
@@ -404,6 +405,24 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   const finalNoi = capResult.capped;
   const noiCapAdjustments: AdjustmentEntry[] = capResult.entry ? [capResult.entry] : [];
 
+  // v1.8 NOI divergence detect. Compare finalNoi against t12Actual.noi (trailing-twelve
+  // actual) ONLY — inPlace and sellerUw are seller projections that dilute the signal.
+  // Fires when concluded is ≥ 20% below the trailing-12. Pushes a topLevelAdjustment here;
+  // mirrored to dataQualityFlags in Phase 6.5 (same pattern as JE_PERIOD_LABEL_MISMATCH).
+  // Threshold lives in noi-divergence.ts (not in the hashed snapshot — see file JSDoc).
+  const divergence = checkNoiDivergence({
+    derivedNoi: finalNoi,
+    trailingActualNoi: extraction.t12Actual?.noi ?? null,
+  });
+  if (divergence !== null && divergence.flagged) {
+    const ref = extraction.t12Actual!.noi!;
+    noiCapAdjustments.push({
+      ruleId: 'JE_NOI_BELOW_TRAILING_ACTUAL',
+      delta: finalNoi - ref,
+      reason: `concluded NOI ${Math.round(finalNoi).toLocaleString('en-US')} is ${(divergence.shortfallPct * 100).toFixed(1)}% below trailing-12 actual ${Math.round(ref).toLocaleString('en-US')}`,
+    });
+  }
+
   // Re-derive NOI-dependent metrics after cap
   const value = capRateAdj > 0 ? finalNoi / capRateAdj : null;
   const dscr = dsAdj > 0 ? finalNoi / dsAdj : null;
@@ -627,6 +646,13 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   const periodMismatches = checkPeriodLabels(extraction);
   if (periodMismatches.length > 0) {
     dataQualityFlags.push('JE_PERIOD_LABEL_MISMATCH');
+  }
+
+  // v1.8 NOI divergence — mirror the rule id into dataQualityFlags so doctrine + narrative
+  // see the flag. The actual topLevelAdjustment with delta + reason was emitted in Phase 3
+  // (above L405); this is the dataQualityFlags side of the same fire.
+  if (divergence !== null && divergence.flagged) {
+    dataQualityFlags.push('JE_NOI_BELOW_TRAILING_ACTUAL');
   }
 
   /* --------------------------- Phase 7: Final Assembly ---------------------- */

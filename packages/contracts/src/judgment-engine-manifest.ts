@@ -82,4 +82,16 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // synthesis flag, not a penalty trigger. Unlike v1.6, the rule-registry change DOES move
   // the snapshot hash (rules ∈ buildJudgmentEngineHashSnapshot). See income-recovery-design-v1.md.
   '1.7': '8e96057620d3e23d422616bd407c106ff6a8b31a2d888f50bad4f6506f867eb2' as ContentHash,
+  // NOI divergence detect — commit 1 of 2 (2026-06-06). One new rule literal:
+  // JE_NOI_BELOW_TRAILING_ACTUAL — emitted at apply-judgment-adjustments.ts when
+  // t12Actual.noi is present AND finalNoi is ≥ 20% below it. Pushed as a
+  // topLevelAdjustment (delta = finalNoi − t12.noi, negative; reason carries the figures)
+  // AND mirrored to dataQualityFlags in Phase 6.5. Threshold (NOI_DIVERGENCE_THRESHOLD =
+  // 0.20) lives in apps/api/src/services/judgment/noi-divergence.ts, NOT in the hashed
+  // snapshot — same convention as cap-rate-stress desk constants. Changing the threshold
+  // value MUST be paired with a manual JUDGMENT_ENGINE_VERSION bump (the rule-registry
+  // hash will not catch a silent numeric re-tune). No penalty-map entry. Commit 2 lands
+  // the render surface (RENDER_VERSION bump + summary.noiDivergence + UI banner). See
+  // noi-divergence-flag-design-v1.md.
+  '1.8': '9a34fe04deca1b2d7cb9bb37afe9e5a1532197dc672f625f1803a06648a1e6b8' as ContentHash,
 };

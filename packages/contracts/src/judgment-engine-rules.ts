@@ -123,6 +123,14 @@ export const JudgmentEngineRules = {
   // (T12_ACTUAL / IN_PLACE / SELLER_UW) not MANUAL. No penalty-map entry — this is a
   // synthesis flag (analyst should review composition), not a missing-doc / distrust penalty.
   JE_OTHER_INCOME_RECOVERED_FROM_TOTAL:             'JE_OTHER_INCOME_RECOVERED_FROM_TOTAL',
+  // v1.8 (2026-06-06) — NOI divergence vs trailing-12 actual. Fires when
+  // t12Actual.noi is present AND concluded NOI (finalNoi) is at least 20% below it.
+  // Threshold defined in apps/api/src/services/judgment/noi-divergence.ts. Pushed to
+  // topLevelAdjustments (delta = finalNoi − t12.noi, negative) AND mirrored to
+  // dataQualityFlags (so doctrine/narrative see the signal). Reference is t12Actual.noi
+  // ONLY — inPlace and sellerUw are seller projections that would dilute the signal.
+  // No penalty-map entry — informational review signal, conclusion stands.
+  JE_NOI_BELOW_TRAILING_ACTUAL:                     'JE_NOI_BELOW_TRAILING_ACTUAL',
   JE_RENT_GROWTH_DEFAULTED:                         'JE_RENT_GROWTH_DEFAULTED',
   JE_EXPENSE_GROWTH_DEFAULTED:                      'JE_EXPENSE_GROWTH_DEFAULTED',
   JE_MONTHLY_CAPEX_DEFAULTED:                       'JE_MONTHLY_CAPEX_DEFAULTED',
