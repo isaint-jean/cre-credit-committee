@@ -317,13 +317,15 @@ export function renderUnderwritingContext(
         value: doctrineEvaluation.finalScore,
         displayValue: applyNumericSentinel(doctrineEvaluation.finalScore),
       },
-      // v7.12 — data-confidence axis. Passthrough of AdjustedInputs.dataConfidence
-      // with a Capitalized display label. UI banner + caveat conditions key off
-      // .value (the typed literal); display is the human form.
+      // v7.14 — data-confidence axis (3-way). Passthrough of AdjustedInputs.dataConfidence
+      // with a Capitalized display label. Explicit map (NOT binary ternary) so the new
+      // 'low_confidence' tier from v1.9 doesn't silently bucket into 'Validated'. UI banner
+      // + caveat conditions key off .value (the typed literal); display is the human form.
       dataConfidence: {
         value: adjustedInputs.dataConfidence,
-        displayValue: adjustedInputs.dataConfidence === 'unvalidated'
-          ? 'Unvalidated'
+        displayValue:
+          adjustedInputs.dataConfidence === 'unvalidated'    ? 'Unvalidated'
+          : adjustedInputs.dataConfidence === 'low_confidence' ? 'Low confidence'
           : 'Validated',
       },
       // v7.13 — NOI divergence axis. Re-derived via the same helper the

@@ -843,10 +843,18 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         <SnapshotViewer workflow={workflow} />
       ) : null}
 
-      {/* Render v7.12 — data-confidence banner. When inputs are unvalidated
-        (the engine ran on conservative library fallbacks rather than an
-        independent cash-flow source), this leads the summary so the
-        provisional state is impossible to miss. Hidden when validated. */}
+      {/* Render v7.14 — data-confidence banner (3-way). Mutually exclusive
+        slot. Order matters: unvalidated first (loudest), low_confidence
+        second (gentle note), validated → nothing.
+          unvalidated    — amber. Engine ran on conservative library fallbacks
+                           rather than an independent cash-flow source.
+                           Provisional figures; committee rec hard-gated
+                           upstream. Hardest signal.
+          low_confidence — blue. Deal has an in-place / underwriting source
+                           but no trailing-12 actual to validate against.
+                           Caveat about documentation depth, NOT a credit
+                           verdict. Committee rec is NOT gated; the band is
+                           NOT marked provisional. */}
       {data.summary.dataConfidence.value === 'unvalidated' ? (
         <section className="space-y-3">
           <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
@@ -855,6 +863,17 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             </div>
             <p className="text-sm text-amber-800">
               The figures below are provisional, resting on conservative library fallbacks rather than validated cash flow. See the committee recommendation below.
+            </p>
+          </div>
+        </section>
+      ) : data.summary.dataConfidence.value === 'low_confidence' ? (
+        <section className="space-y-3">
+          <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
+            <div className="text-sm font-semibold text-blue-900 mb-1">
+              Low data confidence — underwriting on in-place / projected figures
+            </div>
+            <p className="text-sm text-blue-800">
+              Concluded on in-place / underwriting figures — no trailing-12 actuals were available to validate against. This reflects documentation depth, not credit quality; obtain trailing operating statements to raise data confidence.
             </p>
           </div>
         </section>

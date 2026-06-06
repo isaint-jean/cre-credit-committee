@@ -11,7 +11,7 @@ import type { DataConfidence } from './adjusted-inputs.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.13' as const;
+export const RENDER_VERSION = '7.14' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
