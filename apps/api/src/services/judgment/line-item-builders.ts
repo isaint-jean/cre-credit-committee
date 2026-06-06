@@ -50,6 +50,29 @@ import { computeMonthsBetween } from './date-math.js';
 import { annualDebtService, maturityBalance } from './amortization.js';
 import { JudgmentEngineError } from './errors.js';
 
+/* ----------------------------- desk constants ----------------------------- */
+// Extracted from inline literals (no semantic change — values match the
+// previous embedded numbers byte-identically). Exported so the engine-hash
+// snapshot can fold them in alongside JudgmentEngineRules / penalty maps;
+// silent re-tunes then move the manifest hash and trip the boot check.
+
+/** Default concessions ratio (2% of gross rent) when rent-roll-derived
+ *  concessions are null on an applicable asset class (Multifamily / Hotel).
+ *  Fires from buildConcessionsPct under JE_CONCESSIONS_SUBSTITUTED_FROM_DEFAULT. */
+export const CONCESSIONS_DEFAULT_PCT = 0.02;
+
+/** Default monthly capital expenditure reserve as ANNUAL fraction of EGI
+ *  (0.20% per year). Divided by 12 at the use site to yield the monthly
+ *  reserve. Fires from buildMonthlyCapex under JE_MONTHLY_CAPEX_DEFAULTED. */
+export const MONTHLY_CAPEX_DEFAULT_PCT_OF_EGI_ANNUAL = 0.002;
+
+/** Spread applied above the library median (or stressed spot cap) when
+ *  substituting terminal cap rate. 50 bps reflects desk "no exit
+ *  compression credit" doctrine. Fires from buildTerminalCapRate under
+ *  JE_TERMINAL_CAP_RATE_FROM_LIBRARY_PLUS_SPREAD or
+ *  JE_TERMINAL_CAP_RATE_FROM_SPOT_PLUS_SPREAD. */
+export const TERMINAL_CAP_RATE_SPREAD = 0.005;
+
 /* --------------------------- substitution helper -------------------------- */
 
 /**
@@ -440,7 +463,7 @@ export function buildConcessionsPct(args: {
   return adjustSubstituteOnly({
     raw,
     extractionSource: 'RENT_ROLL',
-    substitutionValue: 0.02,
+    substitutionValue: CONCESSIONS_DEFAULT_PCT,
     substitutionRuleId: 'JE_CONCESSIONS_SUBSTITUTED_FROM_DEFAULT',
     substitutionReason: 'concessions null; default 2%',
     insufficientDataMessage: 'JE_CONCESSIONS_SUBSTITUTION_IMPOSSIBLE',
@@ -794,7 +817,7 @@ export function buildMonthlyCapex(args: {
   if (!args.applicable) return buildNotApplicableLineItem();
   // v1.0 default: 0.20% of EGI / month.
   // Batch 6.2.1 (audit U9): emit JE_MONTHLY_CAPEX_DEFAULTED so doctrine sees the synthesized value.
-  const monthly = args.effectiveGrossIncome.adjusted * 0.002 / 12;
+  const monthly = args.effectiveGrossIncome.adjusted * MONTHLY_CAPEX_DEFAULT_PCT_OF_EGI_ANNUAL / 12;
   return {
     raw: null,
     adjusted: monthly,
@@ -1094,11 +1117,11 @@ export function buildTerminalCapRate(args: {
   let substitutionRuleId: JudgmentEngineRuleId;
   let substitutionReason: string;
   if (libraryMedian !== null) {
-    substitutionValue = libraryMedian + 0.005;
+    substitutionValue = libraryMedian + TERMINAL_CAP_RATE_SPREAD;
     substitutionRuleId = 'JE_TERMINAL_CAP_RATE_FROM_LIBRARY_PLUS_SPREAD';
     substitutionReason = `terminal cap rate substituted from library median + 50bps (${substitutionValue})`;
   } else {
-    substitutionValue = args.capRate.adjusted + 0.005;
+    substitutionValue = args.capRate.adjusted + TERMINAL_CAP_RATE_SPREAD;
     substitutionRuleId = 'JE_TERMINAL_CAP_RATE_FROM_SPOT_PLUS_SPREAD';
     substitutionReason = `terminal cap rate substituted from spot cap + 50bps (${substitutionValue}) [library degraded]`;
   }
