@@ -41,4 +41,18 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // slot set (4 of 4 InjectionPoints have producers). Frozen state
   // additionally includes COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE.
   '1.3': 'c5deb3cf9c6d9e80df6d3999e65f55f3af608669fff23e48624ee57c41f91a1a' as ContentHash,
+  // Data-confidence axis v1.0, commit 2 of 3 — GATE (2026-06-05).
+  // buildCommitteeRecommendation short-circuits to a deterministic
+  // "Insufficient data to issue a committee recommendation; obtain [docs]"
+  // template when args.adjustedInputs.dataConfidence === 'unvalidated'.
+  // Other slots (executive_summary, red_flag_assessment, mitigation_
+  // suggestions) flow through the LLM unchanged.
+  //
+  // Hash note: the engine-state snapshot covers prompt templates + system
+  // prompt; the gate template lives in build-narrative.ts (not prompt-
+  // templates.ts), so it is NOT in the hashed state. Expected: v1.4 hash
+  // equals v1.3 hash. The bump anchors the BuildNarrativeInput shape change
+  // (new dataConfidence + dataQualityFlags fields) rather than a prompt-
+  // template change. Same pattern as JUDGMENT_ENGINE_VERSION 1.5 → 1.6.
+  '1.4': 'c5deb3cf9c6d9e80df6d3999e65f55f3af608669fff23e48624ee57c41f91a1a' as ContentHash,
 };

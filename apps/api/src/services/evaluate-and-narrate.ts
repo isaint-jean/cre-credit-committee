@@ -103,6 +103,9 @@ export async function evaluateAndNarrate(
       handbookEvaluation,
       adjustedInputsId: args.adjustedInputs.id,
       analysisAsOfDate: args.analysisAsOfDate,
+      // Narrative engine v1.4 — committee-recommendation gate.
+      dataConfidence:   args.adjustedInputs.dataConfidence,
+      dataQualityFlags: args.adjustedInputs.dataQualityFlags,
     },
     { llmCall: deps.llmCall },
   );

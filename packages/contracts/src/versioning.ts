@@ -124,7 +124,7 @@ export const HANDBOOK_ENGINE_VERSION = '1.6.0' as const;
  * Historical-replay union extends as new versions ship — see
  * `NARRATIVE_ENGINE_MANIFEST` (mirror of the judgment-engine manifest pattern).
  */
-export const NARRATIVE_ENGINE_VERSION = '1.3' as const;
+export const NARRATIVE_ENGINE_VERSION = '1.4' as const;
 
 /**
  * Mitigation-engine semantic version. Stamped onto every MitigationProposalSet
@@ -180,7 +180,7 @@ export type HandbookEngineVersion = typeof HANDBOOK_ENGINE_VERSION;
  * the `NARRATIVE_ENGINE_VERSION` constant and EXTEND this union (do not replace)
  * when adding a new narrative-engine revision.
  */
-export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3';
+export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4';
 
 /**
  * Historical-replay union: includes every MITIGATION_ENGINE_VERSION ever shipped so

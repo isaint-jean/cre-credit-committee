@@ -39,8 +39,10 @@
 
 import type {
   AdjustedInputsId,
+  DataConfidence,
   HandbookEvaluation,
   ISODateTime,
+  JudgmentEngineRuleId,
   NarrativeEvaluation,
 } from '@cre/contracts';
 import { NARRATIVE_ENGINE_VERSION } from '@cre/contracts';
@@ -91,6 +93,21 @@ export interface BuildNarrativeInput {
    * clock-derived in the producer (replay determinism).
    */
   readonly analysisAsOfDate: ISODateTime;
+  /**
+   * Data-confidence axis from AdjustedInputs (v1.6 / engine v1.4 wire).
+   * 'unvalidated' short-circuits buildCommitteeRecommendation BEFORE the LLM
+   * call to a deterministic "insufficient to recommend" template — see the
+   * data-confidence design v1 §2 / §5. 'validated' takes the existing LLM
+   * path. Other slots (executiveSummary, redFlagAssessment, mitigation
+   * Suggestions) flow through the LLM unchanged in either state.
+   */
+  readonly dataConfidence: DataConfidence;
+  /**
+   * AdjustedInputs.dataQualityFlags — the missing-doc / distrust ledger.
+   * Consumed only by the committee-recommendation gate (above) to name the
+   * material blocking docs when dataConfidence === 'unvalidated'.
+   */
+  readonly dataQualityFlags: readonly JudgmentEngineRuleId[];
 }
 
 export class BuildNarrativeError extends Error {
@@ -226,11 +243,71 @@ interface CommitteeRecommendationFragment {
   readonly committeeRecommendationConsumedFlagPrincipleIds: readonly string[];
 }
 
+/**
+ * Material missing-doc flags, in committee-readable priority order. Cashflow-
+ * first (trailing actuals, in-place) because those are the binding blockers
+ * for NOI validation. JE_APPRAISAL_MISSING is deliberately excluded per the
+ * data-confidence design — the engine intentionally underwrites to its own
+ * implied value (B-piece skepticism of appraisals), so its absence is normal,
+ * not a gap. Order is the rendering order.
+ */
+const MISSING_DOC_LABELS: ReadonlyArray<readonly [JudgmentEngineRuleId, string]> = [
+  ['JE_TRAILING_ACTUALS_MISSING',  'trailing-12 operating statement'],
+  ['JE_IN_PLACE_MISSING',          'in-place cash flow'],
+  ['JE_RENT_ROLL_MISSING',         'rent roll'],
+  ['JE_RENT_ROLL_UNIT_INCOMPLETE', 'complete rent roll'],
+  ['JE_LOAN_TERMS_MISSING',        'executed loan term sheet'],
+  ['JE_PCA_MISSING',               'PCA / capex study'],
+];
+
+/**
+ * Pure helper for the committee-recommendation gate template. Walks the
+ * registered missing-doc flags in priority order and returns a comma-joined
+ * human-readable list. Fallback when no listed flag is present — the
+ * trailing-actuals flag fires on every deal today (extractor doesn't populate
+ * t12Actual), so empty output would normally only happen if the caller passed
+ * an empty array; we still emit the two-blocker fallback so the gate prose
+ * always names a concrete ask.
+ */
+export function enumerateMissingDocs(
+  flags: readonly JudgmentEngineRuleId[],
+): string {
+  const present: string[] = [];
+  for (const [flag, label] of MISSING_DOC_LABELS) {
+    if (flags.includes(flag)) present.push(label);
+  }
+  if (present.length === 0) {
+    return 'trailing-12 operating statement and in-place cash flow';
+  }
+  return present.join(', ');
+}
+
 async function buildCommitteeRecommendation(
   input: BuildNarrativeInput,
   llm: LLMCallFn,
 ): Promise<CommitteeRecommendationFragment> {
-  const { handbookEvaluation } = input;
+  const { handbookEvaluation, dataConfidence, dataQualityFlags } = input;
+
+  // Data-confidence gate (engine v1.4). When inputs are unvalidated, the
+  // committee-recommendation slot is replaced with a deterministic ask for
+  // the blocking docs — the LLM is NOT called for this slot because making
+  // an accept/decline call on unvalidatable data is the actual danger we're
+  // closing. Other slots (executive_summary, red_flag_assessment, mitigation
+  // _suggestions) still go through the LLM unchanged — those describe the
+  // deal-as-extracted; only the verdict slot is hard-gated.
+  if (dataConfidence === 'unvalidated') {
+    const docList = enumerateMissingDocs(dataQualityFlags);
+    const committeeRecommendation =
+      'Insufficient data to issue a committee recommendation. The concluded ' +
+      'metrics rest on conservative library fallbacks rather than an independent, ' +
+      'validated cash-flow source; obtain the following and re-underwrite: ' +
+      docList + '.';
+    return {
+      committeeRecommendation,
+      committeeRecommendationConsumedFlagPrincipleIds: [],
+    };
+  }
+
   const formattedFlags = formatFlagsForInjectionPoint(
     handbookEvaluation.firedFlags,
     'committee_recommendation',
