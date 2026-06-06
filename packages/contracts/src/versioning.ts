@@ -12,7 +12,7 @@
  */
 
 export const DOCTRINE_VERSION = '1.0' as const;
-export const JUDGMENT_ENGINE_VERSION = '1.9' as const;
+export const JUDGMENT_ENGINE_VERSION = '1.10' as const;
 export const STRESS_ENGINE_VERSION = '1.0' as const;
 export const VALUATION_ENGINE_VERSION = '1.0' as const;
 export const RENDER_CONTRACT_VERSION = '1.0' as const;
@@ -167,7 +167,7 @@ export type DoctrineVersion = typeof DOCTRINE_VERSION;
  * `JUDGMENT_ENGINE_VERSION` constant and EXTEND this union (do not replace) when adding
  * a new judgment-engine revision.
  */
-export type JudgmentEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6' | '1.7' | '1.8' | '1.9';
+export type JudgmentEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6' | '1.7' | '1.8' | '1.9' | '1.10';
 export type StressEngineVersion = typeof STRESS_ENGINE_VERSION;
 export type ValuationEngineVersion = typeof VALUATION_ENGINE_VERSION;
 export type RenderContractVersion = typeof RENDER_CONTRACT_VERSION;

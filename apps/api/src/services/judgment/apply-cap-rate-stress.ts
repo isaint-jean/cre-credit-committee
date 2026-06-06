@@ -34,29 +34,35 @@ import type {
   MarketLiquidity,
 } from '@cre/contracts';
 
-/* ----- thresholds + magnitudes (locked v1; all are decimal fractions) ----- */
+/* ----- thresholds + magnitudes (locked v1; all are decimal fractions) -----
+ * v1.10: every const below is `export`ed and folded into
+ * buildJudgmentEngineHashSnapshot (judgment-engine-boot-check.ts) under
+ * the `deskConstants` key. A silent re-tune of any value here moves the
+ * judgment-engine hash and trips JUDGMENT_ENGINE_HASH_DRIFT at boot —
+ * no more manual-bump convention.
+ */
 
-const CAP_RATE_FLOOR = 0.045 as const;
-const CAP_RATE_CEILING = 0.120 as const;
-const NET_ADJ_BAND_BPS = 0.0150 as const;
+export const CAP_RATE_FLOOR = 0.045 as const;
+export const CAP_RATE_CEILING = 0.120 as const;
+export const NET_ADJ_BAND_BPS = 0.0150 as const;
 
 /** Tier corrections off a tier-blind base. Backtested. Unknown → 0 (no entry). */
-const TIER_DELTA: Record<MarketLiquidity, number> = {
+export const TIER_DELTA: Record<MarketLiquidity, number> = {
   Primary: -0.0075,
   Secondary: +0.0035,
   Tertiary: +0.0065,
   Unknown: 0,
 };
 
-const BP_LEASEUP_DELTA = +0.0025;
+export const BP_LEASEUP_DELTA = +0.0025;
 
-const ROLLOVER_HEAVY_THRESHOLD = 0.30;
-const ROLLOVER_HEAVY_DELTA = +0.0040;
-const ROLLOVER_MODERATE_THRESHOLD = 0.15;
-const ROLLOVER_MODERATE_DELTA = +0.0015;
+export const ROLLOVER_HEAVY_THRESHOLD = 0.30;
+export const ROLLOVER_HEAVY_DELTA = +0.0040;
+export const ROLLOVER_MODERATE_THRESHOLD = 0.15;
+export const ROLLOVER_MODERATE_DELTA = +0.0015;
 
-const CONCENTRATION_THRESHOLD = 0.35;
-const CONCENTRATION_DELTA = +0.0040;
+export const CONCENTRATION_THRESHOLD = 0.35;
+export const CONCENTRATION_DELTA = +0.0040;
 
 /* ----- base-source detection ----- */
 

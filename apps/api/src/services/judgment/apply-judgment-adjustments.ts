@@ -420,7 +420,8 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   // actual) ONLY — inPlace and sellerUw are seller projections that dilute the signal.
   // Fires when concluded is ≥ 20% below the trailing-12. Pushes a topLevelAdjustment here;
   // mirrored to dataQualityFlags in Phase 6.5 (same pattern as JE_PERIOD_LABEL_MISMATCH).
-  // Threshold lives in noi-divergence.ts (not in the hashed snapshot — see file JSDoc).
+  // Threshold lives in noi-divergence.ts; folded into the hashed deskConstants
+  // key in v1.10 so boot-check catches a silent re-tune.
   const divergence = checkNoiDivergence({
     derivedNoi: finalNoi,
     trailingActualNoi: extraction.t12Actual?.noi ?? null,

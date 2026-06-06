@@ -104,5 +104,25 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // bump anchors the AdjustedInputs UNION change rather than an engine-state
   // change). Commit 2 lands the render surface (RENDER_VERSION bump + 3-way
   // displayValue mapping + low_confidence banner). See low-confidence-tier-design-v1.md.
+  // FORWARD-POINTER: v1.10 (below) widens the snapshot to include desk constants,
+  // so the rule-registry-only convention is no longer the full story from 1.10 on.
   '1.9': '9a34fe04deca1b2d7cb9bb37afe9e5a1532197dc672f625f1803a06648a1e6b8' as ContentHash,
+  // Desk constants now hash-covered (2026-06-06). The snapshot gains a `deskConstants`
+  // top-level key carrying every output-affecting numeric outside the rule registry:
+  //   - NOI_DIVERGENCE_THRESHOLD (noi-divergence.ts)
+  //   - 11 cap-rate-stress constants (apply-cap-rate-stress.ts):
+  //       CAP_RATE_FLOOR, CAP_RATE_CEILING, NET_ADJ_BAND_BPS, TIER_DELTA,
+  //       BP_LEASEUP_DELTA, ROLLOVER_HEAVY_{THRESHOLD,DELTA},
+  //       ROLLOVER_MODERATE_{THRESHOLD,DELTA}, CONCENTRATION_{THRESHOLD,DELTA}
+  //   - 3 line-item-builders constants (line-item-builders.ts, extracted from
+  //     inline literals in 1d06cc9 byte-identically):
+  //       CONCESSIONS_DEFAULT_PCT, MONTHLY_CAPEX_DEFAULT_PCT_OF_EGI_ANNUAL,
+  //       TERMINAL_CAP_RATE_SPREAD
+  // A silent re-tune of any value now moves the manifest hash and trips
+  // JUDGMENT_ENGINE_HASH_DRIFT at boot — replaces the prior manual-bump
+  // convention with an automatic forcing function. No engine-output semantic
+  // change in 1.10 (Showcase I / Sunroad / Eleven13 outputs byte-identical to
+  // v1.9); the hash MOVED because the snapshot shape changed. See
+  // docs/desk-threshold-hashing-design.md.
+  '1.10': 'd0950410bd1fc7027d1fd910771f3be7368818824cdf429ed42fb57eb810d081' as ContentHash,
 };

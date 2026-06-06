@@ -20,6 +20,29 @@ import {
   JudgmentEngineRules,
 } from '@cre/contracts';
 import { computeContentHash } from './content-hash.js';
+// v1.10 — desk constants folded into the snapshot. Every output-affecting
+// numeric living outside the rule registry / penalty maps is imported here so
+// a silent re-tune of any value moves the manifest hash and trips the boot
+// check, replacing the prior "manual bump" convention with an automatic gate.
+import { NOI_DIVERGENCE_THRESHOLD } from '../services/judgment/noi-divergence.js';
+import {
+  CAP_RATE_FLOOR,
+  CAP_RATE_CEILING,
+  NET_ADJ_BAND_BPS,
+  TIER_DELTA,
+  BP_LEASEUP_DELTA,
+  ROLLOVER_HEAVY_THRESHOLD,
+  ROLLOVER_HEAVY_DELTA,
+  ROLLOVER_MODERATE_THRESHOLD,
+  ROLLOVER_MODERATE_DELTA,
+  CONCENTRATION_THRESHOLD,
+  CONCENTRATION_DELTA,
+} from '../services/judgment/apply-cap-rate-stress.js';
+import {
+  CONCESSIONS_DEFAULT_PCT,
+  MONTHLY_CAPEX_DEFAULT_PCT_OF_EGI_ANNUAL,
+  TERMINAL_CAP_RATE_SPREAD,
+} from '../services/judgment/line-item-builders.js';
 
 export class JudgmentEngineBootCheckError extends Error {
   override readonly name = 'JudgmentEngineBootCheckError';
@@ -39,6 +62,32 @@ function buildJudgmentEngineHashSnapshot() {
     rules: JudgmentEngineRules,
     missingDocPenalties: JE_MISSING_DOC_PENALTIES,
     distrustPenalties: JE_DISTRUST_PENALTIES,
+    // v1.10 (2026-06-06) — every output-affecting desk constant outside the
+    // rule registry, hashed alongside it. canonicalize() sorts keys at hash
+    // time, so the property insertion order below has no effect on the digest;
+    // the order is kept by source-file for readability. Adding a new desk
+    // constant requires (a) appending it here, (b) bumping
+    // JUDGMENT_ENGINE_VERSION, and (c) appending a new manifest entry.
+    deskConstants: {
+      // noi-divergence.ts
+      NOI_DIVERGENCE_THRESHOLD,
+      // apply-cap-rate-stress.ts
+      CAP_RATE_FLOOR,
+      CAP_RATE_CEILING,
+      NET_ADJ_BAND_BPS,
+      TIER_DELTA,
+      BP_LEASEUP_DELTA,
+      ROLLOVER_HEAVY_THRESHOLD,
+      ROLLOVER_HEAVY_DELTA,
+      ROLLOVER_MODERATE_THRESHOLD,
+      ROLLOVER_MODERATE_DELTA,
+      CONCENTRATION_THRESHOLD,
+      CONCENTRATION_DELTA,
+      // line-item-builders.ts (1d06cc9 extracted these from inline literals)
+      CONCESSIONS_DEFAULT_PCT,
+      MONTHLY_CAPEX_DEFAULT_PCT_OF_EGI_ANNUAL,
+      TERMINAL_CAP_RATE_SPREAD,
+    },
   };
 }
 

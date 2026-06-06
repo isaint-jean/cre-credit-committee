@@ -15,12 +15,13 @@
  * this flag is a lower-bound REVIEW signal (concluded is materially BELOW trailing). v1.0
  * is informational — the conclusion stands, the flag surfaces in narrative + render.
  *
- * Threshold versioning: NOI_DIVERGENCE_THRESHOLD is NOT in buildJudgmentEngineHashSnapshot
- * ({rules, missingDocPenalties, distrustPenalties}). Same convention as cap-rate-stress
- * desk constants (ROLLOVER_HEAVY_THRESHOLD etc. in apply-cap-rate-stress.ts). Changing this
- * value MUST be accompanied by a manual JUDGMENT_ENGINE_VERSION bump per the workflow in
- * packages/contracts/src/judgment-engine-manifest.ts (the rule registry won't move the hash
- * on a numeric change, so boot-check will NOT catch a silent re-tune).
+ * Threshold versioning (v1.10): NOI_DIVERGENCE_THRESHOLD is folded into the
+ * `deskConstants` key of buildJudgmentEngineHashSnapshot (judgment-engine-boot-check.ts).
+ * A silent re-tune of this value moves the engine-state hash and trips
+ * JUDGMENT_ENGINE_HASH_DRIFT at boot — the manual-bump convention is replaced
+ * by an automatic forcing function. Changes still require bumping
+ * JUDGMENT_ENGINE_VERSION and appending a manifest entry; the boot check
+ * catches the omission.
  *
  * Reference NOI is t12Actual.noi ONLY — not the bankNoi cascade. Trailing-twelve actuals
  * are the strongest evidence available; inPlace and sellerUw are seller projections that
