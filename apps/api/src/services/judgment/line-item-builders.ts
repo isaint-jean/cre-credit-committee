@@ -272,6 +272,47 @@ export function buildOtherIncome(args: {
   }
 
   if (raw === null) {
+    // v1.7 INCOME RECOVERY (Showcase I pattern). Before defaulting to 0, try to synthesize
+    // otherIncome from the same-statement (totalIncome − GPR) residual. Pins to a SINGLE
+    // slot (t12Actual → inPlace → sellerUwOperatingStatement) where BOTH totalIncome AND
+    // GPR are present — do NOT reuse buildGrossRentalIncome's pick (different cascade,
+    // can disagree). The residual captures undecomposed reimbursements + other-income that
+    // the extractor's LINE_PATTERNS regexes couldn't break out — without recovery they are
+    // silently lost between the extracted totalIncome and the engine's GPR-only EGI base
+    // (Showcase I: $3.67M lost → 32% under-stated NOI). Recovery rolls reimbursements into
+    // otherIncome; this is safe today because reimbursements is dead weight downstream
+    // (NOT summed into EGI), but see the guard comment in buildEffectiveGrossIncome below.
+    //
+    // Conservatism accepted: extracted totalIncome is EGI (post-statement-vacancy per the
+    // extractor's regex match against "Effective Gross Revenue/Income/EGR/EGI" labels), so
+    // the recovered amount passes through the engine's vacancy haircut a SECOND time
+    // (~$220K on Showcase I at 6% library vacancy). Not grossed-up — the statement vacancy
+    // is usually null (vacancyLoss field unextracted), and the extra conservatism is in the
+    // spirit of the engine's bias.
+    const recoverySlots: { readonly slot: import('@cre/contracts').OperatingStatementExtraction | null; readonly source: 'T12_ACTUAL' | 'IN_PLACE' | 'SELLER_UW' }[] = [
+      { slot: args.extraction.t12Actual,                       source: 'T12_ACTUAL' },
+      { slot: args.extraction.inPlace,                         source: 'IN_PLACE' },
+      { slot: args.extraction.sellerUwOperatingStatement,      source: 'SELLER_UW' },
+    ];
+    for (const { slot, source: slotSource } of recoverySlots) {
+      if (slot === null) continue;
+      const ti  = slot.income.totalIncome;
+      const gpr = slot.income.grossPotentialRent;
+      if (ti === null || gpr === null) continue;
+      const recovered = ti - gpr;
+      if (recovered <= 0) continue;
+      return {
+        raw: recovered,
+        adjusted: recovered,
+        source: slotSource,
+        adjustments: [{
+          ruleId: 'JE_OTHER_INCOME_RECOVERED_FROM_TOTAL',
+          delta: recovered,
+          reason: `otherIncome synthesized as totalIncome − GPR from ${slotSource} (undecomposed reimbursement/other-income residual); review composition`,
+        }],
+      };
+    }
+
     // Batch 6.2.1 (audit U9): explicit MANUAL-default emission. The conservative default of 0
     // is correct (under-recognizing income lowers NOI), but doctrine cannot see the
     // synthesized-vs-extracted distinction without a named rule. Emit JE_OTHER_INCOME_DEFAULTED
@@ -418,6 +459,13 @@ export function buildEffectiveGrossIncome(args: {
   readonly vacancyPct: AdjustedLineItem;
   readonly concessionsPct: AdjustedLineItem;
 }): AdjustedLineItem {
+  // GUARD (v1.7): `expenses.reimbursements` is intentionally NOT summed into income here
+  // (and not subtracted from totalOperatingExpenses either — see buildTotalOperatingExpenses).
+  // Today it is dead weight downstream. The v1.7 otherIncome recovery branch
+  // (JE_OTHER_INCOME_RECOVERED_FROM_TOTAL in buildOtherIncome) RELIES on this — it folds the
+  // undecomposed reimbursement residual into otherIncome via totalIncome − GPR. A future
+  // engineer who wires reimbursements into EGI MUST revisit buildOtherIncome's recovery
+  // branch to subtract reimbursements from the residual, else this commit double-counts.
   const totalIncome = args.grossRentalIncome.adjusted + args.otherIncome.adjusted;
 
   // Batch 6.2.1 (audit U8): explicit range check on vacancy + concessions. Sum > 1 OR < 0 is

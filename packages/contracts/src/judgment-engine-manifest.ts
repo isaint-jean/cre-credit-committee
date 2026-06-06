@@ -72,4 +72,14 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // v1.5 hash (expected; the version bump anchors the AdjustedInputs shape
   // change rather than an engine-state change). See data-confidence-design-v1.md.
   '1.6': 'b184cfffa710174716a6ff3f053bdeb0c4eb49ef4cb4bd59736115c0fefe6bc1' as ContentHash,
+  // Income recovery (2026-06-06). One new rule literal added to JudgmentEngineRules:
+  // JE_OTHER_INCOME_RECOVERED_FROM_TOTAL — emitted by buildOtherIncome when all CF columns
+  // omit an explicit otherIncome line BUT a single statement carries both totalIncome and
+  // GPR, synthesizing otherIncome as (totalIncome − GPR) from that pinned slot. Captures
+  // undecomposed reimbursement/other-income residual the extractor's LINE_PATTERNS couldn't
+  // break out (Showcase I pattern: ~$3.67M lost between t12.totalIncome=$16.09M and engine
+  // EGI base). No JE_MISSING_DOC_PENALTIES / JE_DISTRUST_PENALTIES additions — this is a
+  // synthesis flag, not a penalty trigger. Unlike v1.6, the rule-registry change DOES move
+  // the snapshot hash (rules ∈ buildJudgmentEngineHashSnapshot). See income-recovery-design-v1.md.
+  '1.7': '8e96057620d3e23d422616bd407c106ff6a8b31a2d888f50bad4f6506f867eb2' as ContentHash,
 };

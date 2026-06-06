@@ -115,6 +115,14 @@ export const JudgmentEngineRules = {
   // is not a missing-document — it's a missing field within a present document. Doctrine's
   // data_confidence component reads these flags and applies a smaller per-default penalty.
   JE_OTHER_INCOME_DEFAULTED:                        'JE_OTHER_INCOME_DEFAULTED',
+  // v1.7 (2026-06-06) — Income recovery. Fires in buildOtherIncome when all CF columns omit
+  // an explicit otherIncome line BUT a single statement carries both totalIncome and GPR.
+  // Synthesizes otherIncome as (totalIncome − GPR) from that pinned slot, capturing the
+  // undecomposed reimbursement/other-income residual that the extractor's LINE_PATTERNS
+  // regexes couldn't break out. Delta = recovered dollar amount; source = the slot brand
+  // (T12_ACTUAL / IN_PLACE / SELLER_UW) not MANUAL. No penalty-map entry — this is a
+  // synthesis flag (analyst should review composition), not a missing-doc / distrust penalty.
+  JE_OTHER_INCOME_RECOVERED_FROM_TOTAL:             'JE_OTHER_INCOME_RECOVERED_FROM_TOTAL',
   JE_RENT_GROWTH_DEFAULTED:                         'JE_RENT_GROWTH_DEFAULTED',
   JE_EXPENSE_GROWTH_DEFAULTED:                      'JE_EXPENSE_GROWTH_DEFAULTED',
   JE_MONTHLY_CAPEX_DEFAULTED:                       'JE_MONTHLY_CAPEX_DEFAULTED',
