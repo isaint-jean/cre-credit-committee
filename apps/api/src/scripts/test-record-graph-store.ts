@@ -270,6 +270,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],
+    dataConfidence: 'validated',
     dataQualityFlags: [],
   };
   return { id: computeAdjustedInputsId(body), ...body } as AdjustedInputs;
@@ -873,6 +874,7 @@ console.log('\nAdjustedInputs.loan.maturityDate — round-trip null and populate
       pctIncomeExpiringWithinTerm: 0.22,
       issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
+    dataConfidence: 'validated',
     confidenceReduction: 0.05, topLevelAdjustments: [], dataQualityFlags: [],
   };
   const aiPop = { id: computeAdjustedInputsId(aiBody), ...aiBody } as AdjustedInputs;

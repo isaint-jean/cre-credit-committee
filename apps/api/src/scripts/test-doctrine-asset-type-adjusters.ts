@@ -98,6 +98,7 @@ function makeAdjustedInputs(opts: { dscr?: number | null; debtYield?: number | n
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
+    dataConfidence: 'validated',
     dataQualityFlags: [],
   };
   return { id: computeAdjustedInputsId(body), ...body } as AdjustedInputs;

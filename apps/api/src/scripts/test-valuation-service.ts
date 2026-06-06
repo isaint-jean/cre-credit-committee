@@ -111,6 +111,7 @@ function makeAdjustedInputs(opts: {
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
+    dataConfidence: 'validated',
     dataQualityFlags: [],
   };
   return { id: computeAdjustedInputsId(body), ...body } as AdjustedInputs;

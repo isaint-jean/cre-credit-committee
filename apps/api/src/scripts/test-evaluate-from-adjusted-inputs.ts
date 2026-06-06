@@ -206,6 +206,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],
+    dataConfidence: 'validated',
     dataQualityFlags: [],
   };
   return { id: computeAdjustedInputsId(body), ...body } as AdjustedInputs;

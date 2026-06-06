@@ -352,6 +352,7 @@ console.log('\nConservatism gate (direct invocation):');
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
+    dataConfidence: 'validated',
     dataQualityFlags: [],
   };
 

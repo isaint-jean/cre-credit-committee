@@ -142,6 +142,7 @@ function makeAdjustedInputs(opts: Partial<{
         opts.pctIncomeExpiringWithinTerm === undefined ? 0.20 : opts.pctIncomeExpiringWithinTerm,
       issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
     },
+    dataConfidence: 'validated',
     confidenceReduction: 0,
     topLevelAdjustments: [],
     dataQualityFlags: opts.dataQualityFlags ?? [],

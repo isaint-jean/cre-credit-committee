@@ -62,4 +62,14 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // degraded-state flags. No JE_MISSING_DOC_PENALTIES / JE_DISTRUST_PENALTIES
   // additions. No emit-site changes elsewhere in the pipeline.
   '1.5': 'b184cfffa710174716a6ff3f053bdeb0c4eb49ef4cb4bd59736115c0fefe6bc1' as ContentHash,
+  // Data-confidence axis v1.0, commit 1 of 3 — DETECT (2026-06-05). Adds the
+  // top-level `AdjustedInputs.dataConfidence: 'validated' | 'unvalidated'`
+  // field; derived purely from the existing bankNoi cascade at apply-judgment-
+  // adjustments.ts. Pure detect; no downstream consumer yet (committee gate +
+  // render surface land in commits 2 and 3). The judgment-engine hashed
+  // snapshot covers {rules, missingDocPenalties, distrustPenalties} only —
+  // derived-field logic is NOT in the snapshot, so the v1.6 hash equals the
+  // v1.5 hash (expected; the version bump anchors the AdjustedInputs shape
+  // change rather than an engine-state change). See data-confidence-design-v1.md.
+  '1.6': 'b184cfffa710174716a6ff3f053bdeb0c4eb49ef4cb4bd59736115c0fefe6bc1' as ContentHash,
 };

@@ -244,6 +244,7 @@ function buildDefaultAdjustedInputs(args: {
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
+    dataConfidence: 'validated',
     dataQualityFlags: [],
   };
 }

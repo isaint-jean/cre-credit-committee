@@ -28,6 +28,14 @@ import type { JudgmentEngineRuleId } from './judgment-engine-rules.js';
 import type { CreditManifestoRuleId } from './manifesto.js';
 
 /**
+ * Data-confidence axis (v1.6). Binary: 'validated' when `bankNoi` resolved to a
+ * real number; 'unvalidated' when the entire bankNoi cascade returned null. See
+ * AdjustedInputs.dataConfidence below for the full semantics + downstream policy.
+ */
+export const DATA_CONFIDENCE_LEVELS = ['validated', 'unvalidated'] as const;
+export type DataConfidence = (typeof DATA_CONFIDENCE_LEVELS)[number];
+
+/**
  * One adjustment ledger entry attached to an `AdjustedLineItem`. Records which rule changed the
  * value and by how much. Doctrine §1 distrust penalties read from the aggregated ledger to score
  * `data_confidence` — they MUST NOT independently re-walk documents.
@@ -359,6 +367,26 @@ export interface AdjustedInputs {
   readonly loan: AdjustedLoan;
   readonly assumptions: AdjustedAssumptions;
   readonly metrics: AdjustedMetrics;
+
+  /**
+   * Data-confidence axis (v1.6 — 2026-06-05). Binary:
+   *   - 'validated'   — `bankNoi` cascade (t12Actual → sellerUwOperatingStatement →
+   *                     inPlace) resolved to a real number. The engine had an
+   *                     independent cashflow source to check against.
+   *   - 'unvalidated' — `bankNoi` resolved null: no independent cashflow source
+   *                     extracted, NOI is unvalidatable. Concluded metrics are
+   *                     still produced (per design: "thin data is not bad credit"
+   *                     — the score remains a pure credit-quality measure) but
+   *                     downstream consumers MUST surface this as provisional.
+   *                     The committee-recommendation slot is gated to a deterministic
+   *                     "insufficient to recommend" message; mitigation cards
+   *                     carry a caveat banner. See docs/data-confidence-design-v1.md.
+   *
+   * Top-level field (not inside `metrics`) because it's a property of the INPUTS,
+   * not a scored output. v1.6 commit 1 (DETECT) ships the field only — downstream
+   * gating logic lands in subsequent commits.
+   */
+  readonly dataConfidence: DataConfidence;
 
   readonly confidenceReduction: number;          // 0..1
   readonly topLevelAdjustments: readonly AdjustmentEntry[];

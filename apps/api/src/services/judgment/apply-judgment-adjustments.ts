@@ -394,6 +394,12 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
   /* ----------------------------- Phase 3: NOI Cap --------------------------- */
 
   const bankNoi = pickFirstNonNull(bankNoiCascade(extraction)).value;
+  // Data-confidence axis (v1.6). Binary: 'unvalidated' iff the bankNoi cascade
+  // (t12Actual → sellerUwOperatingStatement → inPlace) returned null — no
+  // independent cashflow source extracted, NOI is unvalidatable. Showcase I
+  // pattern. Pure derivation from a cascade we already computed; no extra work.
+  // See packages/contracts/src/adjusted-inputs.ts for downstream policy notes.
+  const dataConfidence = bankNoi === null ? 'unvalidated' : 'validated';
   const capResult = applyNoiCap({ derivedNoi: preCapNoi, bankNoi });
   const finalNoi = capResult.capped;
   const noiCapAdjustments: AdjustmentEntry[] = capResult.entry ? [capResult.entry] : [];
@@ -493,6 +499,7 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       issuerStatedNoiSellerUw: extraction.sellerUw?.underwrittenNOI ?? null,
       issuerStatedNoiAsr: extraction.asr?.underwrittenNOI ?? null,
     },
+    dataConfidence,
     confidenceReduction: 0, // placeholder; replaced in Phase 6
     topLevelAdjustments: noiCapAdjustments,
   };
@@ -636,6 +643,7 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     loan: partialAdjusted.loan,
     assumptions: partialAdjusted.assumptions,
     metrics: partialAdjusted.metrics,
+    dataConfidence,
     confidenceReduction,
     topLevelAdjustments: allTopLevelAdjustments,
     dataQualityFlags,

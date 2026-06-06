@@ -194,6 +194,7 @@ const defaultAdjustedInputs: AdjustedInputs = {
   },
   confidenceReduction: 0,
   topLevelAdjustments: [],
+  dataConfidence: 'validated',
   dataQualityFlags: [],
 };
 

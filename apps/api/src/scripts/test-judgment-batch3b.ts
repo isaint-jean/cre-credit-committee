@@ -117,6 +117,7 @@ function makeAdjustedInputs(overrides: { vacancyPct?: number; dscr?: number | nu
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],
+    dataConfidence: 'validated',
     dataQualityFlags: [],
   };
 }
