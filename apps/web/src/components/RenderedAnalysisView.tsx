@@ -272,7 +272,10 @@ function HandbookEvaluationSection(
 // the Piece A prose substantiates them. Renders nothing when the array is empty
 // (commit 1 ships with empty arrays for all deals; commit 2 wires the producer).
 function MitigationsSection(
-  { proposals }: { proposals: readonly RenderedMitigationProposal[] },
+  { proposals, dataConfidence }: {
+    proposals: readonly RenderedMitigationProposal[];
+    dataConfidence: 'validated' | 'unvalidated';
+  },
 ): React.ReactElement | null {
   if (proposals.length === 0) return null;
   return (
@@ -280,6 +283,14 @@ function MitigationsSection(
       <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">
         Mitigations
       </h2>
+      {/* Render v7.12 — caveat banner (NOT suppress). The cards still
+        illustrate "if these held, here's the structuring fix" but the
+        unvalidated inputs they were sized off of need replacement first. */}
+      {dataConfidence === 'unvalidated' ? (
+        <div className="border-l-4 border-amber-500 bg-amber-50 p-3 rounded text-sm text-amber-800">
+          Sized off unvalidated metrics — re-run after obtaining the documents noted in the recommendation.
+        </div>
+      ) : null}
       <div className="space-y-3">
         {proposals.map((p) => (
           <div key={p.id} className="border border-gray-200 rounded bg-white p-4 space-y-3">
@@ -831,6 +842,23 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         <SnapshotViewer workflow={workflow} />
       ) : null}
 
+      {/* Render v7.12 — data-confidence banner. When inputs are unvalidated
+        (the engine ran on conservative library fallbacks rather than an
+        independent cash-flow source), this leads the summary so the
+        provisional state is impossible to miss. Hidden when validated. */}
+      {data.summary.dataConfidence.value === 'unvalidated' ? (
+        <section className="space-y-3">
+          <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
+            <div className="text-sm font-semibold text-amber-900 mb-1">
+              Insufficient data — provisional figures
+            </div>
+            <p className="text-sm text-amber-800">
+              The figures below are provisional, resting on conservative library fallbacks rather than validated cash flow. See the committee recommendation below.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
       <section className="space-y-3">
         <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Summary</h2>
         <div className="grid grid-cols-2 gap-3">
@@ -938,7 +966,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         <HandbookEvaluationSection evaluation={handbookEvaluation} />
       )}
 
-      <MitigationsSection proposals={data.mitigations} />
+      <MitigationsSection proposals={data.mitigations} dataConfidence={data.summary.dataConfidence.value ?? 'validated'} />
 
       <NarrativeSection narrative={data.narrative} />
 

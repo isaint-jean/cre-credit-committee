@@ -7,10 +7,11 @@
 
 import type { DoctrineEvaluationId, RenderedAnalysisId } from './identity.js';
 import type { ISODateTime, NarrativeEngineVersion } from './versioning.js';
+import type { DataConfidence } from './adjusted-inputs.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.11' as const;
+export const RENDER_VERSION = '7.12' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -244,6 +245,16 @@ export interface RenderedAnalysis {
   readonly summary: {
     readonly ratingBand: RenderCell<RatingBand>;
     readonly finalScore: RenderCell<number>;
+    /**
+     * Data-confidence axis (render v7.12 — surfaces the engine-v1.6 detect
+     * + narrative-v1.4 gate end-to-end). Binary 'validated' | 'unvalidated'
+     * passed through from AdjustedInputs; the projector also appends
+     * " (provisional)" to ratingBand.displayValue when 'unvalidated' so the
+     * UI does not need to recompose. No separate `provisional` field —
+     * `dataConfidence.value === 'unvalidated'` is the boolean.
+     * See packages/contracts/src/adjusted-inputs.ts → DataConfidence.
+     */
+    readonly dataConfidence: RenderCell<DataConfidence>;
   };
 
   readonly metrics: {

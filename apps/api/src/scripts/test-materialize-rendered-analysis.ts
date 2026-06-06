@@ -312,6 +312,7 @@ console.log('\nFK enforcement: cannot insert RenderedAnalysis with non-existent 
     summary: {
       ratingBand: { value: 'Acceptable' as const, displayValue: 'Acceptable' },
       finalScore: { value: 50, displayValue: '50' },
+      dataConfidence: { value: 'validated', displayValue: 'Validated' },
     },
     metrics: {
       dscr: { value: null, displayValue: '-' },
@@ -379,6 +380,7 @@ console.log('\nContent-hash mismatch detection (RecordIdMismatchError):');
     summary: {
       ...cold.summary,
       finalScore: { value: 999, displayValue: '999' },
+      dataConfidence: { value: 'validated', displayValue: 'Validated' },
     },
   };
   assertThrowsInstance(

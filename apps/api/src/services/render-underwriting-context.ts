@@ -304,11 +304,26 @@ export function renderUnderwritingContext(
     summary: {
       ratingBand: {
         value: doctrineEvaluation.ratingBand,
-        displayValue: applyStringSentinel(doctrineEvaluation.ratingBand),
+        // v7.12 — server-emit the "(provisional)" suffix on display only when
+        // inputs are unvalidated. RenderCell.value stays the raw RatingBand
+        // (preserves the machine/human split — analytics + regression tests
+        // read .value, UI reads .displayValue).
+        displayValue: adjustedInputs.dataConfidence === 'unvalidated'
+          ? applyStringSentinel(doctrineEvaluation.ratingBand) + ' (provisional)'
+          : applyStringSentinel(doctrineEvaluation.ratingBand),
       },
       finalScore: {
         value: doctrineEvaluation.finalScore,
         displayValue: applyNumericSentinel(doctrineEvaluation.finalScore),
+      },
+      // v7.12 — data-confidence axis. Passthrough of AdjustedInputs.dataConfidence
+      // with a Capitalized display label. UI banner + caveat conditions key off
+      // .value (the typed literal); display is the human form.
+      dataConfidence: {
+        value: adjustedInputs.dataConfidence,
+        displayValue: adjustedInputs.dataConfidence === 'unvalidated'
+          ? 'Unvalidated'
+          : 'Validated',
       },
     },
 
