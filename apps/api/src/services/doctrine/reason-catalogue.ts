@@ -22,6 +22,7 @@ export const DOCTRINE_REASON_CATALOGUE: { readonly [K in DoctrineReasonCode]: st
   UW_AT_OR_BELOW_T12:                       'Underwriting NOI is at or below trailing T-12.',
   UW_SLIGHTLY_ABOVE_T12:                    'Underwriting NOI is slightly above trailing T-12 (within 5%).',
   UW_AGGRESSIVE_ABOVE_T12:                  'Underwriting NOI exceeds trailing T-12 by more than 10% — aggressive.',
+  UW_VS_T12_DERIVED_FROM_METRICS:           'UW-vs-trailing delta computed from metrics.noi and metrics.trailingActualNoi (no cross-check finding).',
 
   // §5 tenant concentration
   TENANT_CONCENTRATION_LOW:                 'Top tenant represents 20% or less of income.',
@@ -101,6 +102,7 @@ export const DOCTRINE_REASON_CATALOGUE: { readonly [K in DoctrineReasonCode]: st
 
   // generic
   INSUFFICIENT_DATA:                        'Insufficient data to evaluate.',
+  LTV_DERIVED_FROM_IMPLIED_VALUE:           'LTV computed from loan / valuationConclusion.finalValue (no appraisal supplied).',
 };
 
 /**

@@ -355,12 +355,29 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
     rentRoll,
   } = args;
 
-  /* Phase 1 — run 5a component scorers */
+  /* Phase 1 — run 5a component scorers.
+   *
+   * v1.2 LTV derived fallback: compute `ltvDerived = loanAmount /
+   * valuationConclusion.finalValue` for the LTV scorer. The valuation engine
+   * populates `finalValue` on essentially every deal (it falls back to
+   * NOI/cap when no anchor is supplied — see valuation.service.ts:94-99).
+   * When ltvAppraisal is null (production reality — extraction.appraisal
+   * hardcoded null at build-extraction-result.ts:434), scoreLtv now falls
+   * back to ltvDerived and attaches LTV_DERIVED_FROM_IMPLIED_VALUE so the
+   * path is auditable. Must land with the UW-vs-T12 fill: once the cap
+   * lifts on deals with t12, a high-LTV deal would otherwise sail to
+   * Strong with LTV silently excluded (leverage unassessed). */
+  const loanAdjusted = adjustedInputs.loan.loanAmount.adjusted;
+  const finalValue = valuationConclusion.finalValue;
+  const ltvDerived =
+    finalValue !== null && finalValue > 0 ? loanAdjusted / finalValue : null;
+
   const rawComponentScores: DoctrineComponentScore[] = [
     ...scoreMechanical({
       dscr: adjustedInputs.metrics.dscr,
       debtYield: adjustedInputs.metrics.debtYield,
       ltvAppraisal: adjustedInputs.metrics.ltvAppraisal,
+      ltvDerived,
     }),
     ...scoreDurability({ adjustedInputs, crossCheck: crossCheckResult }),
     ...scoreNormalization({ adjustedInputs, narrativeFacts }),

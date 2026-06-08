@@ -863,6 +863,45 @@ async function main(): Promise<void> {
   console.log(`  bandCapApplied:                         ${capCount}/${rows.length} (${(100*capCount/rows.length).toFixed(1)}%)`);
   console.log(`  insufficientCoverageGate fired:         ${gateCount}/${rows.length} (${(100*gateCount/rows.length).toFixed(1)}%)`);
 
+  /* ----------------- gate-aware metrics (v1.1 commit 2+3) ----------------- */
+  console.log('\n=== (5) Gate-aware metrics ===');
+  const nongated = rows.filter(r => !r.gateFired);
+  console.log(`  non-gated deals (engine actively scored): ${nongated.length}/${rows.length} (${(100*nongated.length/rows.length).toFixed(1)}%)`);
+
+  // Distribution by analyst class on the non-gated set
+  console.log('\n  Non-gated band distribution by analyst class:');
+  for (const cls of ['clean', 'stress-only', 'loss-bearing'] as AnalystClass[]) {
+    const cs = nongated.filter(r => r.analystClass === cls);
+    if (cs.length === 0) { console.log(`    ${cls.padEnd(13)} (n=0)`); continue; }
+    const dist: Record<string, number> = {};
+    for (const r of cs) dist[r.engineBand] = (dist[r.engineBand] ?? 0) + 1;
+    const parts = ['Strong', 'Acceptable', 'Weak', 'High Risk'].map(b => `${b}=${dist[b] ?? 0}`);
+    console.log(`    ${cls.padEnd(13)} (n=${cs.length.toString().padStart(2)}): ${parts.join('  ')}`);
+  }
+
+  // Agreement on non-gated set
+  console.log('\n  Non-gated band-agreement % (engine band in expected range for analyst class):');
+  for (const cls of ['clean', 'stress-only', 'loss-bearing'] as AnalystClass[]) {
+    const cs = nongated.filter(r => r.analystClass === cls);
+    if (cs.length === 0) { console.log(`    ${cls.padEnd(13)} (n=0)`); continue; }
+    const expected = expectedBandSet(cls);
+    const inBand = cs.filter(r => expected.includes(r.engineBand)).length;
+    console.log(`    ${cls.padEnd(13)} n=${cs.length.toString().padStart(2)}  in-band ${inBand.toString().padStart(2)}  agreement ${(100*inBand/cs.length).toFixed(1)}%`);
+  }
+
+  // Loss-bearing: gated vs over-rated
+  console.log('\n  Loss-bearing deals — gating vs over-rating:');
+  const lossDeals = rows.filter(r => r.analystClass === 'loss-bearing');
+  const lossGated = lossDeals.filter(r => r.gateFired);
+  const lossUngatedOverrated = lossDeals.filter(r => !r.gateFired && (r.engineBand === 'Strong' || r.engineBand === 'Acceptable'));
+  const lossUngatedCorrect = lossDeals.filter(r => !r.gateFired && (r.engineBand === 'Weak' || r.engineBand === 'High Risk'));
+  console.log(`    gated (engine abstains — SAFE):  ${lossGated.length}/${lossDeals.length}`);
+  console.log(`    non-gated → Strong/Acceptable (over-rated): ${lossUngatedOverrated.length}/${lossDeals.length}`);
+  console.log(`    non-gated → Weak/High Risk (correct):       ${lossUngatedCorrect.length}/${lossDeals.length}`);
+  for (const r of lossDeals) {
+    console.log(`      ${r.file.padEnd(75)} band=${r.engineBand.padEnd(11)} gate=${r.gateFired?'Y':'N'} cap=${r.bandCapApplied?'Y':'N'} score=${r.finalScore.toFixed(2)}`);
+  }
+
   console.log('\n=== Run summary ===');
   console.log(`  total files in corpus: ${allFiles.length}`);
   console.log(`  carved out:           ${carvedOut.length}`);

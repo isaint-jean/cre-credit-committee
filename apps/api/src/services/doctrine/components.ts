@@ -100,20 +100,56 @@ function scoreDebtYield(dy: number | null): number {
   return 30;
 }
 
-function scoreLtv(ltv: number | null): number {
-  if (ltv === null) return INSUFFICIENT_DATA_SCORE;
+/**
+ * v1.2 LTV scoring with derived-value fallback.
+ *
+ *   - ltvAppraisal present → score on appraisal-LTV (primary).
+ *   - ltvAppraisal null + ltvDerived present → score on the derived LTV
+ *     (loan / valuationConclusion.finalValue) and attach
+ *     LTV_DERIVED_FROM_IMPLIED_VALUE reasonCode.
+ *   - both null → INSUFFICIENT_DATA.
+ *
+ * Same band thresholds for both inputs. The derived-path reason code lets
+ * downstream readers see that LTV came from the engine's implied value
+ * (NOI/cap path) rather than a third-party appraisal. Without this fallback
+ * the LTV component sinks on every production deal (extraction's appraisal
+ * slot is hardcoded null — AR3 finding), creating an over-crediting hole
+ * once commit 3a lifts the cap on UW-vs-T12.
+ */
+function scoreLtvBand(ltv: number): number {
   if (ltv <= 0.55) return 95;
   if (ltv <= 0.65) return 80;
   if (ltv <= 0.75) return 55;
   return 30;
 }
 
+function scoreLtv(ltvAppraisal: number | null, ltvDerived: number | null): {
+  rawValue: number | null; score: number; reasonCodes: DoctrineReasonCode[];
+} {
+  if (ltvAppraisal !== null) {
+    return { rawValue: ltvAppraisal, score: scoreLtvBand(ltvAppraisal), reasonCodes: [] };
+  }
+  if (ltvDerived !== null) {
+    return {
+      rawValue: ltvDerived,
+      score: scoreLtvBand(ltvDerived),
+      reasonCodes: [DoctrineReasonCodes.LTV_DERIVED_FROM_IMPLIED_VALUE],
+    };
+  }
+  return { rawValue: null, score: INSUFFICIENT_DATA_SCORE, reasonCodes: [DoctrineReasonCodes.INSUFFICIENT_DATA] };
+}
+
 export function scoreMechanical(inputs: {
   readonly dscr: number | null;
   readonly debtYield: number | null;
   readonly ltvAppraisal: number | null;
+  /** v1.2: loan / valuationConclusion.finalValue derived by the orchestrator.
+   *  When ltvAppraisal is null, scoreLtv falls back to this and emits
+   *  LTV_DERIVED_FROM_IMPLIED_VALUE so the path is auditable. */
+  readonly ltvDerived: number | null;
 }): readonly DoctrineComponentScore[] {
   const w = DOCTRINE_COMPONENT_WEIGHTS.mechanical / 3;
+  const ltv = scoreLtv(inputs.ltvAppraisal, inputs.ltvDerived);
   return [
     buildScore({
       componentId: 'mechanical', ruleId: DoctrineRules.DSCR_LEVEL,
@@ -127,30 +163,61 @@ export function scoreMechanical(inputs: {
     }),
     buildScore({
       componentId: 'mechanical', ruleId: DoctrineRules.LTV_LEVEL,
-      rawValue: inputs.ltvAppraisal, score: scoreLtv(inputs.ltvAppraisal), weight: w,
-      reasonCodes: inputs.ltvAppraisal === null ? [DoctrineReasonCodes.INSUFFICIENT_DATA] : [],
+      rawValue: ltv.rawValue, score: ltv.score, weight: w,
+      reasonCodes: ltv.reasonCodes,
     }),
   ];
 }
 
 /* ------------------------------ durability -------------------------------- */
 
-function scoreUwVsT12Reconciliation(crossCheck: CrossCheckResult | null): {
+/**
+ * Threshold table for UW vs T-12 NOI delta — shared between the crossCheck path
+ * and the v1.2 derived path (computed from metrics.noi vs metrics.trailingActualNoi
+ * when crossCheck has no NOI finding, which is today's hardcoded reality at
+ * evaluate-from-adjusted-inputs.ts:120-128).
+ *
+ * delta_pct = (uw - t12) / t12. Negative = UW conservative below trailing actual.
+ */
+function tieredUwVsT12Score(deltaPct: number, extraReasonCodes: readonly DoctrineReasonCode[] = []): {
+  rawValue: number; score: number; reasonCodes: DoctrineReasonCode[];
+} {
+  if (deltaPct <= -0.10) return { rawValue: deltaPct, score: 95, reasonCodes: [DoctrineReasonCodes.UW_BELOW_T12_CONSERVATIVE, ...extraReasonCodes] };
+  if (deltaPct <=  0.00) return { rawValue: deltaPct, score: 80, reasonCodes: [DoctrineReasonCodes.UW_AT_OR_BELOW_T12, ...extraReasonCodes] };
+  if (deltaPct <=  0.05) return { rawValue: deltaPct, score: 55, reasonCodes: [DoctrineReasonCodes.UW_SLIGHTLY_ABOVE_T12, ...extraReasonCodes] };
+  return { rawValue: deltaPct, score: 25, reasonCodes: [DoctrineReasonCodes.UW_AGGRESSIVE_ABOVE_T12, ...extraReasonCodes] };
+}
+
+function scoreUwVsT12Reconciliation(
+  crossCheck: CrossCheckResult | null,
+  adjustedInputs: AdjustedInputs,
+): {
   rawValue: number | null; score: number; reasonCodes: DoctrineReasonCode[];
 } {
-  if (crossCheck === null) {
+  // Primary path: explicit NOI finding on the crossCheckResult. Today the
+  // orchestrator hardcodes empty findings, so this branch is dormant — but
+  // kept so the v1.2 fill is a pure addition, not a rewrite.
+  if (crossCheck !== null) {
+    const noiFinding = crossCheck.findings.find(f => f.metric === 'noi');
+    const deltaPct = noiFinding?.delta.vsBankPct ?? null;
+    if (deltaPct !== null) {
+      return tieredUwVsT12Score(deltaPct);
+    }
+  }
+
+  // v1.2 derived path: compute delta directly from AdjustedInputs.metrics.
+  // Mirrors the judgment-side JE_NOI_BELOW_TRAILING_ACTUAL machinery
+  // (noi-divergence.ts) — same delta, scored through the doctrine band
+  // thresholds. trailingActualNoi == null → genuine insufficient_data
+  // (the low_confidence deal: the cap keeps it from reaching Strong; the
+  // harness's overall coverage gate stays intact).
+  const noi = adjustedInputs.metrics.noi;
+  const trailingActualNoi = adjustedInputs.metrics.trailingActualNoi;
+  if (noi === null || trailingActualNoi === null || trailingActualNoi <= 0) {
     return { rawValue: null, score: INSUFFICIENT_DATA_SCORE, reasonCodes: [DoctrineReasonCodes.INSUFFICIENT_DATA] };
   }
-  const noiFinding = crossCheck.findings.find(f => f.metric === 'noi');
-  const deltaPct = noiFinding?.delta.vsBankPct ?? null;
-  if (deltaPct === null) {
-    return { rawValue: null, score: INSUFFICIENT_DATA_SCORE, reasonCodes: [DoctrineReasonCodes.INSUFFICIENT_DATA] };
-  }
-  // Per doctrine YAML §5: delta_pct = (uw - t12) / t12. Negative = conservative.
-  if (deltaPct <= -0.10) return { rawValue: deltaPct, score: 95, reasonCodes: [DoctrineReasonCodes.UW_BELOW_T12_CONSERVATIVE] };
-  if (deltaPct <=  0.00) return { rawValue: deltaPct, score: 80, reasonCodes: [DoctrineReasonCodes.UW_AT_OR_BELOW_T12] };
-  if (deltaPct <=  0.05) return { rawValue: deltaPct, score: 55, reasonCodes: [DoctrineReasonCodes.UW_SLIGHTLY_ABOVE_T12] };
-  return { rawValue: deltaPct, score: 25, reasonCodes: [DoctrineReasonCodes.UW_AGGRESSIVE_ABOVE_T12] };
+  const deltaPct = (noi - trailingActualNoi) / trailingActualNoi;
+  return tieredUwVsT12Score(deltaPct, [DoctrineReasonCodes.UW_VS_T12_DERIVED_FROM_METRICS]);
 }
 
 function scoreTenantConcentration(top1: number | null): {
@@ -184,7 +251,7 @@ export function scoreDurability(inputs: {
   const w = DOCTRINE_COMPONENT_WEIGHTS.durability / 3;
   const m = inputs.adjustedInputs.metrics;
 
-  const uwVsT12 = scoreUwVsT12Reconciliation(inputs.crossCheck);
+  const uwVsT12 = scoreUwVsT12Reconciliation(inputs.crossCheck, inputs.adjustedInputs);
   const concentration = scoreTenantConcentration(m.top1IncomeShare);
   const rollover = scoreRollover(m.pctIncomeExpiringWithinTerm);
 

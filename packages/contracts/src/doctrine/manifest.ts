@@ -40,4 +40,21 @@ export const DOCTRINE_MANIFEST: DoctrineManifest = {
   //    'Acceptable') live outside the snapshot today. Tracked on the deferred
   //   doctrine-desk-hashing thread; mirror of the pre-v1.10 judgment situation.
   '1.1': '34d8960f9031cf2d186465582ce5d8c09659d717cfb61ff586010368ba9a3b46' as ContentHash,
+  // v1.2 (2026-06-08) — Doctrine missing-data fix Stage 1, commits 3a+3b.
+  // Two derivable-sink fills land together to avoid a cap-lifted-but-LTV-excluded
+  // over-crediting hole:
+  //   3a: scoreUwVsT12Reconciliation gains a derived path — when crossCheck has
+  //       no NOI finding (today's hardcoded reality) AND
+  //       metrics.trailingActualNoi is present, delta is computed directly
+  //       from metrics.noi vs metrics.trailingActualNoi and scored through
+  //       the existing band thresholds. Emits UW_VS_T12_DERIVED_FROM_METRICS.
+  //   3b: scoreLtv gains a derived-LTV fallback — when ltvAppraisal is null
+  //       (AR3: extraction.appraisal hardcoded null in production) AND
+  //       valuationConclusion.finalValue is present, ltv = loan/finalValue
+  //       and is scored through the existing band thresholds. Emits
+  //       LTV_DERIVED_FROM_IMPLIED_VALUE.
+  // Snapshot covers {rules, flags, reasonCodes, weights, bands, rulesByComponent};
+  // hash moves because reasonCodes registry gains UW_VS_T12_DERIVED_FROM_METRICS
+  // and LTV_DERIVED_FROM_IMPLIED_VALUE.
+  '1.2': '4b57cd91c883439d6c90384af7e1abac8270cb94cf43fb099b4d4a615d9191d9' as ContentHash,
 };

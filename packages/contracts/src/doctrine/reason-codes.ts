@@ -15,6 +15,10 @@ export const DoctrineReasonCodes = {
   UW_AT_OR_BELOW_T12:                       'UW_AT_OR_BELOW_T12',
   UW_SLIGHTLY_ABOVE_T12:                    'UW_SLIGHTLY_ABOVE_T12',
   UW_AGGRESSIVE_ABOVE_T12:                  'UW_AGGRESSIVE_ABOVE_T12',
+  // v1.2: derived-path reason. Fires when scoreUwVsT12Reconciliation
+  // computes the delta from metrics.noi vs metrics.trailingActualNoi
+  // (the JE side, when crossCheck has no NOI finding — today's reality).
+  UW_VS_T12_DERIVED_FROM_METRICS:           'UW_VS_T12_DERIVED_FROM_METRICS',
 
   // §5 tenant concentration
   TENANT_CONCENTRATION_LOW:                 'TENANT_CONCENTRATION_LOW',
@@ -92,6 +96,13 @@ export const DoctrineReasonCodes = {
 
   // generic
   INSUFFICIENT_DATA:                        'INSUFFICIENT_DATA',
+
+  // v1.2: derived-LTV path. Fires when scoreLtv computes ltv =
+  // loanAmount / valuationConclusion.finalValue because metrics.ltvAppraisal
+  // is null (the AR3 structural sink — no appraisal extractor in production).
+  // Distinct from the appraisal-LTV path so doctrine readers can see the
+  // engine inferred the LTV denominator rather than reading it.
+  LTV_DERIVED_FROM_IMPLIED_VALUE:           'LTV_DERIVED_FROM_IMPLIED_VALUE',
 } as const;
 
 export type DoctrineReasonCode = (typeof DoctrineReasonCodes)[keyof typeof DoctrineReasonCodes];

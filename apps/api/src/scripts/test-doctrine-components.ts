@@ -192,7 +192,7 @@ function makeValuation(downsideValue: number | null): ValuationConclusion {
 
 console.log('Mechanical:');
 {
-  const r = scoreMechanical({ dscr: 1.40, debtYield: 0.13, ltvAppraisal: 0.50 });
+  const r = scoreMechanical({ dscr: 1.40, debtYield: 0.13, ltvAppraisal: 0.50, ltvDerived: null });
   assertEqual(r.length, 3, '3 entries');
   const dscr = r.find(s => s.ruleId === 'DSCR_LEVEL')!;
   assertEqual(dscr.score, 100, 'DSCR 1.40 → 100');
@@ -205,21 +205,21 @@ console.log('Mechanical:');
 }
 {
   // Threshold boundaries
-  const r = scoreMechanical({ dscr: 1.20, debtYield: 0.10, ltvAppraisal: 0.65 });
+  const r = scoreMechanical({ dscr: 1.20, debtYield: 0.10, ltvAppraisal: 0.65, ltvDerived: null });
   assertEqual(r.find(s => s.ruleId === 'DSCR_LEVEL')!.score, 80, 'DSCR 1.20 → 80 (boundary)');
   assertEqual(r.find(s => s.ruleId === 'DEBT_YIELD_LEVEL')!.score, 80, 'DY 0.10 → 80 (boundary)');
   assertEqual(r.find(s => s.ruleId === 'LTV_LEVEL')!.score, 80, 'LTV 0.65 → 80 (boundary)');
 }
 {
   // Below all thresholds
-  const r = scoreMechanical({ dscr: 0.80, debtYield: 0.05, ltvAppraisal: 0.85 });
+  const r = scoreMechanical({ dscr: 0.80, debtYield: 0.05, ltvAppraisal: 0.85, ltvDerived: null });
   assertEqual(r.find(s => s.ruleId === 'DSCR_LEVEL')!.score, 20, 'DSCR 0.80 → 20');
   assertEqual(r.find(s => s.ruleId === 'DEBT_YIELD_LEVEL')!.score, 30, 'DY 0.05 → 30');
   assertEqual(r.find(s => s.ruleId === 'LTV_LEVEL')!.score, 30, 'LTV 0.85 → 30');
 }
 {
   // Null inputs → INSUFFICIENT_DATA
-  const r = scoreMechanical({ dscr: null, debtYield: null, ltvAppraisal: null });
+  const r = scoreMechanical({ dscr: null, debtYield: null, ltvAppraisal: null, ltvDerived: null });
   for (const s of r) {
     assert(s.reasonCodes.includes('INSUFFICIENT_DATA'), `${s.ruleId} INSUFFICIENT_DATA on null input`);
     assertEqual(s.score, 0, `${s.ruleId} score 0 on null`);
@@ -462,7 +462,7 @@ console.log('\nData confidence:');
 
 console.log('\nContribution math:');
 {
-  const r = scoreMechanical({ dscr: 1.40, debtYield: 0.13, ltvAppraisal: 0.50 });
+  const r = scoreMechanical({ dscr: 1.40, debtYield: 0.13, ltvAppraisal: 0.50, ltvDerived: null });
   for (const s of r) {
     assertClose(s.contribution, (s.score * s.weight) / 100, 1e-9,
       `${s.ruleId} contribution = score × weight / 100`);
