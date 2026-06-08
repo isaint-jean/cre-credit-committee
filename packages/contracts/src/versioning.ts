@@ -11,7 +11,7 @@
  * the constant automatically updates the type.
  */
 
-export const DOCTRINE_VERSION = '1.2' as const;
+export const DOCTRINE_VERSION = '1.3' as const;
 export const JUDGMENT_ENGINE_VERSION = '1.10' as const;
 export const STRESS_ENGINE_VERSION = '1.0' as const;
 export const VALUATION_ENGINE_VERSION = '1.0' as const;
@@ -160,7 +160,7 @@ export const NARRATIVE_ENGINE_VERSION = '1.4' as const;
  */
 export const MITIGATION_ENGINE_VERSION = '1.1' as const;
 
-export type DoctrineVersion = '1.0' | '1.1' | '1.2';
+export type DoctrineVersion = '1.0' | '1.1' | '1.2' | '1.3';
 /**
  * Historical-replay union: includes every JUDGMENT_ENGINE_VERSION ever shipped so
  * JUDGMENT_ENGINE_MANIFEST can carry an append-only history of state hashes. Bump the

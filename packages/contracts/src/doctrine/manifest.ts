@@ -57,4 +57,26 @@ export const DOCTRINE_MANIFEST: DoctrineManifest = {
   // hash moves because reasonCodes registry gains UW_VS_T12_DERIVED_FROM_METRICS
   // and LTV_DERIVED_FROM_IMPLIED_VALUE.
   '1.2': '4b57cd91c883439d6c90384af7e1abac8270cb94cf43fb099b4d4a615d9191d9' as ContentHash,
+  // v1.3 (2026-06-08) — Graduated band cap. Updates the v1.1 flat-cap
+  // decision per the calibration finding: the flat cap let tenant-driven
+  // deals missing multiple risk dims (Sentinel Square II + Naugatuck Valley)
+  // sail to a clean Acceptable. New graduation by count of risk dims in
+  // 'insufficient_data' status:
+  //   n == 0 → no cap
+  //   n == 1 → clamp to Acceptable (v1.1 behavior)
+  //   n >= 2 → clamp to Weak (Strong→Weak, Acceptable→Weak)
+  // Bites only data-thin tenant-driven deals (Office/Retail/Industrial with
+  // 2+ rent-roll-dependent dims sinking simultaneously); Multifamily/Hotel/
+  // SelfStorage/MHC unaffected because their tenant dims are 'not_applicable'
+  // (not counted). New flag DoctrineFlags.BAND_CAPPED fires when the cap
+  // actually lowered the band (bandCapApplied === true) — gives the render
+  // layer a flag-keyed banner signal parallel to INSUFFICIENT_COVERAGE_GATE.
+  // Hash moves because DoctrineFlags registry gained BAND_CAPPED.
+  //
+  // DEFERRED HASH COVERAGE — graduation threshold n>=2 → Weak is a desk
+  // tunable that lives outside the snapshot. Tracked on the doctrine-desk-
+  // hashing thread alongside COVERAGE_FLOOR_THRESHOLD=0.50 and the
+  // RISK_DIMENSION_RULES set; manual DOCTRINE_VERSION bump required to
+  // change. Mirror of pre-v1.10 judgment situation.
+  '1.3': 'b28476735047bfc23d9d2dbdfa7c58f83d55cca4a85df2988a2093c75aa0c48a' as ContentHash,
 };

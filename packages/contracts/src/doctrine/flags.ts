@@ -45,6 +45,11 @@ export const DoctrineFlags = {
 
   // v1.1 coverage guardrail
   INSUFFICIENT_COVERAGE_GATE:               'INSUFFICIENT_COVERAGE_GATE',
+
+  // v1.3 graduated cap. Fires when applyBandCap actually lowered the band
+  // (bandCapApplied === true). Gives the render layer a flag-keyed signal
+  // for the cap banner, parallel to INSUFFICIENT_COVERAGE_GATE.
+  BAND_CAPPED:                              'BAND_CAPPED',
 } as const;
 
 export type DoctrineFlag = (typeof DoctrineFlags)[keyof typeof DoctrineFlags];

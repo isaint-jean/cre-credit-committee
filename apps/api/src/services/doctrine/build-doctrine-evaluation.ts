@@ -261,16 +261,49 @@ function buildCoverage(
 }
 
 /**
- * Band cap (v1.1): when any risk-dim rule is insufficient_data, clamp the
- * rating band to a maximum of 'Acceptable'. Only meaningful when pre-cap band
- * is 'Strong' (only band > Acceptable in the 4-band scheme). Does NOT touch
- * finalScore — the cap is a disposition signal, not a score adjustment.
+ * Band cap (v1.3 graduated): clamps by COUNT of risk-dim rules in
+ * insufficient_data status.
+ *
+ *   n == 0 → no cap.
+ *   n == 1 → clamp to max 'Acceptable' (the v1.1 flat-cap behavior).
+ *   n >= 2 → clamp to max 'Weak' (Strong → Weak, Acceptable → Weak).
+ *
+ * Updates the v1.1 flat-cap decision per calibration finding: the flat
+ * cap let tenant-driven deals missing multiple risk dims (TENANT_CONCENTRATION
+ * + ROLLOVER + TI_LC sinks because rent roll absent, plus UW_VS_T12 sink
+ * when no trailing actual) sail to a clean Acceptable — exactly the
+ * Sentinel Square II / Naugatuck Valley over-rating pattern.
+ *
+ * Asymmetric trade: bites data-thin tenant-driven deals (Office / Retail /
+ * Industrial) harder; doesn't touch Multifamily / Hotel / SelfStorage / MHC
+ * where the tenant-driven dims are 'not_applicable' (not counted in
+ * excludedRiskDimRuleIds). Production deals with rent rolls also unaffected
+ * (those dims score).
+ *
+ * Does NOT touch finalScore — the cap is a disposition/display clamp, not
+ * a score adjustment. bandCapApplied = true iff the band was actually
+ * lowered (no-op clamps don't register).
+ *
+ * The graduation threshold (n >= 2 → Weak) is a desk tunable; logged on
+ * the deferred doctrine-desk-hashing thread alongside COVERAGE_FLOOR_THRESHOLD
+ * and RISK_DIMENSION_RULES. Manual DOCTRINE_VERSION bump required to change.
  */
 function applyBandCap(
   preCapBand: RatingBand,
   excludedRiskDimRuleIds: readonly DoctrineRuleId[],
 ): { band: RatingBand; applied: boolean } {
-  if (excludedRiskDimRuleIds.length === 0) return { band: preCapBand, applied: false };
+  const n = excludedRiskDimRuleIds.length;
+  if (n === 0) return { band: preCapBand, applied: false };
+
+  // n >= 2 → clamp to Weak (covers Strong, Acceptable; Weak/High Risk no-op).
+  if (n >= 2) {
+    if (preCapBand === 'Strong' || preCapBand === 'Acceptable') {
+      return { band: 'Weak', applied: true };
+    }
+    return { band: preCapBand, applied: false };
+  }
+
+  // n == 1 → clamp to Acceptable (covers Strong only).
   if (preCapBand === 'Strong') return { band: 'Acceptable', applied: true };
   return { band: preCapBand, applied: false };
 }
@@ -452,6 +485,9 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
   ];
   if (coverage.insufficientCoverageGate) {
     flagsList.push(DoctrineFlags.INSUFFICIENT_COVERAGE_GATE);
+  }
+  if (coverage.bandCapApplied) {
+    flagsList.push(DoctrineFlags.BAND_CAPPED);
   }
   const flags = flagsList;
 
