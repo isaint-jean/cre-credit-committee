@@ -17,7 +17,12 @@ import type {
 /* ---------------------------------- helpers --------------------------------- */
 
 const RESIDENTIAL_TYPES = new Set<AssetProfile['propertyType']>(['Multifamily', 'Hotel']);
-const TENANT_DRIVEN_TYPES = new Set<AssetProfile['propertyType']>(['Office', 'Retail', 'Industrial']);
+/** Asset classes whose credit profile depends on tenant lease structure (rent roll
+ *  carries top-tenant concentration + rollover + TI/LC sizing signals). Used by
+ *  judgment to gate concession/payroll/TI-LC applicability AND by doctrine v1.1's
+ *  `isApplicable` (apps/api/src/services/doctrine/applicability.ts) to decide whether
+ *  the tenant-driven risk-dim scorers apply. Single source of truth. */
+export const TENANT_DRIVEN_TYPES = new Set<AssetProfile['propertyType']>(['Office', 'Retail', 'Industrial']);
 const PAYROLL_TYPES = new Set<AssetProfile['propertyType']>(['Hotel', 'MHC', 'Multifamily']);
 
 function rolloverWithinTermFraction(

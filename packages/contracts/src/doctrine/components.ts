@@ -50,6 +50,29 @@ export const RATING_BANDS = [
 export type RatingBand = (typeof RATING_BANDS)[number]['name'];
 
 /**
+ * Per-component scoring status (v1.1). Introduced to distinguish three orthogonal
+ * states the doctrine aggregator (Stage 1 fix) treats differently:
+ *
+ *   - 'scored'           — input present, rule applicable: contributes to weighted aggregate.
+ *   - 'not_applicable'   — rule does NOT apply to this asset class (e.g. TENANT_CONCENTRATION on
+ *                          Multifamily). EXCLUDED from the aggregator's denominator. Distinct
+ *                          from 'insufficient_data' so the cap + coverage-gate guardrails don't
+ *                          fire on N/A.
+ *   - 'insufficient_data'— rule applies but input was null (e.g. no rent roll on Office).
+ *                          Excluded from the numerator + denominator under v1.1, but the cap
+ *                          (band ≤ Acceptable when any risk-dim is insufficient_data) and the
+ *                          coverage-floor gate (<50% evaluated weight → gated) keep the engine
+ *                          honest about the under-evaluation.
+ *
+ * v1.0 had no status surface; INSUFFICIENT_DATA was signaled via reasonCodes only — the
+ * aggregator treated null inputs as `score=0` and dragged the mean. v1.1 ships this discriminator
+ * (commit 1) but does NOT consume it yet (bands stay byte-identical); commit 2 wires the
+ * aggregator + cap + floor.
+ */
+export const DOCTRINE_COMPONENT_STATUSES = ['scored', 'not_applicable', 'insufficient_data'] as const;
+export type DoctrineComponentStatus = (typeof DOCTRINE_COMPONENT_STATUSES)[number];
+
+/**
  * One scored component on a `DoctrineEvaluation`. The engine substages 10a–10b populate these;
  * 10c overlays valuation guardrail flags onto matching components; 10d/10e add adjustments.
  */
@@ -61,4 +84,5 @@ export interface DoctrineComponentScore {
   readonly weight: number;                   // matches DOCTRINE_COMPONENT_WEIGHTS[componentId]
   readonly contribution: number;             // = score * weight / 100
   readonly reasonCodes: readonly DoctrineReasonCode[];
+  readonly status: DoctrineComponentStatus;  // v1.1: see DOCTRINE_COMPONENT_STATUSES
 }

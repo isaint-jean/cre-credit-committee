@@ -63,6 +63,7 @@ import {
   scoreTermRisk,
 } from './components.js';
 import { evaluateAssetTypeAdjusters } from './asset-type-adjusters.js';
+import { isApplicable } from './applicability.js';
 
 /* ------------------------------- input shape ------------------------------ */
 
@@ -268,7 +269,7 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
   } = args;
 
   /* Phase 1 — run 5a component scorers */
-  const componentScores: DoctrineComponentScore[] = [
+  const rawComponentScores: DoctrineComponentScore[] = [
     ...scoreMechanical({
       dscr: adjustedInputs.metrics.dscr,
       debtYield: adjustedInputs.metrics.debtYield,
@@ -281,6 +282,23 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
     ...scoreMaturityRisk({ adjustedInputs, valuationConclusion }),
     ...scoreDataConfidence({ adjustedInputs }),
   ];
+
+  /* v1.1: overlay 'not_applicable' status post-hoc. The scorer functions don't
+   * see assetProfile; this orchestrator does. `isApplicable` returns false for
+   * tenant-driven rules (TENANT_CONCENTRATION, ROLLOVER_WITHIN_TERM,
+   * TI_LC_VS_ROLLOVER) on non-tenant-driven asset classes (Multifamily / Hotel
+   * / SelfStorage / MHC / MixedUse / Other), and true otherwise.
+   *
+   * COMMIT 1 INVARIANT: status is COMPUTED here but NOT consumed by the
+   * aggregator (computeMechanicalAggregate + weightedAggregate unchanged) —
+   * commit 2 wires the aggregation / cap / floor. Bands MUST be byte-identical
+   * pre/post commit 1.
+   */
+  const componentScores: DoctrineComponentScore[] = rawComponentScores.map((cs) =>
+    !isApplicable(cs.ruleId, assetProfile)
+      ? { ...cs, status: 'not_applicable' as const }
+      : cs
+  );
 
   /* Phase 2 — mechanicalScore (0–100 average) */
   const mechanicalScore = computeMechanicalAggregate(componentScores);

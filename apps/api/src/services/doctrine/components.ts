@@ -29,6 +29,7 @@ import {
   type AdjustedInputs,
   type CrossCheckResult,
   type DoctrineComponentScore,
+  type DoctrineComponentStatus,
   type DoctrineReasonCode,
   type DoctrineRuleId,
   type NarrativeFacts,
@@ -47,7 +48,25 @@ interface BuildScoreArgs {
   readonly reasonCodes: readonly DoctrineReasonCode[];
 }
 
+/**
+ * v1.1 status derivation: `'insufficient_data'` when the scorer attached an
+ * `INSUFFICIENT_DATA` reason (null/unscoreable input), else `'scored'`.
+ *
+ * The orchestrator (build-doctrine-evaluation.ts) overlays `'not_applicable'`
+ * post-hoc via `isApplicable(ruleId, assetProfile)` — it has the asset profile;
+ * the scorer functions do not. This split keeps scorer signatures unchanged.
+ *
+ * The data_confidence component never attaches INSUFFICIENT_DATA (its rules use
+ * `*_MISSING` reason codes) — those rules consistently emit status='scored',
+ * which is correct: that component scores the DOCUMENT-PRESENCE question, so
+ * it always has the input it needs (the dataQualityFlags array). The
+ * 'insufficient_data' status applies to scorers whose own input is null.
+ */
 function buildScore(args: BuildScoreArgs): DoctrineComponentScore {
+  const status: DoctrineComponentStatus =
+    args.reasonCodes.includes(DoctrineReasonCodes.INSUFFICIENT_DATA)
+      ? 'insufficient_data'
+      : 'scored';
   return {
     componentId: args.componentId,
     ruleId: args.ruleId,
@@ -56,6 +75,7 @@ function buildScore(args: BuildScoreArgs): DoctrineComponentScore {
     weight: args.weight,
     contribution: (args.score * args.weight) / 100,
     reasonCodes: args.reasonCodes,
+    status,
   };
 }
 
