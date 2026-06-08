@@ -314,6 +314,8 @@ function makeDoctrineEvaluation(args: {
     ratingBand: 'Acceptable' as const,
     flags: [],
     reasons: [],
+    coverage: { evaluatedWeight: 90, totalEvaluableWeight: 90, evaluatedPct: 1,
+                excludedRiskDimRuleIds: [], bandCapApplied: false, insufficientCoverageGate: false },
   };
   return { id: computeDoctrineEvaluationId(body), ...body } as DoctrineEvaluation;
 }

@@ -42,6 +42,9 @@ export const DoctrineFlags = {
 
   // generic
   INSUFFICIENT_DATA:                        'INSUFFICIENT_DATA',
+
+  // v1.1 coverage guardrail
+  INSUFFICIENT_COVERAGE_GATE:               'INSUFFICIENT_COVERAGE_GATE',
 } as const;
 
 export type DoctrineFlag = (typeof DoctrineFlags)[keyof typeof DoctrineFlags];

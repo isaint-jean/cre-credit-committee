@@ -316,6 +316,8 @@ const defaultDoctrineEvaluation: DoctrineEvaluation = {
   ratingBand: 'High Risk',
   flags: [],
   reasons: [],
+  coverage: { evaluatedWeight: 0, totalEvaluableWeight: 0, evaluatedPct: 0,
+              excludedRiskDimRuleIds: [], bandCapApplied: false, insufficientCoverageGate: true },
 };
 
 const defaultPropertyMetadata: PropertyMetadata = {

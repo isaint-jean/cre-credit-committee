@@ -39,6 +39,7 @@ import {
   type CrossCheckResult,
   type DoctrineAssetTypeAdjustment,
   type DoctrineComponentScore,
+  type DoctrineCoverage,
   type DoctrineEvaluation,
   type DoctrineFlag,
   type DoctrineReasonCode,
@@ -63,7 +64,19 @@ import {
   scoreTermRisk,
 } from './components.js';
 import { evaluateAssetTypeAdjusters } from './asset-type-adjusters.js';
-import { isApplicable } from './applicability.js';
+import { isApplicable, RISK_DIMENSION_RULES } from './applicability.js';
+
+/* ----------------------- v1.1 desk tunables (DEFERRED HASH-COVERAGE) ------
+ * Like v1.0 → v1.10 judgment, these doctrine-side desk constants are NOT in
+ * buildDoctrineHashSnapshot today. Tracked on the deferred
+ * doctrine-desk-hashing thread; for now, DOCTRINE_VERSION 1.1 anchors them.
+ *   - COVERAGE_FLOOR_THRESHOLD          : 0.50  (50% evaluated weight floor)
+ *   - Risk-dim set                       : RISK_DIMENSION_RULES (applicability.ts)
+ *   - Band cap target                    : 'Acceptable' (max band when risk-dim excluded)
+ * Changing any of these requires a manual DOCTRINE_VERSION bump until the
+ * snapshot is widened to include them.
+ */
+const COVERAGE_FLOOR_THRESHOLD = 0.50;
 
 /* ------------------------------- input shape ------------------------------ */
 
@@ -183,9 +196,83 @@ function assignRatingBand(finalScore: number): RatingBand {
 /* --------------------------- mechanical aggregate ------------------------- */
 
 function computeMechanicalAggregate(componentScores: readonly DoctrineComponentScore[]): number {
-  const mech = componentScores.filter(s => s.componentId === 'mechanical');
+  // v1.1: mean of mechanical-component scores INCLUDED in the aggregate
+  // (status === 'scored'). Excluded statuses (insufficient_data /
+  // not_applicable) leave the denominator entirely — matches the
+  // weightedAggregate exclude-renormalize doctrine. If all mechanicals are
+  // excluded (degenerate; the coverage-floor gate fires separately), 0.
+  const mech = componentScores.filter(
+    s => s.componentId === 'mechanical' && s.status === 'scored',
+  );
   if (mech.length === 0) return 0;
   return mech.reduce((sum, s) => sum + s.score, 0) / mech.length;
+}
+
+/**
+ * v1.1 weighted aggregate: renormalize over status === 'scored' only.
+ *   aggregate = (Σ scored contribution) × 100 / (Σ scored weight)
+ * Both 'insufficient_data' and 'not_applicable' leave the denominator. The
+ * band cap (risk-dim insufficient_data) + coverage floor (<50% scored weight)
+ * are what keep that safe. Returns 0 when no components are 'scored'.
+ */
+function computeWeightedAggregateV11(
+  componentScores: readonly DoctrineComponentScore[],
+): number {
+  const scored = componentScores.filter(s => s.status === 'scored');
+  const scoredWeight = scored.reduce((s, c) => s + c.weight, 0);
+  if (scoredWeight === 0) return 0;
+  const scoredContribution = scored.reduce((s, c) => s + c.contribution, 0);
+  return (scoredContribution * 100) / scoredWeight;
+}
+
+/**
+ * v1.1 coverage summary. Computed from the per-component status discriminator.
+ * Drives the band-cap + insufficient-coverage-gate downstream.
+ *
+ * `excludedRiskDimRuleIds` — risk-dim rules with status='insufficient_data'.
+ * Risk-dim rules with status='not_applicable' are NOT excluded (rule doesn't
+ * apply, absence isn't a coverage gap).
+ */
+function buildCoverage(
+  componentScores: readonly DoctrineComponentScore[],
+): DoctrineCoverage {
+  let evaluatedWeight = 0;
+  let totalEvaluableWeight = 0;
+  const excludedRiskDimRuleIds: DoctrineRuleId[] = [];
+  for (const cs of componentScores) {
+    if (cs.status === 'not_applicable') continue;
+    totalEvaluableWeight += cs.weight;
+    if (cs.status === 'scored') {
+      evaluatedWeight += cs.weight;
+    } else if (cs.status === 'insufficient_data' && RISK_DIMENSION_RULES.has(cs.ruleId)) {
+      excludedRiskDimRuleIds.push(cs.ruleId);
+    }
+  }
+  const evaluatedPct =
+    totalEvaluableWeight > 0 ? evaluatedWeight / totalEvaluableWeight : 0;
+  return {
+    evaluatedWeight,
+    totalEvaluableWeight,
+    evaluatedPct,
+    excludedRiskDimRuleIds,
+    bandCapApplied: false, // set later when the band is clamped
+    insufficientCoverageGate: evaluatedPct < COVERAGE_FLOOR_THRESHOLD,
+  };
+}
+
+/**
+ * Band cap (v1.1): when any risk-dim rule is insufficient_data, clamp the
+ * rating band to a maximum of 'Acceptable'. Only meaningful when pre-cap band
+ * is 'Strong' (only band > Acceptable in the 4-band scheme). Does NOT touch
+ * finalScore — the cap is a disposition signal, not a score adjustment.
+ */
+function applyBandCap(
+  preCapBand: RatingBand,
+  excludedRiskDimRuleIds: readonly DoctrineRuleId[],
+): { band: RatingBand; applied: boolean } {
+  if (excludedRiskDimRuleIds.length === 0) return { band: preCapBand, applied: false };
+  if (preCapBand === 'Strong') return { band: 'Acceptable', applied: true };
+  return { band: preCapBand, applied: false };
 }
 
 /* --------------------------- reason aggregation --------------------------- */
@@ -286,13 +373,7 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
   /* v1.1: overlay 'not_applicable' status post-hoc. The scorer functions don't
    * see assetProfile; this orchestrator does. `isApplicable` returns false for
    * tenant-driven rules (TENANT_CONCENTRATION, ROLLOVER_WITHIN_TERM,
-   * TI_LC_VS_ROLLOVER) on non-tenant-driven asset classes (Multifamily / Hotel
-   * / SelfStorage / MHC / MixedUse / Other), and true otherwise.
-   *
-   * COMMIT 1 INVARIANT: status is COMPUTED here but NOT consumed by the
-   * aggregator (computeMechanicalAggregate + weightedAggregate unchanged) —
-   * commit 2 wires the aggregation / cap / floor. Bands MUST be byte-identical
-   * pre/post commit 1.
+   * TI_LC_VS_ROLLOVER) on non-tenant-driven asset classes; true otherwise.
    */
   const componentScores: DoctrineComponentScore[] = rawComponentScores.map((cs) =>
     !isApplicable(cs.ruleId, assetProfile)
@@ -300,11 +381,13 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
       : cs
   );
 
-  /* Phase 2 — mechanicalScore (0–100 average) */
+  /* Phase 2 — mechanicalScore (v1.1: filters status === 'scored') */
   const mechanicalScore = computeMechanicalAggregate(componentScores);
 
-  /* Phase 3 — weightedAggregate */
-  const weightedAggregate = componentScores.reduce((sum, s) => sum + s.contribution, 0);
+  /* Phase 3 — weightedAggregate (v1.1: renormalize over status === 'scored').
+   * Excludes both 'insufficient_data' and 'not_applicable' from the
+   * denominator. The cap + coverage gate (Phase 7 below) keep that safe. */
+  const weightedAggregate = computeWeightedAggregateV11(componentScores);
 
   /* Phase 4 — asset-type adjusters */
   const assetTypeAdjustments = evaluateAssetTypeAdjusters({
@@ -328,12 +411,32 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
     Math.min(100, weightedAggregate + assetTypePenaltySum + scoreAdjustmentSum),
   );
 
-  /* Phase 7 — rating band */
-  const ratingBand = assignRatingBand(finalScore);
+  /* Phase 7 — rating band + v1.1 coverage / cap / floor.
+   * (a) Assign band from finalScore (unchanged 4-band cutoffs).
+   * (b) Build coverage summary from component statuses.
+   * (c) Apply band cap: any risk-dim with status='insufficient_data' and
+   *     pre-cap band='Strong' → clamp to 'Acceptable'. Does NOT modify finalScore.
+   * (d) Coverage-floor gate: evaluatedPct < 0.50 → push INSUFFICIENT_COVERAGE_GATE flag.
+   * Order: coverage built first, then cap reads excludedRiskDimRuleIds, then
+   * the coverage object is finalized with bandCapApplied. */
+  const preCapBand = assignRatingBand(finalScore);
+  const coverageDraft = buildCoverage(componentScores);
+  const capResult = applyBandCap(preCapBand, coverageDraft.excludedRiskDimRuleIds);
+  const ratingBand = capResult.band;
+  const coverage: DoctrineCoverage = {
+    ...coverageDraft,
+    bandCapApplied: capResult.applied,
+  };
 
-  /* Phase 8 — reasons + flags */
+  /* Phase 8 — reasons + flags (v1.1 adds INSUFFICIENT_COVERAGE_GATE flag) */
   const reasons = aggregateReasons(componentScores, assetTypeAdjustments, scoreAdjustments);
-  const flags = aggregateFlags(componentScores, assetTypeAdjustments, valuationConclusion);
+  const flagsList: DoctrineFlag[] = [
+    ...aggregateFlags(componentScores, assetTypeAdjustments, valuationConclusion),
+  ];
+  if (coverage.insufficientCoverageGate) {
+    flagsList.push(DoctrineFlags.INSUFFICIENT_COVERAGE_GATE);
+  }
+  const flags = flagsList;
 
   /* Phase 9 — stamp */
   const body = {
@@ -360,6 +463,7 @@ export function buildDoctrineEvaluation(args: BuildDoctrineEvaluationArgs): Doct
     ratingBand,
     flags,
     reasons,
+    coverage,
   };
   return { id: computeDoctrineEvaluationId(body), ...body } as DoctrineEvaluation;
 }

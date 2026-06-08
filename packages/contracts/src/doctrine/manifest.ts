@@ -27,4 +27,17 @@ export const DOCTRINE_MANIFEST: DoctrineManifest = {
   // Hash for v1.0 — initial frozen ruleset. If the doctrine state is edited without a version
   // bump, the boot check surfaces drift here.
   '1.0': '0cb4f0a37e070dee8796d9b7061f490d3f15207acb775b3d7de2a065fb85ba7c' as ContentHash,
+  // v1.1 (2026-06-08) — Doctrine missing-data fix Stage 1. Adds the
+  // exclude-renormalize aggregation philosophy + risk-dim band cap +
+  // coverage-floor gate. Snapshot coverage unchanged in shape ({rules, flags,
+  // reasonCodes, weights, bands, rulesByComponent}); the hash moves because
+  // DoctrineFlags gains INSUFFICIENT_COVERAGE_GATE. Per-component status +
+  // applicability machinery added in commit 1 (45553ac) — no output drift.
+  // Coverage struct + cap/floor wired here.
+  //
+  // DEFERRED HASH COVERAGE: doctrine-side desk constants
+  //   (COVERAGE_FLOOR_THRESHOLD=0.50, RISK_DIMENSION_RULES set, band cap target
+  //    'Acceptable') live outside the snapshot today. Tracked on the deferred
+  //   doctrine-desk-hashing thread; mirror of the pre-v1.10 judgment situation.
+  '1.1': '34d8960f9031cf2d186465582ce5d8c09659d717cfb61ff586010368ba9a3b46' as ContentHash,
 };

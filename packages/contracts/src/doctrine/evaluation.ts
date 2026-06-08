@@ -40,6 +40,30 @@ import type { DoctrineFlag } from './flags.js';
 import type { DoctrineReasonCode } from './reason-codes.js';
 import type { DoctrineRuleId } from './rules.js';
 
+/**
+ * Coverage summary (v1.1). Captures HOW MUCH of the doctrine weight was
+ * evaluatable on this deal and which guardrails fired.
+ *
+ *   - evaluatedWeight        Σ weight of components whose status === 'scored'.
+ *   - totalEvaluableWeight   Σ weight of components whose status !== 'not_applicable'.
+ *                            (market_alignment is excluded as before — empty rule set).
+ *   - evaluatedPct           evaluatedWeight / totalEvaluableWeight.
+ *   - excludedRiskDimRuleIds Risk-dim rules (UW_VS_T12 / TENANT_CONCENTRATION /
+ *                            ROLLOVER_WITHIN_TERM / TI_LC_VS_ROLLOVER) whose
+ *                            status === 'insufficient_data'. Any non-empty → cap fires.
+ *   - bandCapApplied         True iff cap actively downgraded ratingBand
+ *                            (only happens if pre-cap band was 'Strong').
+ *   - insufficientCoverageGate  True iff evaluatedPct < 0.50 — gate the deal.
+ */
+export interface DoctrineCoverage {
+  readonly evaluatedWeight: number;
+  readonly totalEvaluableWeight: number;
+  readonly evaluatedPct: number;
+  readonly excludedRiskDimRuleIds: readonly DoctrineRuleId[];
+  readonly bandCapApplied: boolean;
+  readonly insufficientCoverageGate: boolean;
+}
+
 export interface DoctrineEvaluation {
   readonly id: DoctrineEvaluationId;
 
@@ -85,4 +109,10 @@ export interface DoctrineEvaluation {
     readonly ruleId: DoctrineRuleId;
     readonly reasonCode: DoctrineReasonCode;
   }[];
+
+  /**
+   * v1.1: coverage summary. Captures the aggregator's view of how much of the
+   * doctrine weight was evaluatable + which guardrails fired. See DoctrineCoverage.
+   */
+  readonly coverage: DoctrineCoverage;
 }
