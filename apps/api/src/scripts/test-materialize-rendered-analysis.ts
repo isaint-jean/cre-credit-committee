@@ -313,7 +313,7 @@ console.log('\nFK enforcement: cannot insert RenderedAnalysis with non-existent 
       ratingBand: { value: 'Acceptable' as const, displayValue: 'Acceptable' },
       finalScore: { value: 50, displayValue: '50' },
       dataConfidence: { value: 'validated', displayValue: 'Validated' },
-      noiDivergence: null,
+      noiDivergence: null, coverage: { evaluatedPct: { value: 1, displayValue: '1.00' }, bandCapApplied: { value: false, displayValue: 'No' }, insufficientCoverageGate: { value: false, displayValue: 'No' }, excludedRiskDimLabels: [], bannerCopy: { value: '', displayValue: '' } },
     },
     metrics: {
       dscr: { value: null, displayValue: '-' },
@@ -382,7 +382,7 @@ console.log('\nContent-hash mismatch detection (RecordIdMismatchError):');
       ...cold.summary,
       finalScore: { value: 999, displayValue: '999' },
       dataConfidence: { value: 'validated', displayValue: 'Validated' },
-      noiDivergence: null,
+      noiDivergence: null, coverage: { evaluatedPct: { value: 1, displayValue: '1.00' }, bandCapApplied: { value: false, displayValue: 'No' }, insufficientCoverageGate: { value: false, displayValue: 'No' }, excludedRiskDimLabels: [], bannerCopy: { value: '', displayValue: '' } },
     },
   };
   assertThrowsInstance(

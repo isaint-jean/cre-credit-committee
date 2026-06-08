@@ -305,13 +305,26 @@ export function renderUnderwritingContext(
     summary: {
       ratingBand: {
         value: doctrineEvaluation.ratingBand,
-        // v7.12 — server-emit the "(provisional)" suffix on display only when
-        // inputs are unvalidated. RenderCell.value stays the raw RatingBand
+        // v7.12 — provisional suffix when inputs are unvalidated.
+        // v7.15 — coverage suffix: gated > capped > none. Gate is the
+        // stronger signal (engine abstains entirely), so it wins precedence
+        // when both fire. RenderCell.value stays the raw RatingBand
         // (preserves the machine/human split — analytics + regression tests
         // read .value, UI reads .displayValue).
-        displayValue: adjustedInputs.dataConfidence === 'unvalidated'
-          ? applyStringSentinel(doctrineEvaluation.ratingBand) + ' (provisional)'
-          : applyStringSentinel(doctrineEvaluation.ratingBand),
+        displayValue: (() => {
+          const base = applyStringSentinel(doctrineEvaluation.ratingBand);
+          if (doctrineEvaluation.coverage.insufficientCoverageGate) {
+            return base + ' (insufficient coverage)';
+          }
+          if (doctrineEvaluation.coverage.bandCapApplied) {
+            const n = doctrineEvaluation.coverage.excludedRiskDimRuleIds.length;
+            return base + ` (capped — ${n} risk dimension${n === 1 ? '' : 's'} unevaluated)`;
+          }
+          if (adjustedInputs.dataConfidence === 'unvalidated') {
+            return base + ' (provisional)';
+          }
+          return base;
+        })(),
       },
       finalScore: {
         value: doctrineEvaluation.finalScore,
@@ -351,6 +364,39 @@ export function renderUnderwritingContext(
           referenceNoi: { value: ref, displayValue: applyNumericSentinel(ref) },
           shortfallPct: { value: r.shortfallPct, displayValue: applyNumericSentinel(r.shortfallPct) },
           caveat: { value: caveat, displayValue: caveat },
+        };
+      })(),
+      // v7.15 — doctrine coverage axis. Surfaces engine v1.3 cap + v1.1
+      // coverage-floor gate so the UI can show WHAT wasn't assessed and
+      // distinguish data-limitation from credit-verdict. Echoes the
+      // low_confidence framing ("documentation depth, not credit quality").
+      coverage: (() => {
+        const cov = doctrineEvaluation.coverage;
+        const labelMap: Record<string, string> = {
+          UW_VS_T12_NOI_RECONCILIATION: 'UW-vs-trailing validation',
+          TENANT_CONCENTRATION: 'tenant concentration',
+          ROLLOVER_WITHIN_TERM: 'rollover',
+          TI_LC_VS_ROLLOVER: 'TI/LC sizing',
+        };
+        const excludedLabels = cov.excludedRiskDimRuleIds.map(rid => labelMap[rid] ?? rid);
+        const listForCopy = excludedLabels.length === 0
+          ? ''
+          : excludedLabels.length === 1
+            ? excludedLabels[0]
+            : excludedLabels.length === 2
+              ? excludedLabels.join(' and ')
+              : excludedLabels.slice(0, -1).join(', ') + ', and ' + excludedLabels[excludedLabels.length - 1];
+        const bannerCopy = cov.insufficientCoverageGate
+          ? `Insufficient coverage to score — only ${(cov.evaluatedPct * 100).toFixed(0)}% of the doctrine weight was evaluable from the supplied documents. The band reflects documentation depth, not a credit assessment.`
+          : cov.bandCapApplied
+            ? `Rated without ${listForCopy} — risk dimension${excludedLabels.length === 1 ? '' : 's'} that couldn't be evaluated from the supplied documents. The band is capped accordingly and reflects documentation depth, not a complete credit assessment.`
+            : '';
+        return {
+          evaluatedPct: { value: cov.evaluatedPct, displayValue: applyNumericSentinel(cov.evaluatedPct) },
+          bandCapApplied: { value: cov.bandCapApplied, displayValue: cov.bandCapApplied ? 'Yes' : 'No' },
+          insufficientCoverageGate: { value: cov.insufficientCoverageGate, displayValue: cov.insufficientCoverageGate ? 'Yes' : 'No' },
+          excludedRiskDimLabels: excludedLabels,
+          bannerCopy: { value: bannerCopy, displayValue: bannerCopy },
         };
       })(),
     },

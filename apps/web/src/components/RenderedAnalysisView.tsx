@@ -879,6 +879,37 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         </section>
       ) : null}
 
+      {/* Render v7.15 — doctrine coverage banner. Surfaces engine v1.3
+        graduated cap + v1.1 coverage-floor gate so the analyst sees the
+        band as data-limited, not a credit verdict. Echoes the
+        low_confidence framing ("documentation depth, not credit quality").
+        Precedence: gate beats cap (gate is the stronger signal — engine
+        abstains entirely). Server-built bannerCopy carries the prose so
+        the UI doesn't recompose. Hidden when neither cap nor gate fired. */}
+      {data.summary.coverage.insufficientCoverageGate.value === true ? (
+        <section className="space-y-3">
+          <div className="border-l-4 border-slate-500 bg-slate-50 p-4 rounded">
+            <div className="text-sm font-semibold text-slate-900 mb-1">
+              Insufficient coverage — engine abstained
+            </div>
+            <p className="text-sm text-slate-800">
+              {data.summary.coverage.bannerCopy.displayValue}
+            </p>
+          </div>
+        </section>
+      ) : data.summary.coverage.bandCapApplied.value === true ? (
+        <section className="space-y-3">
+          <div className="border-l-4 border-indigo-400 bg-indigo-50 p-4 rounded">
+            <div className="text-sm font-semibold text-indigo-900 mb-1">
+              Band capped — risk dimensions unevaluated
+            </div>
+            <p className="text-sm text-indigo-800">
+              {data.summary.coverage.bannerCopy.displayValue}
+            </p>
+          </div>
+        </section>
+      ) : null}
+
       {/* Render v7.13 — NOI divergence banner. Fires when the engine's
         concluded NOI is ≥ 20% below the trailing-12 actual on the same
         deal (JE_NOI_BELOW_TRAILING_ACTUAL). Distinct red styling so a

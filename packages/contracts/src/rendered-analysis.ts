@@ -11,7 +11,7 @@ import type { DataConfidence } from './adjusted-inputs.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.14' as const;
+export const RENDER_VERSION = '7.15' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
@@ -281,6 +281,32 @@ export interface RenderedAnalysis {
       readonly shortfallPct: RenderCell<number>;   // (ref - derived) / ref
       readonly caveat: RenderCell<string>;
     } | null;
+    /**
+     * Doctrine coverage axis (render v7.15 — surfaces engine v1.3 cap + v1.1
+     * coverage-floor gate). Projects the engine's DoctrineEvaluation.coverage
+     * struct + decorates ratingBand.displayValue with the appropriate suffix.
+     *
+     * Suffix precedence (the gate is the stronger signal):
+     *   gated → ' (insufficient coverage)'
+     *   capped & not gated → ' (capped — N risk dimension(s) unevaluated)'
+     *   neither → no suffix
+     *
+     * `excludedRiskDimLabels` carries human-readable analyst-facing labels
+     * for the unevaluated risk dimensions (e.g. 'tenant concentration',
+     * 'rollover', 'TI/LC sizing', 'UW-vs-trailing validation') so the banner
+     * can name what wasn't assessed.
+     *
+     * `bannerCopy` is the server-built prose for the banner — distinguishes
+     * documentation-depth from credit-verdict, echoes the low_confidence
+     * framing. Empty string when neither cap nor gate fired.
+     */
+    readonly coverage: {
+      readonly evaluatedPct: RenderCell<number>;
+      readonly bandCapApplied: RenderCell<boolean>;
+      readonly insufficientCoverageGate: RenderCell<boolean>;
+      readonly excludedRiskDimLabels: readonly string[];
+      readonly bannerCopy: RenderCell<string>;
+    };
   };
 
   readonly metrics: {
