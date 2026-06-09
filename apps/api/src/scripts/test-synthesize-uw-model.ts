@@ -45,7 +45,11 @@ import {
 } from '../util/content-hash.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
-import { synthesizeUwModelFromGraph } from '../services/synthesize-uw-model-from-graph.js';
+import {
+  SynthesizeUwModelTieOutError,
+  synthesizeUwModelFromGraph,
+  synthesizeUwModelFromInputs,
+} from '../services/synthesize-uw-model-from-graph.js';
 import type { LLMCallFn } from '../services/narrative/build-narrative.js';
 
 const AS_OF = '2026-05-30T00:00:00Z';
@@ -275,11 +279,15 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
   assert(uw.expenses.replacementReserves.label.includes(annualReserves.toLocaleString('en-US')), '3.8d reserves label embeds the real annual figure');
   // additionalItems carries one entry per OpEx adjustment in
   // AI.expenses.totalOperatingExpenses.adjustments[] (e.g. expense floors)
-  // PLUS one per AI.topLevelAdjustments entry (e.g. NOI cap), labeled from
-  // their REAL ruleId values. Real values, not back-computed plugs.
+  // PLUS one per LOAD-BEARING AI.topLevelAdjustments entry (NOI cap +
+  // manifesto), labeled from their REAL ruleId values. Phase 1.5 (2026-
+  // 06-08): informational topLevelAdjustments are skipped — see the
+  // INFORMATIONAL set below for the canonical list.
+  const _INFORMATIONAL_FOR_COUNT = new Set(['JE_NOI_BELOW_TRAILING_ACTUAL', 'JE_PERIOD_LABEL_MISMATCH']);
+  const loadBearingTopLevel = ai.topLevelAdjustments.filter(e => !_INFORMATIONAL_FOR_COUNT.has(e.ruleId));
   const expectedItemCount =
     ai.expenses.totalOperatingExpenses.adjustments.length +
-    ai.topLevelAdjustments.length;
+    loadBearingTopLevel.length;
   // (Plus possibly one residual line if attributed sums don't quite close.)
   assert(uw.expenses.additionalItems.length >= expectedItemCount, `3.9 additionalItems >= adjustments + topLevelAdjustments (${uw.expenses.additionalItems.length} vs ${expectedItemCount} attributed)`);
   for (const item of uw.expenses.additionalItems) {
@@ -294,7 +302,13 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
       assertClose(found.annualAmount, adj.delta, `3.10.${adj.ruleId} additionalItem.annualAmount === REAL delta (not back-computed)`);
     }
   }
+  // Phase 1.5 (2026-06-08): the Source-B loop skips informational topLevelAdjustments
+  // (JE_NOI_BELOW_TRAILING_ACTUAL, JE_PERIOD_LABEL_MISMATCH) — their `delta` is
+  // descriptive, not applied to ai.metrics.noi. Mirror that filter in the test so
+  // future fixtures that fire one of these rules don't fail a load-bearing check.
+  const INFORMATIONAL = new Set(['JE_NOI_BELOW_TRAILING_ACTUAL', 'JE_PERIOD_LABEL_MISMATCH']);
   for (const entry of ai.topLevelAdjustments) {
+    if (INFORMATIONAL.has(entry.ruleId)) continue;
     const found = uw.expenses.additionalItems.find((it) => it.label.includes(entry.ruleId));
     assert(found !== undefined, `3.11.${entry.ruleId} NOI-level adjustment surfaced with real ruleId`);
     if (found !== undefined) {
@@ -412,6 +426,62 @@ const stubLlm: LLMCallFn = async ({ messages }) => {
       '9.6 pcaImmediateRepairs bridged verbatim',
     );
   }
+
+  console.log('\n10. informational topLevelAdjustments — blocklist + tie-out (Phase 1.5)');
+  // Inject a synthetic JE_NOI_BELOW_TRAILING_ACTUAL entry into a clone of `ai`
+  // and verify (a) it does NOT appear as an additionalItem, and (b) the
+  // synthesizer still ties out to ai.metrics.noi (no double-count). Without
+  // the blocklist this would push +$500K into expenses → synthesized NOI
+  // would drop by $500K → SynthesizeUwModelTieOutError would throw.
+  const phantomDelta = -500_000;
+  const aiWithPhantom: typeof ai = {
+    ...ai,
+    topLevelAdjustments: [
+      ...ai.topLevelAdjustments,
+      { ruleId: 'JE_NOI_BELOW_TRAILING_ACTUAL', delta: phantomDelta,
+        reason: 'synthetic test entry — descriptive shortfall, NOT applied' },
+    ],
+  };
+  let synthInfoUw;
+  try {
+    synthInfoUw = synthesizeUwModelFromInputs(aiWithPhantom, null);
+    ok('10.1 synthesizer accepts informational topLevelAdjustment without throwing tie-out');
+  } catch (e) {
+    if (e instanceof SynthesizeUwModelTieOutError) {
+      fail(`10.1 synthesizer threw TieOut on informational entry — blocklist missed: ${e.message}`);
+      throw e;
+    }
+    throw e;
+  }
+  assertClose(
+    synthInfoUw.netOperatingIncome,
+    ai.metrics.noi ?? 0,
+    '10.2 synthesized NOI still ties to AI.metrics.noi when an informational rule is present',
+    1.0,
+  );
+  const phantomItem = synthInfoUw.expenses.additionalItems.find(
+    (it) => it.id.includes('je_noi_below_trailing_actual') || it.label.includes('JE_NOI_BELOW_TRAILING_ACTUAL'),
+  );
+  assertEqual(phantomItem, undefined, '10.3 informational JE_NOI_BELOW_TRAILING_ACTUAL does NOT appear as expense additionalItem');
+
+  // Also exercise the tie-out fail path: forge a LOAD-BEARING topLevelAdjustment
+  // with a delta that ai.metrics.noi does NOT reflect (a desynced cap) — must throw.
+  const aiWithDesyncedCap: typeof ai = {
+    ...ai,
+    topLevelAdjustments: [
+      ...ai.topLevelAdjustments,
+      { ruleId: 'JE_NOI_CAPPED_TO_BANK', delta: -1_000_000,
+        reason: 'synthetic desynced cap — ai.metrics.noi does not reflect this delta' },
+    ],
+  };
+  let threwTieOut = false;
+  try {
+    synthesizeUwModelFromInputs(aiWithDesyncedCap, null);
+  } catch (e) {
+    if (e instanceof SynthesizeUwModelTieOutError) threwTieOut = true;
+    else throw e;
+  }
+  assert(threwTieOut, '10.4 tie-out gate throws when a load-bearing topLevelAdjustment desyncs from ai.metrics.noi');
 
   // ---------------- Sample dump (faithfulness checkpoint) ----------------
   console.log('\n\n=== SAMPLE SYNTHESIZED uwModel (faithfulness checkpoint) ===');

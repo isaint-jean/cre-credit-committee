@@ -49,6 +49,50 @@ import type { AdjustedInputs, PropertyMetadata, RevisionId } from '@cre/contract
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 /**
+ * Informational `topLevelAdjustments` rule ids — entries whose `delta` describes
+ * a flagged condition but is NOT applied to `ai.metrics.noi` by the judgment
+ * engine. The Source-B loop in `synthesizeUwModelFromInputs` skips these so the
+ * synthesized model's NOI ties out to `ai.metrics.noi`.
+ *
+ *   - JE_NOI_BELOW_TRAILING_ACTUAL: delta = finalNoi - trailingActualNoi
+ *     (descriptive shortfall; conclusion stands per noi-divergence.ts:15-16).
+ *   - JE_PERIOD_LABEL_MISMATCH:     delta = 0 (audit-only, see
+ *     apply-judgment-adjustments.ts:216-260).
+ *
+ * Anything not in this set is treated as load-bearing (JE_NOI_CAPPED_TO_BANK,
+ * manifesto entries, future caps). Keep this narrow — a new informational
+ * topLevelAdjustment must be enumerated here or it will silently regress the
+ * synthesized NOI.
+ */
+const _TOP_LEVEL_INFO_RULE_IDS: ReadonlySet<string> = new Set([
+  'JE_NOI_BELOW_TRAILING_ACTUAL',
+  'JE_PERIOD_LABEL_MISMATCH',
+]);
+
+/**
+ * Thrown when the synthesized UnderwritingModel's NOI does not match
+ * `ai.metrics.noi` within rounding tolerance ($1). The synthesizer is the
+ * read-path adapter for promoted-from-graph analyses + mitigation engine;
+ * its NOI MUST equal the judgment engine's concluded NOI, or every
+ * downstream consumer (mitigation sizing, workbook export, legacy tabs)
+ * sees corrupted figures.
+ */
+export class SynthesizeUwModelTieOutError extends Error {
+  override readonly name = 'SynthesizeUwModelTieOutError';
+  constructor(
+    public readonly synthesizedNoi: number,
+    public readonly aiMetricsNoi: number,
+    extra: string,
+  ) {
+    super(
+      `SynthesizeUwModelTieOutError: synthesized NOI ${synthesizedNoi.toFixed(2)} ` +
+      `does not match ai.metrics.noi ${aiMetricsNoi.toFixed(2)} ` +
+      `(diff=${(synthesizedNoi - aiMetricsNoi).toFixed(2)}). ${extra}`,
+    );
+  }
+}
+
+/**
  * Graph wrapper: walk the record graph from `rootRevisionId` to the inputs the
  * pure synthesis needs (DoctrineEvaluation → AdjustedInputs → best-effort
  * PropertyMetadata via the extraction id), then delegate. Returns null when
@@ -209,8 +253,21 @@ export function synthesizeUwModelFromInputs(
    * NOI-reducing entries (delta < 0) become positive expense items, since the
    * legacy UnderwritingModel contract has no slot for "below opex / above
    * NOI" haircuts (see brief Step 0 — confirmed for legacy model and BP
-   * Spire workbook v7 schema). */
+   * Spire workbook v7 schema).
+   *
+   * Blocklist (Phase 1.5 — 2026-06-08): a subset of topLevelAdjustments are
+   * INFORMATIONAL — their `delta` describes a quantity (e.g. concluded-vs-
+   * trailing gap on JE_NOI_BELOW_TRAILING_ACTUAL, or always-0 on
+   * JE_PERIOD_LABEL_MISMATCH) but the judgment engine NEVER applies them to
+   * `finalNoi`. Translating them into synthesized expenses double-counts the
+   * gap and corrupts the synthesized NOI / DSCR / LTV / DY that the mitigation
+   * producer reads. Skip them; load-bearing entries (caps + manifesto) flow
+   * through as before. See `_TOP_LEVEL_INFO_RULE_IDS` below for the canonical
+   * list — kept narrow because the engine doesn't carry a `loadBearing` flag
+   * on AdjustmentEntry today. Deferred cleanup: move informational rules off
+   * topLevelAdjustments entirely (option 3 from the Phase-1 diagnosis). */
   for (const entry of ai.topLevelAdjustments) {
+    if (_TOP_LEVEL_INFO_RULE_IDS.has(entry.ruleId)) continue;
     additionalItems.push(stubLineItem(
       `exp_je_${entry.ruleId.toLowerCase()}`,
       humanizeRuleId(entry.ruleId),
@@ -320,6 +377,26 @@ export function synthesizeUwModelFromInputs(
   };
 
   const recalculated = recalculateFullModel(skeleton);
+
+  /* Tie-out gate (Phase 1.5 — 2026-06-08). The synthesized UW model is the
+   * read-path adapter that the mitigation producer (produce-mitigations.ts)
+   * + legacy workbook tabs consume. Its NOI MUST equal the judgment engine's
+   * concluded NOI; any divergence corrupts every downstream figure (DSCR /
+   * LTV / DY) by exactly the divergence × the relevant divisor. Throw early
+   * with a descriptive error rather than silently emit a wrong mitigant. */
+  if (ai.metrics.noi !== null && Number.isFinite(recalculated.netOperatingIncome)) {
+    const diff = Math.abs(recalculated.netOperatingIncome - ai.metrics.noi);
+    if (diff > 1) {
+      throw new SynthesizeUwModelTieOutError(
+        recalculated.netOperatingIncome,
+        ai.metrics.noi,
+        'Inspect topLevelAdjustments + income/expense residuals; an informational ' +
+        'topLevelAdjustment may be flowing through Source-B as an expense (must be ' +
+        `enumerated in _TOP_LEVEL_INFO_RULE_IDS). topLevelAdjustments=[${ai.topLevelAdjustments.map(a => a.ruleId).join(', ')}]`,
+      );
+    }
+  }
+
   return {
     ...recalculated,
     // Appraised LTV — direct from graph metrics. Distinct denominator from
