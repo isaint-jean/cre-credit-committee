@@ -43,6 +43,7 @@ import type {
   HandbookEvaluation,
   ISODateTime,
   JudgmentEngineRuleId,
+  MitigationProposalSet,
   NarrativeEvaluation,
 } from '@cre/contracts';
 import { NARRATIVE_ENGINE_VERSION } from '@cre/contracts';
@@ -56,14 +57,13 @@ import {
   NARRATIVE_SYSTEM_PROMPT,
   buildExecutiveSummaryPrompt,
   buildRedFlagAssessmentPrompt,
-  buildMitigationSuggestionsPrompt,
   buildCommitteeRecommendationPrompt,
+  renderMitigationsListV1_5,
 } from './prompt-templates.js';
 
 const NARRATIVE_LLM_MODEL = 'claude-sonnet-4-20250514';
 const EXECUTIVE_SUMMARY_MAX_TOKENS = 3000;
 const RED_FLAG_ASSESSMENT_MAX_TOKENS = 3000;
-const MITIGATION_SUGGESTIONS_MAX_TOKENS = 3000;
 const COMMITTEE_RECOMMENDATION_MAX_TOKENS = 3000;
 
 /**
@@ -108,6 +108,23 @@ export interface BuildNarrativeInput {
    * material blocking docs when dataConfidence === 'unvalidated'.
    */
   readonly dataQualityFlags: readonly JudgmentEngineRuleId[];
+  /**
+   * The deterministic MitigationProposalSet produced by the mitigation
+   * engine for this AdjustedInputs (v1.5 — 2026-06-08). Threaded in by
+   * the orchestrator (`evaluate-and-narrate.ts`) so:
+   *   - `mitigation_suggestions` is rendered deterministically from
+   *     `proposals` (no LLM call; sized figures are engine output, not
+   *     LLM authorship).
+   *   - `committee_recommendation` is fed the same rendered text as
+   *     prompt context, so the LLM can REFERENCE the deterministic
+   *     mitigants but the template forbids it from inventing new sized
+   *     conditions.
+   *
+   * Empty `proposals` is a valid state (Sunroad-style: no breaches, no
+   * sizeable lever) — `renderMitigationsListV1_5` returns the canonical
+   * empty-case text in that case.
+   */
+  readonly mitigationProposalSet: MitigationProposalSet;
 }
 
 export class BuildNarrativeError extends Error {
@@ -205,36 +222,27 @@ interface MitigationSuggestionsFragment {
   readonly mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[];
 }
 
-async function buildMitigationSuggestions(
+/**
+ * v1.5 (2026-06-08) — mitigation_suggestions is now DETERMINISTIC. The slot
+ * is rendered directly from the MitigationProposalSet via
+ * `renderMitigationsListV1_5`. No LLM call. The integrity guarantee: every
+ * sized figure in the slot is byte-identical to a field on a
+ * `MitigationProposal` the engine produced. consumedFlagPrincipleIds is
+ * still derived from the handbook flags (which fired flags shaped the slot's
+ * intent) — preserves the FK semantic across v1.4 → v1.5.
+ *
+ * Empty `proposals` is a valid state. The renderer emits the canonical
+ * "no structural mitigants triggered" line (frozen + hashed).
+ */
+function buildMitigationSuggestions(
   input: BuildNarrativeInput,
-  llm: LLMCallFn,
-): Promise<MitigationSuggestionsFragment> {
-  const { handbookEvaluation } = input;
-  const formattedFlags = formatFlagsForInjectionPoint(
-    handbookEvaluation.firedFlags,
-    'mitigation_suggestions',
-  );
+): MitigationSuggestionsFragment {
+  const { handbookEvaluation, mitigationProposalSet } = input;
   const mitigationSuggestionsConsumedFlagPrincipleIds = consumedPrincipleIdsForInjectionPoint(
     handbookEvaluation.firedFlags,
     'mitigation_suggestions',
   );
-
-  const prompt = buildMitigationSuggestionsPrompt(formattedFlags);
-  const llmOutput = await llm({
-    model: NARRATIVE_LLM_MODEL,
-    max_tokens: MITIGATION_SUGGESTIONS_MAX_TOKENS,
-    system: NARRATIVE_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  const mitigationSuggestions = llmOutput.trim();
-
-  if (mitigationSuggestions.length === 0) {
-    throw new BuildNarrativeError(
-      'LLM_EMPTY_RESPONSE',
-      `LLM returned empty prose for mitigation_suggestions (handbookEvaluationId=${handbookEvaluation.id}). Empty prose is not a valid state for the producer.`,
-    );
-  }
-
+  const mitigationSuggestions = renderMitigationsListV1_5(mitigationProposalSet.proposals);
   return { mitigationSuggestions, mitigationSuggestionsConsumedFlagPrincipleIds };
 }
 
@@ -285,6 +293,7 @@ export function enumerateMissingDocs(
 async function buildCommitteeRecommendation(
   input: BuildNarrativeInput,
   llm: LLMCallFn,
+  mitigationsText: string,
 ): Promise<CommitteeRecommendationFragment> {
   const { handbookEvaluation, dataConfidence, dataQualityFlags } = input;
 
@@ -317,7 +326,7 @@ async function buildCommitteeRecommendation(
     'committee_recommendation',
   );
 
-  const prompt = buildCommitteeRecommendationPrompt(formattedFlags);
+  const prompt = buildCommitteeRecommendationPrompt(formattedFlags, mitigationsText);
   const llmOutput = await llm({
     model: NARRATIVE_LLM_MODEL,
     max_tokens: COMMITTEE_RECOMMENDATION_MAX_TOKENS,
@@ -352,15 +361,21 @@ export async function buildNarrative(
     );
   }
 
-  // Promise.all: parallel LLM calls (one per slot). If any rejects, the
-  // wrapper rejects — per Q-S4 (f.1) partial-failure semantics. No partial
-  // NarrativeEvaluation row is persisted; v23 idempotency-via-content-hash
-  // makes the retry safe. 4-slot final form per Phase 4 ship.
-  const [execSummary, redFlag, mitigation, committee] = await Promise.all([
+  // v1.5 — mitigation_suggestions is now DETERMINISTIC (pure, no LLM call);
+  // committee_recommendation receives the rendered mitigants text as prompt
+  // context and is constrained by the template against inventing new sized
+  // structuring. Single source of truth for sized figures: the
+  // MitigationProposalSet → renderMitigationsListV1_5 string.
+  const mitigation = buildMitigationSuggestions(input);
+
+  // Promise.all: parallel LLM calls for the remaining three slots. If any
+  // rejects, the wrapper rejects — per Q-S4 (f.1) partial-failure semantics.
+  // No partial NarrativeEvaluation row is persisted; v23 idempotency-via-
+  // content-hash makes the retry safe.
+  const [execSummary, redFlag, committee] = await Promise.all([
     buildExecutiveSummary(input, llm),
     buildRedFlagAssessment(input, llm),
-    buildMitigationSuggestions(input, llm),
-    buildCommitteeRecommendation(input, llm),
+    buildCommitteeRecommendation(input, llm, mitigation.mitigationSuggestions),
   ]);
 
   const body = {

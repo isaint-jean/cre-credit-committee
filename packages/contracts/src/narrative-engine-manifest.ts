@@ -55,4 +55,14 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // (new dataConfidence + dataQualityFlags fields) rather than a prompt-
   // template change. Same pattern as JUDGMENT_ENGINE_VERSION 1.5 → 1.6.
   '1.4': 'c5deb3cf9c6d9e80df6d3999e65f55f3af608669fff23e48624ee57c41f91a1a' as ContentHash,
+  // v1.5 — narrative→mitigant wiring (2026-06-08). mitigation_suggestions
+  // slot is now rendered DETERMINISTICALLY from MitigationProposalSet (no
+  // LLM call); the new MITIGATION_SUGGESTIONS_HEADER_V1_5 +
+  // MITIGATION_SUGGESTIONS_EMPTY_V1_5 constants enter the hash snapshot.
+  // committee_recommendation template gains a {{mitigations}} placeholder
+  // and an explicit constraint forbidding the LLM from inventing sized
+  // structural conditions beyond what the engine produced — fixes Sunroad
+  // fabricating a "$2.5M DSR" + DSCR covenant + cash sweep when the
+  // mitigation engine produced zero proposals.
+  '1.5': '43a025d0b8f31a3ac955a367e6bf40e697e28c64fa20b6ead45b00877bd327ed' as ContentHash,
 };

@@ -106,6 +106,11 @@ export async function evaluateAndNarrate(
       // Narrative engine v1.4 — committee-recommendation gate.
       dataConfidence:   args.adjustedInputs.dataConfidence,
       dataQualityFlags: args.adjustedInputs.dataQualityFlags,
+      // Narrative engine v1.5 — mitigation_suggestions deterministic render
+      // + committee_recommendation grounding. The proposal set produced
+      // immediately above is the SAME record threaded here; the narrative
+      // producer reads it as the single source of truth for sized figures.
+      mitigationProposalSet,
     },
     { llmCall: deps.llmCall },
   );

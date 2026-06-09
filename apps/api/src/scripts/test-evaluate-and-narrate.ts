@@ -166,8 +166,13 @@ const STUB_EXEC_A = 'Test exec summary A — deterministic prose for integration
 const STUB_EXEC_B = 'Test exec summary B — different prose to verify cache-staleness gate.';
 const STUB_REDFLAG_A = '- [P-TEST] Test red-flag assessment A — deterministic prose for integration test.';
 const STUB_REDFLAG_B = '- [P-TEST] Test red-flag assessment B — different prose to verify cache-staleness gate.';
-const STUB_MITIGATION_A = '- [P-TEST] Test mitigation suggestion A — require $5M reserve plus DSCR covenant at 1.25x.';
-const STUB_MITIGATION_B = '- [P-TEST] Test mitigation suggestion B — different prose to verify cache-staleness gate.';
+// Phase 1.5 (v1.5 narrative): mitigation_suggestions is now deterministic
+// (rendered from MitigationProposalSet, no LLM call). The stub fields below
+// are wired into makeStub for source compatibility but the produced narrative
+// will carry the deterministic render — assertions are updated accordingly.
+const STUB_MITIGATION_A = '(unused — slot is deterministic in v1.5)';
+const STUB_MITIGATION_B = '(unused — slot is deterministic in v1.5)';
+import { MITIGATION_SUGGESTIONS_HEADER_V1_5, MITIGATION_SUGGESTIONS_EMPTY_V1_5 } from '../services/narrative/prompt-templates.js';
 const STUB_COMMITTEE_A = 'Recommend conditional approval A — subject to reserves and DSCR covenant per mitigations section.';
 const STUB_COMMITTEE_B = 'Recommend conditional approval B — different prose to verify cache-staleness gate.';
 
@@ -250,7 +255,17 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
   assertEqual(narrative?.executiveSummary, STUB_EXEC_A, 'narrative.executiveSummary === stub LLM output');
   // Phase 2 — red_flag_assessment slot populated by orchestrator
   assertEqual(narrative?.redFlagAssessment, STUB_REDFLAG_A, 'narrative.redFlagAssessment === red-flag stub LLM output');
-  assertEqual(narrative?.mitigationSuggestions, STUB_MITIGATION_A, 'narrative.mitigationSuggestions === mitigation stub LLM output (Phase 3)');
+  // v1.5 — mitigation_suggestions is deterministic. The fixture's mitigation
+  // engine emits proposals (sub-1.0 DSCR + high rollover); the slot must carry
+  // the v1.5 header and at least one proposal id, not the LLM stub.
+  assert(
+    (narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
+    'narrative.mitigationSuggestions starts with v1.5 deterministic header (proposals present)',
+  );
+  assert(
+    /reduce_proceeds_|fund_reserve_/.test(narrative?.mitigationSuggestions ?? ''),
+    'narrative.mitigationSuggestions contains a proposal id (deterministic render)',
+  );
   assertEqual(narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'narrative.committeeRecommendation === committee stub LLM output (Phase 4)');
   if (!narrative) {
     fail('expected narrative to be present');
@@ -391,7 +406,12 @@ console.log('\nmaterialize includes the narrative section:');
   assert(rendered.narrative !== null, 'RenderedAnalysis.narrative populated');
   assertEqual(rendered.narrative?.executiveSummary, STUB_EXEC_A, 'rendered narrative carries exec-summary stub prose');
   assertEqual(rendered.narrative?.redFlagAssessment, STUB_REDFLAG_A, 'rendered narrative carries red-flag stub prose (Phase 2)');
-  assertEqual(rendered.narrative?.mitigationSuggestions, STUB_MITIGATION_A, 'rendered narrative carries mitigation stub prose (Phase 3)');
+  // v1.5 — mitigation slot is deterministic. Rendered narrative must surface
+  // the engine's proposals via the v1.5 header (not a stub).
+  assert(
+    (rendered.narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
+    'rendered narrative carries v1.5 deterministic mitigation render',
+  );
   assertEqual(rendered.narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'rendered narrative carries committee stub prose (Phase 4)');
   assertEqual(rendered.narrative?.engineVersion, NARRATIVE_ENGINE_VERSION, 'rendered narrative carries engine version');
   assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'render version is current (7.8)');
@@ -423,7 +443,12 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
   const renderedA = materializeRenderedAnalysis(ingest.evaluationId, store);
   assertEqual(renderedA.narrative?.executiveSummary, STUB_EXEC_A, 'first materialize: exec stub A');
   assertEqual(renderedA.narrative?.redFlagAssessment, STUB_REDFLAG_A, 'first materialize: red-flag stub A');
-  assertEqual(renderedA.narrative?.mitigationSuggestions, STUB_MITIGATION_A, 'first materialize: mitigation stub A (Phase 3)');
+  // v1.5 — first materialize carries the deterministic mitigation render.
+  assert(
+    (renderedA.narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
+    'first materialize: v1.5 deterministic mitigation render',
+  );
+  const mitigationRoundA = renderedA.narrative?.mitigationSuggestions ?? '';
   assertEqual(renderedA.narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'first materialize: committee stub A (Phase 4)');
 
   // Directly add a SECOND narrative with different prose (stub B) — simulates
@@ -456,7 +481,16 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
   const renderedB = materializeRenderedAnalysis(ingest.evaluationId, store);
   assertEqual(renderedB.narrative?.executiveSummary, STUB_EXEC_B, 'second materialize: exec stub B (cache-staleness gate fired)');
   assertEqual(renderedB.narrative?.redFlagAssessment, STUB_REDFLAG_B, 'second materialize: red-flag stub B (cache-staleness gate fired)');
-  assertEqual(renderedB.narrative?.mitigationSuggestions, STUB_MITIGATION_B, 'second materialize: mitigation stub B (cache-staleness gate fired)');
+  // v1.5 — mitigation slot is deterministic from MitigationProposalSet, which
+  // is itself a function of AdjustedInputs (unchanged between materializes
+  // here). Cache-staleness on the OTHER slots is what proves the gate works;
+  // mitigation slot output must STAY the same across re-narration with the
+  // same AI inputs.
+  assertEqual(
+    renderedB.narrative?.mitigationSuggestions,
+    mitigationRoundA,
+    'second materialize: mitigation slot identical to first (deterministic from same AI)',
+  );
   assertEqual(renderedB.narrative?.committeeRecommendation, STUB_COMMITTEE_B, 'second materialize: committee stub B (cache-staleness gate fired)');
   if (renderedA.id === renderedB.id) {
     fail('cache returned stale render: same RenderedAnalysisId despite different narrative');
@@ -519,7 +553,11 @@ console.log('\nLast-narrative wins — getLatestNarrative returns newest by crea
   const secondLatest = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
   assertEqual(secondLatest?.executiveSummary, STUB_EXEC_B, 'second latest = exec stub B (newest by created_at)');
   assertEqual(secondLatest?.redFlagAssessment, STUB_REDFLAG_B, 'second latest = red-flag stub B');
-  assertEqual(secondLatest?.mitigationSuggestions, STUB_MITIGATION_B, 'second latest = mitigation stub B (Phase 3)');
+  // v1.5 — second latest's mitigation slot mirrors first (deterministic, same AI).
+  assert(
+    (secondLatest?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
+    'second latest: v1.5 deterministic mitigation render',
+  );
   assertEqual(secondLatest?.committeeRecommendation, STUB_COMMITTEE_B, 'second latest = committee stub B (Phase 4)');
 
   store.close();
@@ -602,59 +640,22 @@ console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment sl
   assert(recovered !== null, 'narrative persisted on retry');
   assertEqual(recovered?.executiveSummary, STUB_EXEC_A, 'retry produces exec_summary slot');
   assertEqual(recovered?.redFlagAssessment, STUB_REDFLAG_A, 'retry produces red_flag_assessment slot');
-  assertEqual(recovered?.mitigationSuggestions, STUB_MITIGATION_A, 'retry produces mitigation_suggestions slot (Phase 3)');
+  // v1.5 — retry produces the deterministic mitigation render (not the stub).
+  assert(
+    (recovered?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
+    'retry produces v1.5 deterministic mitigation_suggestions slot',
+  );
   assertEqual(recovered?.committeeRecommendation, STUB_COMMITTEE_A, 'retry produces committee_recommendation slot (Phase 4)');
 
   store.close();
 }
 
-console.log('\nPartial-failure (Phase 3) — mitigation_suggestions slot throws → wrapper rejects:');
-{
-  /* Mirror of the prior partial-failure block but for the mitigation slot.
-     Verifies Q-S4 (f.1) symmetry: any slot's LLM failure rejects the
-     orchestrator. Confirms the 3-slot Promise.all extension preserves
-     atomicity semantics for the new slot. */
-  const store = new RecordGraphStore(':memory:');
-  const lib = makeSnapshot();
-  store.insertLibrarySnapshot(lib);
-
-  const mitFailureStub: LLMCallFn = async ({ messages }) => {
-    const content = messages[0]?.content;
-    const text = typeof content === 'string' ? content : '';
-    if (text.includes('mitigation-suggestions list')) {
-      throw new Error('Simulated LLM failure on mitigation_suggestions slot');
-    }
-    if (text.includes('red-flag assessment')) return STUB_REDFLAG_A;
-    return STUB_EXEC_A;
-  };
-
-  let threwMit = false;
-  try {
-    await ingestExtractionResult(
-      {
-        extractionResult: makeFullExtraction(),
-        propertyType: 'Office' as AssetType,
-        marketLiquidityHint: 'Primary',
-        librarySnapshotId: lib.id,
-        marketBenchmarks: makeBenchmarks(),
-        creditManifesto: makeManifesto(),
-        analysisAsOfDate: AS_OF,
-        rentRoll: null,
-      },
-      store,
-      { llmCall: mitFailureStub },
-    );
-  } catch {
-    threwMit = true;
-  }
-  assert(threwMit, 'ingest with mitigation-failing stub throws (Q-S4 symmetry for slot 3)');
-
-  const narrRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
-    .db.prepare('SELECT id FROM narratives').all() as Array<{ id: string }>;
-  assertEqual(narrRows.length, 0, 'no narrative row written when mitigation slot threw');
-
-  store.close();
-}
+// v1.5 retirement note: the Phase-3 partial-failure block (mitigation slot
+// throws) has been removed. The mitigation_suggestions slot is now a pure
+// deterministic render of MitigationProposalSet (no LLM call), so there is
+// no LLM-failure path to exercise. Q-S4 (f.1) symmetry remains in effect for
+// the three LLM-driven slots (executive_summary, red_flag_assessment,
+// committee_recommendation); their partial-failure blocks below verify it.
 
 console.log('\nPartial-failure (Phase 4) — committee_recommendation slot throws → wrapper rejects:');
 {

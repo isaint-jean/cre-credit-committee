@@ -26,6 +26,8 @@ import {
   RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE,
   MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE,
   COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE,
+  MITIGATION_SUGGESTIONS_HEADER_V1_5,
+  MITIGATION_SUGGESTIONS_EMPTY_V1_5,
 } from '../services/narrative/prompt-templates.js';
 import { computeContentHash } from './content-hash.js';
 
@@ -48,6 +50,11 @@ function buildNarrativeEngineHashSnapshot() {
     redFlagAssessmentPromptTemplate: RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE,
     mitigationSuggestionsPromptTemplate: MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE,
     committeeRecommendationPromptTemplate: COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE,
+    // v1.5 — deterministic mitigation_suggestions slot. Header + empty-case
+    // text are frozen alongside the LLM templates so an edit forces a version
+    // bump + manifest append (same discipline as the templates above).
+    mitigationSuggestionsHeaderV15: MITIGATION_SUGGESTIONS_HEADER_V1_5,
+    mitigationSuggestionsEmptyV15: MITIGATION_SUGGESTIONS_EMPTY_V1_5,
   };
 }
 
