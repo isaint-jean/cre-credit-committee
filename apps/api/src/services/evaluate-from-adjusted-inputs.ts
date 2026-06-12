@@ -56,7 +56,11 @@ import {
   evaluateDeal,
   bridgeToDoctrineEvaluation,
 } from '../doctrine-clean/index.js';
-import type { EvaluateDealResult } from '../doctrine-clean/index.js';
+import type {
+  EvaluateDealResult,
+  OperatorSuppliedValue,
+} from '../doctrine-clean/index.js';
+import type { DealBag } from '../doctrine-clean/scoring/evaluate-deal.js';
 import type { DoctrineEvaluationId } from '@cre/contracts';
 
 /**
@@ -96,6 +100,17 @@ export interface EvaluateFromAdjustedInputsArgs {
    *  as `rentRollId` so the bundle is reachable from the root. null when no
    *  rent roll was produced; this is a valid state (deal with no rent roll). */
   readonly rentRoll: RentRoll | null;
+  /**
+   * v1.6 narrative wiring — operator-supplied concluded value (FALLBACK).
+   * Threaded into adaptExtractionToDealBag so dim 7 can resolve on deals
+   * whose extraction yields no appraisal.valueConclusion AND no
+   * asr.impliedValue (Sunroad shape). The fence stays intact — this is an
+   * EXPLICIT contract input from the caller, NOT a read from
+   * AdjustedInputs / valuationConclusion. Omit to preserve existing
+   * "extraction-only" behavior (dim 7 HITLs when both extraction paths
+   * are absent). See adapters/extraction-to-dealbag.ts.
+   */
+  readonly operatorSuppliedValue?: OperatorSuppliedValue;
 }
 
 export interface EvaluateFromAdjustedInputsResult {
@@ -119,6 +134,13 @@ export interface EvaluateFromAdjustedInputsResult {
    * from this object. Other callers may ignore.
    */
   readonly dealResult: EvaluateDealResult;
+  /**
+   * v1.6 narrative wiring — the DealBag the clean doctrine consumed. The
+   * orchestrator's composeMitigations call needs it to rebuild a DealBag
+   * at L' (proceeds-cut loan) for the recompute callback. Pass-through;
+   * not persisted. Other callers may ignore.
+   */
+  readonly dealBag: DealBag;
 }
 
 export interface EvaluateFromAdjustedInputsDeps {
@@ -230,6 +252,7 @@ export async function evaluateFromAdjustedInputs(
   }
   const dealBag = adaptExtractionToDealBag(extraction, propertyMetadata, {
     explicitAssetType: assetProfile.propertyType,
+    operatorSuppliedValue: args.operatorSuppliedValue,
   });
   const dealResult = evaluateDeal(dealBag);
 
@@ -264,5 +287,5 @@ export async function evaluateFromAdjustedInputs(
   };
   store.insertDoctrineEvaluation(evaluation);
 
-  return { evaluation, handbookEvaluation, dealResult };
+  return { evaluation, handbookEvaluation, dealResult, dealBag };
 }
