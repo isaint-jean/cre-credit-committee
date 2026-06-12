@@ -19,6 +19,7 @@
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 
+import { FIXTURES_DIR, OUTPUTS_DIR } from '../lib/paths.js';
 import {
   ASSET_TYPES,
   MANIFESTO_CONTRACT_VERSION,
@@ -43,10 +44,9 @@ import { RecordGraphStore } from '../storage/record-graph-store.js';
 import { buildExtractionResult } from '../services/extraction/build-extraction-result.js';
 import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
 
-const REPO = '/Users/isabellesaint-jean/Desktop/CRE Credit Comittee';
-const CF_PATH = path.join(REPO, 'apps/api/fixtures/sunroad-centrum-cf.xlsx');
-const PCA_PATH = path.join(REPO, 'apps/api/fixtures/sunroad-centrum-pca.pdf');
-const DB_PATH = path.join(REPO, 'apps/api/data/phase4-sunroad.db');
+const CF_PATH = path.join(FIXTURES_DIR, 'sunroad-centrum-cf.xlsx');
+const PCA_PATH = path.join(FIXTURES_DIR, 'sunroad-centrum-pca.pdf');
+const DB_PATH = path.join(OUTPUTS_DIR, 'phase4-sunroad.db');
 const AS_OF = '2026-05-31T00:00:00Z' as ISODateTime;
 
 function emptyByAssetType<T = null>(value: T = null as never): { [K in AssetType]: T } {
