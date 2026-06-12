@@ -390,11 +390,28 @@ function buildReduceProceedsProposal(
         ? ['coverage-dscr']
         : ['debt-yield'];
 
-  const stressedBasisClause = ltvWasStressedBasis
-    ? ' LTV sized against doctrine-stressed value $' +
-      (dim7Stressed! / 1_000_000).toFixed(2) + 'M (cap-rate stress + sustainable-NCF haircut), ' +
-      'not appraised $' + (impliedValue / 1_000_000).toFixed(2) + 'M — "lend to my value".'
-    : '';
+  // LTV-ARM IN DOCTRINE-STRESSED BASIS (no appraised/concluded LTV in lever output).
+  // The doctrine fires the LTV lever against dim 7's stressedValue, not against
+  // the appraised value. The description re-expresses the breach + cure in the
+  // basis the lever ACTUALLY uses: stressedLtv before = currentLoan / dim7Stressed,
+  // stressedLtv after = lPrime / dim7Stressed. The appraised/"concluded" LTV
+  // (loan / impliedValue) is deliberately NOT surfaced anywhere — the memo
+  // carries ONE LTV basis (doctrine-stressed). Fallback for the legacy path:
+  // when the LTV arm runs WITHOUT a stressed basis (dim 7 HITL), we keep the
+  // generic "Concluded X = Y breaches Z target" framing — there is no stressed
+  // value to substitute.
+  const stressedLtvBefore = ltvWasStressedBasis ? currentLoan / dim7Stressed! : null;
+  const stressedLtvAfter  = ltvWasStressedBasis ? lPrime      / dim7Stressed! : null;
+  const stressedLtvTarget = ltvWasStressedBasis ? desk.T_LTV_TRIGGER          : null;
+  const ltvDescription = ltvWasStressedBasis
+    ? 'Stressed LTV ' + (stressedLtvBefore! * 100).toFixed(2) + '% breaches the doctrine ' +
+      'stressed-LTV trigger of ' + (stressedLtvTarget! * 100).toFixed(2) + '% ' +
+      '(loan / dim-7 stressed value $' + (dim7Stressed! / 1_000_000).toFixed(2) + 'M; ' +
+      'cap-rate stress + sustainable-NCF haircut). ' +
+      'Lowering proceeds from ' + fmtUsd(currentLoan) + ' to ' + fmtUsd(lPrime) +
+      ' (sponsor fills ' + fmtUsd(requiredEquity) + ') brings stressed LTV to ' +
+      (stressedLtvAfter! * 100).toFixed(2) + '% at the doctrine-stressed value.'
+    : null;
 
   return {
     id: 'reduce_proceeds_' + binding.metric,
@@ -403,12 +420,14 @@ function buildReduceProceedsProposal(
     leverKind: 'recalc_delta',
     title: 'Reduce loan proceeds to satisfy ' + targetLabel + ' target',
     description:
-      'Concluded ' + targetLabel + ' = ' + formatMetric(binding.metric, beforeVal) +
-      ' breaches the ' + targetLabel + ' target of ' + formatMetric(binding.metric, targetVal) + '. ' +
-      'Lowering proceeds from ' + fmtUsd(currentLoan) + ' to ' + fmtUsd(lPrime) +
-      ' (sponsor fills ' + fmtUsd(requiredEquity) + ') brings ' + targetLabel +
-      ' to ' + formatMetric(binding.metric, afterVal) + '.' +
-      stressedBasisClause +
+      (ltvDescription !== null
+        ? ltvDescription
+        : ('Concluded ' + targetLabel + ' = ' + formatMetric(binding.metric, beforeVal) +
+           ' breaches the ' + targetLabel + ' target of ' + formatMetric(binding.metric, targetVal) + '. ' +
+           'Lowering proceeds from ' + fmtUsd(currentLoan) + ' to ' + fmtUsd(lPrime) +
+           ' (sponsor fills ' + fmtUsd(requiredEquity) + ') brings ' + targetLabel +
+           ' to ' + formatMetric(binding.metric, afterVal) + '.')
+      ) +
       collateralBenefitClause(binding.metric, before, afterSnap),
     structuralChanges: [
       'Reduce loan amount from ' + fmtUsd(currentLoan) + ' to ' + fmtUsd(lPrime),
@@ -551,23 +570,32 @@ function beatsOnTarget(metric: MitigationTargetMetric, before: RecalcSnapshot, a
 
 /**
  * Returns " Also improves <Metric> <b>→<a>, <Metric> <b>→<a>." for the non-
- * binding metrics among {dscr, debtYield, ltv} that moved favorably under the
+ * binding metrics among {dscr, debtYield} that moved favorably under the
  * applied lever. Empty string when nothing else moved. Verb is "improves" so
  * the clause stays direction-agnostic across mixed metric semantics.
+ *
+ * LTV is deliberately EXCLUDED from the side-effects list — the lever's only
+ * authorized LTV basis is doctrine-stressed (loan / dim-7 stressedValue), and
+ * the `RecalcSnapshot.ltv` field carries the APPRAISED-basis figure
+ * (loan / uw.impliedValue). Surfacing it here would put a second LTV basis
+ * in the memo, contradicting the "one LTV basis: doctrine-stressed" rule.
+ * The LTV cure is already disclosed in the description's stressed-basis
+ * before/after framing when the LTV arm fires; for DSCR/DY-binding cases
+ * the LTV improvement is implicit in the proceeds reduction.
  */
 function collateralBenefitClause(
   bindingMetric: MitigationTargetMetric,
   before: RecalcSnapshot,
   after: RecalcSnapshot,
 ): string {
-  const others: MitigationTargetMetric[] = (['dscr', 'debtYield', 'ltv'] as const)
+  const others: MitigationTargetMetric[] = (['dscr', 'debtYield'] as const)
     .filter((m) => m !== bindingMetric);
   const moved: string[] = [];
   for (const m of others) {
     const b = pickMetric(m, before);
     const a = pickMetric(m, after);
     if (b === null || a === null) continue;
-    const favorable = m === 'ltv' ? a < b : a > b;
+    const favorable = a > b;
     if (!favorable) continue;
     moved.push(TARGET_LABELS[m] + ' ' + formatMetric(m, b) + '→' + formatMetric(m, a));
   }

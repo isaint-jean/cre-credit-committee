@@ -46,4 +46,21 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   // version bumps — the snapshot hashes constants + tables, not prose
   // (see MITIGATION_ENGINE_VERSION docstring).
   '1.1': '6e2489128977dd8887c2d96bb1127ff06096237fdcd5b1b0cabbebd181decfec' as ContentHash,
+  // v1.2 — two bundled state changes:
+  //   (a) Guaranty desk knobs added to the hash snapshot — DEFAULT_GUARANTY_
+  //       TIER_TERMS table (4 tier-keys × 4 numeric knobs). Lift-and-extract
+  //       of the prior string-literal recourse % / NW × / liquidity % /
+  //       burn-off years out of buildGuarantyProposal copy into a desk-owned
+  //       calibrable table. (The earlier guaranty refactor commit landed
+  //       the snapshot widening; this entry registers the resulting hash.)
+  //   (b) reduce_proceeds_ltv lever copy rewritten in DOCTRINE-STRESSED
+  //       basis: appraised/concluded LTV ("Concluded LTV X% breaches target
+  //       Y%; ... brings LTV to Z%") is REMOVED from the LTV-arm description
+  //       and from the collateralBenefitClause side-effects list. The lever
+  //       now states the stressed-LTV breach and cure (loan / dim-7
+  //       stressedValue) — one LTV basis in the memo, doctrine-stressed.
+  //       Convention: copy changes also bump the version (see
+  //       MITIGATION_ENGINE_VERSION docstring), even when the snapshot
+  //       hash doesn't change on the copy edit alone.
+  '1.2': '6d5a636f4dc05df9698174e4b8c817934988f440d8d2bda2eebcc78072eb03e9' as ContentHash,
 };
