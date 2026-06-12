@@ -50,6 +50,7 @@ import {
   resolveLtvStructuredCeiling,
   resolveExitDscrStructuredFloor,
   computeFundedExitFigures,
+  resolveOperatingReservesPctOfEgi,
   DEFAULT_MITIGATION_DESK,
 } from '../services/mitigation/produce-mitigations.js';
 import { EXIT_DSCR_REFINANCEABLE_THRESHOLD } from '../doctrine-clean/index.js';
@@ -167,13 +168,19 @@ async function main(): Promise<void> {
     ? classifyLtvBand(stressedLtv, DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER, ltvCeiling)
     : 'unknown';
   // v1.4 — the LEVER gate uses FUNDED exit DSCR (raw exit after cash-sweep
-  // accrual reduces the effective take-out balance). Compute it for display.
+  // accrual reduces the effective take-out balance). v1.5 — netted basis +
+  // hard cap at the reserve target. Compute it the same way the lever does.
   const sustNcfForFund = dealResult.normalization.sustainableNcf as number;
   const maturityBalanceForFund = dealResult.dimensions.refinanceFeasibility.derivedOutputs?.maturityBalance as number;
   const dsAnnualForFund = (adjustedInputs as any).loan?.debtServiceAnnual?.adjusted as number;
   const termMonthsForFund = (adjustedInputs as any).loan?.termMonths?.adjusted as number;
+  const egiForFund = (adjustedInputs as any).income?.effectiveGrossIncome?.adjusted as number;
+  const opReservesAnnualForFund = (egiForFund > 0 ? egiForFund : 0) * resolveOperatingReservesPctOfEgi(assetType);
+  const reserveTargetForFund = (refiConst !== null && refiConst !== undefined && sustNcfForFund > 0)
+    ? Math.max(0, maturityBalanceForFund - sustNcfForFund / (refiConst * DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET))
+    : 0;
   const fundedFigs = (refiConst !== null && refiConst !== undefined && sustNcfForFund > 0 && maturityBalanceForFund > 0)
-    ? computeFundedExitFigures(sustNcfForFund, dsAnnualForFund, termMonthsForFund, refiConst, maturityBalanceForFund)
+    ? computeFundedExitFigures(sustNcfForFund, dsAnnualForFund, termMonthsForFund, refiConst, maturityBalanceForFund, opReservesAnnualForFund, reserveTargetForFund)
     : null;
   // The DOCTRINE breach signal is still RAW exit DSCR < 1.20. The funded
   // gate (used by the levers) classifies once the breach fires.
@@ -203,14 +210,18 @@ async function main(): Promise<void> {
   console.log(`     stressed refi constant   : ${fmtPct(refiConst)}`);
   console.log(`     EXIT trigger (doctrine)  : ${fmtDscr(EXIT_DSCR_REFINANCEABLE_THRESHOLD)}  (raw breach signal)`);
   if (fundedFigs !== null) {
-    console.log(`     annual sweep (NCF−DS)    : ${fmtUsd(fundedFigs.annualSweep)} /yr`);
-    console.log(`     expected accrual         : ${fmtUsd(fundedFigs.expectedAccrual)} over the term`);
+    console.log(`     operating reserves (asset): ${fmtUsd(fundedFigs.operatingReservesAnnual)} /yr  (${(resolveOperatingReservesPctOfEgi(assetType) * 100).toFixed(1)}% × EGI)`);
+    console.log(`     annual sweep (NETTED)    : ${fmtUsd(fundedFigs.annualSweep)} /yr  (NCF − DS − operating reserves)`);
+    console.log(`     reserve target           : ${fmtUsd(reserveTargetForFund)}  (maturity − exit-clearing balance at cure ${DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET}x)`);
+    console.log(`     years to fill target     : ${fundedFigs.yearsToFillTarget !== null ? fundedFigs.yearsToFillTarget.toFixed(1) + ' yr' : '—'}  (term ${(termMonthsForFund/12).toFixed(0)} yr)`);
+    console.log(`     expected accrual (CAPPED at target): ${fmtUsd(fundedFigs.expectedAccrual)}`);
+    console.log(`     residual unfunded        : ${fmtUsd(fundedFigs.residualUnfunded)}  (sized into springing recourse, with min tier floor)`);
     console.log(`     effective balance        : ${fmtUsd(fundedFigs.effectiveBalance)}  (maturity − accrual)`);
     console.log(`     FUNDED exit DSCR         : ${fmtDscr(fundedFigs.fundedExitDscr)}`);
   }
   console.log(`     FUNDED FLOOR  (desk)     : ${fmtDscr(exitFloor)}    [ISABELLE-CALIBRATED — Office 1.10 on FUNDED basis]`);
   console.log(`     Exit band (raw, legacy)  : ${exitBand.toUpperCase()}`);
-  console.log(`     Exit band (FUNDED, v1.4) : ${fundedBand.toUpperCase()}`);
+  console.log(`     Exit band (FUNDED, v1.5) : ${fundedBand.toUpperCase()}`);
   console.log('');
   console.log(`  Day-1 DSCR (sustainable / IO debt service): ${fmtDscr(day1Dscr)}`);
   console.log(`     T_DSCR (doctrine)        : ${fmtDscr(DEFAULT_MITIGATION_DESK.T_DSCR)}`);

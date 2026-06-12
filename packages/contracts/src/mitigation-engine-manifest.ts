@@ -100,4 +100,28 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   //       RECOMPUTED-at-L' proposals (so residual-LTV / residual-exit
   //       structure is sized correctly post-cut).
   '1.4': '64c9c9e5ae0f95b80d7d2268d508b54ad4374a3d33e5de998925b3d5606ae16e' as ContentHash,
+  // v1.5 — HARD TRAP-TO-TARGET cash sweep + netted basis for funded-exit math.
+  //   Logic / copy changes (no desk-constant movement; hash unchanged):
+  //     - computeFundedExitFigures: NETTED annual sweep
+  //       (NCF − DS − operating reserves, where operating reserves = the
+  //        asset-class CapEx/TI/LC rate × EGI — same convention as
+  //        in_place_lockbox; accessed via resolveOperatingReservesPctOfEgi).
+  //     - computeFundedExitFigures: HARD CAP at reserveTargetCap. The sweep
+  //       is a trap-to-target — accrual stops once the cushion is funded.
+  //     - cash_sweep_refi_reserve copy: "100% of excess cash flow trapped
+  //       until target funded; NO distributions while the trap is open".
+  //       Removed the v1.4 "OR distributable" framing that let a performing
+  //       deal distribute instead of accruing.
+  //     - springing_dscr_recourse: residual gap computed against the netted
+  //       + capped accrual (same math the lever copy mandates).
+  //     - require_amortization: funded gate uses netted + capped basis too,
+  //       so the gate decision is consistent with what the structural cure
+  //       delivers.
+  //     - Memo renderer: surface raw exit → funded exit (at L') in the
+  //       Stressed Credit Profile; cite the funded number in the cut-path
+  //       "Why this shape"; label each condition by funding source
+  //       (deal-funded reserve / sponsor recourse / closing condition).
+  //   Convention bump — copy changes also bump the version even when the
+  //   snapshot hash doesn't move (see MITIGATION_ENGINE_VERSION docstring).
+  '1.5': '64c9c9e5ae0f95b80d7d2268d508b54ad4374a3d33e5de998925b3d5606ae16e' as ContentHash,
 };

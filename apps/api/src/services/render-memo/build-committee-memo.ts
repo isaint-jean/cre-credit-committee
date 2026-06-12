@@ -43,7 +43,12 @@ import type {
 } from '../narrative/prompt-templates.js';
 import type { EvaluateDealResult } from '../../doctrine-clean/scoring/evaluate-deal.js';
 import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
-import { DEFAULT_MITIGATION_DESK } from '../mitigation/produce-mitigations.js';
+import {
+  DEFAULT_MITIGATION_DESK,
+  computeFundedExitFigures,
+  resolveOperatingReservesPctOfEgi,
+} from '../mitigation/produce-mitigations.js';
+import { ASSET_CLASS_ENUM } from '../../doctrine-clean/index.js';
 import type { MitigationProposal } from '@cre/contracts';
 
 /* --------------------------- public surface ------------------------------ */
@@ -56,10 +61,74 @@ export interface BuildCommitteeMemoInput {
   readonly composedMitigationPackage: ComposedMitigationPackage;
 }
 
+/**
+ * v1.5 funded-exit projection — pure derivation from finalState. Used for
+ * the Stressed Credit Profile row showing raw exit → funded exit (after the
+ * hard cash trap accrual). NETTED basis + cap at reserve target, identical
+ * to what cash_sweep_refi_reserve uses. Returns null when dim 4 didn't
+ * resolve, no rc, or the deal lacks a maturity balance.
+ */
+export interface FundedExitProjection {
+  readonly rawExitAtFinalLoan: number | null;
+  readonly fundedExitAtFinalLoan: number | null;
+  readonly reserveTarget: number | null;
+  readonly fundedFloor: number | null;
+  readonly expectedAccrual: number | null;
+  readonly residualUnfunded: number | null;
+}
+
+function projectFundedExitAtFinalLoan(
+  dealResult: EvaluateDealResult,
+  composed: ComposedMitigationPackage,
+): FundedExitProjection {
+  const finalAi = composed.finalState.adjustedInputs;
+  const finalDim4 = composed.finalState.dealResult.dimensions.refinanceFeasibility;
+  const finalDim8 = composed.finalState.dealResult.dimensions.assetClass;
+  const finalSustNcf = composed.finalState.dealResult.normalization.sustainableNcf;
+  const rawExit = finalDim4.derivedOutputs?.exitDscr;
+  const rc = finalDim4.derivedOutputs?.stressedRefiConstant;
+  const maturityBalance = finalDim4.derivedOutputs?.maturityBalance;
+  if (typeof rawExit !== 'number' || typeof rc !== 'number' || typeof maturityBalance !== 'number') {
+    return { rawExitAtFinalLoan: null, fundedExitAtFinalLoan: null, reserveTarget: null, fundedFloor: null, expectedAccrual: null, residualUnfunded: null };
+  }
+  if (typeof finalSustNcf !== 'number' || !(finalSustNcf > 0)) {
+    return { rawExitAtFinalLoan: rawExit, fundedExitAtFinalLoan: null, reserveTarget: null, fundedFloor: null, expectedAccrual: null, residualUnfunded: null };
+  }
+  // Resolve asset type from dim 8 index → enum.
+  const idx = finalDim8.derivedOutputs?.canonicalAssetClassIndex;
+  const assetType = typeof idx === 'number' && idx >= 0 && idx < ASSET_CLASS_ENUM.length
+    ? ASSET_CLASS_ENUM[idx]!
+    : null;
+  const egi = finalAi.income.effectiveGrossIncome.adjusted;
+  const opReservesAnnual = Math.max(0, resolveOperatingReservesPctOfEgi(assetType) * egi);
+  const cureTarget = DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET;
+  const exitClearing = finalSustNcf / (rc * cureTarget);
+  const reserveTarget = Math.max(0, maturityBalance - exitClearing);
+  const dsAnnual = finalAi.loan.debtServiceAnnual.adjusted;
+  const termMonths = finalAi.loan.termMonths.adjusted;
+  const funded = computeFundedExitFigures(
+    finalSustNcf, dsAnnual, termMonths, rc, maturityBalance,
+    opReservesAnnual, reserveTarget,
+  );
+  // Funded floor by asset — read the same desk knob.
+  // (computeFundedExitFigures does NOT use the floor; only the band gate does.)
+  const fundedFloor = null;  // memo doesn't need the floor in the projection — value lives in the AuthoritativeNumbers projection via T_EXIT_DSCR_CURE_TARGET-adjacent
+  void fundedFloor;
+  return {
+    rawExitAtFinalLoan: rawExit,
+    fundedExitAtFinalLoan: funded.fundedExitDscr,
+    reserveTarget,
+    fundedFloor: null,
+    expectedAccrual: funded.expectedAccrual,
+    residualUnfunded: funded.residualUnfunded,
+  };
+}
+
 export function buildCommitteeMemo(input: BuildCommitteeMemoInput): string {
   const auth = projectAuthoritativeNumbers(input.dealResult, input.composedMitigationPackage);
   const findings = extractCleanDoctrineFindings(input.dealResult);
-  return renderHtml(input, auth, findings);
+  const fundedProj = projectFundedExitAtFinalLoan(input.dealResult, input.composedMitigationPackage);
+  return renderHtml(input, auth, findings, fundedProj);
 }
 
 /* --------------------------- formatting helpers --------------------------- */
@@ -156,15 +225,20 @@ function renderExecutiveSummary(narrative: NarrativeEvaluation): string {
     </section>`;
 }
 
-function renderStressedCreditProfile(auth: AuthoritativeNumbers): string {
+function renderStressedCreditProfile(auth: AuthoritativeNumbers, funded: FundedExitProjection): string {
+  // v1.5 — surface the funded exit DSCR alongside the raw exit so the
+  // "held by structure" claim is backed by the number. Funded basis nets
+  // operating reserves and caps accrual at the reserve target — identical
+  // to what the cash_sweep_refi_reserve lever delivers.
   const rows: Array<[string, string, string]> = [
     ['Original loan amount',             '',                              fmtUsd(auth.originalLoanAmount)],
     ['Concluded value',                  '(operator-supplied basis)',      fmtUsd(auth.concludedValue)],
     ['Doctrine-stressed value (dim 7)',  'cap-rate stress + sustainable-NCF haircut', fmtUsd(auth.stressedValue)],
     ['Stressed LTV (at original loan)',  '',                              fmtPct(auth.stressedLtv)],
-    ['Stressed LTV (at L′)',        '',                              fmtPct(auth.stressedLtvAtFinalLoan)],
-    ['Exit DSCR (baseline)',             '',                              fmtDscr(auth.exitDscrBaseline)],
-    ['Exit DSCR (at L′)',           '',                              fmtDscr(auth.exitDscrAtFinalLoan)],
+    ['Stressed LTV (at L′)',        '',                                   fmtPct(auth.stressedLtvAtFinalLoan)],
+    ['Exit DSCR (raw, baseline)',        '',                              fmtDscr(auth.exitDscrBaseline)],
+    ['Exit DSCR (raw, at L′)',      '',                                   fmtDscr(auth.exitDscrAtFinalLoan)],
+    ['Exit DSCR (FUNDED, at L′)',   funded.reserveTarget !== null ? `after $${(funded.reserveTarget / 1_000_000).toFixed(2)}M hard-trap reserve accrual` : '', fmtDscr(funded.fundedExitAtFinalLoan)],
     ['Exit-DSCR doctrine trigger',       '',                              fmtDscr(auth.exitDscrTrigger)],
     ['Exit-DSCR desk cure target',       '',                              fmtDscr(auth.exitDscrCureTarget)],
   ];
@@ -195,7 +269,7 @@ function renderStressedCreditProfile(auth: AuthoritativeNumbers): string {
     </section>`;
 }
 
-function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: ComposedMitigationPackage): string {
+function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: ComposedMitigationPackage, funded: FundedExitProjection): string {
   const { deLevering, orthogonal } = categorizeProposals(composed.proposals);
   const reduce = deLevering.find(p => p.lever === 'reduce_proceeds');
   const proceedsCut    = composed.reconciliation.proceedsReduction;
@@ -262,10 +336,16 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
         ceiling. Reducing proceeds to ${esc(fmtUsd(finalLoan))} brings the
         stressed LTV to <strong>${esc(fmtPct(auth.stressedLtvAtFinalLoan))}</strong>.
         Exit DSCR at L′ is <strong>${esc(fmtDscr(auth.exitDscrAtFinalLoan))}</strong>
-        — still below the ${esc(fmtDscr(auth.exitDscrTrigger))} doctrine trigger,
-        but the residual exit-refi risk is held within the desk's structured
-        tolerance by the cash-sweep refi reserve + springing DSCR recourse
-        (sized in the conditions below).
+        on the raw basis — still below the ${esc(fmtDscr(auth.exitDscrTrigger))}
+        doctrine trigger. ${funded.fundedExitAtFinalLoan !== null && funded.reserveTarget !== null ? `
+        After the hard cash trap accrues ${esc(fmtUsd(funded.reserveTarget))} into the refi
+        reserve over the term, the FUNDED exit DSCR is
+        <strong>${esc(fmtDscr(funded.fundedExitAtFinalLoan))}</strong> — the residual exit-refi
+        risk is held within the desk's structured tolerance by the cash-sweep refi reserve
+        (deal-funded; sized in the conditions below) + springing DSCR recourse (sponsor-funded,
+        contingent on a DSCR-test breach; distinct instrument, no double-count).` : `
+        The residual exit-refi risk is held within the desk's structured tolerance by the
+        cash-sweep refi reserve + springing DSCR recourse (sized in the conditions below).`}
       </p>
     </div>`;
 
@@ -305,6 +385,30 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
     </section>`;
 }
 
+/** v1.5 — classify a condition by who FUNDS it. Helps the lender
+ *  distinguish reserve (deal's own cash) from recourse (sponsor liability).
+ *  Returns a short tag suffix like "(deal-funded reserve)" or
+ *  "(sponsor recourse)". */
+function fundingTagFor(lever: string): string {
+  switch (lever) {
+    case 'cash_sweep_refi_reserve':
+    case 'in_place_cash_management':
+    case 'springing_cash_management':
+    case 'fund_reserve':
+      return 'deal-funded reserve';
+    case 'leverage_band_recourse':
+    case 'require_guaranty':
+    case 'springing_dscr_recourse':
+      return 'sponsor recourse';
+    case 'condition_precedent':
+      return 'closing condition';
+    case 'require_amortization':
+      return 'origination term';
+    default:
+      return '';
+  }
+}
+
 function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitigationPackage): string {
   const name = leverDisplayName(p.lever);
   // Covenant magnitudes at L' (only present for guaranty today; renderer
@@ -321,10 +425,12 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
   if (p.requiredPaydown !== undefined) sizing.push(`Required paydown ${fmtUsd(p.requiredPaydown)}`);
   if (p.requiredReserve !== undefined) sizing.push(`Required reserve ${fmtUsd(p.requiredReserve)}`);
   const sizingHtml = sizing.length === 0 ? '' : `<span class="memo-condition-sizing"> &nbsp;·&nbsp; ${esc(sizing.join(' · '))}</span>`;
+  const fundingTag = fundingTagFor(p.lever);
+  const fundingChip = fundingTag === '' ? '' : ` <span class="memo-condition-funding">${esc(fundingTag)}</span>`;
   return `
     <li class="memo-condition">
       <div class="memo-condition-head">
-        <span class="memo-condition-name">${esc(name)}</span>
+        <span class="memo-condition-name">${esc(name)}</span>${fundingChip}
         <span class="memo-condition-id">${esc(p.id ?? '')}</span>
         ${sizingHtml}
       </div>
@@ -565,6 +671,19 @@ const STYLE = `
     color: #5a5a5a;
     margin-left: 8pt;
   }
+  .memo-condition-funding {
+    display: inline-block;
+    margin-left: 7pt;
+    padding: 1pt 6pt;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    background: #e8e5df;
+    color: #2a2a2a;
+    border-radius: 1pt;
+    font-weight: 600;
+  }
   .memo-condition-sizing { color: #2a2a2a; font-style: italic; }
   .memo-condition-title {
     font-family: Georgia, 'Times New Roman', serif;
@@ -596,6 +715,7 @@ function renderHtml(
   input: BuildCommitteeMemoInput,
   auth: AuthoritativeNumbers,
   findings: readonly CleanDoctrineFinding[],
+  funded: FundedExitProjection,
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -608,8 +728,8 @@ function renderHtml(
 <article class="memo-document">
   ${renderHeader(input, auth)}
   ${renderExecutiveSummary(input.narrative)}
-  ${renderStressedCreditProfile(auth)}
-  ${renderRestructuringPackage(auth, input.composedMitigationPackage)}
+  ${renderStressedCreditProfile(auth, funded)}
+  ${renderRestructuringPackage(auth, input.composedMitigationPackage, funded)}
   ${renderRiskAssessment(input.narrative, findings)}
   ${renderCommitteeRecommendation(input.narrative)}
   ${renderFooter(input, auth)}

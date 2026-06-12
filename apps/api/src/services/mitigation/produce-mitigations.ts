@@ -226,30 +226,46 @@ function resolveAssetTypeFromDeal(
 
 /**
  * v1.4 — FUNDED EXIT DSCR computation.
+ * v1.5 — Netted basis + HARD TRAP-TO-TARGET cap on accrual.
  *
- * The exit band gate switched from raw exit DSCR to FUNDED exit DSCR at v1.4.
- * Rationale: when cash-sweep refi reserve is the structural cure, the take-
- * out lender does not see the raw maturity balance — they see the maturity
- * balance reduced by the accumulated reserve. The funded exit DSCR is what
- * the take-out actually underwrites.
+ * The exit band gate uses FUNDED exit DSCR (raw exit after the cash-sweep
+ * reserve reduces the effective take-out balance). v1.5 makes the math
+ * consistent with the structure the cash_sweep lever mandates:
  *
- * Math (pure):
- *   annualSweep        = max(0, sustainableNcf - debtServiceAnnual)
- *   expectedAccrual    = annualSweep × termYears
- *   effectiveBalance   = max(0, maturityBalance - expectedAccrual)
- *   fundedExitDscr     = sustainableNcf / (rc × effectiveBalance)
- *                         (or Infinity when effectiveBalance ≤ 0)
+ *   (a) NETTED BASIS — annual sweep = NCF − debt service − required
+ *       operating/capex reserves. The structure traps "100% of excess
+ *       cash flow above debt service AND operating reserves"; the math
+ *       therefore nets the operating reserves the lender requires the
+ *       deal to fund anyway (asset-class CapEx + TI/LC at
+ *       ASSET_CLASS_RESERVE_PROFILE[asset].reservePctOfEgiDefault × EGI —
+ *       same convention as the in_place_lockbox lever).
+ *
+ *   (b) HARD CAP AT TARGET — the sweep is a TRAP TO TARGET. Once the
+ *       reserve target is funded, the sweep STOPS; subsequent cash flow
+ *       is released subject to performance tests. Accrual is therefore
+ *       capped at min(sweep_net × termYears, reserveTarget).
+ *
+ *   (c) Effective balance = max(0, maturityBalance − accrual).
+ *   (d) fundedExitDscr   = sustainableNcf / (rc × effectiveBalance)
+ *                          (or Infinity when effective balance ≤ 0).
  *
  * Used by the cash_sweep + springing + amortization levers to classify the
  * exit band against the FUNDED floor (T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET).
  * The DOCTRINE breach signal is still the raw exit DSCR < 1.20; the FUNDED
  * gate governs whether structure can carry it.
+ *
+ * `reserveTargetCap` is OPTIONAL. When provided, accrual is capped at the
+ * target (the structure stops accruing once the cushion is funded). When
+ * null/undefined, accrual = sweep × term (no cap — used for diagnostics).
  */
 export interface FundedExitFigures {
-  readonly annualSweep: number;
-  readonly expectedAccrual: number;
+  readonly annualSweep: number;          // NETTED — after operating reserves
+  readonly operatingReservesAnnual: number;
+  readonly expectedAccrual: number;      // capped at min(sweep × term, target)
   readonly effectiveBalance: number;
   readonly fundedExitDscr: number;
+  readonly yearsToFillTarget: number | null;  // null when target not provided or sweep ≤ 0
+  readonly residualUnfunded: number;     // 0 when fully funded; gap when not
 }
 
 export function computeFundedExitFigures(
@@ -258,15 +274,44 @@ export function computeFundedExitFigures(
   termMonths: number,
   rc: number,
   maturityBalance: number,
+  operatingReservesAnnual: number = 0,
+  reserveTargetCap: number | null = null,
 ): FundedExitFigures {
-  const annualSweep = Math.max(0, sustainableNcf - debtServiceAnnual);
+  const annualSweep = Math.max(0, sustainableNcf - debtServiceAnnual - operatingReservesAnnual);
   const termYears = termMonths > 0 ? termMonths / 12 : 0;
-  const expectedAccrual = annualSweep * termYears;
+  const uncappedAccrual = annualSweep * termYears;
+  // Hard cap at reserve target (the trap stops at target).
+  const targetCap = reserveTargetCap !== null && reserveTargetCap > 0 ? reserveTargetCap : Infinity;
+  const expectedAccrual = Math.min(uncappedAccrual, targetCap);
   const effectiveBalance = Math.max(0, maturityBalance - expectedAccrual);
   const fundedExitDscr = effectiveBalance > 0
     ? sustainableNcf / (rc * effectiveBalance)
     : Number.POSITIVE_INFINITY;
-  return { annualSweep, expectedAccrual, effectiveBalance, fundedExitDscr };
+  const yearsToFillTarget = (reserveTargetCap !== null && reserveTargetCap > 0 && annualSweep > 0)
+    ? reserveTargetCap / annualSweep
+    : null;
+  const residualUnfunded = reserveTargetCap !== null && reserveTargetCap > 0
+    ? Math.max(0, reserveTargetCap - uncappedAccrual)
+    : 0;
+  return {
+    annualSweep,
+    operatingReservesAnnual,
+    expectedAccrual,
+    effectiveBalance,
+    fundedExitDscr,
+    yearsToFillTarget,
+    residualUnfunded,
+  };
+}
+
+/** Resolve the operating-reserves rate (% of EGI) for an asset class — the
+ *  same convention `buildInPlaceLockboxProposal` uses to size its CapEx /
+ *  TI/LC escrow. Returns 0 when the asset class has no profile (callers
+ *  net nothing — degrades to v1.4 gross behavior). */
+export function resolveOperatingReservesPctOfEgi(assetType: string | null): number {
+  if (assetType === null) return 0;
+  const profile = ASSET_CLASS_RESERVE_PROFILE[assetType];
+  return profile?.reservePctOfEgiDefault ?? 0;
 }
 
 /* ----------------- require_guaranty desk knobs (v2 lever 2) --------------- */
@@ -956,12 +1001,23 @@ function buildAmortizationProposal(
   const assetType = resolveAssetTypeFromDeal(dealResult);
   const exitFloor = resolveExitDscrStructuredFloor(assetType);
   const debtServiceForFundedRaw = ai.loan.debtServiceAnnual.adjusted;
+  // v1.5 — funded gate uses NETTED basis + HARD CAP at the cash-sweep
+  // target. Mirror of cash_sweep/springing logic so the gate decision is
+  // consistent with what the structural cure actually delivers.
+  const cureTargetForGate = desk.T_EXIT_DSCR_CURE_TARGET;
+  const exitClearingBalanceForGate = sustainableNcf / (stressedRefiConstRaw * cureTargetForGate);
+  const reserveTargetForGate = Math.max(0, maturityBalanceRaw - exitClearingBalanceForGate);
+  const egiForGate = ai.income.effectiveGrossIncome.adjusted;
+  const opReservesPctForGate = resolveOperatingReservesPctOfEgi(assetType);
+  const operatingReservesAnnualForGate = Math.max(0, opReservesPctForGate * egiForGate);
   const fundedRaw = computeFundedExitFigures(
     sustainableNcf,
     debtServiceForFundedRaw,
     ai.loan.termMonths.adjusted,
     stressedRefiConstRaw,
     maturityBalanceRaw,
+    operatingReservesAnnualForGate,
+    reserveTargetForGate,
   );
   if (fundedRaw.fundedExitDscr >= exitFloor) {
     // STRUCTURED BAND on the funded basis — cash_sweep + springing carry it.
@@ -1296,50 +1352,58 @@ function buildCashSweepRefiReserveProposal(
   const floor = resolveExitDscrStructuredFloor(assetType);
   // v1.4 — gate switches to FUNDED exit DSCR. Doctrine breach signal: raw
   // exit < 1.20. Then classify on funded exit vs funded floor.
+  // v1.5 — netted basis + hard cap at target (TRAP TO TARGET).
   if (exitDscr >= EXIT_DSCR_REFINANCEABLE_THRESHOLD) return null;
   const maturityBalance = dealResult.dimensions.refinanceFeasibility.derivedOutputs?.maturityBalance;
   if (typeof maturityBalance !== 'number' || !(maturityBalance > 0)) return null;
   const debtServiceAnnual = ai.loan.debtServiceAnnual.adjusted;
   const termMonths = ai.loan.termMonths.adjusted;
+  const currentLoan = ai.loan.loanAmount.adjusted;
+  const cureTarget = desk.T_EXIT_DSCR_CURE_TARGET;
+  // Reserve target: maturityBalance − exitClearingBalance (where exit-
+  // clearing balance is the effective balance that clears the cure target).
+  const exitClearingBalance = sustainableNcf / (stressedRefiConst * cureTarget);
+  const reserveTarget = Math.max(0, maturityBalance - exitClearingBalance);
+  // Operating reserves the structure nets out (same convention as
+  // in_place_lockbox): asset-class CapEx + TI/LC at reservePctOfEgi × EGI.
+  const egi = ai.income.effectiveGrossIncome.adjusted;
+  const opReservesPct = resolveOperatingReservesPctOfEgi(assetType);
+  const operatingReservesAnnual = Math.max(0, opReservesPct * egi);
   const funded = computeFundedExitFigures(
     sustainableNcf, debtServiceAnnual, termMonths, stressedRefiConst, maturityBalance,
+    operatingReservesAnnual, reserveTarget,
   );
   if (funded.fundedExitDscr < floor) return null;  // beyond floor — amort handles.
 
-  const currentLoan = ai.loan.loanAmount.adjusted;
-  const cureTarget = desk.T_EXIT_DSCR_CURE_TARGET;
-  // Refi reserve target: the post-sweep effective balance the take-out lender
-  // would see post-reserve-application clears cure target. Reserve target =
-  // maturityBalance − (NCF / (rc × cureTarget)).
-  const exitClearingBalance = sustainableNcf / (stressedRefiConst * cureTarget);
-  const reserveTarget = Math.max(0, maturityBalance - exitClearingBalance);
   const termYears = termMonths > 0 ? termMonths / 12 : 0;
-  const fullyFunded = funded.expectedAccrual >= reserveTarget;
-  const residualUnfunded = Math.max(0, reserveTarget - funded.expectedAccrual);
+  const fullyFunded = funded.residualUnfunded === 0;
+  const yearsToFillStr = funded.yearsToFillTarget !== null
+    ? funded.yearsToFillTarget.toFixed(1) + ' yr'
+    : '—';
   return {
     id: 'cash_sweep_refi_reserve_structured',
     principleIds: [],
     lever: 'cash_sweep_refi_reserve',
     leverKind: 'coverage_reserve',
-    title: 'Cash sweep — refi reserve toward balloon',
+    title: 'Hard cash trap to refi-reserve target',
     description:
       `Raw exit DSCR ${exitDscr.toFixed(2)}x breaches the doctrine refinanceable line ` +
       `${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x; the FUNDED exit DSCR ` +
-      `${funded.fundedExitDscr.toFixed(2)}x (after the realistic cash-sweep accrual ` +
-      `${fmtUsd(funded.expectedAccrual)} reduces the maturity balance to effective ` +
-      `${fmtUsd(funded.effectiveBalance)}) clears the desk's funded floor of ` +
-      `${floor.toFixed(2)}x for ${assetType ?? 'this asset class'}. STRUCTURED — hold ` +
-      `origination at ${fmtUsd(currentLoan)} and implement excess-cash sweep into a ` +
-      `controlled refi-reserve account. Reserve TARGET ${fmtUsd(reserveTarget)} (clears ` +
-      `cure target ${cureTarget.toFixed(2)}x). Expected accrual ${fmtUsd(funded.annualSweep)}/yr × ` +
-      `${termYears.toFixed(0)}yr = ${fmtUsd(funded.expectedAccrual)} ` +
-      `(${fullyFunded ? 'fully funds the target' : 'residual unfunded ' + fmtUsd(residualUnfunded) + ' — covered by springing recourse'}).`,
+      `${funded.fundedExitDscr.toFixed(2)}x (after a hard cash trap accrues ${fmtUsd(funded.expectedAccrual)} ` +
+      `into the refi reserve, reducing the effective take-out balance to ${fmtUsd(funded.effectiveBalance)}) ` +
+      `clears the desk's funded floor of ${floor.toFixed(2)}x for ${assetType ?? 'this asset class'}. ` +
+      `STRUCTURED — hold origination at ${fmtUsd(currentLoan)} and trap 100% of excess cash flow ` +
+      `(NCF ${fmtUsd(sustainableNcf)} − debt service ${fmtUsd(debtServiceAnnual)} − required operating/` +
+      `capex reserves ${fmtUsd(operatingReservesAnnual)} = ${fmtUsd(funded.annualSweep)}/yr) into a ` +
+      `controlled refi-reserve account UNTIL the target ${fmtUsd(reserveTarget)} is funded ` +
+      `(time-to-fill ${yearsToFillStr} on a ${termYears.toFixed(0)}-year term). ` +
+      `${fullyFunded ? 'Target fully funded within the term — distributions released only AFTER the reserve target is met (and then subject to DSCR/occupancy tests).' : 'Residual unfunded ' + fmtUsd(funded.residualUnfunded) + ' — backstopped by springing recourse (sized separately).'}`,
     structuralChanges: [
-      `Sweep all NCF above debt service + operating reserves into a controlled refi-reserve account`,
-      `Reserve target ${fmtUsd(reserveTarget)} by maturity (post-sweep effective balance ${fmtUsd(exitClearingBalance)} on a ${fmtUsd(maturityBalance)} maturity balance)`,
-      `Expected accrual at ${fmtUsd(funded.annualSweep)}/yr × ${termYears.toFixed(0)}yr = ${fmtUsd(funded.expectedAccrual)} ` +
-      (fullyFunded ? '(fully funded)' : `(residual unfunded ${fmtUsd(residualUnfunded)} — backstopped by springing recourse)`),
-      `Released to take-out at maturity OR distributable subject to DSCR / occupancy tests`,
+      `HARD CASH TRAP: 100% of excess cash flow (NCF − debt service − required operating/capex reserves = ${fmtUsd(funded.annualSweep)}/yr on the netted basis) swept into a controlled refi-reserve account`,
+      `Reserve target ${fmtUsd(reserveTarget)} (post-trap effective balance ${fmtUsd(funded.effectiveBalance)} on a ${fmtUsd(maturityBalance)} maturity balance — clears cure target ${cureTarget.toFixed(2)}x)`,
+      `Time to fill at the netted sweep rate: ${yearsToFillStr} on a ${termYears.toFixed(0)}-year term ${fullyFunded ? '(fills within term — fully funded)' : '(does NOT fill within term — residual unfunded ' + fmtUsd(funded.residualUnfunded) + ' backstopped by springing recourse)'}`,
+      `NO distributions while the trap is open. Distributions release ONLY after the reserve target is met AND DSCR/occupancy tests are satisfied`,
+      `Reserve held by lender custodian; released to the take-out lender at maturity to retire the refi gap`,
     ],
     requiredReserve: reserveTarget,
     riskReduction: 'moderate',
@@ -1376,19 +1440,24 @@ function buildSpringingDscrRecourseProposal(
   const assetType = resolveAssetTypeFromDeal(dealResult);
   const floor = resolveExitDscrStructuredFloor(assetType);
   // v1.4 — funded gate. Mirror of cash_sweep gate.
+  // v1.5 — netted + hard-trap basis. Must match cash_sweep so the
+  // residual gap the springing covers is the SAME residual the trap leaves.
   if (exitDscr >= EXIT_DSCR_REFINANCEABLE_THRESHOLD) return null;
   const debtServiceAnnual = ai.loan.debtServiceAnnual.adjusted;
   const termMonths = ai.loan.termMonths.adjusted;
-  const funded = computeFundedExitFigures(
-    sustainableNcf, debtServiceAnnual, termMonths, stressedRefiConst, maturityBalance,
-  );
-  if (funded.fundedExitDscr < floor) return null;
-
   const currentLoan = ai.loan.loanAmount.adjusted;
   const cureTarget = desk.T_EXIT_DSCR_CURE_TARGET;
   const exitClearingBalance = sustainableNcf / (stressedRefiConst * cureTarget);
   const reserveTarget = Math.max(0, maturityBalance - exitClearingBalance);
-  const residualUnfunded = Math.max(0, reserveTarget - funded.expectedAccrual);
+  const egi = ai.income.effectiveGrossIncome.adjusted;
+  const opReservesPct = resolveOperatingReservesPctOfEgi(assetType);
+  const operatingReservesAnnual = Math.max(0, opReservesPct * egi);
+  const funded = computeFundedExitFigures(
+    sustainableNcf, debtServiceAnnual, termMonths, stressedRefiConst, maturityBalance,
+    operatingReservesAnnual, reserveTarget,
+  );
+  if (funded.fundedExitDscr < floor) return null;
+  const residualUnfunded = funded.residualUnfunded;
 
   // v1.4 — recourse sized to COVER THE RESIDUAL, with minimum tier floor.
   const minRecourseUsd = MIN_SPRINGING_RECOURSE_PCT * currentLoan;
