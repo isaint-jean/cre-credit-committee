@@ -106,6 +106,20 @@ export const DEFAULT_MITIGATION_DESK: MitigationDeskConstants = {
 /** Sane reserve ceiling (clamped + flagged in the description if it binds). */
 export const RESERVE_CAP_USD = 25_000_000;
 
+/**
+ * v1.7 — SPONSOR cash-at-risk flag threshold.
+ *
+ * Cash-at-risk = equity ask + net recourse cap, expressed as % of FINAL
+ * loan. When this crosses the threshold, the composed package surfaces a
+ * non-blocking flag advising the desk to consider lightening a lever or
+ * routing the deal to a recourse lender.
+ *
+ * Provisional 0.45 (45% of loan) — [ISABELLE-TO-CALIBRATE]. Operator-
+ * judgment line at which a non-recourse execution starts to read as a
+ * personally-guaranteed deal in disguise.
+ */
+export const SPONSOR_CASH_AT_RISK_FLAG_THRESHOLD = 0.45;
+
 /* =========================================================================
  * v1.3 — STRUCTURE-FIRST band knobs (asset-keyed; operator-judgment).
  *
@@ -293,7 +307,7 @@ export function interpolateLeverageBandTier(
  *  derived `canonicalAssetClassIndex` index into ASSET_CLASS_ENUM. Returns
  *  null when dim 8 didn't resolve. Used by structure-first sizing to look up
  *  the per-asset ceiling / floor. */
-function resolveAssetTypeFromDeal(
+export function resolveAssetTypeFromDeal(
   dealResult: EvaluateDealResult | undefined,
 ): string | null {
   const idx = dealResult?.dimensions.assetClass.derivedOutputs?.canonicalAssetClassIndex;
@@ -480,6 +494,8 @@ export function buildMitigationEngineHashSnapshot() {
     // _default mirrors Office until per-asset calibration). Light at trigger,
     // heavy at ceiling; convex (p²) interpolation in the lever.
     leverageBandRecourseTiersByAsset: Array.from(LEVERAGE_BAND_RECOURSE_TIERS_BY_ASSET.entries()),
+    // v1.7 sponsor cash-at-risk flag threshold [ISABELLE-TO-CALIBRATE].
+    sponsorCashAtRiskFlagThreshold: SPONSOR_CASH_AT_RISK_FLAG_THRESHOLD,
   };
 }
 

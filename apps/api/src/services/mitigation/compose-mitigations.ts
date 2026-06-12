@@ -68,10 +68,18 @@ import {
   produceMitigations,
   DEFAULT_MITIGATION_DESK,
   DEFAULT_GUARANTY_TIER_TERMS,
+  SPONSOR_CASH_AT_RISK_FLAG_THRESHOLD,
+  resolveAssetTypeFromDeal,
+  resolveLtvStructuredCeiling,
+  resolveOperatingReservesPctOfEgi,
+  resolveLeverageBandTierEndpoints,
+  interpolateLeverageBandTier,
+  computeFundedExitFigures,
   type MitigationDeskConstants,
   type GuarantyTierKey,
   type GuarantyTierTerms,
 } from './produce-mitigations.js';
+import { EXIT_DSCR_REFINANCEABLE_THRESHOLD } from '../../doctrine-clean/index.js';
 
 /* --------------------------------- types ---------------------------------- */
 
@@ -132,6 +140,40 @@ export interface ComposeReconciliation {
   readonly covenantMagnitudesAtFinalLoan: readonly CovenantMagnitudesAtFinalLoan[];
 }
 
+/**
+ * v1.7 — Sponsor burden profile.
+ *
+ * Distinct kinds of sponsor obligation in a composed package. Do NOT
+ * fake a single number — each piece is a different commitment kind:
+ *   - equityAsk: real cash the sponsor must fill at closing
+ *   - netRecourseCap: contingent cash-at-risk on a payment / DSCR-test event
+ *   - netWorthRequirement / liquidityRequirement: balance-sheet capacity,
+ *     not at-risk capital (covenants the sponsor must demonstrate)
+ *   - distributionLockupYears: time the cash trap holds before distributions
+ *
+ * `cashAtRisk` aggregates ONLY the comparable cash pieces (equity +
+ * net recourse). It's expressed as USD AND as a fraction of the final
+ * loan. Crossing `flagThreshold` raises `flagsBurden` for display.
+ */
+export interface SponsorBurdenProfile {
+  readonly equityAsk: number;
+  readonly netRecourseCap: number;
+  readonly recourseBreakdown: ReadonlyArray<{
+    readonly lever: string;
+    readonly proposalId: string;
+    readonly capUsd: number;
+    readonly note: string;
+  }>;
+  readonly netWorthRequirement: number;       // covenant magnitude in dollars
+  readonly liquidityRequirement: number;
+  readonly distributionLockupYears: number | null;
+  readonly cashAtRiskUsd: number;             // equityAsk + netRecourseCap
+  readonly cashAtRiskPctOfFinalLoan: number;
+  readonly flagThreshold: number;
+  readonly flagsBurden: boolean;
+  readonly flagCopy: string | null;            // human-readable when flagged
+}
+
 export interface ComposedMitigationPackage {
   /** Final lever list to present to the lender. */
   readonly proposals: readonly MitigationProposal[];
@@ -143,6 +185,8 @@ export interface ComposedMitigationPackage {
   readonly finalLoanAmount: number;
   /** Pass-through state at L' (for downstream consumers — narrative, UI). */
   readonly finalState: DealComputeState;
+  /** v1.7 — sponsor burden profile derived from the composed package. */
+  readonly sponsorBurdenProfile: SponsorBurdenProfile;
 }
 
 /* ------------------------------- entry point ------------------------------ */
@@ -375,6 +419,18 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
   else                            proposals.push(...recomputedMidBand);
   proposals.push(...orthogonal);
 
+  /* ---- (4.5) v1.7 — Subordinate the springing when leverage covers it. */
+  // The leverage_band_recourse is a partial PAYMENT guaranty: it covers the
+  // balloon up to (recoursePct × L'). The springing_dscr_recourse covers
+  // exit residual unfunded. When the leverage cap fully covers the exit
+  // residual, the springing is redundant — DROP it (no double-count).
+  // Keep ONLY when leverage is absent (e.g., LTV below trigger) or too light
+  // to cover the residual.
+  const subordinationApplied = subordinateSpringingIfRedundant(
+    proposals, finalState, notes,
+  );
+  void subordinationApplied;
+
   /* ---- (5) Assemble reconciliation. ------------------------------------ */
   const reconciliation: ComposeReconciliation = {
     originalLoanAmount,
@@ -386,12 +442,18 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
     covenantMagnitudesAtFinalLoan: covenantMagnitudes,
   };
 
+  /* ---- (6) v1.7 — Sponsor burden profile. ------------------------------ */
+  const sponsorBurdenProfile = computeSponsorBurdenProfile(
+    proposals, finalState, finalLoanAmount, originalLoanAmount - finalLoanAmount,
+  );
+
   return {
     proposals,
     initialProposals,
     reconciliation,
     finalLoanAmount,
     finalState,
+    sponsorBurdenProfile,
   };
 }
 
@@ -439,4 +501,294 @@ function resolveCovenantMagnitudes(
     );
   }
   return lines;
+}
+
+
+/* ============== v1.7 — total-package coherence helpers ==================== */
+
+/**
+ * Subordinate the springing_dscr_recourse when leverage_band_recourse covers
+ * the balloon. MUTATES the proposals array (removes the springing) and
+ * appends a reconciliation note when redundant.
+ *
+ * Doctrine:
+ *   - leverage_band_recourse is a partial PAYMENT guaranty, capped at
+ *     recoursePct × finalLoanAmount. That cap is available to retire the
+ *     balloon at maturity.
+ *   - springing_dscr_recourse is sized at max(MIN × loan, exit-residual-
+ *     unfunded). Its purpose is to backstop the exit refi gap.
+ *   - When the leverage cap ≥ exit residual unfunded, the leverage guaranty
+ *     ALREADY covers the same balloon risk the springing was meant to cover.
+ *     Drop the springing — no double-count.
+ *   - When leverage is absent OR cap < residual, KEEP springing; it covers
+ *     the uncovered excess.
+ *
+ * Returns true when subordination dropped the springing; false otherwise.
+ */
+function subordinateSpringingIfRedundant(
+  proposals: MitigationProposal[],
+  finalState: DealComputeState,
+  notes: string[],
+): boolean {
+  const leverageIdx = proposals.findIndex(p => p.lever === 'leverage_band_recourse');
+  const springingIdx = proposals.findIndex(p => p.lever === 'springing_dscr_recourse');
+  if (leverageIdx === -1 || springingIdx === -1) return false;
+
+  const finalLoan = finalState.adjustedInputs.loan.loanAmount.adjusted;
+  if (!(finalLoan > 0)) return false;
+
+  // Recompute the leverage recourse cap at L' via the same interpolator
+  // the lever uses. dim 7 supplies stressedLtv at L'.
+  const assetType = resolveAssetTypeFromDeal(finalState.dealResult);
+  const dim7 = finalState.dealResult.dimensions.capRateValuationStress;
+  const stressedLtvAtFinal = dim7.derivedOutputs?.stressedLtv;
+  if (typeof stressedLtvAtFinal !== 'number' || !Number.isFinite(stressedLtvAtFinal)) return false;
+  const trigger = DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER;
+  const ceiling = resolveLtvStructuredCeiling(assetType);
+  const endpoints = resolveLeverageBandTierEndpoints(assetType);
+  const interp = interpolateLeverageBandTier(stressedLtvAtFinal, trigger, ceiling, endpoints);
+  const leverageCap = interp.recoursePct * finalLoan;
+
+  // Compute the exit residual unfunded the springing was meant to cover.
+  const dim4 = finalState.dealResult.dimensions.refinanceFeasibility;
+  const sustainableNcf = finalState.dealResult.normalization.sustainableNcf;
+  const rc = dim4.derivedOutputs?.stressedRefiConstant;
+  const maturityBalance = dim4.derivedOutputs?.maturityBalance;
+  if (typeof sustainableNcf !== 'number' || !(sustainableNcf > 0)) return false;
+  if (typeof rc !== 'number' || !(rc > 0)) return false;
+  if (typeof maturityBalance !== 'number' || !(maturityBalance > 0)) return false;
+  const cureTarget = DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET;
+  const exitClearingBalance = sustainableNcf / (rc * cureTarget);
+  const reserveTarget = Math.max(0, maturityBalance - exitClearingBalance);
+  const egi = finalState.adjustedInputs.income.effectiveGrossIncome.adjusted;
+  const opReservesPct = resolveOperatingReservesPctOfEgi(assetType);
+  const operatingReservesAnnual = Math.max(0, opReservesPct * egi);
+  const debtServiceAnnual = finalState.adjustedInputs.loan.debtServiceAnnual.adjusted;
+  const termMonths = finalState.adjustedInputs.loan.termMonths.adjusted;
+  const funded = computeFundedExitFigures(
+    sustainableNcf, debtServiceAnnual, termMonths, rc, maturityBalance,
+    operatingReservesAnnual, reserveTarget,
+  );
+  const exitResidual = funded.residualUnfunded;
+
+  // Doctrine: drop only when leverage cap fully covers the residual.
+  // Distinguish the two redundancy cases honestly — they have different
+  // doctrinal flavors:
+  //   (A) residual = $0 — the cash trap FULLY funds the exit. The minimum-
+  //       tier springing has no residual to backstop; it would only fire on
+  //       a coverage breach, but the leverage guaranty already backstops
+  //       payment in any case. Drop it.
+  //   (B) 0 < residual ≤ leverage cap — the trap leaves a gap, but the
+  //       leverage cap covers the gap. The leverage guaranty subsumes the
+  //       springing's coverage of the residual.
+  if (leverageCap >= exitResidual) {
+    // Redundant — drop the springing.
+    proposals.splice(springingIdx, 1);
+    if (exitResidual <= 0) {
+      // Case A — fully funded by the trap.
+      notes.push(
+        `Springing DSCR recourse SUBORDINATED — exit fully funded by the cash trap (residual ` +
+        `${fmtUsd(exitResidual)}); the minimum-tier springing DSCR recourse has no residual to ` +
+        `backstop and is removed. The ${fmtUsd(leverageCap)} leverage payment guaranty ` +
+        `(${(interp.recoursePct * 100).toFixed(1)}% of L' = ${fmtUsd(finalLoan)}) backstops any ` +
+        `payment shortfall in any case — no double-count.`,
+      );
+    } else {
+      // Case B — residual covered by the leverage guaranty.
+      notes.push(
+        `Springing DSCR recourse SUBORDINATED — exit refi residual ${fmtUsd(exitResidual)} is ` +
+        `already covered by the ${(interp.recoursePct * 100).toFixed(1)}% leverage payment guaranty ` +
+        `(${fmtUsd(leverageCap)} cap on L' = ${fmtUsd(finalLoan)}, which covers the balloon). ` +
+        `Standalone springing DSCR recourse removed as redundant — no double-count.`,
+      );
+    }
+    return true;
+  }
+
+  // Leverage doesn't fully cover — KEEP springing (it covers the excess).
+  // Optionally re-size in a future revision; current scope keeps the existing
+  // springing proposal as-is.
+  notes.push(
+    `Springing DSCR recourse RETAINED — exit refi residual ${fmtUsd(exitResidual)} exceeds ` +
+    `the leverage recourse cap ${fmtUsd(leverageCap)}. Springing covers the uncovered excess ` +
+    `${fmtUsd(Math.max(0, exitResidual - leverageCap))}.`,
+  );
+  return false;
+}
+
+/**
+ * Compute the sponsor burden profile from the (post-subordination) proposals.
+ *
+ * Each kind of burden is tracked distinctly. cashAtRisk aggregates ONLY
+ * equity ask + net recourse cap (the comparable cash commitments). NW /
+ * liquidity covenants are CAPACITY measures — surfaced alongside, NOT
+ * summed in.
+ */
+function computeSponsorBurdenProfile(
+  proposals: readonly MitigationProposal[],
+  finalState: DealComputeState,
+  finalLoanAmount: number,
+  equityAsk: number,
+): SponsorBurdenProfile {
+  // Net recourse cap — sum across recourse-flavored levers that survived
+  // subordination.
+  const recourseBreakdown: Array<{ lever: string; proposalId: string; capUsd: number; note: string }> = [];
+  let netRecourseCap = 0;
+
+  // leverage_band_recourse — re-interpolate to get the cap at L'.
+  const leverageProp = proposals.find(p => p.lever === 'leverage_band_recourse');
+  if (leverageProp !== undefined && finalLoanAmount > 0) {
+    const assetType = resolveAssetTypeFromDeal(finalState.dealResult);
+    const dim7 = finalState.dealResult.dimensions.capRateValuationStress;
+    const sLtv = dim7.derivedOutputs?.stressedLtv;
+    if (typeof sLtv === 'number' && Number.isFinite(sLtv)) {
+      const trigger = DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER;
+      const ceiling = resolveLtvStructuredCeiling(assetType);
+      const endpoints = resolveLeverageBandTierEndpoints(assetType);
+      const interp = interpolateLeverageBandTier(sLtv, trigger, ceiling, endpoints);
+      const cap = interp.recoursePct * finalLoanAmount;
+      netRecourseCap += cap;
+      recourseBreakdown.push({
+        lever: leverageProp.lever,
+        proposalId: leverageProp.id ?? '',
+        capUsd: cap,
+        note: `${(interp.recoursePct * 100).toFixed(1)}% of L' (band position p = ${interp.p.toFixed(2)}, convex w = ${interp.w.toFixed(2)})`,
+      });
+    }
+  }
+
+  // springing_dscr_recourse — only present if subordination kept it.
+  const springingProp = proposals.find(p => p.lever === 'springing_dscr_recourse');
+  if (springingProp !== undefined && finalLoanAmount > 0) {
+    // Re-derive the springing cap via the same logic the lever uses: max(MIN × loan, residual).
+    // MIN_SPRINGING_RECOURSE_PCT is 0.10 in produce-mitigations.ts. Hard-code
+    // matching value here (could be threaded via export if drift becomes a
+    // concern; for now this is a CI invariant: same constant in two places).
+    const MIN_SPRINGING_RECOURSE_PCT = 0.10;
+    const minCap = MIN_SPRINGING_RECOURSE_PCT * finalLoanAmount;
+    // The actual cap = max(min, residual). We re-derive residual.
+    const assetType = resolveAssetTypeFromDeal(finalState.dealResult);
+    const dim4 = finalState.dealResult.dimensions.refinanceFeasibility;
+    const sustainableNcf = finalState.dealResult.normalization.sustainableNcf;
+    const rc = dim4.derivedOutputs?.stressedRefiConstant;
+    const maturityBalance = dim4.derivedOutputs?.maturityBalance;
+    let cap = minCap;
+    if (typeof sustainableNcf === 'number' && sustainableNcf > 0 &&
+        typeof rc === 'number' && rc > 0 &&
+        typeof maturityBalance === 'number' && maturityBalance > 0) {
+      const cureTarget = DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET;
+      const exitClearing = sustainableNcf / (rc * cureTarget);
+      const reserveTarget = Math.max(0, maturityBalance - exitClearing);
+      const egi = finalState.adjustedInputs.income.effectiveGrossIncome.adjusted;
+      const opReservesPct = resolveOperatingReservesPctOfEgi(assetType);
+      const operatingReservesAnnual = Math.max(0, opReservesPct * egi);
+      const debtServiceAnnual = finalState.adjustedInputs.loan.debtServiceAnnual.adjusted;
+      const termMonths = finalState.adjustedInputs.loan.termMonths.adjusted;
+      const funded = computeFundedExitFigures(
+        sustainableNcf, debtServiceAnnual, termMonths, rc, maturityBalance,
+        operatingReservesAnnual, reserveTarget,
+      );
+      cap = Math.max(minCap, funded.residualUnfunded);
+    }
+    netRecourseCap += cap;
+    recourseBreakdown.push({
+      lever: springingProp.lever,
+      proposalId: springingProp.id ?? '',
+      capUsd: cap,
+      note: `max(min tier 10% × L', residual unfunded gap) — sized to backstop the exit residual not covered by leverage recourse`,
+    });
+  }
+
+  // require_guaranty — when dim 9 fires; carries tier-based recourse %.
+  // Parse from the proposal's id (guaranty_sponsor_{mild|moderate|severe}).
+  const guarantyProp = proposals.find(p => p.lever === 'require_guaranty');
+  if (guarantyProp !== undefined && finalLoanAmount > 0) {
+    const id = guarantyProp.id ?? '';
+    const tier = id.replace(/^guaranty_sponsor_/, '');
+    const tierKey: GuarantyTierKey | null =
+      tier === 'mild' || tier === 'moderate' || tier === 'severe'
+        ? (/disqualifying/i.test((guarantyProp as { description?: string }).description ?? '') && tier === 'severe' ? 'disqualifying-event' : tier as GuarantyTierKey)
+        : null;
+    if (tierKey !== null) {
+      const t = DEFAULT_GUARANTY_TIER_TERMS[tierKey];
+      const cap = t.recoursePct * finalLoanAmount;
+      netRecourseCap += cap;
+      recourseBreakdown.push({
+        lever: guarantyProp.lever,
+        proposalId: id,
+        capUsd: cap,
+        note: `dim-9 sponsor tier '${tierKey}' — ${(t.recoursePct * 100).toFixed(0)}% recourse`,
+      });
+    }
+  }
+
+  // Capacity covenants — leverage_band_recourse drives NW + liquidity.
+  let netWorthRequirement = 0;
+  let liquidityRequirement = 0;
+  if (leverageProp !== undefined && finalLoanAmount > 0) {
+    const assetType = resolveAssetTypeFromDeal(finalState.dealResult);
+    const dim7 = finalState.dealResult.dimensions.capRateValuationStress;
+    const sLtv = dim7.derivedOutputs?.stressedLtv;
+    if (typeof sLtv === 'number' && Number.isFinite(sLtv)) {
+      const trigger = DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER;
+      const ceiling = resolveLtvStructuredCeiling(assetType);
+      const endpoints = resolveLeverageBandTierEndpoints(assetType);
+      const interp = interpolateLeverageBandTier(sLtv, trigger, ceiling, endpoints);
+      netWorthRequirement = interp.netWorthMultiple * finalLoanAmount;
+      liquidityRequirement = interp.liquidityPct * finalLoanAmount;
+    }
+  }
+
+  // Distribution lockup — years to fill the cash trap (from the funded math).
+  let distributionLockupYears: number | null = null;
+  const cashSweepProp = proposals.find(p => p.lever === 'cash_sweep_refi_reserve');
+  if (cashSweepProp !== undefined) {
+    const assetType = resolveAssetTypeFromDeal(finalState.dealResult);
+    const dim4 = finalState.dealResult.dimensions.refinanceFeasibility;
+    const sustainableNcf = finalState.dealResult.normalization.sustainableNcf;
+    const rc = dim4.derivedOutputs?.stressedRefiConstant;
+    const maturityBalance = dim4.derivedOutputs?.maturityBalance;
+    if (typeof sustainableNcf === 'number' && sustainableNcf > 0 &&
+        typeof rc === 'number' && rc > 0 &&
+        typeof maturityBalance === 'number' && maturityBalance > 0) {
+      const cureTarget = DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET;
+      const exitClearing = sustainableNcf / (rc * cureTarget);
+      const reserveTarget = Math.max(0, maturityBalance - exitClearing);
+      const egi = finalState.adjustedInputs.income.effectiveGrossIncome.adjusted;
+      const opReservesPct = resolveOperatingReservesPctOfEgi(assetType);
+      const operatingReservesAnnual = Math.max(0, opReservesPct * egi);
+      const debtServiceAnnual = finalState.adjustedInputs.loan.debtServiceAnnual.adjusted;
+      const termMonths = finalState.adjustedInputs.loan.termMonths.adjusted;
+      const funded = computeFundedExitFigures(
+        sustainableNcf, debtServiceAnnual, termMonths, rc, maturityBalance,
+        operatingReservesAnnual, reserveTarget,
+      );
+      distributionLockupYears = funded.yearsToFillTarget;
+    }
+  }
+
+  // Cash-at-risk aggregation.
+  const cashAtRiskUsd = equityAsk + netRecourseCap;
+  const cashAtRiskPctOfFinalLoan = finalLoanAmount > 0 ? cashAtRiskUsd / finalLoanAmount : 0;
+  const flagThreshold = SPONSOR_CASH_AT_RISK_FLAG_THRESHOLD;
+  const flagsBurden = cashAtRiskPctOfFinalLoan >= flagThreshold;
+  const flagCopy = flagsBurden
+    ? `Cumulative sponsor burden (cash-at-risk ${(cashAtRiskPctOfFinalLoan * 100).toFixed(1)}% of L') ` +
+      `approaches the desk's acceptability line for a non-recourse execution — consider lightening a ` +
+      `lever, or whether this deal belongs with a recourse lender. Threshold: ${(flagThreshold * 100).toFixed(0)}% [ISABELLE-TO-CALIBRATE].`
+    : null;
+
+  return {
+    equityAsk,
+    netRecourseCap,
+    recourseBreakdown,
+    netWorthRequirement,
+    liquidityRequirement,
+    distributionLockupYears,
+    cashAtRiskUsd,
+    cashAtRiskPctOfFinalLoan,
+    flagThreshold,
+    flagsBurden,
+    flagCopy,
+  };
 }

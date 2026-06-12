@@ -144,4 +144,26 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   //       lands at p=1 → full heavy tier.
   //   Hash drift: new desk knob added to snapshot.
   '1.6': '1fe37c7fc48691f6f9020d219f13926e4e1a95087060239062ae4b479a7106e7' as ContentHash,
+  // v1.7 — TOTAL-PACKAGE COHERENCE pass.
+  //   New desk knob in the hash snapshot:
+  //     SPONSOR_CASH_AT_RISK_FLAG_THRESHOLD = 0.45 [ISABELLE-TO-CALIBRATE].
+  //   Logic changes (no other constants move):
+  //     - composeMitigations subordinates springing_dscr_recourse when
+  //       leverage_band_recourse cap ≥ exit residual unfunded gap. The
+  //       leverage proposal is a partial PAYMENT guaranty that covers the
+  //       balloon up to (recoursePct × L'); it already backstops the exit
+  //       residual the springing was sized for. When redundant, drop the
+  //       springing + add a reconciliation note. When leverage is absent or
+  //       too light, KEEP the springing.
+  //     - composeMitigations attaches a SponsorBurdenProfile to every
+  //       ComposedMitigationPackage. The profile tracks the distinct kinds
+  //       of sponsor commitment (equity ask, net recourse cap, NW + liq
+  //       covenants, distribution lockup years) and aggregates ONLY the
+  //       comparable cash pieces (equity + net recourse) into cash-at-risk
+  //       as % of L'. Crossing 0.45 raises a non-blocking flag.
+  //     - Memo: new Sponsor Burden section renders the profile as a table
+  //       + an aggregate cash-at-risk row + a flag banner (golden) when
+  //       the threshold is crossed.
+  //   Hash drift: new sponsorCashAtRiskFlagThreshold in snapshot.
+  '1.7': '26019baac5d5e3cf37daf639b78f1cf25bd6b93360b70876a9a5c3437ca8b386' as ContentHash,
 };

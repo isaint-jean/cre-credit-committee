@@ -42,7 +42,7 @@ import type {
   CleanDoctrineFinding,
 } from '../narrative/prompt-templates.js';
 import type { EvaluateDealResult } from '../../doctrine-clean/scoring/evaluate-deal.js';
-import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
+import type { ComposedMitigationPackage, SponsorBurdenProfile } from '../mitigation/compose-mitigations.js';
 import {
   DEFAULT_MITIGATION_DESK,
   computeFundedExitFigures,
@@ -448,6 +448,79 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
     </li>`;
 }
 
+/* ----- v1.7 — Sponsor Burden section ------------------------------------- */
+function renderSponsorBurden(profile: SponsorBurdenProfile, finalLoanAmount: number): string {
+  // Each kind of burden is a distinct row — we do NOT fake a single
+  // aggregate; cash-at-risk is the comparable cash piece (equity + recourse)
+  // expressed as % of L'. Covenants + lockup are shown alongside.
+  const recourseRows = profile.recourseBreakdown.length === 0
+    ? `<tr><td class="memo-td-label" colspan="3"><em>(no recourse-flavored levers in package)</em></td></tr>`
+    : profile.recourseBreakdown.map(r => `
+        <tr>
+          <td class="memo-td-label">${esc(r.lever)} <span class="memo-condition-id">${esc(r.proposalId)}</span></td>
+          <td class="memo-td-note">${esc(r.note)}</td>
+          <td class="memo-td-num">${esc(fmtUsd(r.capUsd))}</td>
+        </tr>`).join('');
+
+  const flagBanner = profile.flagsBurden && profile.flagCopy !== null
+    ? `<div class="memo-burden-flag">
+         <div class="memo-burden-flag-label">Burden flag</div>
+         <p>${esc(profile.flagCopy)}</p>
+       </div>`
+    : `<p class="memo-burden-clear">Cash-at-risk is below the desk's ${(profile.flagThreshold * 100).toFixed(0)}% acceptability line for a non-recourse execution.</p>`;
+
+  const lockupStr = profile.distributionLockupYears !== null
+    ? profile.distributionLockupYears.toFixed(1) + ' yr'
+    : '— (no cash trap)';
+
+  return `
+    <section class="memo-section memo-sponsor-burden-section">
+      <h2 class="memo-section-title">Sponsor Burden</h2>
+      <table class="memo-table memo-table-burden">
+        <thead><tr><th class="memo-th-label">Commitment</th><th class="memo-th-note">Source</th><th class="memo-th-num">Amount</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="memo-td-label">Equity ask</td>
+            <td class="memo-td-note">proceeds cut filled by sponsor at closing</td>
+            <td class="memo-td-num">${esc(fmtUsd(profile.equityAsk))}</td>
+          </tr>
+          ${recourseRows}
+          <tr class="memo-table-subtotal">
+            <td class="memo-td-label">Net recourse cap</td>
+            <td class="memo-td-note">sum of recourse-flavored levers above (contingent cash-at-risk)</td>
+            <td class="memo-td-num">${esc(fmtUsd(profile.netRecourseCap))}</td>
+          </tr>
+          <tr class="memo-table-divider"><td colspan="3" class="memo-td-divider"></td></tr>
+          <tr>
+            <td class="memo-td-label">Net-worth requirement</td>
+            <td class="memo-td-note">balance-sheet capacity covenant (NOT at-risk capital — capacity to demonstrate)</td>
+            <td class="memo-td-num">${esc(fmtUsd(profile.netWorthRequirement))}</td>
+          </tr>
+          <tr>
+            <td class="memo-td-label">Liquidity requirement</td>
+            <td class="memo-td-note">balance-sheet capacity covenant</td>
+            <td class="memo-td-num">${esc(fmtUsd(profile.liquidityRequirement))}</td>
+          </tr>
+          <tr>
+            <td class="memo-td-label">Distribution lockup</td>
+            <td class="memo-td-note">years the cash trap holds before the refi reserve target funds</td>
+            <td class="memo-td-num">${esc(lockupStr)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="memo-burden-aggregate">
+        <div class="memo-burden-aggregate-row">
+          <span class="memo-burden-aggregate-label">Cash-at-risk (equity + net recourse)</span>
+          <span class="memo-burden-aggregate-value">${esc(fmtUsd(profile.cashAtRiskUsd))} &nbsp; · &nbsp; ${esc((profile.cashAtRiskPctOfFinalLoan * 100).toFixed(1))}% of L′ (${esc(fmtUsd(finalLoanAmount))})</span>
+        </div>
+        <div class="memo-burden-aggregate-note">
+          Threshold: ${esc((profile.flagThreshold * 100).toFixed(0))}% of L′ &nbsp; [ISABELLE-TO-CALIBRATE]
+        </div>
+      </div>
+      ${flagBanner}
+    </section>`;
+}
+
 function renderRiskAssessment(narrative: NarrativeEvaluation, findings: readonly CleanDoctrineFinding[]): string {
   // The narrative.redFlagAssessment is the v1.6 prose; we render it verbatim.
   // The structured clean-doctrine findings are also shown as a compact table for
@@ -719,6 +792,77 @@ const STYLE = `
     font-variant-numeric: tabular-nums;
   }
 
+  /* ------- sponsor burden (v1.7) ------- */
+  .memo-sponsor-burden-section { margin-top: 20pt; page-break-inside: avoid; }
+  .memo-table-subtotal td { font-weight: 600; border-top: 0.5px solid #1a1a1a; }
+  .memo-table-divider td { padding: 0 !important; border: none !important; }
+  .memo-td-divider { height: 6pt; }
+  .memo-burden-aggregate {
+    margin-top: 12pt;
+    padding: 10pt 12pt;
+    background: #f5f3ef;
+    border-left: 3px solid #1a1a1a;
+  }
+  .memo-burden-aggregate-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: Georgia, 'Times New Roman', serif;
+  }
+  .memo-burden-aggregate-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #2a2a2a;
+    font-weight: 600;
+  }
+  .memo-burden-aggregate-value {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 14pt;
+    font-weight: 700;
+    color: #1a1a1a;
+    font-variant-numeric: tabular-nums;
+  }
+  .memo-burden-aggregate-note {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
+    color: #5a5a5a;
+    margin-top: 4pt;
+    font-style: italic;
+  }
+  .memo-burden-flag {
+    margin-top: 10pt;
+    padding: 10pt 12pt;
+    background: #fef9f0;
+    border-left: 3px solid #b8860b;
+  }
+  .memo-burden-flag-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #8a6500;
+    font-weight: 600;
+    margin-bottom: 4pt;
+  }
+  .memo-burden-flag p {
+    margin: 0;
+    font-size: 10.5pt;
+    color: #1a1a1a;
+    line-height: 1.55;
+  }
+  .memo-burden-clear {
+    margin: 8pt 0 0 0;
+    padding: 6pt 10pt;
+    background: #f5f7f2;
+    border-left: 2px solid #4a5d3a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9.5pt;
+    color: #2a2a2a;
+    font-style: italic;
+  }
+
   /* ------- footer ------- */
   .memo-footer { margin-top: 28pt; padding-top: 10pt; border-top: 1px solid #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif; font-size: 9pt; color: #5a5a5a; page-break-before: avoid; }
   .memo-footer-fine { margin-top: 4pt; font-style: italic; color: #6a6a6a; }
@@ -750,6 +894,7 @@ function renderHtml(
   ${renderExecutiveSummary(input.narrative)}
   ${renderStressedCreditProfile(auth, funded)}
   ${renderRestructuringPackage(auth, input.composedMitigationPackage, funded)}
+  ${renderSponsorBurden(input.composedMitigationPackage.sponsorBurdenProfile, input.composedMitigationPackage.finalLoanAmount)}
   ${renderRiskAssessment(input.narrative, findings)}
   ${renderCommitteeRecommendation(input.narrative)}
   ${renderFooter(input, auth)}

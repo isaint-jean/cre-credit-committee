@@ -158,7 +158,7 @@ export const NARRATIVE_ENGINE_VERSION = '1.6' as const;
  * caught by the boot check. Treat copy changes the same way as constant
  * changes: bump MITIGATION_ENGINE_VERSION (and RENDER_VERSION) by convention.
  */
-export const MITIGATION_ENGINE_VERSION = '1.6' as const;
+export const MITIGATION_ENGINE_VERSION = '1.7' as const;
 
 export type DoctrineVersion = '1.0' | '1.1' | '1.2' | '1.3';
 /**
@@ -188,7 +188,7 @@ export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.
  * Bump the `MITIGATION_ENGINE_VERSION` constant and EXTEND this union (do not
  * replace) when adding a new mitigation-engine revision.
  */
-export type MitigationEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6';
+export type MitigationEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6' | '1.7';
 
 /**
  * ISO 8601 UTC timestamp, frozen at extraction time. Used as `analysisAsOfDate` everywhere a
