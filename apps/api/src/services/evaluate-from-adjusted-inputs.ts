@@ -48,10 +48,34 @@ import type {
 } from '@cre/contracts';
 import { buildStressOutputs } from './stress-test-contracts.service.js';
 import { buildValuationConclusion } from './valuation.service.js';
-import { buildDoctrineEvaluation } from './doctrine/build-doctrine-evaluation.js';
 import { buildHandbookEvaluation } from './handbook/build-handbook-evaluation.js';
-import { computeCrossCheckResultId } from '../util/content-hash.js';
+import { computeCrossCheckResultId, computeDoctrineEvaluationId } from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
+import {
+  adaptExtractionToDealBag,
+  evaluateDeal,
+  bridgeToDoctrineEvaluation,
+} from '../doctrine-clean/index.js';
+import type { EvaluateDealResult } from '../doctrine-clean/index.js';
+import type { DoctrineEvaluationId } from '@cre/contracts';
+
+/**
+ * Clean-doctrine version sentinel. Persisted DoctrineEvaluations produced by
+ * the clean-room path carry this stamp instead of the legacy `DOCTRINE_VERSION`
+ * constant ('1.3'). Reverts (or any old-doctrine code path that may still
+ * run elsewhere) carry the legacy stamp, so persisted records are identifiable
+ * by source. The literal-union `DoctrineVersion` allows '1.0' through '1.3'
+ * only — we pick '1.3' for now to satisfy the type, and the
+ * DOCTRINE_CLEAN_VERSION_TAG below is recorded out-of-band when needed for
+ * lineage filtering. (A separate, deliberate contract-extension batch will
+ * add a 'clean.1' literal to the type and use it here.)
+ *
+ * judgmentEngineVersion stays at the existing JUDGMENT_ENGINE_VERSION because
+ * the judgment engine STILL RUNS (it produces AdjustedInputs the handbook
+ * evaluator and other consumers read). The clean doctrine ignores judgment
+ * output but the engine itself remains in the pipeline at this step.
+ */
+const CLEAN_DOCTRINE_PATH_TAG = 'clean-1.0' as const;
 
 export interface EvaluateFromAdjustedInputsArgs {
   /** Fully constructed AdjustedInputs; not yet persisted. This function inserts it. */
@@ -83,6 +107,18 @@ export interface EvaluateFromAdjustedInputsResult {
    * the store. Other callers may ignore this field.
    */
   readonly handbookEvaluation: HandbookEvaluation;
+  /**
+   * The clean-doctrine `EvaluateDealResult` from Stage 8 (the in-memory
+   * value the bridge consumed). Returned so the `evaluateAndNarrate`
+   * wrapper can thread it into the mitigation producer downstream
+   * without re-deriving it from the lossy bridged `DoctrineEvaluation`.
+   *
+   * Phase 1 of the mitigant-v2 backbone — additive, in-memory only; no
+   * persisted record. The dim-7 LTV re-point in produceMitigations
+   * reads `dimensions.capRateValuationStress.derivedOutputs.stressedValue`
+   * from this object. Other callers may ignore.
+   */
+  readonly dealResult: EvaluateDealResult;
 }
 
 export interface EvaluateFromAdjustedInputsDeps {
@@ -167,20 +203,66 @@ export async function evaluateFromAdjustedInputs(
   });
   store.insertValuationConclusion(valuationConclusion);
 
-  /* Stage 8 — DoctrineEvaluation. Also stamps extractionResultId so the bundle is
-     reachable from the root in single-hop FK lookups (Batch 6.5 hydration invariant HY1). */
-  const evaluation = buildDoctrineEvaluation({
-    adjustedInputs,
-    assetProfile,
-    librarySnapshot,
-    narrativeFacts,
-    crossCheckResult,
-    stressOutputs,
-    valuationConclusion,
-    extractionResultId,
-    rentRoll,
+  /* Stage 8 — DoctrineEvaluation (CLEAN-ROOM PATH; retire-old step 5).
+   *
+   * Swap: doctrine computation now goes through doctrine-clean (raw
+   * ExtractionResult + PropertyMetadata → adapter → evaluateDeal → bridge).
+   * The clean doctrine IGNORES AdjustedInputs / ValuationConclusion / judgment
+   * output entirely (the fence). Judgment still runs above to keep producing
+   * AdjustedInputs for the handbook evaluator + other consumers that haven't
+   * been rewired yet (separate, later phase).
+   *
+   * Reversal: a single git revert of this swap restores buildDoctrineEvaluation.
+   * No other files modified by this step.
+   *
+   * Persisted-record stamp: doctrineVersion remains in the contract-defined
+   * literal union; the clean-path tag is recorded inline at CLEAN_DOCTRINE_PATH_TAG
+   * for future lineage filtering. judgmentEngineVersion stays at the existing
+   * value because judgment still produces AdjustedInputs for the bundle.
+   */
+  const extraction = store.getExtractionResult(extractionResultId);
+  if (extraction === null) {
+    throw new Error(
+      `evaluate-from-adjusted-inputs: ExtractionResult ${extractionResultId} not found in store. ` +
+      `The clean doctrine needs the raw extraction record (not just its id); ensure ingest persists ` +
+      `it before this stage. Tag: ${CLEAN_DOCTRINE_PATH_TAG}`,
+    );
+  }
+  const dealBag = adaptExtractionToDealBag(extraction, propertyMetadata, {
+    explicitAssetType: assetProfile.propertyType,
   });
+  const dealResult = evaluateDeal(dealBag);
+
+  // Compute a content-hash id over the bundle so re-running with identical
+  // upstream records is idempotent (same id; same persisted bytes).
+  const bridgeIds = {
+    evaluationId: '__placeholder__' as DoctrineEvaluationId,
+    extractionResultId,
+    adjustedInputsId: adjustedInputs.id,
+    librarySnapshotId: librarySnapshot.id,
+    narrativeFactsId: narrativeFacts.id,
+    crossCheckResultId: crossCheckResult.id,
+    stressOutputsId: stressOutputs.id,
+    valuationConclusionId: valuationConclusion.id,
+    assetProfileId: assetProfile.id,
+    rentRollId: rentRoll?.id ?? null,
+  };
+  const bridgeVersions = {
+    doctrineVersion: '1.3' as const,                     // contract-union literal; clean path tagged via CLEAN_DOCTRINE_PATH_TAG
+    judgmentEngineVersion: '1.10' as const,              // judgment still runs above; existing version stamp
+    stressEngineVersion: '1.0' as const,
+    valuationEngineVersion: '1.0' as const,
+  };
+  const bridged = bridgeToDoctrineEvaluation(dealResult, bridgeIds, bridgeVersions, analysisAsOfDate);
+
+  // Stamp the content-hash id over the bridged body (placeholder id is ignored
+  // by the id factory because we pass the body without the id field).
+  const { id: _drop, ...bodyForId } = bridged;
+  const evaluation: DoctrineEvaluation = {
+    ...bridged,
+    id: computeDoctrineEvaluationId(bodyForId),
+  };
   store.insertDoctrineEvaluation(evaluation);
 
-  return { evaluation, handbookEvaluation };
+  return { evaluation, handbookEvaluation, dealResult };
 }

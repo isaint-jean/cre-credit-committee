@@ -62,7 +62,7 @@ export async function evaluateAndNarrate(
   store: RecordGraphStore,
   deps: EvaluateAndNarrateDeps = {},
 ): Promise<EvaluateAndNarrateResult> {
-  const { evaluation, handbookEvaluation } = await evaluateFromAdjustedInputs(
+  const { evaluation, handbookEvaluation, dealResult } = await evaluateFromAdjustedInputs(
     args,
     store,
     // Wire the LLM_CONTEXT evaluator into the handbook pass when the same
@@ -77,6 +77,12 @@ export async function evaluateAndNarrate(
   // synthesized from (ai, pm) and emits structured MitigationProposal[].
   // firedFlags are consulted for principle enrichment only (per doctrine v1.2
   // §0 metrics-driven trigger). Idempotent on content-hash.
+  //
+  // Mitigant v2 phase 1: the clean-doctrine `dealResult` (from Stage 8) is
+  // threaded in additively. Phase 1 consumes it for the LTV arm re-point
+  // ("lend to my value" — size against dim 7's stressedValue instead of
+  // the appraised value). Other arms unchanged. The dealResult is in-memory
+  // only — no new persisted record in this phase.
   const uwModelForMitigations = synthesizeUwModelFromInputs(
     args.adjustedInputs,
     args.propertyMetadata,
@@ -85,6 +91,7 @@ export async function evaluateAndNarrate(
     adjustedInputs: args.adjustedInputs,
     uwModel: uwModelForMitigations,
     firedFlags: handbookEvaluation.firedFlags,
+    dealResult,
   });
   const mitigationSetBody = {
     adjustedInputsId: args.adjustedInputs.id,

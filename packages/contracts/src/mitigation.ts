@@ -34,10 +34,41 @@ import type {
 import type { Severity } from './handbook.js';
 import type { MitigationEngineVersion } from './versioning.js';
 
-export const MITIGATION_LEVERS = ['reduce_proceeds', 'fund_reserve'] as const;
+export const MITIGATION_LEVERS = ['reduce_proceeds', 'fund_reserve', 'require_amortization', 'require_guaranty', 'springing_cash_management', 'in_place_cash_management', 'condition_precedent'] as const;
 export type MitigationLever = (typeof MITIGATION_LEVERS)[number];
 
-export const LEVER_KINDS = ['recalc_delta', 'coverage_reserve'] as const;
+/**
+ * Lever kinds.
+ *
+ * v1 (emitted today): `recalc_delta` (apply L' to a uwModel clone, recalc, diff)
+ *                     `coverage_reserve` (dollars-funded + coverage statement)
+ *
+ * Mitigant v2 phase 1 — DECLARED for phase 2 expansion; NO producer emits
+ * these yet. The taxonomy is scaffolding for the structural-mitigation
+ * catalogue that wires up to the clean doctrine's dimensions (refi 4,
+ * concentration 5, cap-rate 7, asset-class 8, sponsor 9):
+ *   - `amortization`            — re-amort to a shorter schedule (refi-feasibility lever)
+ *   - `guaranty`                — full / limited / payment / burn-off / bad-boy (sponsor lever)
+ *   - `springing_cash_management` — springing lockbox / sweep on trigger (refi + concentration)
+ *   - `in_place_cash_management` — closing-date in-place lockbox (cap-rate aggression lever)
+ *   - `condition_precedent`     — closing-conditional fix (e.g. tenant signed before close)
+ *
+ * Note: no `equity_requirement` here. The dim-7 "stressed value" insight is
+ * folded into `reduce_proceeds` via the LTV-arm re-point (phase 1 part D),
+ * not surfaced as a separate lever. This avoids splitting "reduce proceeds"
+ * into two visually-similar levers; the binding-constraint logic naturally
+ * selects the more-conservative L'.
+ */
+export const LEVER_KINDS = [
+  'recalc_delta',
+  'coverage_reserve',
+  // Phase-2-pending — declared but no emitter today:
+  'amortization',
+  'guaranty',
+  'springing_cash_management',
+  'in_place_cash_management',
+  'condition_precedent',
+] as const;
 export type LeverKind = (typeof LEVER_KINDS)[number];
 
 export const RISK_REDUCTIONS = ['significant', 'moderate', 'marginal'] as const;
@@ -82,6 +113,19 @@ export interface MitigationProposal {
   readonly requiredEquity?: number;
   /** fund_reserve: the upfront escrow size. */
   readonly requiredReserve?: number;
+  /**
+   * require_amortization: total principal the borrower must pay down
+   * between origination and maturity to land the maturity balance at
+   * `targetMaturityBalance`. Sized so the doctrine's exit-DSCR clears
+   * the refinanceable threshold at the stressed take-out constant.
+   */
+  readonly requiredPaydown?: number;
+  /**
+   * require_amortization: balloon balance at maturity that satisfies the
+   * doctrine's refinanceable threshold (sustainableNCF / (stressedRefiConstant
+   * × refiDscrThreshold)).
+   */
+  readonly targetMaturityBalance?: number;
   /** recalc_delta levers: concluded-model metrics before the lever is applied. */
   readonly recalcBefore?: RecalcSnapshot;
   /** recalc_delta levers: concluded-model metrics after the lever is applied. */
@@ -94,6 +138,20 @@ export interface MitigationProposal {
   readonly severity: Severity;
   /** Trace back to the firing band (per-principle deterministicCheck.bands[] index). */
   readonly bandIndex?: number;
+  /**
+   * Clean-doctrine dimension ids that this proposal addresses.
+   *
+   * Mitigant v2 phase 1 — DECLARED for phase 2 wiring; today this is
+   * populated only for the LTV-arm proposal (addresses 'leverage-ltv'
+   * + 'cap-rate-valuation-stress' since the LTV arm now sizes against
+   * dim 7's stressed value). Phase 2 wires structural levers for refi (4),
+   * concentration (5), asset-class (8), and sponsor (9).
+   *
+   * Optional + readonly; consumers MUST tolerate empty / absent. The
+   * field is additive to the v1 contract and does not change content-hash
+   * compatibility for v1 records (JCS drops undefined keys).
+   */
+  readonly addressesDimensions?: readonly string[];
 }
 
 /**
