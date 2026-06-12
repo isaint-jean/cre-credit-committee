@@ -655,6 +655,63 @@ function buildReduceProceedsProposal(
   }
 
   // Size each breached target → take binding (smallest L').
+  //
+  // ─── DURABLE NOTE: why the DY and DSCR arms STAY reflexive (no band) ───
+  //
+  // The structure-first LTV band (trigger 0.70 → ceiling per asset) was
+  // introduced at v1.3 because B-piece buyers express a calibrated comfort
+  // line on stressed leverage — there is a known curve along which structure
+  // (recourse + sweep + reserves) can substitute for a proceeds cut. DY and
+  // DSCR don't get the same treatment, and here's why someone reading this
+  // in a year shouldn't redo the work:
+  //
+  // (a) CAP-FLOOR COUPLING. stressedLtv × DY ≈ capFloor / NCF-ratio. DY is an
+  //     alternate parameterization of leverage at the doctrine's stressed
+  //     valuation — they're locked together by the asset class. Algebra:
+  //
+  //         stressedLtv = loan / stressedValue
+  //                     = loan × capFloor / (NOI × NCF_ratio)
+  //                     = (1 / DY) × (capFloor / NCF_ratio)
+  //
+  //     So along Office's surface (capFloor 0.09, NCF/NOI 0.89): DY = 0.1011
+  //     / stressedLtv. For stressedLtv at the Office ceiling 0.80, DY = 12.64%.
+  //     There is no construction with Office where DY breaches (< 8.5%) AND
+  //     stressedLtv lands mid-band — the DY window slams shut.
+  //
+  //     Across the catalog the DY-alone-binding window is:
+  //         Office     : empty (DY ≥ 12.64% to be mid-band LTV)
+  //         Industrial : empty (DY ≥ 8.79%)
+  //         Multifamily: narrow — DY ∈ [0.0805, 0.085)
+  //         most others: empty or vanishingly narrow
+  //
+  //     In other words, a DY breach almost always implies an LTV breach on
+  //     the same deal, and the LTV arm cuts harder (smaller L'). The binding-
+  //     constraint logic defers to LTV naturally — DY doesn't get to express
+  //     a structurable band because LTV already settled the leverage question
+  //     on this surface.
+  //
+  // (b) DSCR IS DIFFERENT — it's the only rate-driven (uncoupled) axis. It
+  //     can in principle bind alone on a high-LTV-low-rate deal, but in
+  //     practice lenders SIZE to coverage at origination, so DSCR-only-binding
+  //     cases at the underwriting desk are vanishingly rare. DSCR is also a
+  //     harder cash floor than a stressed valuation: a B-piece buyer cannot
+  //     price away a coverage shortfall the way they price away stressed
+  //     leverage — the cash literally isn't there. There's no structural
+  //     substitute to interpolate against.
+  //
+  // (c) DECISION (Isabelle, 2026-06-12): DY and DSCR arms stay REFLEXIVE
+  //     (cut to floor). No hold-and-structure band. We revisit if real deals
+  //     in the working pipeline surface fine-leverage / thin-DSCR cases that
+  //     the LTV band can't already cover — that empirical signal is the
+  //     gate, not theoretical generality.
+  //
+  // Empirical derivation: see apps/api/src/scripts/calibration-dy-binding-
+  // synthetic.ts, which:
+  //   - shows the Office DY-only construction fails (LTV arm dominates),
+  //   - constructs the Multifamily DY-only edge case (rc override to keep
+  //     exit clean),
+  //   - and surfaces the cut-descriptor diagnostic this commit fixes.
+  // ─── END DURABLE NOTE ───
   const breaches: BreachedTarget[] = [];
   if (dscrBreached) {
     const isIO = amortMonths === 0;

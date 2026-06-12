@@ -166,4 +166,22 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   //       the threshold is crossed.
   //   Hash drift: new sponsorCashAtRiskFlagThreshold in snapshot.
   '1.7': '26019baac5d5e3cf37daf639b78f1cf25bd6b93360b70876a9a5c3437ca8b386' as ContentHash,
+  // v1.8 — COPY-ONLY. No desk constants moved; hash unchanged from v1.7.
+  //   Cosmetic fix: compose-mitigations.ts:279 was emitting the cut-candidate
+  //   source label with a hardcoded "LTV above ceiling" suffix regardless of
+  //   which arm of reduce_proceeds bound. Fixed to derive the descriptor from
+  //   the binding metric:
+  //     ltv       → "stressed LTV above ceiling"
+  //     dscr      → "coverage below floor"
+  //     debtYield → "yield below floor"
+  //     other     → "<metric> breach"
+  //   Also: durable note in produce-mitigations.ts at the reduce_proceeds arm
+  //   sizing block explaining (a) the cap-floor × DY/LTV coupling that closes
+  //   the DY-only-binding window for most asset classes and (b) why DSCR
+  //   stays reflexive too. Decision logged: arms remain reflexive (cut to
+  //   floor); no DY/DSCR hold-and-structure band. Empirical derivation lives
+  //   at apps/api/src/scripts/calibration-dy-binding-synthetic.ts.
+  //   Convention bump even though the hash didn't move (user-visible engine
+  //   output changed) — see MITIGATION_ENGINE_VERSION docstring.
+  '1.8': '26019baac5d5e3cf37daf639b78f1cf25bd6b93360b70876a9a5c3437ca8b386' as ContentHash,
 };

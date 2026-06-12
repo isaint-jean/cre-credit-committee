@@ -276,7 +276,18 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
   const cutCandidates: Array<{ source: string; lPrime: number }> = [];
   if (reduceCut !== null) {
     const bindingMetric = initialReduce!.targetMetric ?? 'ltv';
-    cutCandidates.push({ source: `reduce_proceeds (${bindingMetric} arm — LTV above ceiling)`, lPrime: reduceCut });
+    // v1.7-fix — descriptor must reflect the ACTUAL binding metric. Pre-fix:
+    // the suffix was hardcoded "LTV above ceiling" regardless of which arm
+    // bound, so a DY- or DSCR-binding cut surfaced with an LTV-flavored note.
+    const breachDescriptor =
+      bindingMetric === 'ltv'       ? 'stressed LTV above ceiling'
+      : bindingMetric === 'dscr'      ? 'coverage below floor'
+      : bindingMetric === 'debtYield' ? 'yield below floor'
+      : `${bindingMetric} breach`;
+    cutCandidates.push({
+      source: `reduce_proceeds (${bindingMetric} arm — ${breachDescriptor})`,
+      lPrime: reduceCut,
+    });
   }
   if (amortCutHint !== null) {
     cutCandidates.push({ source: 'require_amortization day-1-DSCR fallback (exit below floor)', lPrime: amortCutHint });
