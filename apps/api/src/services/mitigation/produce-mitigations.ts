@@ -99,6 +99,63 @@ export const DEFAULT_MITIGATION_DESK: MitigationDeskConstants = {
 /** Sane reserve ceiling (clamped + flagged in the description if it binds). */
 export const RESERVE_CAP_USD = 25_000_000;
 
+/* ----------------- require_guaranty desk knobs (v2 lever 2) --------------- */
+/*
+ * GUARANTY_TIER_TERMS — desk-owned NUMERIC knobs for the recourse +
+ * covenant package the guaranty lever emits per tier. Lifted from the
+ * original string-literal text so the terms are calibrable instead of
+ * baked-in.
+ *
+ * Ownership split (locked desk policy, mirror of dim-7 / dim-4 patterns):
+ *   - The doctrine owns dim 9 (sponsor riskModifier + tier classification).
+ *     The lever's 3 modifier-breakpoint knobs (TRIGGER 0.03 / MODERATE 0.10
+ *     / SEVERE 0.18) are doctrine-adjacent and stay near the lever.
+ *   - The DESK owns what the recourse package LOOKS LIKE once the lever
+ *     fires — recourse %, net-worth multiple, liquidity %, burn-off years.
+ *     Four tiers (mild / moderate / severe / disqualifying-event), four
+ *     numeric knobs each. Recourse percentage is now a single point per
+ *     tier (was a range like "25-50%" in the prior string literals); when
+ *     Isabelle re-tunes she sets the point.
+ *
+ * The disqualifying-event entry is a 4th key (NOT a clone of severe): it
+ * carries the recourse % the desk wants on a factor-4 Severe (typically
+ * 100% — but it's a knob, not a constant). Currently it matches severe on
+ * net-worth + liquidity + burn-off; the lever forces this key when dim 9
+ * tier === 'disqualifying-event' regardless of net modifier magnitude.
+ *
+ * BOILERPLATE preserved unchanged in the lever's output text:
+ *   - Bad-boy carve-outs (fraud / misrepresentation / bankruptcy filing)
+ *   - Springing-recourse provisions on deal underperformance (severe tier)
+ *   - LTV / DSCR step-down tests as burn-off preconditions
+ * These are structural-term scaffolding the lender insists on every
+ * recourse package; calibrating them as numbers would be a category error.
+ *
+ * Provenance: operator-judgment. NOT employer-derived.
+ */
+export type GuarantyTierKey = 'mild' | 'moderate' | 'severe' | 'disqualifying-event';
+
+export interface GuarantyTierTerms {
+  /** Recourse percentage (single point per tier; 0..1). */
+  readonly recoursePct: number;
+  /** Guarantor net-worth covenant: minimum NW as a multiple of loan size. */
+  readonly netWorthMultiple: number;
+  /** Guarantor liquidity covenant: minimum liquidity as % of loan size (0..1). */
+  readonly liquidityPct: number;
+  /**
+   * Burn-off horizon in YEARS of clean performance + covenant compliance
+   * before the guaranty can sunset. `null` means no burn-off — guaranty
+   * runs through the term.
+   */
+  readonly burnOffYears: number | null;
+}
+
+export const DEFAULT_GUARANTY_TIER_TERMS: Readonly<Record<GuarantyTierKey, GuarantyTierTerms>> = {
+  mild:                  { recoursePct: 0.25, netWorthMultiple: 1.0, liquidityPct: 0.05, burnOffYears: 3    },
+  moderate:              { recoursePct: 0.50, netWorthMultiple: 1.5, liquidityPct: 0.05, burnOffYears: 5    },
+  severe:                { recoursePct: 0.75, netWorthMultiple: 2.0, liquidityPct: 0.10, burnOffYears: null },
+  'disqualifying-event': { recoursePct: 1.00, netWorthMultiple: 2.0, liquidityPct: 0.10, burnOffYears: null },
+};
+
 /* ----------------- principle-enrichment table (handbook today) ------------ */
 // Today's deterministic handbook has these principles whose firing would
 // corroborate a metric breach. Coverage is intentionally thin (the recon
@@ -123,6 +180,7 @@ export function buildMitigationEngineHashSnapshot() {
     reserveCapUsd: RESERVE_CAP_USD,
     principlesByMetric: PRINCIPLES_BY_METRIC,
     rolloverPrinciples: ROLLOVER_PRINCIPLES,
+    guarantyTierTerms: DEFAULT_GUARANTY_TIER_TERMS,
   };
 }
 
@@ -851,7 +909,8 @@ const GUARANTY_SEVERE_THRESHOLD = 0.18;         // severe tier begins (just belo
 type GuarantyTier = 'mild' | 'moderate' | 'severe';
 
 function buildGuarantyProposal(
-  dealResult?: EvaluateDealResult,
+  dealResult: EvaluateDealResult | undefined,
+  terms: Readonly<Record<GuarantyTierKey, GuarantyTierTerms>> = DEFAULT_GUARANTY_TIER_TERMS,
 ): MitigationProposal | null {
   if (!dealResult) return null;
   const sponsorDim = dealResult.dimensions.sponsorBorrowerQuality;
@@ -893,23 +952,41 @@ function buildGuarantyProposal(
   if (cManagement > 0)   factorEmphasis.push('management quality');
   if (cExperience > 0)   factorEmphasis.push('experience / track record');
 
-  // (f) Recourse + covenant scaffolding by tier.
+  // (f) Recourse + covenant scaffolding by tier — INTERPOLATED from the
+  // desk-owned GUARANTY_TIER_TERMS table (not hardcoded). The 4th tier-key
+  // 'disqualifying-event' captures the factor-4 forced case; severe shape
+  // is otherwise selected. Boilerplate (bad-boy carve-outs, springing-
+  // recourse, LTV/DSCR step-downs) stays as fixed text.
+  const tierKey: GuarantyTierKey = disqualifyingEvent ? 'disqualifying-event' : tier;
+  const t = terms[tierKey];
+  const recoursePctStr  = (t.recoursePct  * 100).toFixed(0);
+  const liquidityPctStr = (t.liquidityPct * 100).toFixed(0);
+  const nwMultStr       = t.netWorthMultiple.toFixed(1);
+  const burnOffPhrase   = t.burnOffYears === null
+    ? 'no burn-off'
+    : `burn-off after ${t.burnOffYears} years`;
+  const burnOffPhrasePlus = t.burnOffYears === null
+    ? 'no burn-off'
+    : `burn-off after ${t.burnOffYears}+ years`;
+
   const recourseTerms: { title: string; recourseClause: string; covenantClause: string; structuralChanges: string[] } = (() => {
     if (tier === 'severe') {
       return {
         title: 'Full payment guaranty + strict covenants — severe sponsor concern',
         recourseClause:
           disqualifyingEvent
-            ? 'Full payment guaranty (100% recourse on payment and the loan) from a creditworthy guarantor; no burn-off. The disqualifying credit event on factor 4 (prior credit events) makes the borrower\'s historical performance disqualifying absent personal recourse.'
-            : 'Full payment guaranty (or substantial recourse 50%+) from a creditworthy guarantor; no burn-off (or burn-off only after years of clean performance + covenant tests).',
+            ? `Full payment guaranty (${recoursePctStr}% recourse on payment and the loan) from a creditworthy guarantor; ${burnOffPhrase}. The disqualifying credit event on factor 4 (prior credit events) makes the borrower's historical performance disqualifying absent personal recourse.`
+            : `Full payment guaranty (or substantial recourse ${recoursePctStr}%+) from a creditworthy guarantor; ${burnOffPhrase} (or burn-off only after years of clean performance + covenant tests).`,
         covenantClause:
-          'Strict ongoing guarantor covenants: minimum net worth ≥ 2× loan, minimum liquidity ≥ 10% of loan, annual financial certification, springing recourse triggers on deal underperformance, expanded bad-boy carve-outs (fraud, misrepresentation, bankruptcy filing).',
+          `Strict ongoing guarantor covenants: minimum net worth ≥ ${nwMultStr}× loan, minimum liquidity ≥ ${liquidityPctStr}% of loan, annual financial certification, springing recourse triggers on deal underperformance, expanded bad-boy carve-outs (fraud, misrepresentation, bankruptcy filing).`,
         structuralChanges: [
           disqualifyingEvent
-            ? 'Full payment guaranty (100% recourse) from a creditworthy guarantor — required absent the disqualifying credit-event history'
-            : 'Full payment guaranty (or 50%+ partial payment guaranty) from a creditworthy guarantor',
-          'No burn-off (or burn-off only after 3-5 years of clean performance + covenant tests + LTV reduction)',
-          'Minimum guarantor net worth ≥ 2× loan, minimum liquidity ≥ 10% of loan',
+            ? `Full payment guaranty (${recoursePctStr}% recourse) from a creditworthy guarantor — required absent the disqualifying credit-event history`
+            : `Full payment guaranty (or ${recoursePctStr}%+ partial payment guaranty) from a creditworthy guarantor`,
+          t.burnOffYears === null
+            ? 'No burn-off (or burn-off only after years of clean performance + covenant tests + LTV reduction)'
+            : `Burn-off after ${t.burnOffYears}+ years of clean performance + covenant tests + LTV reduction`,
+          `Minimum guarantor net worth ≥ ${nwMultStr}× loan, minimum liquidity ≥ ${liquidityPctStr}% of loan`,
           'Annual financial certification, springing recourse triggers, expanded bad-boy carve-outs (fraud, misrepresentation, bankruptcy filing)',
         ],
       };
@@ -918,30 +995,35 @@ function buildGuarantyProposal(
       return {
         title: 'Partial payment guaranty + financial covenants — moderate sponsor concern',
         recourseClause:
-          'Partial payment guaranty (25-50% recourse on payment) from a creditworthy guarantor. Recourse covers payment on the loan balance up to the recourse percentage; standard bad-boy carve-outs apply for the remainder.',
+          `Partial payment guaranty (${recoursePctStr}% recourse on payment) from a creditworthy guarantor. Recourse covers payment on the loan balance up to the recourse percentage; standard bad-boy carve-outs apply for the remainder.`,
         covenantClause:
-          'Guarantor net-worth + liquidity covenants: minimum net worth ≥ 1.5× loan, minimum liquidity ≥ 5% of loan, annual financial certification. Burn-off after 5+ years of clean performance, achievement of LTV and DSCR step-downs, and no covenant trigger events.',
+          `Guarantor net-worth + liquidity covenants: minimum net worth ≥ ${nwMultStr}× loan, minimum liquidity ≥ ${liquidityPctStr}% of loan, annual financial certification. ${t.burnOffYears === null ? 'No burn-off' : `Burn-off after ${t.burnOffYears}+ years of clean performance`}, achievement of LTV and DSCR step-downs, and no covenant trigger events.`,
         structuralChanges: [
-          'Partial payment guaranty (25-50% recourse) from a creditworthy guarantor',
-          'Guarantor net-worth covenant: minimum net worth ≥ 1.5× loan',
-          'Guarantor liquidity covenant: minimum liquidity ≥ 5% of loan',
+          `Partial payment guaranty (${recoursePctStr}% recourse) from a creditworthy guarantor`,
+          `Guarantor net-worth covenant: minimum net worth ≥ ${nwMultStr}× loan`,
+          `Guarantor liquidity covenant: minimum liquidity ≥ ${liquidityPctStr}% of loan`,
           'Annual guarantor financial certification + standard bad-boy carve-outs',
-          'Burn-off after 5+ years of clean performance + LTV/DSCR step-down tests',
+          t.burnOffYears === null
+            ? 'No burn-off — guaranty runs through the term'
+            : `Burn-off after ${t.burnOffYears}+ years of clean performance + LTV/DSCR step-down tests`,
         ],
       };
     }
+    // mild
     return {
       title: 'Limited burn-off payment guaranty + net-worth / liquidity covenants — mild sponsor concern',
       recourseClause:
-        'Limited payment guaranty (≤25% recourse on payment) with burn-off from a creditworthy guarantor. Standard bad-boy carve-outs.',
+        `Limited payment guaranty (≤${recoursePctStr}% recourse on payment) with ${burnOffPhrase} from a creditworthy guarantor. Standard bad-boy carve-outs.`,
       covenantClause:
-        'Guarantor financial covenants: minimum net worth ≥ 1× loan, minimum liquidity ≥ 5% of loan. Annual financial certification. Guaranty burns off after 3 years of clean performance + DSCR/LTV thresholds met.',
+        `Guarantor financial covenants: minimum net worth ≥ ${nwMultStr}× loan, minimum liquidity ≥ ${liquidityPctStr}% of loan. Annual financial certification. ${t.burnOffYears === null ? 'Guaranty runs through the term (no burn-off).' : `Guaranty burns off after ${t.burnOffYears} years of clean performance + DSCR/LTV thresholds met.`}`,
       structuralChanges: [
-        'Limited payment guaranty (≤25% recourse) with burn-off from a creditworthy guarantor',
-        'Guarantor net-worth covenant: minimum net worth ≥ 1× loan',
-        'Guarantor liquidity covenant: minimum liquidity ≥ 5% of loan',
+        `Limited payment guaranty (≤${recoursePctStr}% recourse) with ${burnOffPhrasePlus} from a creditworthy guarantor`,
+        `Guarantor net-worth covenant: minimum net worth ≥ ${nwMultStr}× loan`,
+        `Guarantor liquidity covenant: minimum liquidity ≥ ${liquidityPctStr}% of loan`,
         'Annual guarantor financial certification + standard bad-boy carve-outs',
-        'Burn-off after 3 years of clean performance + DSCR/LTV threshold achievement',
+        t.burnOffYears === null
+          ? 'No burn-off (held for the term)'
+          : `Burn-off after ${t.burnOffYears} years of clean performance + DSCR/LTV threshold achievement`,
       ],
     };
   })();
