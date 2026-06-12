@@ -149,7 +149,13 @@ const NCF_NOI_RATIO: ReadonlyMap<string, { ratio: number; source: string }> = ne
   ['SelfStorage',      { ratio: 0.97, source: 'KBRA/DBRS self-storage NCF/NOI norm — very low capex' }],
   ['MixedUse',         { ratio: 0.94, source: 'KBRA/DBRS mixed-use NCF/NOI norm — blended conservative' }],
   ['UnanchoredRetail', { ratio: 0.92, source: 'KBRA/DBRS unanchored-retail NCF/NOI norm — heavy TI/LC + vacancy churn' }],
-  ['Office',           { ratio: 0.89, source: 'OPERATOR-JUDGMENT (anchored to KBRA/DBRS office NCF/NOI range 0.88-0.93 — heavy TI/LC + capex; NOT employer-derived) — locked desk knob 0.89' }],
+  // DESK POLICY DP-1 (see apps/api/src/doctrine-clean/README.md):
+  // This Office NCF/NOI ratio is the ANALYTICAL haircut — it shapes
+  // sustainable value + coverage ratios. Its TI/LC + capex carve-out
+  // does NOT duplicate lever-4's lockbox reserve (the CUSTODIAL escrow
+  // for the same costs); the two answer different questions and are
+  // retained together by locked desk policy. Provenance: operator-judgment.
+  ['Office',           { ratio: 0.89, source: 'OPERATOR-JUDGMENT (anchored to KBRA/DBRS office NCF/NOI range 0.88-0.93 — heavy TI/LC + capex; NOT employer-derived) — locked desk knob 0.89; see DP-1 in doctrine-clean/README.md (cross-ref with lever-4 lockbox reserve)' }],
   ['Mall',             { ratio: 0.93, source: 'KBRA/DBRS regional-mall NCF/NOI norm — TI/LC + anchor risk' }],
   ['Hotel',            { ratio: 0.96, source: 'KBRA/DBRS hotel NCF/NOI norm — FF&E reserve only; no TI/LC' }],
   ['Unknown',          { ratio: 0.94, source: 'Unknown asset class fallback — conservative central estimate' }],

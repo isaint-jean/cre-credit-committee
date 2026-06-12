@@ -1136,10 +1136,17 @@ interface AssetClassReserveProfile {
   readonly reservePctOfEgiDefault: number;  // CALIBRATION DEFAULT
 }
 
+// DESK POLICY DP-1 (see apps/api/src/doctrine-clean/README.md):
+// These reserves are CUSTODIAL — bank-controlled cash escrows that
+// guarantee TI/LC + capex funding during the loan term. They do NOT
+// duplicate the ANALYTICAL NCF/NOI haircut in
+// doctrine-clean/normalization/sustainable-cashflow.ts; the two
+// answer different questions and are retained together by locked
+// desk policy. Provenance: operator-judgment.
 const ASSET_CLASS_RESERVE_PROFILE: Readonly<Record<string, AssetClassReserveProfile>> = {
   Hotel:             { reserveKind: 'FF&E reserve',                         reserveDescription: 'furniture, fixtures + equipment (room product) at brand-flag standard',                    reservePctOfEgiDefault: 0.04 },
   Mall:              { reserveKind: 'CapEx + TI/LC reserve (mall)',         reserveDescription: 'common-area capex + tenant improvements + leasing commissions for in-line tenant churn', reservePctOfEgiDefault: 0.035 },
-  Office:            { reserveKind: 'CapEx + TI/LC reserve (office)',       reserveDescription: 'building capex + tenant improvements + leasing commissions for office rollover',          reservePctOfEgiDefault: 0.03 },
+  Office:            { reserveKind: 'CapEx + TI/LC reserve (office)',       reserveDescription: 'building capex + tenant improvements + leasing commissions for office rollover (CUSTODIAL — see DP-1; NOT duplicative with NCF/NOI 0.89 haircut)', reservePctOfEgiDefault: 0.03 },
   AnchoredRetail:    { reserveKind: 'CapEx + TI/LC reserve (anchored)',     reserveDescription: 'building capex + TI/LC for anchored center re-tenanting',                                 reservePctOfEgiDefault: 0.03 },
   UnanchoredRetail:  { reserveKind: 'CapEx + TI/LC reserve (unanchored)',   reserveDescription: 'building capex + TI/LC; unanchored re-tenanting carries higher LC cost per SF',           reservePctOfEgiDefault: 0.035 },
   SpecialtyAtypical: { reserveKind: 'Specialty capex reserve',              reserveDescription: 'atypical-collateral capex (e.g., data-center mechanicals, trade-mart specialty buildout)', reservePctOfEgiDefault: 0.04 },
