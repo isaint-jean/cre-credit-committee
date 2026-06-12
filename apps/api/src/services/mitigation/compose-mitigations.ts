@@ -238,6 +238,10 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
     cutCandidates.push({ source: 'require_amortization day-1-DSCR fallback (exit below floor)', lPrime: amortCutHint });
   }
 
+  // Mid-band proposals get rebuilt at L' on the CUT path; collected here so
+  // the lender sees structural cures sized against the post-cut basis.
+  let recomputedMidBand: MitigationProposal[] = [];
+
   if (cutCandidates.length === 0) {
     /* ---- STRUCTURE-FIRST HOLD PATH ----
      * No dimension is past its limit. Hold proceeds at full origination.
@@ -299,6 +303,11 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
 
     const recomputedAmort = recomputedProposals.find(p => p.lever === 'require_amortization') ?? null;
     composedAmort = recomputedAmort;
+    // v1.4 — also pick up mid-band cures at L'. Post-cut LTV may land at the
+    // ceiling (structured band), and exit at L' may still be funded-structured.
+    // Sizes are correct at L' because produceMitigations ran on the recomputed
+    // state. The baseline initialMidBand is NOT used on the cut path.
+    recomputedMidBand = recomputedProposals.filter(p => MID_BAND_LEVERS.has(p.lever));
 
     if (initialAmort !== undefined && recomputedAmort === null) {
       const initialAmortPaydown = initialAmort.requiredPaydown ?? NaN;
@@ -359,8 +368,11 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
   if (composedAmort !== null && composedAmort.id !== 'amortization_blocked_by_day1_dscr') {
     proposals.push(composedAmort);
   }
-  // Mid-band levers — only when we held proceeds (no cut) AND they fired.
+  // Mid-band levers:
+  //   HOLD path — use baseline initialMidBand (proceeds didn't move).
+  //   CUT path  — use recomputedMidBand (sizes correct at L').
   if (cutCandidates.length === 0) proposals.push(...initialMidBand);
+  else                            proposals.push(...recomputedMidBand);
   proposals.push(...orthogonal);
 
   /* ---- (5) Assemble reconciliation. ------------------------------------ */

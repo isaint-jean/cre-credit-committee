@@ -49,6 +49,7 @@ import {
   classifyExitDscrBand,
   resolveLtvStructuredCeiling,
   resolveExitDscrStructuredFloor,
+  computeFundedExitFigures,
   DEFAULT_MITIGATION_DESK,
 } from '../services/mitigation/produce-mitigations.js';
 import { EXIT_DSCR_REFINANCEABLE_THRESHOLD } from '../doctrine-clean/index.js';
@@ -165,6 +166,20 @@ async function main(): Promise<void> {
   const ltvBand = stressedLtv !== null && stressedLtv !== undefined
     ? classifyLtvBand(stressedLtv, DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER, ltvCeiling)
     : 'unknown';
+  // v1.4 — the LEVER gate uses FUNDED exit DSCR (raw exit after cash-sweep
+  // accrual reduces the effective take-out balance). Compute it for display.
+  const sustNcfForFund = dealResult.normalization.sustainableNcf as number;
+  const maturityBalanceForFund = dealResult.dimensions.refinanceFeasibility.derivedOutputs?.maturityBalance as number;
+  const dsAnnualForFund = (adjustedInputs as any).loan?.debtServiceAnnual?.adjusted as number;
+  const termMonthsForFund = (adjustedInputs as any).loan?.termMonths?.adjusted as number;
+  const fundedFigs = (refiConst !== null && refiConst !== undefined && sustNcfForFund > 0 && maturityBalanceForFund > 0)
+    ? computeFundedExitFigures(sustNcfForFund, dsAnnualForFund, termMonthsForFund, refiConst, maturityBalanceForFund)
+    : null;
+  // The DOCTRINE breach signal is still RAW exit DSCR < 1.20. The funded
+  // gate (used by the levers) classifies once the breach fires.
+  const fundedBand = fundedFigs !== null && exitDscr !== null && exitDscr !== undefined && exitDscr < EXIT_DSCR_REFINANCEABLE_THRESHOLD
+    ? (fundedFigs.fundedExitDscr >= exitFloor ? 'structured (funded)' : 'beyond-floor (funded)')
+    : (exitDscr !== undefined && exitDscr !== null && exitDscr >= EXIT_DSCR_REFINANCEABLE_THRESHOLD ? 'clean (raw)' : 'unknown');
   const exitBand = exitDscr !== null && exitDscr !== undefined
     ? classifyExitDscrBand(exitDscr, exitFloor, EXIT_DSCR_REFINANCEABLE_THRESHOLD)
     : 'unknown';
@@ -184,11 +199,18 @@ async function main(): Promise<void> {
   console.log(`     T_LTV_CEILING  (desk)    : ${fmtPct(ltvCeiling)}    [ISABELLE-TO-CALIBRATE]`);
   console.log(`     LTV band                 : ${ltvBand.toUpperCase()}`);
   console.log('');
-  console.log(`  dim-4 exit DSCR             : ${fmtDscr(exitDscr)}`);
+  console.log(`  dim-4 exit DSCR (raw)       : ${fmtDscr(exitDscr)}`);
   console.log(`     stressed refi constant   : ${fmtPct(refiConst)}`);
-  console.log(`     EXIT trigger (doctrine)  : ${fmtDscr(EXIT_DSCR_REFINANCEABLE_THRESHOLD)}`);
-  console.log(`     EXIT_FLOOR    (desk)     : ${fmtDscr(exitFloor)}    [ISABELLE-TO-CALIBRATE — Office anchored to Sunroad answer key 1.02x]`);
-  console.log(`     Exit band                : ${exitBand.toUpperCase()}`);
+  console.log(`     EXIT trigger (doctrine)  : ${fmtDscr(EXIT_DSCR_REFINANCEABLE_THRESHOLD)}  (raw breach signal)`);
+  if (fundedFigs !== null) {
+    console.log(`     annual sweep (NCF−DS)    : ${fmtUsd(fundedFigs.annualSweep)} /yr`);
+    console.log(`     expected accrual         : ${fmtUsd(fundedFigs.expectedAccrual)} over the term`);
+    console.log(`     effective balance        : ${fmtUsd(fundedFigs.effectiveBalance)}  (maturity − accrual)`);
+    console.log(`     FUNDED exit DSCR         : ${fmtDscr(fundedFigs.fundedExitDscr)}`);
+  }
+  console.log(`     FUNDED FLOOR  (desk)     : ${fmtDscr(exitFloor)}    [ISABELLE-CALIBRATED — Office 1.10 on FUNDED basis]`);
+  console.log(`     Exit band (raw, legacy)  : ${exitBand.toUpperCase()}`);
+  console.log(`     Exit band (FUNDED, v1.4) : ${fundedBand.toUpperCase()}`);
   console.log('');
   console.log(`  Day-1 DSCR (sustainable / IO debt service): ${fmtDscr(day1Dscr)}`);
   console.log(`     T_DSCR (doctrine)        : ${fmtDscr(DEFAULT_MITIGATION_DESK.T_DSCR)}`);

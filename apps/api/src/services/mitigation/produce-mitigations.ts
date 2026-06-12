@@ -149,15 +149,14 @@ export const RESERVE_CAP_USD = 25_000_000;
  * LTV STRUCTURED CEILING — by asset class. Above this, structure can't
  * make the buyer comfortable; cut proceeds down to ceiling.
  *
- * Office 0.88 — provisional [ISABELLE-TO-CALIBRATE]. Anchors to where
- * B-piece buyers historically sit for Office on stressed-LTV terms.
- * Recalibrate against more answer-key deals + Isabelle's judgment.
- * NOT employer-derived.
+ * Office 0.80 — [ISABELLE-CALIBRATED, not fitted]. B-piece leverage-
+ * comfort line at the doctrine-stressed basis for Office. NOT derived
+ * from any single answer-key deal — operator-judgment.
  *
  * _default 0.85 — conservative central [ISABELLE-TO-CALIBRATE].
  */
 const T_LTV_STRUCTURED_CEILING_BY_ASSET: ReadonlyMap<string, number> = new Map([
-  ['Office',   0.88],
+  ['Office',   0.80],
   ['_default', 0.85],
 ]);
 
@@ -169,20 +168,22 @@ export function resolveLtvStructuredCeiling(assetType: string | null): number {
 }
 
 /**
- * EXIT-DSCR STRUCTURED FLOOR — by asset class. Below this, structure can't
- * close the refi gap; amortize (or cut, gated by day-1 DSCR).
+ * EXIT-DSCR STRUCTURED FLOOR — by asset class. This is now the FUNDED-exit
+ * floor (v1.4 logic change): the band classifies on funded exit DSCR (raw
+ * exit AFTER realistic cash-sweep accrual reduces the effective take-out
+ * balance), not raw exit. Below the funded floor, even the structured
+ * sweep can't get the take-out lender comfortable — amortize (or cut,
+ * gated by day-1 DSCR).
  *
- * Office 1.00 — [ISABELLE-TO-CALIBRATE]. Anchored to REPRODUCE the Sunroad
- * answer key: Sunroad closed at exit 1.02x. SINGLE-DATA-POINT ANCHOR —
- * NOT a derived constant. Recalibrate against more answer-key deals +
- * Isabelle's judgment. NOT employer-derived. Honest: a single deal does
- * not determine the floor.
+ * Office 1.10 — [ISABELLE-CALIBRATED, not fitted]. Operator-judgment B-
+ * piece refi-comfort line on the funded basis. The raw doctrine threshold
+ * (1.20x) still signals "breach"; the funded floor governs whether the
+ * structural cure (sweep + springing) can carry it without amort/cut.
  *
- * _default 1.10 — conservative central [ISABELLE-TO-CALIBRATE]. Reflects
- * tighter mid-band for asset classes without an Office-style buyer base.
+ * _default 1.10 — conservative central [ISABELLE-TO-CALIBRATE].
  */
 const T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET: ReadonlyMap<string, number> = new Map([
-  ['Office',   1.00],
+  ['Office',   1.10],
   ['_default', 1.10],
 ]);
 
@@ -221,6 +222,51 @@ function resolveAssetTypeFromDeal(
   const idx = dealResult?.dimensions.assetClass.derivedOutputs?.canonicalAssetClassIndex;
   if (typeof idx !== 'number' || idx < 0 || idx >= ASSET_CLASS_ENUM.length) return null;
   return ASSET_CLASS_ENUM[idx] ?? null;
+}
+
+/**
+ * v1.4 — FUNDED EXIT DSCR computation.
+ *
+ * The exit band gate switched from raw exit DSCR to FUNDED exit DSCR at v1.4.
+ * Rationale: when cash-sweep refi reserve is the structural cure, the take-
+ * out lender does not see the raw maturity balance — they see the maturity
+ * balance reduced by the accumulated reserve. The funded exit DSCR is what
+ * the take-out actually underwrites.
+ *
+ * Math (pure):
+ *   annualSweep        = max(0, sustainableNcf - debtServiceAnnual)
+ *   expectedAccrual    = annualSweep × termYears
+ *   effectiveBalance   = max(0, maturityBalance - expectedAccrual)
+ *   fundedExitDscr     = sustainableNcf / (rc × effectiveBalance)
+ *                         (or Infinity when effectiveBalance ≤ 0)
+ *
+ * Used by the cash_sweep + springing + amortization levers to classify the
+ * exit band against the FUNDED floor (T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET).
+ * The DOCTRINE breach signal is still the raw exit DSCR < 1.20; the FUNDED
+ * gate governs whether structure can carry it.
+ */
+export interface FundedExitFigures {
+  readonly annualSweep: number;
+  readonly expectedAccrual: number;
+  readonly effectiveBalance: number;
+  readonly fundedExitDscr: number;
+}
+
+export function computeFundedExitFigures(
+  sustainableNcf: number,
+  debtServiceAnnual: number,
+  termMonths: number,
+  rc: number,
+  maturityBalance: number,
+): FundedExitFigures {
+  const annualSweep = Math.max(0, sustainableNcf - debtServiceAnnual);
+  const termYears = termMonths > 0 ? termMonths / 12 : 0;
+  const expectedAccrual = annualSweep * termYears;
+  const effectiveBalance = Math.max(0, maturityBalance - expectedAccrual);
+  const fundedExitDscr = effectiveBalance > 0
+    ? sustainableNcf / (rc * effectiveBalance)
+    : Number.POSITIVE_INFINITY;
+  return { annualSweep, expectedAccrual, effectiveBalance, fundedExitDscr };
 }
 
 /* ----------------- require_guaranty desk knobs (v2 lever 2) --------------- */
@@ -891,28 +937,34 @@ function buildAmortizationProposal(
   if (typeof maturityBalanceRaw !== 'number' || !(maturityBalanceRaw > 0)) return null;
   if (typeof sustainableNcf !== 'number' || !(sustainableNcf > 0)) return null;
 
-  // v1.3 structure-first three-band classification.
+  // v1.4 structure-first three-band — FUNDED EXIT gate.
   //
-  //   exit ≥ 1.20 (EXIT_DSCR_REFINANCEABLE_THRESHOLD) → CLEAN  (no lever fires)
-  //   FLOOR ≤ exit < 1.20                            → STRUCTURED BAND
-  //                                                     (cash_sweep_refi_reserve +
-  //                                                      springing_dscr_recourse —
-  //                                                      handled in separate lever
-  //                                                      builders; this builder
-  //                                                      RETURNS NULL on the mid-
-  //                                                      band path)
-  //   exit < FLOOR                                   → BEYOND BAND
-  //                                                     (amortize to cure target,
-  //                                                      gated by day-1 DSCR check)
+  // Doctrine breach signal: raw exit DSCR < EXIT_DSCR_REFINANCEABLE_THRESHOLD (1.20).
+  // Below that, classify on the FUNDED exit DSCR (raw exit after the realistic
+  // cash-sweep accrual reduces the effective take-out balance):
   //
-  // Asset-keyed floor [ISABELLE-TO-CALIBRATE] — Office 1.00, _default 1.10.
+  //   fundedExit ≥ FUNDED_FLOOR   → STRUCTURED BAND (cash_sweep + springing
+  //                                  carry the structural cure; this builder
+  //                                  returns null)
+  //   fundedExit < FUNDED_FLOOR   → BEYOND BAND (amortize to cure target,
+  //                                  gated by day-1 DSCR check; if day-1
+  //                                  binds, fall through to a proceeds cut)
+  //
+  // Asset-keyed funded floor [ISABELLE-CALIBRATED] — Office 1.10, _default 1.10.
   if (exitDscrRaw >= EXIT_DSCR_REFINANCEABLE_THRESHOLD) return null;
 
   const assetType = resolveAssetTypeFromDeal(dealResult);
   const exitFloor = resolveExitDscrStructuredFloor(assetType);
-  if (exitDscrRaw >= exitFloor) {
-    // STRUCTURED BAND — handled by cash_sweep_refi_reserve +
-    // springing_dscr_recourse builders. Do not amortize / cut here.
+  const debtServiceForFundedRaw = ai.loan.debtServiceAnnual.adjusted;
+  const fundedRaw = computeFundedExitFigures(
+    sustainableNcf,
+    debtServiceForFundedRaw,
+    ai.loan.termMonths.adjusted,
+    stressedRefiConstRaw,
+    maturityBalanceRaw,
+  );
+  if (fundedRaw.fundedExitDscr >= exitFloor) {
+    // STRUCTURED BAND on the funded basis — cash_sweep + springing carry it.
     return null;
   }
 
@@ -1242,22 +1294,28 @@ function buildCashSweepRefiReserveProposal(
 
   const assetType = resolveAssetTypeFromDeal(dealResult);
   const floor = resolveExitDscrStructuredFloor(assetType);
-  const band = classifyExitDscrBand(exitDscr, floor, EXIT_DSCR_REFINANCEABLE_THRESHOLD);
-  if (band !== 'structured') return null;
+  // v1.4 — gate switches to FUNDED exit DSCR. Doctrine breach signal: raw
+  // exit < 1.20. Then classify on funded exit vs funded floor.
+  if (exitDscr >= EXIT_DSCR_REFINANCEABLE_THRESHOLD) return null;
+  const maturityBalance = dealResult.dimensions.refinanceFeasibility.derivedOutputs?.maturityBalance;
+  if (typeof maturityBalance !== 'number' || !(maturityBalance > 0)) return null;
+  const debtServiceAnnual = ai.loan.debtServiceAnnual.adjusted;
+  const termMonths = ai.loan.termMonths.adjusted;
+  const funded = computeFundedExitFigures(
+    sustainableNcf, debtServiceAnnual, termMonths, stressedRefiConst, maturityBalance,
+  );
+  if (funded.fundedExitDscr < floor) return null;  // beyond floor — amort handles.
 
   const currentLoan = ai.loan.loanAmount.adjusted;
   const cureTarget = desk.T_EXIT_DSCR_CURE_TARGET;
   // Refi reserve target: the post-sweep effective balance the take-out lender
   // would see post-reserve-application clears cure target. Reserve target =
-  // currentLoan − (NCF / (rc × cureTarget)).
+  // maturityBalance − (NCF / (rc × cureTarget)).
   const exitClearingBalance = sustainableNcf / (stressedRefiConst * cureTarget);
-  const reserveTarget = Math.max(0, currentLoan - exitClearingBalance);
-  // Expected sweep accumulation over the term — NCF minus debt service.
-  const debtServiceAnnual = ai.loan.debtServiceAnnual.adjusted;
-  const annualSweep = Math.max(0, sustainableNcf - debtServiceAnnual);
-  const termYears = ai.loan.termMonths.adjusted / 12;
-  const expectedAccrual = annualSweep * termYears;
-  const fullyFunded = expectedAccrual >= reserveTarget;
+  const reserveTarget = Math.max(0, maturityBalance - exitClearingBalance);
+  const termYears = termMonths > 0 ? termMonths / 12 : 0;
+  const fullyFunded = funded.expectedAccrual >= reserveTarget;
+  const residualUnfunded = Math.max(0, reserveTarget - funded.expectedAccrual);
   return {
     id: 'cash_sweep_refi_reserve_structured',
     principleIds: [],
@@ -1265,20 +1323,22 @@ function buildCashSweepRefiReserveProposal(
     leverKind: 'coverage_reserve',
     title: 'Cash sweep — refi reserve toward balloon',
     description:
-      `Exit DSCR ${exitDscr.toFixed(2)}x sits in the desk's STRUCTURED BAND ` +
-      `for ${assetType ?? 'this asset class'} (floor ${floor.toFixed(2)}x, ` +
-      `trigger ${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x). Hold origination ` +
-      `proceeds at ${fmtUsd(currentLoan)} and implement an excess-cash sweep: every ` +
-      `dollar above debt service + operating reserves builds into a controlled refi ` +
-      `reserve. Reserve TARGET ${fmtUsd(reserveTarget)} (reduces effective take-out ` +
-      `balance to ${fmtUsd(exitClearingBalance)}, clearing the cure target ${cureTarget.toFixed(2)}x). ` +
-      `Expected accrual over the ${termYears.toFixed(0)}-year term at sustainable ` +
-      `cash flow ≈ ${fmtUsd(expectedAccrual)} (${fullyFunded ? 'meets target' : 'shortfall ' + fmtUsd(reserveTarget - expectedAccrual) + ' — pair with springing recourse'}).`,
+      `Raw exit DSCR ${exitDscr.toFixed(2)}x breaches the doctrine refinanceable line ` +
+      `${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x; the FUNDED exit DSCR ` +
+      `${funded.fundedExitDscr.toFixed(2)}x (after the realistic cash-sweep accrual ` +
+      `${fmtUsd(funded.expectedAccrual)} reduces the maturity balance to effective ` +
+      `${fmtUsd(funded.effectiveBalance)}) clears the desk's funded floor of ` +
+      `${floor.toFixed(2)}x for ${assetType ?? 'this asset class'}. STRUCTURED — hold ` +
+      `origination at ${fmtUsd(currentLoan)} and implement excess-cash sweep into a ` +
+      `controlled refi-reserve account. Reserve TARGET ${fmtUsd(reserveTarget)} (clears ` +
+      `cure target ${cureTarget.toFixed(2)}x). Expected accrual ${fmtUsd(funded.annualSweep)}/yr × ` +
+      `${termYears.toFixed(0)}yr = ${fmtUsd(funded.expectedAccrual)} ` +
+      `(${fullyFunded ? 'fully funds the target' : 'residual unfunded ' + fmtUsd(residualUnfunded) + ' — covered by springing recourse'}).`,
     structuralChanges: [
       `Sweep all NCF above debt service + operating reserves into a controlled refi-reserve account`,
-      `Reserve target ${fmtUsd(reserveTarget)} by maturity (post-sweep effective balance ${fmtUsd(exitClearingBalance)})`,
-      `Expected accrual at ${fmtUsd(annualSweep)}/yr × ${termYears.toFixed(0)}yr = ${fmtUsd(expectedAccrual)} ` +
-      (fullyFunded ? '(fully funded)' : `(short by ${fmtUsd(reserveTarget - expectedAccrual)})`),
+      `Reserve target ${fmtUsd(reserveTarget)} by maturity (post-sweep effective balance ${fmtUsd(exitClearingBalance)} on a ${fmtUsd(maturityBalance)} maturity balance)`,
+      `Expected accrual at ${fmtUsd(funded.annualSweep)}/yr × ${termYears.toFixed(0)}yr = ${fmtUsd(funded.expectedAccrual)} ` +
+      (fullyFunded ? '(fully funded)' : `(residual unfunded ${fmtUsd(residualUnfunded)} — backstopped by springing recourse)`),
       `Released to take-out at maturity OR distributable subject to DSCR / occupancy tests`,
     ],
     requiredReserve: reserveTarget,
@@ -1288,8 +1348,14 @@ function buildCashSweepRefiReserveProposal(
   };
 }
 
+/** Minimum springing-recourse tier as % of loan. Floor under the residual-
+ *  gap sizing so the recourse can't shrink below a credible backstop even
+ *  when the sweep fully funds the reserve target. [ISABELLE-TO-CALIBRATE]. */
+const MIN_SPRINGING_RECOURSE_PCT = 0.10;
+
 /** EXIT MID-BAND — springing_dscr_recourse. Springing recourse on DSCR test;
- *  sponsor liability if coverage breaches at any test date. */
+ *  sponsor liability sized to COVER THE RESIDUAL unfunded gap from the cash
+ *  sweep, with a minimum tier floor. */
 function buildSpringingDscrRecourseProposal(
   dealResult: EvaluateDealResult | undefined,
   ai: AdjustedInputs,
@@ -1299,18 +1365,38 @@ function buildSpringingDscrRecourseProposal(
   const refiDim = dealResult.dimensions.refinanceFeasibility;
   if (refiDim.applicability !== 'applicable') return null;
   const exitDscr = refiDim.derivedOutputs?.exitDscr;
+  const stressedRefiConst = refiDim.derivedOutputs?.stressedRefiConstant;
+  const maturityBalance = refiDim.derivedOutputs?.maturityBalance;
+  const sustainableNcf = dealResult.normalization.sustainableNcf;
   if (typeof exitDscr !== 'number' || !Number.isFinite(exitDscr)) return null;
+  if (typeof stressedRefiConst !== 'number' || !(stressedRefiConst > 0)) return null;
+  if (typeof maturityBalance !== 'number' || !(maturityBalance > 0)) return null;
+  if (typeof sustainableNcf !== 'number' || !(sustainableNcf > 0)) return null;
 
   const assetType = resolveAssetTypeFromDeal(dealResult);
   const floor = resolveExitDscrStructuredFloor(assetType);
-  const band = classifyExitDscrBand(exitDscr, floor, EXIT_DSCR_REFINANCEABLE_THRESHOLD);
-  if (band !== 'structured') return null;
+  // v1.4 — funded gate. Mirror of cash_sweep gate.
+  if (exitDscr >= EXIT_DSCR_REFINANCEABLE_THRESHOLD) return null;
+  const debtServiceAnnual = ai.loan.debtServiceAnnual.adjusted;
+  const termMonths = ai.loan.termMonths.adjusted;
+  const funded = computeFundedExitFigures(
+    sustainableNcf, debtServiceAnnual, termMonths, stressedRefiConst, maturityBalance,
+  );
+  if (funded.fundedExitDscr < floor) return null;
 
   const currentLoan = ai.loan.loanAmount.adjusted;
-  // Single-tier: 25% recourse springing on DSCR breach at any quarterly test.
-  // The recourse is the liability cap if springing triggers; sized as a
-  // percentage of L for committee transparency.
-  const springingRecoursePct = 0.25;
+  const cureTarget = desk.T_EXIT_DSCR_CURE_TARGET;
+  const exitClearingBalance = sustainableNcf / (stressedRefiConst * cureTarget);
+  const reserveTarget = Math.max(0, maturityBalance - exitClearingBalance);
+  const residualUnfunded = Math.max(0, reserveTarget - funded.expectedAccrual);
+
+  // v1.4 — recourse sized to COVER THE RESIDUAL, with minimum tier floor.
+  const minRecourseUsd = MIN_SPRINGING_RECOURSE_PCT * currentLoan;
+  const recourseUsd = Math.max(minRecourseUsd, residualUnfunded);
+  const recoursePctOfLoan = currentLoan > 0 ? recourseUsd / currentLoan : 0;
+  const sizingDriver = residualUnfunded > minRecourseUsd
+    ? `residual unfunded gap ${fmtUsd(residualUnfunded)}`
+    : `minimum tier floor ${(MIN_SPRINGING_RECOURSE_PCT * 100).toFixed(0)}% of loan = ${fmtUsd(minRecourseUsd)}`;
   const dscrTriggerForSpring = desk.T_DSCR;
   return {
     id: 'springing_dscr_recourse_structured',
@@ -1319,17 +1405,20 @@ function buildSpringingDscrRecourseProposal(
     leverKind: 'guaranty',
     title: 'Springing DSCR recourse — coverage-conditional sponsor liability',
     description:
-      `Exit DSCR ${exitDscr.toFixed(2)}x is in the desk's STRUCTURED BAND (floor ${floor.toFixed(2)}x, ` +
-      `trigger ${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x). Pair the cash-sweep refi reserve with ` +
-      `SPRINGING recourse: sponsor liability up to ${(springingRecoursePct * 100).toFixed(0)}% of ` +
-      `${fmtUsd(currentLoan)} (= ${fmtUsd(springingRecoursePct * currentLoan)}) triggers if quarterly ` +
-      `DSCR falls below ${dscrTriggerForSpring.toFixed(2)}x. Holds proceeds at origination; spring ` +
-      `provides a downside backstop the take-out lender prices into refi.`,
+      `Exit DSCR ${exitDscr.toFixed(2)}x raw; funded ${funded.fundedExitDscr.toFixed(2)}x is in the desk's ` +
+      `STRUCTURED BAND (funded floor ${floor.toFixed(2)}x, trigger ${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x). ` +
+      `Pair the cash-sweep refi reserve with SPRINGING recourse SIZED TO THE RESIDUAL UNFUNDED GAP ` +
+      `(${fmtUsd(residualUnfunded)} after the sweep accrual ${fmtUsd(funded.expectedAccrual)} covers ` +
+      `the reserve target ${fmtUsd(reserveTarget)}), with a minimum tier floor of ` +
+      `${(MIN_SPRINGING_RECOURSE_PCT * 100).toFixed(0)}% of loan. Recourse cap: ${fmtUsd(recourseUsd)} ` +
+      `(${(recoursePctOfLoan * 100).toFixed(1)}% of ${fmtUsd(currentLoan)}; binding driver: ${sizingDriver}). ` +
+      `Triggers if quarterly DSCR falls below ${dscrTriggerForSpring.toFixed(2)}x.`,
     structuralChanges: [
-      `Sponsor recourse up to ${(springingRecoursePct * 100).toFixed(0)}% of loan (${fmtUsd(springingRecoursePct * currentLoan)}) — SPRINGING only`,
+      `Sponsor recourse cap ${fmtUsd(recourseUsd)} (${(recoursePctOfLoan * 100).toFixed(1)}% of loan) — SPRINGING only`,
+      `Sizing driver: ${sizingDriver}`,
       `Trigger: quarterly DSCR test < ${dscrTriggerForSpring.toFixed(2)}x at any test date through maturity`,
       `Cures: 4 consecutive clean quarters releases the recourse`,
-      `Pairs with cash_sweep_refi_reserve — refi reserve funds first; springing recourse is downside backstop`,
+      `Pairs with cash_sweep_refi_reserve — sweep funds the reserve target; springing covers the residual unfunded gap`,
     ],
     riskReduction: 'moderate',
     severity: 'medium',

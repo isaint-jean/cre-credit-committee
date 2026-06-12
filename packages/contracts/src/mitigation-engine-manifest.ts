@@ -83,4 +83,21 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   //     > ceiling OR amort blocked. Reconciliation reports per-dim band
   //     classification + structural cure + cut driver if any.
   '1.3': '476a29766a4e1b81b4eae883e54633de6e91488f8a857191506d16268a03b4d6' as ContentHash,
+  // v1.4 — Office comfort-line recalibration + FUNDED-exit gate switch.
+  //   Knob changes (ISABELLE-CALIBRATED, not fitted):
+  //     T_LTV_STRUCTURED_CEILING_BY_ASSET.Office  : 0.88 → 0.80
+  //     T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET.Office: 1.00 → 1.10
+  //                                                  (now FUNDED basis)
+  //   Logic changes:
+  //     - Exit band gate switches from RAW exit DSCR to FUNDED exit DSCR.
+  //       Funded = NCF / (rc × (maturityBalance − expectedAccrual)). The
+  //       doctrine breach signal (raw < 1.20) still triggers the levers; the
+  //       FUNDED gate governs structured-vs-amort.
+  //     - Springing recourse sizing: max(MIN × loan, residualUnfunded).
+  //       MIN_SPRINGING_RECOURSE_PCT = 0.10 floor. Was a flat 25%; now
+  //       residual-gap-driven with minimum tier.
+  //     - composeMitigations: on the cut path, mid-band cures use the
+  //       RECOMPUTED-at-L' proposals (so residual-LTV / residual-exit
+  //       structure is sized correctly post-cut).
+  '1.4': '64c9c9e5ae0f95b80d7d2268d508b54ad4374a3d33e5de998925b3d5606ae16e' as ContentHash,
 };

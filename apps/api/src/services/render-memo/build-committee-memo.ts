@@ -256,13 +256,16 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
         At the original loan amount, the doctrine-stressed LTV
         (loan / dim-7 stressed value ${esc(fmtUsd(auth.stressedValue))})
         was <strong>${esc(fmtPct(auth.stressedLtv))}</strong> — above the
-        ${esc(fmtPct(ltvTrigger))} stressed-LTV trigger.
-        Reducing proceeds to ${esc(fmtUsd(finalLoan))} brings the stressed LTV to
-        <strong>${esc(fmtPct(auth.stressedLtvAtFinalLoan))}</strong> and lifts the exit
-        DSCR from ${esc(fmtDscr(auth.exitDscrBaseline))} to
-        <strong>${esc(fmtDscr(auth.exitDscrAtFinalLoan))}</strong>, clearing the
-        ${esc(fmtDscr(auth.exitDscrTrigger))} doctrine trigger and the
-        ${esc(fmtDscr(auth.exitDscrCureTarget))} desk cure target.
+        ${esc(fmtPct(ltvTrigger))} stressed-LTV trigger AND above the desk's
+        structured-LTV ceiling. Above the ceiling, structural protections
+        alone cannot make the buyer comfortable; proceeds must be cut TO the
+        ceiling. Reducing proceeds to ${esc(fmtUsd(finalLoan))} brings the
+        stressed LTV to <strong>${esc(fmtPct(auth.stressedLtvAtFinalLoan))}</strong>.
+        Exit DSCR at L′ is <strong>${esc(fmtDscr(auth.exitDscrAtFinalLoan))}</strong>
+        — still below the ${esc(fmtDscr(auth.exitDscrTrigger))} doctrine trigger,
+        but the residual exit-refi risk is held within the desk's structured
+        tolerance by the cash-sweep refi reserve + springing DSCR recourse
+        (sized in the conditions below).
       </p>
     </div>`;
 
