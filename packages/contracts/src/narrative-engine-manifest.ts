@@ -65,4 +65,17 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // fabricating a "$2.5M DSR" + DSCR covenant + cash sweep when the
   // mitigation engine produced zero proposals.
   '1.5': '43a025d0b8f31a3ac955a367e6bf40e697e28c64fa20b6ead45b00877bd327ed' as ContentHash,
+  // v1.6 — composed-package wiring + handbook demotion (Phase 3 committee
+  // narrative). New constants in the hash snapshot: 3 v1.6 slot templates
+  // (executive_summary, red_flag_assessment, committee_recommendation),
+  // AUTHORITATIVE_NUMBERS_HEADER_V1_6 + INSTRUCTION_V1_6, HANDBOOK_SUPPORTING
+  // PREAMBLE_V1_6 + EMPTY_V1_6, MITIGATION_SUGGESTIONS_HEADER_V1_6 +
+  // EMPTY_V1_6 + RECONCILIATION_HEADER_V1_6. v1.5 constants remain frozen
+  // in source so older NarrativeEvaluation records still hash-validate at
+  // v1.5. The producer now builds the new BuildNarrativeInput.dealResult +
+  // composedMitigationPackage fields into a deterministic auth-numbers
+  // block embedded in every v1.6 slot prompt. Mitigation_suggestions
+  // renders the COMPOSED package + reconciliation; handbook flags are
+  // qualitative-only supporting observations (metric strings stripped).
+  '1.6': 'b5d7cc191c3b9896a6bcfd271b053297181950974e11ce04f3fc5f47046ce81e' as ContentHash,
 };

@@ -28,6 +28,18 @@ import {
   COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE,
   MITIGATION_SUGGESTIONS_HEADER_V1_5,
   MITIGATION_SUGGESTIONS_EMPTY_V1_5,
+  // v1.6 — composed-package wiring + handbook demotion. New template + header
+  // constants enter the hash snapshot so any edit forces a version bump.
+  EXECUTIVE_SUMMARY_PROMPT_TEMPLATE_V1_6,
+  RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE_V1_6,
+  COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE_V1_6,
+  AUTHORITATIVE_NUMBERS_HEADER_V1_6,
+  AUTHORITATIVE_NUMBERS_INSTRUCTION_V1_6,
+  HANDBOOK_SUPPORTING_PREAMBLE_V1_6,
+  HANDBOOK_SUPPORTING_EMPTY_V1_6,
+  MITIGATION_SUGGESTIONS_HEADER_V1_6,
+  MITIGATION_SUGGESTIONS_EMPTY_V1_6,
+  MITIGATION_SUGGESTIONS_RECONCILIATION_HEADER_V1_6,
 } from '../services/narrative/prompt-templates.js';
 import { computeContentHash } from './content-hash.js';
 
@@ -55,6 +67,19 @@ function buildNarrativeEngineHashSnapshot() {
     // bump + manifest append (same discipline as the templates above).
     mitigationSuggestionsHeaderV15: MITIGATION_SUGGESTIONS_HEADER_V1_5,
     mitigationSuggestionsEmptyV15: MITIGATION_SUGGESTIONS_EMPTY_V1_5,
+    // v1.6 — composed-package wiring + handbook demotion. New slot templates,
+    // authoritative-numbers header / instruction, handbook-demotion preamble,
+    // composed-mitigations header / empty-case / reconciliation header.
+    executiveSummaryPromptTemplateV16: EXECUTIVE_SUMMARY_PROMPT_TEMPLATE_V1_6,
+    redFlagAssessmentPromptTemplateV16: RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE_V1_6,
+    committeeRecommendationPromptTemplateV16: COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE_V1_6,
+    authoritativeNumbersHeaderV16: AUTHORITATIVE_NUMBERS_HEADER_V1_6,
+    authoritativeNumbersInstructionV16: AUTHORITATIVE_NUMBERS_INSTRUCTION_V1_6,
+    handbookSupportingPreambleV16: HANDBOOK_SUPPORTING_PREAMBLE_V1_6,
+    handbookSupportingEmptyV16: HANDBOOK_SUPPORTING_EMPTY_V1_6,
+    mitigationSuggestionsHeaderV16: MITIGATION_SUGGESTIONS_HEADER_V1_6,
+    mitigationSuggestionsEmptyV16: MITIGATION_SUGGESTIONS_EMPTY_V1_6,
+    mitigationSuggestionsReconciliationHeaderV16: MITIGATION_SUGGESTIONS_RECONCILIATION_HEADER_V1_6,
   };
 }
 

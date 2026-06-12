@@ -59,7 +59,23 @@ import {
   buildRedFlagAssessmentPrompt,
   buildCommitteeRecommendationPrompt,
   renderMitigationsListV1_5,
+  // v1.6 — composed-package wiring + handbook demotion.
+  buildExecutiveSummaryPromptV1_6,
+  buildRedFlagAssessmentPromptV1_6,
+  buildCommitteeRecommendationPromptV1_6,
+  renderComposedMitigationsList,
+  type AuthoritativeNumbers,
+  type CleanDoctrineFinding,
+  type ComposedMitigationView,
 } from './prompt-templates.js';
+import type { EvaluateDealResult } from '../../doctrine-clean/scoring/evaluate-deal.js';
+import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
+import {
+  EXIT_DSCR_REFINANCEABLE_THRESHOLD,
+} from '../../doctrine-clean/dimensions/refinance-feasibility.js';
+import {
+  DEFAULT_MITIGATION_DESK,
+} from '../mitigation/produce-mitigations.js';
 
 const NARRATIVE_LLM_MODEL = 'claude-sonnet-4-20250514';
 const EXECUTIVE_SUMMARY_MAX_TOKENS = 3000;
@@ -125,6 +141,23 @@ export interface BuildNarrativeInput {
    * empty-case text in that case.
    */
   readonly mitigationProposalSet: MitigationProposalSet;
+  /**
+   * v1.6 — clean-doctrine evaluation result. The producer projects the
+   * authoritative-numbers block (rating, dim-7 stressedValue + source tag,
+   * dim-4 exit DSCR, etc.) from this. OPTIONAL during the v1.5→v1.6
+   * rollout: when present alongside composedMitigationPackage, the
+   * producer takes the v1.6 path (clean-doctrine + composed-package
+   * wiring + handbook demotion). When omitted, it falls back to the
+   * v1.5 path so existing callers continue to work.
+   */
+  readonly dealResult?: EvaluateDealResult;
+  /**
+   * v1.6 — composed mitigation package (post-composition resolution). The
+   * producer renders mitigation_suggestions FROM THE COMPOSED PROPOSALS +
+   * reconciliation notes, not from the raw produceMitigations output.
+   * Optional; see dealResult.
+   */
+  readonly composedMitigationPackage?: ComposedMitigationPackage;
 }
 
 export class BuildNarrativeError extends Error {
@@ -139,6 +172,150 @@ export class BuildNarrativeError extends Error {
   }
 }
 
+/* ------- v1.6 deterministic projections from dealResult + composed ------- */
+
+/**
+ * Canonical dim numbering used for the v1.6 red-flag-assessment headline.
+ * Matches the 9-dim doctrine the rest of the system uses.
+ */
+const DIM_NUMBER_BY_ID: Readonly<Record<string, number>> = {
+  'leverage-ltv':                1,
+  'coverage-dscr':               2,
+  'debt-yield':                  3,
+  'refinance-feasibility':       4,
+  'income-concentration':        5,
+  'rollover':                    6,
+  'cap-rate-valuation-stress':   7,
+  'asset-class':                 8,
+  'sponsor-borrower-quality':    9,
+};
+
+/**
+ * One-liner headline per dim, deterministic. Pulled from the dim's tier +
+ * a derived-output figure when applicable. NO new computation; everything
+ * traces to a published derivedOutput or rationale snippet.
+ */
+function headlineFor(c: { dimensionId: string; tier: string; derivedOutputs?: Readonly<Record<string, number | string | null>> }): string {
+  const d = c.derivedOutputs ?? {};
+  const num = (k: string): number | null => {
+    const v = d[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  switch (c.dimensionId) {
+    case 'cap-rate-valuation-stress': {
+      const va = num('valuationAggressiveness');
+      return va !== null ? `valuation aggressiveness ${(va * 100).toFixed(1)}%` : 'cap-rate stress applied';
+    }
+    case 'leverage-ltv': {
+      const sl = num('stressedLtv');
+      return sl !== null ? `stressed LTV ${(sl * 100).toFixed(2)}%` : 'stressed-LTV finding';
+    }
+    case 'coverage-dscr': {
+      const x = num('coverage');
+      return x !== null ? `sustainable DSCR ${x.toFixed(2)}x` : 'coverage finding';
+    }
+    case 'debt-yield': {
+      const x = num('debtYield');
+      return x !== null ? `debt yield ${(x * 100).toFixed(2)}%` : 'debt-yield finding';
+    }
+    case 'refinance-feasibility': {
+      const x = num('exitDscr');
+      return x !== null ? `exit DSCR ${x.toFixed(2)}x at the stressed take-out` : 'refinance-feasibility finding';
+    }
+    case 'income-concentration': {
+      const x = num('largestTenantShare');
+      return x !== null ? `largest-tenant share ${(x * 100).toFixed(1)}%` : 'concentration finding';
+    }
+    case 'rollover':
+      return 'tenant rollover within term';
+    case 'asset-class':
+      return 'asset-class tier elevated';
+    case 'sponsor-borrower-quality':
+      return 'sponsor-quality concern';
+    default:
+      return `${c.dimensionId}: ${c.tier}`;
+  }
+}
+
+/**
+ * Extract risk-elevated clean-doctrine dim findings, sorted by canonical
+ * dim number. Filters to applicable + tier above 'baseline'/'low'. Pure.
+ */
+export function extractCleanDoctrineFindings(
+  dealResult: EvaluateDealResult,
+): CleanDoctrineFinding[] {
+  const findings: CleanDoctrineFinding[] = [];
+  for (const c of dealResult.allDimensions) {
+    if (c.applicability !== 'applicable') continue;
+    const tier = (c.tier ?? '').toLowerCase();
+    // Surface anything that's NOT 'baseline', 'low', or 'N/A'. The doctrine's
+    // tier strings vary per dim; this conservative filter keeps it broad.
+    if (tier === 'baseline' || tier === 'low' || tier === 'n/a' || tier === '') continue;
+    const dimNumber = DIM_NUMBER_BY_ID[c.dimensionId] ?? 0;
+    findings.push({
+      dimNumber,
+      dimensionId: c.dimensionId,
+      tier: c.tier ?? 'unknown',
+      headline: headlineFor(c),
+    });
+  }
+  findings.sort((a, b) => a.dimNumber - b.dimNumber);
+  return findings;
+}
+
+/**
+ * Project the AuthoritativeNumbers block from dealResult + composedPackage.
+ * Pure. Every field traces to a derivedOutput or a composed proposal field;
+ * no formula in the projection.
+ */
+export function projectAuthoritativeNumbers(
+  dealResult: EvaluateDealResult,
+  composed: ComposedMitigationPackage,
+): AuthoritativeNumbers {
+  const dim7 = dealResult.dimensions.capRateValuationStress;
+  const dim4 = dealResult.dimensions.refinanceFeasibility;
+  const dim7d = dim7.derivedOutputs ?? {};
+  const dim4d = dim4.derivedOutputs ?? {};
+  const dim7Final = composed.finalState.dealResult.dimensions.capRateValuationStress;
+  const dim4Final = composed.finalState.dealResult.dimensions.refinanceFeasibility;
+
+  const num = (rec: Readonly<Record<string, number | string | null>> | undefined, k: string): number | null => {
+    const v = rec?.[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  const str = (rec: Readonly<Record<string, number | string | null>> | undefined, k: string): string | null => {
+    const v = rec?.[k];
+    return typeof v === 'string' && v.length > 0 ? v : null;
+  };
+
+  const concludedValueSource = str(dim7d, 'concludedValueSource');
+  const valuationConfidenceNote = concludedValueSource === 'operator-supplied'
+    ? 'valuation basis: operator-supplied (lower data confidence than third-party appraisal; data-confidence note, not a score penalty)'
+    : null;
+
+  return {
+    ratingRecommendation: (dealResult.rating as { recommendation?: string }).recommendation ?? null,
+    ratingBand:           (dealResult.rating as { ratingBand?: string }).ratingBand ?? null,
+    assetType:            null,    // assetType isn't on dealResult.rating; producer can override
+    subType:              null,
+    originalLoanAmount:   composed.reconciliation.originalLoanAmount,
+    finalLoanAmount:      composed.reconciliation.finalLoanAmount,
+    proceedsReduction:    composed.reconciliation.proceedsReduction,
+    stressedValue:        num(dim7d, 'stressedValue'),
+    stressedLtv:          num(dim7d, 'stressedLtv'),
+    stressedLtvAtFinalLoan: num(dim7Final.derivedOutputs ?? {}, 'stressedLtv'),
+    concludedValue:       num(dim7d, 'concludedValue') ?? null,
+    concludedValueSource: concludedValueSource as AuthoritativeNumbers['concludedValueSource'],
+    valuationConfidenceNote,
+    exitDscrBaseline:     num(dim4d, 'exitDscr'),
+    exitDscrAtFinalLoan:  num(dim4Final.derivedOutputs ?? {}, 'exitDscr'),
+    exitDscrTrigger:      EXIT_DSCR_REFINANCEABLE_THRESHOLD,
+    exitDscrCureTarget:   DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET,
+    standaloneAmortPaydown: composed.reconciliation.standaloneAmortPaydown,
+    composedAmortPaydown:   composed.reconciliation.composedAmortPaydown,
+  };
+}
+
 /* ----------------------------- per-slot helpers ----------------------------- */
 
 interface ExecutiveSummaryFragment {
@@ -149,6 +326,7 @@ interface ExecutiveSummaryFragment {
 async function buildExecutiveSummary(
   input: BuildNarrativeInput,
   llm: LLMCallFn,
+  auth: AuthoritativeNumbers | null,
 ): Promise<ExecutiveSummaryFragment> {
   const { handbookEvaluation } = input;
   const formattedFlags = formatFlagsForInjectionPoint(
@@ -160,7 +338,12 @@ async function buildExecutiveSummary(
     'executive_summary',
   );
 
-  const prompt = buildExecutiveSummaryPrompt(formattedFlags);
+  // v1.6 path: clean-doctrine authoritative numbers PRIMARY; handbook
+  // observations qualitative-only (metric strings stripped by template).
+  // v1.5 fallback: legacy handbook-only prompt.
+  const prompt = auth !== null
+    ? buildExecutiveSummaryPromptV1_6(auth, formattedFlags)
+    : buildExecutiveSummaryPrompt(formattedFlags);
   const llmOutput = await llm({
     model: NARRATIVE_LLM_MODEL,
     max_tokens: EXECUTIVE_SUMMARY_MAX_TOKENS,
@@ -187,6 +370,8 @@ interface RedFlagAssessmentFragment {
 async function buildRedFlagAssessment(
   input: BuildNarrativeInput,
   llm: LLMCallFn,
+  auth: AuthoritativeNumbers | null,
+  cleanFindings: readonly CleanDoctrineFinding[],
 ): Promise<RedFlagAssessmentFragment> {
   const { handbookEvaluation } = input;
   const formattedFlags = formatFlagsForInjectionPoint(
@@ -198,7 +383,12 @@ async function buildRedFlagAssessment(
     'red_flag_assessment',
   );
 
-  const prompt = buildRedFlagAssessmentPrompt(formattedFlags);
+  // v1.6 path: clean-doctrine findings PRIMARY; handbook flags qualitative-
+  // only via the template's renderHandbookSupportingObservations helper
+  // (metric strings stripped). v1.5 fallback: legacy handbook-only prompt.
+  const prompt = auth !== null
+    ? buildRedFlagAssessmentPromptV1_6(auth, cleanFindings, formattedFlags)
+    : buildRedFlagAssessmentPrompt(formattedFlags);
   const llmOutput = await llm({
     model: NARRATIVE_LLM_MODEL,
     max_tokens: RED_FLAG_ASSESSMENT_MAX_TOKENS,
@@ -237,12 +427,22 @@ interface MitigationSuggestionsFragment {
 function buildMitigationSuggestions(
   input: BuildNarrativeInput,
 ): MitigationSuggestionsFragment {
-  const { handbookEvaluation, mitigationProposalSet } = input;
+  const { handbookEvaluation, mitigationProposalSet, composedMitigationPackage } = input;
   const mitigationSuggestionsConsumedFlagPrincipleIds = consumedPrincipleIdsForInjectionPoint(
     handbookEvaluation.firedFlags,
     'mitigation_suggestions',
   );
-  const mitigationSuggestions = renderMitigationsListV1_5(mitigationProposalSet.proposals);
+  // v1.6 path: render the COMPOSED package (post-resolution proposals +
+  // reconciliation notes) — the memo shows WHY a lever dropped or shrank,
+  // not just the final list. v1.5 fallback: render the raw proposal set.
+  const mitigationSuggestions = composedMitigationPackage !== undefined
+    ? renderComposedMitigationsList({
+        proposals: composedMitigationPackage.proposals,
+        reconciliationNotes: composedMitigationPackage.reconciliation.notes,
+        covenantMagnitudesAtFinalLoan:
+          composedMitigationPackage.reconciliation.covenantMagnitudesAtFinalLoan,
+      })
+    : renderMitigationsListV1_5(mitigationProposalSet.proposals);
   return { mitigationSuggestions, mitigationSuggestionsConsumedFlagPrincipleIds };
 }
 
@@ -294,6 +494,7 @@ async function buildCommitteeRecommendation(
   input: BuildNarrativeInput,
   llm: LLMCallFn,
   mitigationsText: string,
+  auth: AuthoritativeNumbers | null,
 ): Promise<CommitteeRecommendationFragment> {
   const { handbookEvaluation, dataConfidence, dataQualityFlags } = input;
 
@@ -326,7 +527,14 @@ async function buildCommitteeRecommendation(
     'committee_recommendation',
   );
 
-  const prompt = buildCommitteeRecommendationPrompt(formattedFlags, mitigationsText);
+  // v1.6 path: grounds in clean-doctrine rating + composed conditions; the
+  // handbook flags filtered to this slot are NOT injected (the authoritative-
+  // numbers block already carries the load-bearing facts; template forbids
+  // inventing new sized structuring beyond what composition produced).
+  // v1.5 fallback: legacy handbook+mitigations prompt.
+  const prompt = auth !== null
+    ? buildCommitteeRecommendationPromptV1_6(auth, mitigationsText)
+    : buildCommitteeRecommendationPrompt(formattedFlags, mitigationsText);
   const llmOutput = await llm({
     model: NARRATIVE_LLM_MODEL,
     max_tokens: COMMITTEE_RECOMMENDATION_MAX_TOKENS,
@@ -361,11 +569,21 @@ export async function buildNarrative(
     );
   }
 
-  // v1.5 — mitigation_suggestions is now DETERMINISTIC (pure, no LLM call);
-  // committee_recommendation receives the rendered mitigants text as prompt
-  // context and is constrained by the template against inventing new sized
-  // structuring. Single source of truth for sized figures: the
-  // MitigationProposalSet → renderMitigationsListV1_5 string.
+  // v1.6 path-select: when both dealResult + composedMitigationPackage are
+  // provided, project the deterministic AuthoritativeNumbers block + clean-
+  // doctrine findings ONCE; every LLM-authored slot then cites a single,
+  // engine-derived set of figures. Source-tag disclosure
+  // (concludedValueSource) flows through executive_summary. When omitted,
+  // auth/cleanFindings stay null and the v1.5 fallback templates run.
+  const v16Inputs = input.dealResult !== undefined && input.composedMitigationPackage !== undefined;
+  const auth = v16Inputs
+    ? projectAuthoritativeNumbers(input.dealResult!, input.composedMitigationPackage!)
+    : null;
+  const cleanFindings = v16Inputs ? extractCleanDoctrineFindings(input.dealResult!) : [];
+
+  // v1.6 — mitigation_suggestions deterministic render now sources the
+  // COMPOSED package (post-resolution proposals + reconciliation notes),
+  // not raw produceMitigations output.
   const mitigation = buildMitigationSuggestions(input);
 
   // Promise.all: parallel LLM calls for the remaining three slots. If any
@@ -373,9 +591,9 @@ export async function buildNarrative(
   // No partial NarrativeEvaluation row is persisted; v23 idempotency-via-
   // content-hash makes the retry safe.
   const [execSummary, redFlag, committee] = await Promise.all([
-    buildExecutiveSummary(input, llm),
-    buildRedFlagAssessment(input, llm),
-    buildCommitteeRecommendation(input, llm, mitigation.mitigationSuggestions),
+    buildExecutiveSummary(input, llm, auth),
+    buildRedFlagAssessment(input, llm, auth, cleanFindings),
+    buildCommitteeRecommendation(input, llm, mitigation.mitigationSuggestions, auth),
   ]);
 
   const body = {

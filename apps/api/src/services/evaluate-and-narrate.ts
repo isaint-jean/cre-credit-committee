@@ -105,6 +105,12 @@ export async function evaluateAndNarrate(
   };
   store.insertMitigationProposalSet(mitigationProposalSet);
 
+  // v1.5 path through buildNarrative (no dealResult / composedPackage).
+  // The v1.6 producer surface is ready (validated via the narrative harness),
+  // but production orchestrator integration is staged separately so that
+  // composeMitigations' recompute callback (which needs the adapter inputs
+  // plumbed all the way through evaluateFromAdjustedInputs) lands in a
+  // focused commit. Today this orchestrator keeps the v1.5 fallback active.
   const narrative = await buildNarrative(
     {
       handbookEvaluation,
