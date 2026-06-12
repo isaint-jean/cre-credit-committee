@@ -62,6 +62,44 @@ import type { PropertyMetadata } from '@cre/contracts';
 import type { AssetType } from '@cre/contracts';
 import type { DealBag } from '../scoring/evaluate-deal.js';
 
+/**
+ * Source tag for the concluded value the doctrine consumes. Carried
+ * forward end-to-end (DealBag → dim 7 derivedOutputs → rating output)
+ * so the lender-facing audit can disclose the valuation basis
+ * verbatim. NEVER the result of a judgment-engine cap/haircut — the
+ * doctrine never reads valuationConclusion.finalValue.
+ */
+export type ConcludedValueSource =
+  | 'extracted-appraisal'   // appraisal.valueConclusion from raw extraction
+  | 'extracted-asr'         // asr.impliedValue from raw extraction
+  | 'operator-supplied';    // explicit operator input via AdapterOptions
+
+/**
+ * Operator-supplied value contract. EXPLICIT INPUT — surfaced via
+ * AdapterOptions, never read from upstream judgment / AdjustedInputs.
+ *
+ * Resolution semantics (see pickConcludedValue):
+ *   1. appraisal.valueConclusion     (extracted)
+ *   2. asr.impliedValue              (extracted)
+ *   3. operatorSuppliedValue.value   (operator)
+ * Operator value is FALLBACK ONLY — used when extraction yields nothing.
+ *
+ * Confidence: lower than a third-party appraisal. The dim-7 rationale
+ * surfaces a data-confidence note when the source is operator-supplied;
+ * this is NOT a score penalty (the stressed-value computation is
+ * source-agnostic — the haircut comes from the operator-judgment cap
+ * floors, not from the comparator's provenance).
+ */
+export interface OperatorSuppliedValue {
+  readonly value: number;
+  readonly source: 'operator-supplied';
+  /** Optional date the operator anchored the value to (audit trail). */
+  readonly asOf?: ISODateTime;
+  /** Optional one-line basis description (e.g., "in-house BOV against
+   *  Q3 ratings actions", "broker desk opinion 2026-04"). Free-form. */
+  readonly basis?: string;
+}
+
 export interface AdapterOptions {
   /**
    * Explicit asset-type classification, when the caller has it (e.g. from
@@ -71,6 +109,14 @@ export interface AdapterOptions {
    * AssetProfile.marketLiquidity (judgment-laden curated table).
    */
   readonly explicitAssetType?: AssetType | null;
+  /**
+   * Operator-supplied concluded value (fallback). Used only when
+   * extraction yields no appraisal.valueConclusion AND no asr.impliedValue.
+   * The fence stays intact: this is an EXPLICIT caller-provided input —
+   * not a read from AdjustedInputs / valuationConclusion / the judgment
+   * engine. See OperatorSuppliedValue for confidence semantics.
+   */
+  readonly operatorSuppliedValue?: OperatorSuppliedValue;
 }
 
 /* ---------------- raw-read pick helpers (pure data reduction) -------------- */
@@ -106,25 +152,58 @@ export function pickIssuerNoi(extraction: ExtractionResult): number | null {
 }
 
 /**
- * Pick the issuer's concluded value. Two RAW sources:
- *   1. appraisal.valueConclusion (the appraised value — preferred)
- *   2. asr.impliedValue (ASR's implied value — fallback)
+ * Pick the concluded value + record its source. Resolution precedence
+ * (FALLBACK semantics — operator value used only when extraction yields
+ * nothing):
+ *   1. appraisal.valueConclusion        → source 'extracted-appraisal'
+ *   2. asr.impliedValue                 → source 'extracted-asr'
+ *   3. operatorSuppliedValue.value      → source 'operator-supplied'
+ *   4. null                             (dim 7 routes to HITL)
+ *
+ * Source-agnostic stressing: the cap-rate floor is applied to sustainable
+ * NCF; the concluded value is the COMPARATOR (valuation aggressiveness).
+ * An operator value lowers the data-confidence label, NOT the score.
+ *
+ * The legacy callable `pickConcludedValue(extraction)` is preserved as a
+ * thin shim returning the resolved number (or null) for back-compat with
+ * harnesses and tests; new code should call `resolveConcludedValue` and
+ * read the source tag.
  *
  * We deliberately do NOT read valuationConclusion.finalValue (judgment-
  * derived: passes through buildValuationConclusion with caps/haircuts).
- * The clean doctrine wants the raw issuer concluded value as the
- * comparator against its own stressed-value computation.
+ * The clean doctrine wants the raw issuer concluded value (or the
+ * explicit operator fallback) as the comparator against its own
+ * stressed-value computation. NEVER reads AdjustedInputs.
  */
-export function pickConcludedValue(extraction: ExtractionResult): number | null {
+export interface ResolvedConcludedValue {
+  readonly value: number;
+  readonly source: ConcludedValueSource;
+}
+
+export function resolveConcludedValue(
+  extraction: ExtractionResult,
+  operatorSuppliedValue?: OperatorSuppliedValue,
+): ResolvedConcludedValue | null {
   if (extraction.appraisal?.valueConclusion !== undefined &&
       extraction.appraisal?.valueConclusion !== null) {
-    return extraction.appraisal.valueConclusion;
+    return { value: extraction.appraisal.valueConclusion, source: 'extracted-appraisal' };
   }
   if (extraction.asr?.impliedValue !== undefined &&
       extraction.asr?.impliedValue !== null) {
-    return extraction.asr.impliedValue;
+    return { value: extraction.asr.impliedValue, source: 'extracted-asr' };
+  }
+  if (operatorSuppliedValue !== undefined &&
+      operatorSuppliedValue.value !== null &&
+      operatorSuppliedValue.value > 0) {
+    return { value: operatorSuppliedValue.value, source: 'operator-supplied' };
   }
   return null;
+}
+
+/** Back-compat shim — returns the resolved number (or null), discarding the
+ *  source tag. New callers should use resolveConcludedValue. */
+export function pickConcludedValue(extraction: ExtractionResult): number | null {
+  return resolveConcludedValue(extraction)?.value ?? null;
 }
 
 /**
@@ -338,8 +417,13 @@ export function adaptExtractionToDealBag(
     ? interestOnlyPeriodMonths / 12
     : null;
 
-  // Raw value + NOI.
-  const concludedValue = pickConcludedValue(extraction);
+  // Raw value + NOI. Value resolution carries a source tag end-to-end so the
+  // lender-facing audit can disclose the basis ("extracted-appraisal" /
+  // "extracted-asr" / "operator-supplied"). Operator value is FALLBACK only
+  // — used when extraction yields no appraisal AND no ASR value.
+  const resolvedValue = resolveConcludedValue(extraction, options?.operatorSuppliedValue);
+  const concludedValue = resolvedValue?.value ?? null;
+  const concludedValueSource = resolvedValue?.source ?? null;
   const uwY1Noi = pickIssuerNoi(extraction);
   const t12Noi = extraction.t12Actual?.noi ?? null;
 
@@ -362,6 +446,7 @@ export function adaptExtractionToDealBag(
     loanAmount,
     coupon,
     concludedValue,
+    concludedValueSource,
     uwY1Noi,
     t12Noi,
     underwrittenOccupancy,

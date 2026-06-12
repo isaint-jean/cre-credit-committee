@@ -100,11 +100,15 @@ export {
   adaptExtractionToDealBag,
   pickIssuerNoi,
   pickConcludedValue,
+  resolveConcludedValue,
   pickOccupancy,
   deriveTopTenantShare,
   deriveTenantDataStatus,
   deriveRolloverShare,
   type AdapterOptions,
+  type OperatorSuppliedValue,
+  type ConcludedValueSource,
+  type ResolvedConcludedValue,
   type TenantDataStatus,
 } from './adapters/extraction-to-dealbag.js';
 export {

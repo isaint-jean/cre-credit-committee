@@ -59,6 +59,20 @@ export interface DealBag {
   readonly loanAmount: number | null;
   readonly coupon: number | null;
   readonly concludedValue: number | null;
+  /**
+   * Provenance tag for `concludedValue`. Carried forward into dim 7's
+   * derivedOutputs + rationale so the lender-facing audit can disclose
+   * the valuation basis verbatim. Values:
+   *   - 'extracted-appraisal'   — from raw extraction (preferred)
+   *   - 'extracted-asr'         — from raw extraction (fallback)
+   *   - 'operator-supplied'     — explicit operator input via AdapterOptions
+   * Null when `concludedValue` is null (dim 7 will route to HITL).
+   */
+  readonly concludedValueSource?:
+    | 'extracted-appraisal'
+    | 'extracted-asr'
+    | 'operator-supplied'
+    | null;
 
   /* Cashflow inputs */
   readonly uwY1Noi: number | null;
@@ -137,6 +151,7 @@ export function evaluateDeal(
     uwY1Noi: deal.uwY1Noi,
     sustainableNcf: normalization.sustainableNcf,
     concludedValue: deal.concludedValue,
+    concludedValueSource: deal.concludedValueSource ?? null,
     loanAmount: deal.loanAmount,
     marketTier: deal.marketTier ?? 'Unknown',
   });

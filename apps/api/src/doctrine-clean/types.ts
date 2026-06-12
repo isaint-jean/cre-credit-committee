@@ -93,7 +93,14 @@ export interface DimensionContribution {
    * dimensions should treat missing keys as "value not derived" — never
    * substitute a default.
    */
-  readonly derivedOutputs?: Readonly<Record<string, number | null>>;
+  /**
+   * Values are numbers (the dominant case — stressed metrics) or strings
+   * (provenance tags — e.g. dim 7's concludedValueSource). Consumers that
+   * read specific numeric keys narrow via `typeof v === 'number'` before
+   * using the value. String values are for audit / provenance only and
+   * must NOT be folded into scoring math.
+   */
+  readonly derivedOutputs?: Readonly<Record<string, number | string | null>>;
   /**
    * Optional BOUNDED SIGNED MODIFIER on the 0..1 risk scale, used by
    * dimensions that are qualitative ADJUSTMENTS to the peer-tier stack

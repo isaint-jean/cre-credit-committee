@@ -148,11 +148,25 @@ export interface CapRateValuationStressInput {
    */
   readonly sustainableNcf?: number | null;
   /**
-   * Issuer-concluded value (the 10-K disclosure value, often the
-   * appraised value). Used as the comparator: stressed value vs
-   * concluded value gives the valuation aggressiveness signal.
+   * Concluded value used as the comparator: stressed value vs
+   * concluded value yields the valuation aggressiveness signal.
+   * Resolved upstream by the adapter from one of three explicit
+   * sources (see concludedValueSource).
    */
   readonly concludedValue: number | null;
+  /**
+   * Provenance tag for `concludedValue`. Source-agnostic stressing —
+   * the cap-rate floor is applied regardless of source — but the
+   * rationale surfaces a confidence note when the source is
+   * 'operator-supplied' so the lender-facing audit discloses the
+   * valuation basis verbatim. Optional + nullable for back-compat
+   * with callers that haven't yet wired the source through.
+   */
+  readonly concludedValueSource?:
+    | 'extracted-appraisal'
+    | 'extracted-asr'
+    | 'operator-supplied'
+    | null;
   /** Loan amount in dollars. Used to compute stressed LTV (derived output). */
   readonly loanAmount: number | null;
   /**
@@ -469,6 +483,21 @@ export function evaluateCapRateValuationStress(
     valuationAggressiveness >= b.minAggressiveness && valuationAggressiveness < b.maxAggressiveness,
   )!;
 
+  // Source-agnostic stressing: cap-floor + sustainable NCF drive the stressed
+  // value regardless of where the comparator came from. But surface a
+  // CONFIDENCE NOTE when the comparator is operator-supplied so the
+  // lender-facing audit discloses the valuation basis verbatim.
+  const concludedValueSource = input.concludedValueSource ?? null;
+  const sourceLabel =
+    concludedValueSource === 'extracted-appraisal' ? 'extracted appraisal (third-party)'
+    : concludedValueSource === 'extracted-asr'     ? 'extracted ASR implied value'
+    : concludedValueSource === 'operator-supplied' ? 'OPERATOR-SUPPLIED'
+    : 'unspecified source';
+  const operatorConfidenceNote = concludedValueSource === 'operator-supplied'
+    ? ' [VALUATION BASIS: operator-supplied — lower data confidence than a third-party ' +
+      'appraisal; data-confidence note, NOT a score penalty. Stressed-value math unchanged.]'
+    : '';
+
   return {
     dimensionId: 'cap-rate-valuation-stress',
     riskContribution: band.riskContribution,
@@ -478,9 +507,9 @@ export function evaluateCapRateValuationStress(
       `going-in ${(stressedCapRateGoingIn * 100).toFixed(2)}% / terminal ` +
       `${(stressedCapRateTerminal * 100).toFixed(2)}% applied to ${cashflowBaseLabel} ` +
       `→ stressed value $${Math.round(stressedValue).toLocaleString()} vs concluded ` +
-      `$${Math.round(input.concludedValue).toLocaleString()} → ` +
+      `$${Math.round(input.concludedValue).toLocaleString()} (basis: ${sourceLabel}) → ` +
       `valuation aggressiveness ${(valuationAggressiveness * 100).toFixed(1)}% → ` +
-      `${band.tier}. ${band.rationale}`,
+      `${band.tier}. ${band.rationale}${operatorConfidenceNote}`,
     provenance: [
       'spec v2 §7 (Cap-rate / valuation stress)',
       useSustainable
@@ -503,6 +532,10 @@ export function evaluateCapRateValuationStress(
       stressedValue,
       stressedLtv,
       valuationAggressiveness,
+      // Source tag carried forward for the lender-facing audit. Resolution
+      // precedence (extraction → operator fallback) and confidence semantics
+      // live in adapters/extraction-to-dealbag.ts::resolveConcludedValue.
+      concludedValueSource,
     },
   };
 }
