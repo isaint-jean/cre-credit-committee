@@ -52,6 +52,7 @@ import {
   projectAuthoritativeNumbers,
   extractCleanDoctrineFindings,
 } from '../services/narrative/build-narrative.js';
+import { callAIWithContinuation } from '../services/ai-analysis.service.js';
 import {
   renderAuthoritativeNumbersBlock,
   renderComposedMitigationsList,
@@ -183,9 +184,79 @@ function fmtUsd(n: number | null | undefined): string {
   return '$' + n.toFixed(0);
 }
 
+/* --------------------- numeric-drift extractor --------------------------- */
+/* Scans LLM-authored prose for every dollar / percent / DSCR-multiple
+ * pattern. For each match, checks whether the verbatim token appears in
+ * the authoritative-numbers block. Reports drift. */
+
+interface DriftCheck {
+  readonly token: string;            // exact substring extracted from prose
+  readonly kind: 'usd' | 'pct' | 'dscr';
+  readonly inAuth: boolean;
+}
+
+function extractFigures(prose: string): Array<{ token: string; kind: DriftCheck['kind'] }> {
+  const out: Array<{ token: string; kind: DriftCheck['kind'] }> = [];
+  // USD: $N.NNM, $N.NNK, $N,NNN,NNN, $NNN
+  for (const m of prose.matchAll(/\$\d{1,3}(?:,\d{3})*(?:\.\d+)?[MK]?/g)) out.push({ token: m[0], kind: 'usd' });
+  // Percent: N.NN%, N%, N.N%
+  for (const m of prose.matchAll(/\d+(?:\.\d+)?%/g)) out.push({ token: m[0], kind: 'pct' });
+  // DSCR multiple: N.NNx, N.Nx
+  for (const m of prose.matchAll(/\d+(?:\.\d+)?x/g)) out.push({ token: m[0], kind: 'dscr' });
+  return out;
+}
+
+/**
+ * Engine-derived deterministic corpus the LLM saw. The doctrine treats
+ * every block here as authoritative — auth-numbers block (load-bearing
+ * facts), composed-mitigants block (lever descriptions with engine-sized
+ * figures), clean-doctrine findings block. Any numeric token in the LLM
+ * prose that appears verbatim in this corpus is engine-cited, not
+ * invented. Tokens NOT in any block are LLM hallucination / drift.
+ */
+interface EngineCorpus {
+  readonly authBlock: string;
+  readonly mitigationsBlock: string;
+  readonly findingsBlock: string;
+}
+
+interface DriftCheckWide extends DriftCheck {
+  readonly inMitigations: boolean;
+  readonly inFindings: boolean;
+  readonly source: 'auth' | 'mitigations' | 'findings' | 'DRIFT';
+}
+
+/** Check verbatim presence — token must appear as a substring of auth block. */
+function checkDrift(prose: string, authBlock: string): DriftCheck[] {
+  const figures = extractFigures(prose);
+  return figures.map((f) => ({
+    token: f.token,
+    kind: f.kind,
+    inAuth: authBlock.includes(f.token),
+  }));
+}
+
+/** Wider check: scan against ALL engine-derived deterministic blocks. */
+function checkDriftWide(prose: string, corpus: EngineCorpus): DriftCheckWide[] {
+  const figures = extractFigures(prose);
+  return figures.map((f) => {
+    const inAuth         = corpus.authBlock.includes(f.token);
+    const inMitigations  = corpus.mitigationsBlock.includes(f.token);
+    const inFindings     = corpus.findingsBlock.includes(f.token);
+    const source: DriftCheckWide['source'] =
+      inAuth        ? 'auth'
+      : inMitigations ? 'mitigations'
+      : inFindings    ? 'findings'
+      : 'DRIFT';
+    return { token: f.token, kind: f.kind, inAuth, inMitigations, inFindings, source };
+  });
+}
+
 async function main(): Promise<void> {
+  const useLiveLlm = process.argv.includes('--live-llm');
   console.log('================================================================');
   console.log(`NARRATIVE v${NARRATIVE_ENGINE_VERSION} VALIDATION — REAL Sunroad + operator-supplied $126.20M`);
+  console.log(`LLM mode: ${useLiveLlm ? 'LIVE Sonnet (callAIWithContinuation)' : 'deterministic stub'}`);
   console.log('================================================================');
   console.log('');
 
@@ -284,10 +355,18 @@ async function main(): Promise<void> {
   console.log('================================================================');
   console.log('');
 
-  const stub = makeStubLlm();
-  const runs: Array<{ run: number; mitigationSuggestions: string; authBlock: string }> = [];
+  const llmCall = useLiveLlm ? callAIWithContinuation : makeStubLlm();
+  const runs: Array<{
+    run: number;
+    mitigationSuggestions: string;
+    authBlock: string;
+    executiveSummary: string;
+    committeeRecommendation: string;
+    redFlagAssessment: string;
+  }> = [];
 
   for (let i = 1; i <= 3; i++) {
+    console.log(`Run ${i}/3 — invoking buildNarrative ...`);
     const narrative = await buildNarrative({
       handbookEvaluation: stubHandbook,
       adjustedInputsId: ai.id,
@@ -297,15 +376,18 @@ async function main(): Promise<void> {
       mitigationProposalSet,
       dealResult,
       composedMitigationPackage: composedPackage,
-    }, { llmCall: stub });
+    }, { llmCall });
     const auth = projectAuthoritativeNumbers(dealResult, composedPackage);
     runs.push({
       run: i,
       mitigationSuggestions: narrative.mitigationSuggestions,
       authBlock: renderAuthoritativeNumbersBlock(auth),
+      executiveSummary: narrative.executiveSummary,
+      committeeRecommendation: narrative.committeeRecommendation,
+      redFlagAssessment: narrative.redFlagAssessment,
     });
-    void narrative;
   }
+  console.log('');
 
   let allStable = true;
   for (let i = 1; i < runs.length; i++) {
@@ -375,6 +457,72 @@ async function main(): Promise<void> {
     console.log(`  ✗ valuation basis line missing or not 'operator-supplied'`);
   }
   console.log('');
+
+  /* --------- Per-run prose + drift scan (WIDE: all engine-derived blocks) -- */
+  if (useLiveLlm) {
+    console.log('================================================================');
+    console.log('PER-RUN PROSE + WIDE DRIFT SCAN');
+    console.log('================================================================');
+    console.log('Drift rule (WIDE): every $/% /x figure in the LLM-authored prose MUST');
+    console.log('  appear as a verbatim substring of SOME engine-derived deterministic');
+    console.log('  block the LLM saw — auth-numbers block, composed-mitigants block,');
+    console.log('  or clean-doctrine findings block. A token sourced from any of those');
+    console.log('  three is engine-cited, not invented. A token in NONE of them is DRIFT.');
+    console.log('  The literal valuation-basis line "operator-supplied" must also appear.');
+    console.log('');
+    // Build the wide corpus once per run (it is identical across runs given
+    // the same input — composedPackage/dealResult are pre-LLM, deterministic).
+    const corpus: EngineCorpus = {
+      authBlock:        runs[0].authBlock,
+      mitigationsBlock: runs[0].mitigationSuggestions,
+      findingsBlock:    extractCleanDoctrineFindings(dealResult)
+        .map((f) => `- [dim-${f.dimNumber} ${f.dimensionId}] tier=${f.tier} — ${f.headline}`)
+        .join('\n'),
+    };
+    let anyDrift = false;
+    for (const r of runs) {
+      console.log(`────── RUN ${r.run} ───────────────────────────────────────────`);
+      console.log('');
+      console.log('▎ executive_summary');
+      console.log(r.executiveSummary);
+      console.log('');
+      console.log('▎ committee_recommendation');
+      console.log(r.committeeRecommendation);
+      console.log('');
+      const execDrift = checkDriftWide(r.executiveSummary,        corpus);
+      const cmteDrift = checkDriftWide(r.committeeRecommendation, corpus);
+      const redfDrift = checkDriftWide(r.redFlagAssessment,       corpus);
+      const reportSlot = (label: string, drift: DriftCheckWide[]): void => {
+        const bad = drift.filter((d) => d.source === 'DRIFT');
+        const byAuth = drift.filter((d) => d.source === 'auth').length;
+        const byMit  = drift.filter((d) => d.source === 'mitigations').length;
+        const byFind = drift.filter((d) => d.source === 'findings').length;
+        if (drift.length === 0) {
+          console.log(`  ${label}: (no numeric tokens in prose)`);
+        } else if (bad.length === 0) {
+          console.log(`  ${label}: ✓ all ${drift.length} tokens engine-cited (auth=${byAuth} mitigants=${byMit} findings=${byFind})`);
+          for (const d of drift) console.log(`    ✓ ${d.kind} ${d.token}  [source: ${d.source}]`);
+        } else {
+          anyDrift = true;
+          console.log(`  ${label}: ✗ ${bad.length} of ${drift.length} tokens are DRIFT (auth=${byAuth} mitigants=${byMit} findings=${byFind})`);
+          for (const d of drift) console.log(`    ${d.source === 'DRIFT' ? '✗ DRIFT' : '✓'} ${d.kind} ${d.token}  [source: ${d.source}]`);
+        }
+      };
+      console.log('▎ DRIFT SCAN (wide; against full engine corpus)');
+      reportSlot('executive_summary       ', execDrift);
+      reportSlot('committee_recommendation', cmteDrift);
+      reportSlot('red_flag_assessment     ', redfDrift);
+      const basisOk = /operator-supplied/i.test(r.executiveSummary) || /operator-supplied/i.test(r.committeeRecommendation);
+      console.log(`  valuation-basis line ("operator-supplied"): ${basisOk ? '✓ present' : '✗ MISSING'}`);
+      if (!basisOk) anyDrift = true;
+      console.log('');
+    }
+    console.log('────────────────────────────────────────────────────────────');
+    console.log(anyDrift
+      ? '  OVERALL: ✗ DRIFT detected — at least one LLM figure does not trace to any engine-derived block. Tighten the verbatim instruction.'
+      : '  OVERALL: ✓ NO DRIFT — every numeric token in LLM prose traces verbatim to an engine-derived block (auth / mitigants / findings).');
+    console.log('');
+  }
 
   console.log('================================================================');
   console.log('SUMMARY');
