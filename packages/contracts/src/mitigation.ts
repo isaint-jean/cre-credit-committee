@@ -34,7 +34,23 @@ import type {
 import type { Severity } from './handbook.js';
 import type { MitigationEngineVersion } from './versioning.js';
 
-export const MITIGATION_LEVERS = ['reduce_proceeds', 'fund_reserve', 'require_amortization', 'require_guaranty', 'springing_cash_management', 'in_place_cash_management', 'condition_precedent'] as const;
+export const MITIGATION_LEVERS = [
+  'reduce_proceeds',
+  'fund_reserve',
+  'require_amortization',
+  'require_guaranty',
+  'springing_cash_management',
+  'in_place_cash_management',
+  'condition_precedent',
+  // v1.3 — structure-first mid-band levers. Fire ONLY when the doctrine
+  // dimension breaches its trigger but stays within the desk's structured
+  // band (LTV: trigger < stressedLtv ≤ ceiling; EXIT: floor ≤ exit < trigger).
+  // They produce structural protections in lieu of a proceeds cut. See
+  // produce-mitigations.ts header for the band-classification spec.
+  'leverage_band_recourse',
+  'cash_sweep_refi_reserve',
+  'springing_dscr_recourse',
+] as const;
 export type MitigationLever = (typeof MITIGATION_LEVERS)[number];
 
 /**

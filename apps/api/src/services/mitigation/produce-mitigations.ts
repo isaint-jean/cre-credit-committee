@@ -51,12 +51,19 @@ export interface MitigationDeskConstants {
    */
   readonly T_LTV_TRIGGER: number;
   /**
-   * LTV TARGET — the cure level. When the lever fires, L'_LTV is
-   * sized to T_LTV_TARGET × stressedValue (NOT T_LTV_TRIGGER ×
-   * stressedValue). Setting T_LTV_TARGET < T_LTV_TRIGGER produces a
-   * step-up at the trigger boundary (≈ (T_LTV_TRIGGER − T_LTV_TARGET)
-   * × stressedValue at the first fire row), which the desk uses to
-   * avoid edge-of-cliff sizings.
+   * LTV TARGET — RETIRED at v1.3 as the structure-first sizing default.
+   *
+   * Pre-v1.3 semantics: the LTV arm of reduce_proceeds sized L'_LTV =
+   * T_LTV_TARGET × stressedValue (0.68), an aggressive cure target BELOW
+   * the trigger. v1.3 inverts to structure-first: above the trigger,
+   * leverage is HELD inside a structured band (trigger < ltv ≤ ceiling)
+   * with structural protections; above the ceiling, the cut is sized to
+   * the ceiling (NOT to T_LTV_TARGET).
+   *
+   * The constant is retained on the interface for back-compat with any
+   * v1.5 caller that still references it; the structure-first code paths
+   * do NOT read it. Future MAJOR may remove. Until then, treat as a
+   * deprecated read-only marker.
    */
   readonly T_LTV_TARGET: number;
   /**
@@ -98,6 +105,123 @@ export const DEFAULT_MITIGATION_DESK: MitigationDeskConstants = {
 
 /** Sane reserve ceiling (clamped + flagged in the description if it binds). */
 export const RESERVE_CAP_USD = 25_000_000;
+
+/* =========================================================================
+ * v1.3 — STRUCTURE-FIRST band knobs (asset-keyed; operator-judgment).
+ *
+ * Three-band classification for the two breach axes the doctrine surfaces:
+ *
+ *   LTV (loan / dim-7 stressedValue):
+ *     stressedLtv ≤ T_LTV_TRIGGER             → CLEAN
+ *     TRIGGER < stressedLtv ≤ T_LTV_CEILING   → STRUCTURED BAND (hold proceeds;
+ *                                                require structural cures)
+ *     stressedLtv > T_LTV_CEILING             → BEYOND BAND (cut proceeds DOWN
+ *                                                TO CEILING, NOT to T_LTV_TARGET;
+ *                                                structure the residual)
+ *
+ *   EXIT DSCR (sustainable NCF / (rc × maturityBalance)):
+ *     exit ≥ EXIT_DSCR_REFINANCEABLE_THRESHOLD (1.20)   → CLEAN
+ *     T_EXIT_FLOOR ≤ exit < 1.20                       → STRUCTURED BAND
+ *                                                         (cash sweep refi
+ *                                                          reserve + springing
+ *                                                          DSCR recourse)
+ *     exit < T_EXIT_FLOOR                              → BEYOND BAND
+ *                                                         (amortize; gated by
+ *                                                          day-1 DSCR check —
+ *                                                          if amortization
+ *                                                          would blow day-1
+ *                                                          DSCR, fall back to
+ *                                                          a proceeds cut sized
+ *                                                          to the IO-exit-
+ *                                                          clearing level)
+ *
+ * The mid-band levers are existing structural-term mechanisms (lockbox /
+ * recourse / sweep / springing) sized via per-asset operator-judgment knobs.
+ * SCOPING NOTE: band-position interpolation (sliding the structural intensity
+ * by where the metric sits in the band) is a FOLLOW-UP CALIBRATION. v1.3
+ * fires the mid-band levers at ONE sensible tier; magnitude-by-position is
+ * a future ask.
+ *
+ * Provenance: operator-judgment. NOT employer-derived. ISABELLE-TO-CALIBRATE.
+ * ========================================================================= */
+
+/**
+ * LTV STRUCTURED CEILING — by asset class. Above this, structure can't
+ * make the buyer comfortable; cut proceeds down to ceiling.
+ *
+ * Office 0.88 — provisional [ISABELLE-TO-CALIBRATE]. Anchors to where
+ * B-piece buyers historically sit for Office on stressed-LTV terms.
+ * Recalibrate against more answer-key deals + Isabelle's judgment.
+ * NOT employer-derived.
+ *
+ * _default 0.85 — conservative central [ISABELLE-TO-CALIBRATE].
+ */
+const T_LTV_STRUCTURED_CEILING_BY_ASSET: ReadonlyMap<string, number> = new Map([
+  ['Office',   0.88],
+  ['_default', 0.85],
+]);
+
+export function resolveLtvStructuredCeiling(assetType: string | null): number {
+  if (assetType !== null && T_LTV_STRUCTURED_CEILING_BY_ASSET.has(assetType)) {
+    return T_LTV_STRUCTURED_CEILING_BY_ASSET.get(assetType)!;
+  }
+  return T_LTV_STRUCTURED_CEILING_BY_ASSET.get('_default')!;
+}
+
+/**
+ * EXIT-DSCR STRUCTURED FLOOR — by asset class. Below this, structure can't
+ * close the refi gap; amortize (or cut, gated by day-1 DSCR).
+ *
+ * Office 1.00 — [ISABELLE-TO-CALIBRATE]. Anchored to REPRODUCE the Sunroad
+ * answer key: Sunroad closed at exit 1.02x. SINGLE-DATA-POINT ANCHOR —
+ * NOT a derived constant. Recalibrate against more answer-key deals +
+ * Isabelle's judgment. NOT employer-derived. Honest: a single deal does
+ * not determine the floor.
+ *
+ * _default 1.10 — conservative central [ISABELLE-TO-CALIBRATE]. Reflects
+ * tighter mid-band for asset classes without an Office-style buyer base.
+ */
+const T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET: ReadonlyMap<string, number> = new Map([
+  ['Office',   1.00],
+  ['_default', 1.10],
+]);
+
+export function resolveExitDscrStructuredFloor(assetType: string | null): number {
+  if (assetType !== null && T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET.has(assetType)) {
+    return T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET.get(assetType)!;
+  }
+  return T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET.get('_default')!;
+}
+
+export const T_LTV_STRUCTURED_CEILING_BY_ASSET_TABLE = T_LTV_STRUCTURED_CEILING_BY_ASSET;
+export const T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET_TABLE = T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET;
+
+/** Band classifier — pure. */
+export type LtvBand = 'clean' | 'structured' | 'beyond-ceiling';
+export function classifyLtvBand(stressedLtv: number, trigger: number, ceiling: number): LtvBand {
+  if (stressedLtv <= trigger) return 'clean';
+  if (stressedLtv <= ceiling) return 'structured';
+  return 'beyond-ceiling';
+}
+
+export type ExitDscrBand = 'clean' | 'structured' | 'beyond-floor';
+export function classifyExitDscrBand(exitDscr: number, floor: number, threshold: number): ExitDscrBand {
+  if (exitDscr >= threshold) return 'clean';
+  if (exitDscr >= floor) return 'structured';
+  return 'beyond-floor';
+}
+
+/** Resolve the canonical asset-class string from a dealResult, via dim 8's
+ *  derived `canonicalAssetClassIndex` index into ASSET_CLASS_ENUM. Returns
+ *  null when dim 8 didn't resolve. Used by structure-first sizing to look up
+ *  the per-asset ceiling / floor. */
+function resolveAssetTypeFromDeal(
+  dealResult: EvaluateDealResult | undefined,
+): string | null {
+  const idx = dealResult?.dimensions.assetClass.derivedOutputs?.canonicalAssetClassIndex;
+  if (typeof idx !== 'number' || idx < 0 || idx >= ASSET_CLASS_ENUM.length) return null;
+  return ASSET_CLASS_ENUM[idx] ?? null;
+}
 
 /* ----------------- require_guaranty desk knobs (v2 lever 2) --------------- */
 /*
@@ -181,6 +305,9 @@ export function buildMitigationEngineHashSnapshot() {
     principlesByMetric: PRINCIPLES_BY_METRIC,
     rolloverPrinciples: ROLLOVER_PRINCIPLES,
     guarantyTierTerms: DEFAULT_GUARANTY_TIER_TERMS,
+    // v1.3 structure-first band knobs — asset-keyed [ISABELLE-TO-CALIBRATE].
+    ltvStructuredCeilingByAsset:    Array.from(T_LTV_STRUCTURED_CEILING_BY_ASSET.entries()),
+    exitDscrStructuredFloorByAsset: Array.from(T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET.entries()),
   };
 }
 
@@ -252,6 +379,22 @@ export function produceMitigations(args: ProduceMitigationsArgs): MitigationProp
   // guaranty (no overlap).
   const cpProp = buildConditionPrecedentProposal(args.dealResult);
   if (cpProp !== null) proposals.push(cpProp);
+
+  // v1.3 structure-first MID-BAND levers. Fire ONLY when the doctrine breach
+  // sits in the structured band (trigger < ltv ≤ ceiling, OR floor ≤ exit <
+  // 1.20). Each lever fences off the BEYOND-BAND case so it's not duplicative
+  // with reduce_proceeds (LTV ceiling cut) or require_amortization (exit floor
+  // amort). When LTV is BEYOND ceiling, reduce_proceeds_ltv fires AND
+  // leverage_band_recourse stays null. When exit is BEYOND floor,
+  // require_amortization fires AND the two exit mid-band levers stay null.
+  const leverageBandProp = buildLeverageBandRecourseProposal(args.dealResult, args.adjustedInputs, desk);
+  if (leverageBandProp !== null) proposals.push(leverageBandProp);
+
+  const cashSweepRefiProp = buildCashSweepRefiReserveProposal(args.dealResult, args.adjustedInputs, desk);
+  if (cashSweepRefiProp !== null) proposals.push(cashSweepRefiProp);
+
+  const springingDscrProp = buildSpringingDscrRecourseProposal(args.dealResult, args.adjustedInputs, desk);
+  if (springingDscrProp !== null) proposals.push(springingDscrProp);
 
   return proposals;
 }
@@ -336,11 +479,29 @@ function buildReduceProceedsProposal(
     breaches.push({ metric: 'debtYield', lPrime: noi / desk.T_DY });
   }
   if (ltvBreached) {
-    // SIZE TO TARGET (not trigger): L'_LTV = T_LTV_TARGET × stressedValue.
-    // With T_LTV_TARGET < T_LTV_TRIGGER, the cure goes below the breach
-    // line — produces a step-up at the trigger boundary of ~
-    // (T_LTV_TRIGGER − T_LTV_TARGET) × stressedValue.
-    breaches.push({ metric: 'ltv', lPrime: desk.T_LTV_TARGET * ltvDenominator });
+    // v1.3 structure-first three-band sizing.
+    //
+    //   stressedLtv ≤ TRIGGER (0.70)            → clean (not breached; not here)
+    //   TRIGGER < stressedLtv ≤ CEILING         → STRUCTURED BAND: HOLD PROCEEDS;
+    //                                              leverage_band_recourse fires
+    //                                              separately. SKIP adding to
+    //                                              reduce_proceeds breach list.
+    //   stressedLtv > CEILING                   → BEYOND BAND: cut TO CEILING
+    //                                              (NOT to retired T_LTV_TARGET).
+    //
+    // Asset-keyed ceiling — Office 0.88 [ISABELLE-TO-CALIBRATE]. The mid-band
+    // lever (leverage_band_recourse) handles trigger < ltv ≤ ceiling with
+    // structural protections rather than a proceeds cut.
+    const assetType = resolveAssetTypeFromDeal(dealResult);
+    const ltvCeiling = usingStressedValue
+      ? resolveLtvStructuredCeiling(assetType)
+      : desk.T_LTV_TRIGGER;  // legacy fallback when dim 7 didn't resolve: cut to trigger, no band.
+    const ltvCurrent = ltv ?? 0;
+    if (ltvCurrent > ltvCeiling) {
+      // BEYOND CEILING — cut, sized to ceiling.
+      breaches.push({ metric: 'ltv', lPrime: ltvCeiling * ltvDenominator });
+    }
+    // else: structured band → leverage_band_recourse handles it. No reduce_proceeds_ltv fire.
   }
   if (breaches.length === 0) return null;
 
@@ -402,12 +563,18 @@ function buildReduceProceedsProposal(
   // value to substitute.
   const stressedLtvBefore = ltvWasStressedBasis ? currentLoan / dim7Stressed! : null;
   const stressedLtvAfter  = ltvWasStressedBasis ? lPrime      / dim7Stressed! : null;
-  const stressedLtvTarget = ltvWasStressedBasis ? desk.T_LTV_TRIGGER          : null;
-  const ltvDescription = ltvWasStressedBasis
-    ? 'Stressed LTV ' + (stressedLtvBefore! * 100).toFixed(2) + '% breaches the doctrine ' +
-      'stressed-LTV trigger of ' + (stressedLtvTarget! * 100).toFixed(2) + '% ' +
+  // v1.3: cite the structured-LTV CEILING (not the retired T_LTV_TARGET). The
+  // ceiling is the desk knob that says "above this, structure can't cover";
+  // when LTV is above ceiling, reduce_proceeds cuts down to the ceiling.
+  const ltvCeilingForLabel = ltvWasStressedBasis
+    ? resolveLtvStructuredCeiling(resolveAssetTypeFromDeal(dealResult))
+    : null;
+  const ltvDescription = ltvWasStressedBasis && ltvCeilingForLabel !== null
+    ? 'Stressed LTV ' + (stressedLtvBefore! * 100).toFixed(2) + '% exceeds the desk ' +
+      'structured-LTV ceiling of ' + (ltvCeilingForLabel * 100).toFixed(2) + '% ' +
       '(loan / dim-7 stressed value $' + (dim7Stressed! / 1_000_000).toFixed(2) + 'M; ' +
-      'cap-rate stress + sustainable-NCF haircut). ' +
+      'cap-rate stress + sustainable-NCF haircut). Above the ceiling, structural ' +
+      'protections cannot make the buyer comfortable; proceeds must be cut TO the ceiling. ' +
       'Lowering proceeds from ' + fmtUsd(currentLoan) + ' to ' + fmtUsd(lPrime) +
       ' (sponsor fills ' + fmtUsd(requiredEquity) + ') brings stressed LTV to ' +
       (stressedLtvAfter! * 100).toFixed(2) + '% at the doctrine-stressed value.'
@@ -724,8 +891,30 @@ function buildAmortizationProposal(
   if (typeof maturityBalanceRaw !== 'number' || !(maturityBalanceRaw > 0)) return null;
   if (typeof sustainableNcf !== 'number' || !(sustainableNcf > 0)) return null;
 
-  // Trigger: exit DSCR below the refinanceable threshold = leg score elevated+ on dim 4.
+  // v1.3 structure-first three-band classification.
+  //
+  //   exit ≥ 1.20 (EXIT_DSCR_REFINANCEABLE_THRESHOLD) → CLEAN  (no lever fires)
+  //   FLOOR ≤ exit < 1.20                            → STRUCTURED BAND
+  //                                                     (cash_sweep_refi_reserve +
+  //                                                      springing_dscr_recourse —
+  //                                                      handled in separate lever
+  //                                                      builders; this builder
+  //                                                      RETURNS NULL on the mid-
+  //                                                      band path)
+  //   exit < FLOOR                                   → BEYOND BAND
+  //                                                     (amortize to cure target,
+  //                                                      gated by day-1 DSCR check)
+  //
+  // Asset-keyed floor [ISABELLE-TO-CALIBRATE] — Office 1.00, _default 1.10.
   if (exitDscrRaw >= EXIT_DSCR_REFINANCEABLE_THRESHOLD) return null;
+
+  const assetType = resolveAssetTypeFromDeal(dealResult);
+  const exitFloor = resolveExitDscrStructuredFloor(assetType);
+  if (exitDscrRaw >= exitFloor) {
+    // STRUCTURED BAND — handled by cash_sweep_refi_reserve +
+    // springing_dscr_recourse builders. Do not amortize / cut here.
+    return null;
+  }
 
   const exitDscr = exitDscrRaw;
   const stressedRefiConstant = stressedRefiConstRaw;
@@ -804,6 +993,70 @@ function buildAmortizationProposal(
       riskReduction: 'marginal',
       severity: 'high',
       addressesDimensions: ['refinance-feasibility'],
+    };
+  }
+
+  // v1.3 — DAY-1 DSCR CHECK. Amortizing raises day-1 debt service; if the
+  // implied amort schedule would push day-1 DSCR below the desk's coverage
+  // trigger, amortization at full proceeds is INFEASIBLE — composition needs
+  // to know it can't structure-cure this breach without a proceeds cut.
+  //
+  // The check uses sustainable NCF (the doctrine's coverage basis) against
+  // the annual P&I implied by the cure-target paydown over the term.
+  //
+  // Annual P&I = monthly_payment × 12 where monthly_payment is the payment
+  // that takes currentLoan → bTarget over termMonths at coupon. Formula
+  // (mirror of computeImpliedAmortYearsForBalance step 1):
+  //   monthly = (L × (1+r)^t − B) × r / ((1+r)^t − 1)
+  let day1DscrAtAmort: number | null = null;
+  {
+    const r = couponDecimal / 12;
+    if (r > 0) {
+      const growth = Math.pow(1 + r, termMonths);
+      const monthlyP = ((currentLoan * growth) - bTarget) * r / (growth - 1);
+      if (Number.isFinite(monthlyP) && monthlyP > 0) {
+        const annualDs = monthlyP * 12;
+        day1DscrAtAmort = annualDs > 0 ? sustainableNcf / annualDs : null;
+      }
+    } else {
+      // Zero-rate edge: linear; payment = (L − B) / t × 12
+      const annualDs = ((currentLoan - bTarget) / termMonths) * 12;
+      day1DscrAtAmort = annualDs > 0 ? sustainableNcf / annualDs : null;
+    }
+  }
+  if (day1DscrAtAmort !== null && day1DscrAtAmort < desk.T_DSCR) {
+    // BINDING CONSTRAINT — amortization at full proceeds blows day-1 DSCR.
+    // Emit a DIAGNOSTIC variant. Composition reads this and falls back to a
+    // proceeds cut sized to the IO-exit-clearing level (NCF / (rc × cureTarget))
+    // — same dollar quantum as the paydown, but expressed as origination
+    // proceeds reduction so day-1 coverage isn't burned.
+    const exitClearingLoan = sustainableNcf / (stressedRefiConstant * cureTarget);
+    const equivalentCut    = Math.max(0, currentLoan - exitClearingLoan);
+    return {
+      id: 'amortization_blocked_by_day1_dscr',
+      principleIds: [],
+      lever: 'require_amortization',
+      leverKind: 'amortization',
+      title: 'Amortization infeasible at full proceeds — day-1 DSCR binding',
+      description:
+        `Exit DSCR ${exitDscr.toFixed(2)}x falls below the doctrine's ` +
+        `${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x refinanceable line. Amortizing ` +
+        `from ${fmtUsd(currentLoan)} to ${fmtUsd(bTarget)} over the ${(termMonths/12).toFixed(0)}-year term ` +
+        `at ${(couponDecimal * 100).toFixed(2)}% coupon would push DAY-1 DSCR to ` +
+        `${day1DscrAtAmort.toFixed(2)}x — below the desk's day-1 DSCR trigger of ` +
+        `${desk.T_DSCR.toFixed(2)}x. Structural amortization at full proceeds is INFEASIBLE; ` +
+        `composition should cut proceeds instead, sized to the IO-exit-clearing level ` +
+        `${fmtUsd(exitClearingLoan)} (equivalent equity gap ${fmtUsd(equivalentCut)}).`,
+      structuralChanges: [
+        `Day-1 DSCR at full-proceeds amort = ${day1DscrAtAmort.toFixed(2)}x < ${desk.T_DSCR.toFixed(2)}x trigger.`,
+        `Composition falls back to proceeds cut to ${fmtUsd(exitClearingLoan)} (IO-exit-clearing at ` +
+        `cure target ${cureTarget.toFixed(2)}x), preserving day-1 coverage.`,
+      ],
+      requiredPaydown: equivalentCut,
+      targetMaturityBalance: exitClearingLoan,
+      riskReduction: 'moderate',
+      severity: 'high',
+      addressesDimensions: ['refinance-feasibility', 'coverage-dscr'],
     };
   }
 
@@ -896,6 +1149,193 @@ function computeImpliedAmortYearsForBalance(
 }
 
 export { buildAmortizationProposal, computeImpliedAmortYearsForBalance };
+
+/* ============== v1.3 structure-first MID-BAND levers ====================== */
+/*
+ * Three new lever builders. Each fires ONLY when its dimension breaches the
+ * doctrine trigger but stays inside the desk's structured band:
+ *
+ *   leverage_band_recourse       — LTV mid-band (TRIGGER < stressedLtv ≤ CEILING)
+ *   cash_sweep_refi_reserve      — EXIT mid-band (FLOOR ≤ exit < 1.20)
+ *   springing_dscr_recourse      — EXIT mid-band (same gate as cash sweep)
+ *
+ * Scoping: structural MAGNITUDE within the band fires at ONE sensible tier
+ * (no band-position interpolation in v1.3). Future calibration may
+ * interpolate intensity by where the metric sits in the band.
+ *
+ * Fence: read ONLY from dealResult.dimensions; same discipline as the other
+ * dim-driven levers. NO judgment/handbook reads.
+ */
+
+/** LTV MID-BAND — leverage_band_recourse. Sponsor recourse + reserves; sized
+ *  at "structured-band" tier (one-tier-fits-all in v1.3). */
+function buildLeverageBandRecourseProposal(
+  dealResult: EvaluateDealResult | undefined,
+  ai: AdjustedInputs,
+  desk: MitigationDeskConstants,
+): MitigationProposal | null {
+  if (!dealResult) return null;
+  const dim7 = dealResult.dimensions.capRateValuationStress;
+  if (dim7.applicability !== 'applicable') return null;
+  const stressedLtv = dim7.derivedOutputs?.stressedLtv;
+  const stressedValue = dim7.derivedOutputs?.stressedValue;
+  if (typeof stressedLtv !== 'number' || !Number.isFinite(stressedLtv)) return null;
+  if (typeof stressedValue !== 'number' || !(stressedValue > 0)) return null;
+
+  const assetType = resolveAssetTypeFromDeal(dealResult);
+  const trigger = desk.T_LTV_TRIGGER;
+  const ceiling = resolveLtvStructuredCeiling(assetType);
+  const band = classifyLtvBand(stressedLtv, trigger, ceiling);
+  if (band !== 'structured') return null;
+
+  const currentLoan = ai.loan.loanAmount.adjusted;
+  // Single-tier structured recourse: 25% sponsor recourse + NW 1× loan +
+  // liquidity 5% of loan. Mirrors the guaranty "mild" tier from the existing
+  // GUARANTY_TIER_TERMS, but driven by LEVERAGE in the structured band (not
+  // by sponsor dim 9). Operator-judgment scoping — magnitude-by-band-position
+  // is a follow-up calibration.
+  const recoursePct = 0.25;
+  const nwMultiple = 1.0;
+  const liquidityPct = 0.05;
+  return {
+    id: 'leverage_band_recourse_structured',
+    principleIds: [],
+    lever: 'leverage_band_recourse',
+    leverKind: 'guaranty',
+    title: 'Structured-band leverage recourse — hold proceeds with sponsor protection',
+    description:
+      `Stressed LTV ${(stressedLtv * 100).toFixed(2)}% sits in the desk's STRUCTURED BAND ` +
+      `for ${assetType ?? 'this asset class'} (trigger ${(trigger * 100).toFixed(2)}%, ` +
+      `ceiling ${(ceiling * 100).toFixed(2)}%). Structure can cover this leverage band — ` +
+      `HOLD origination proceeds at ${fmtUsd(currentLoan)} and require sponsor recourse + ` +
+      `balance-sheet covenants commensurate with the structured-band tier (v1.3 fires at ` +
+      `one tier; band-position interpolation is a follow-up calibration).`,
+    structuralChanges: [
+      `Hold loan amount at ${fmtUsd(currentLoan)} (no proceeds cut — LTV is within the structured band)`,
+      `Partial payment guaranty: ${(recoursePct * 100).toFixed(0)}% recourse on payment from a creditworthy guarantor`,
+      `Guarantor net-worth covenant: minimum NW ≥ ${nwMultiple.toFixed(1)}× loan (≥ ${fmtUsd(nwMultiple * currentLoan)})`,
+      `Guarantor liquidity covenant: minimum liquidity ≥ ${(liquidityPct * 100).toFixed(0)}% of loan (≥ ${fmtUsd(liquidityPct * currentLoan)})`,
+      'Annual guarantor financial certification + standard bad-boy carve-outs',
+    ],
+    riskReduction: 'moderate',
+    severity: 'medium',
+    addressesDimensions: ['leverage-ltv', 'cap-rate-valuation-stress'],
+  };
+}
+
+/** EXIT MID-BAND — cash_sweep_refi_reserve. Cash sweep building a refi
+ *  reserve toward the balloon. Pre-funds the take-out gap. */
+function buildCashSweepRefiReserveProposal(
+  dealResult: EvaluateDealResult | undefined,
+  ai: AdjustedInputs,
+  desk: MitigationDeskConstants,
+): MitigationProposal | null {
+  if (!dealResult) return null;
+  const refiDim = dealResult.dimensions.refinanceFeasibility;
+  if (refiDim.applicability !== 'applicable') return null;
+  const exitDscr = refiDim.derivedOutputs?.exitDscr;
+  const stressedRefiConst = refiDim.derivedOutputs?.stressedRefiConstant;
+  const sustainableNcf = dealResult.normalization.sustainableNcf;
+  if (typeof exitDscr !== 'number' || !Number.isFinite(exitDscr)) return null;
+  if (typeof stressedRefiConst !== 'number' || !(stressedRefiConst > 0)) return null;
+  if (typeof sustainableNcf !== 'number' || !(sustainableNcf > 0)) return null;
+
+  const assetType = resolveAssetTypeFromDeal(dealResult);
+  const floor = resolveExitDscrStructuredFloor(assetType);
+  const band = classifyExitDscrBand(exitDscr, floor, EXIT_DSCR_REFINANCEABLE_THRESHOLD);
+  if (band !== 'structured') return null;
+
+  const currentLoan = ai.loan.loanAmount.adjusted;
+  const cureTarget = desk.T_EXIT_DSCR_CURE_TARGET;
+  // Refi reserve target: the post-sweep effective balance the take-out lender
+  // would see post-reserve-application clears cure target. Reserve target =
+  // currentLoan − (NCF / (rc × cureTarget)).
+  const exitClearingBalance = sustainableNcf / (stressedRefiConst * cureTarget);
+  const reserveTarget = Math.max(0, currentLoan - exitClearingBalance);
+  // Expected sweep accumulation over the term — NCF minus debt service.
+  const debtServiceAnnual = ai.loan.debtServiceAnnual.adjusted;
+  const annualSweep = Math.max(0, sustainableNcf - debtServiceAnnual);
+  const termYears = ai.loan.termMonths.adjusted / 12;
+  const expectedAccrual = annualSweep * termYears;
+  const fullyFunded = expectedAccrual >= reserveTarget;
+  return {
+    id: 'cash_sweep_refi_reserve_structured',
+    principleIds: [],
+    lever: 'cash_sweep_refi_reserve',
+    leverKind: 'coverage_reserve',
+    title: 'Cash sweep — refi reserve toward balloon',
+    description:
+      `Exit DSCR ${exitDscr.toFixed(2)}x sits in the desk's STRUCTURED BAND ` +
+      `for ${assetType ?? 'this asset class'} (floor ${floor.toFixed(2)}x, ` +
+      `trigger ${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x). Hold origination ` +
+      `proceeds at ${fmtUsd(currentLoan)} and implement an excess-cash sweep: every ` +
+      `dollar above debt service + operating reserves builds into a controlled refi ` +
+      `reserve. Reserve TARGET ${fmtUsd(reserveTarget)} (reduces effective take-out ` +
+      `balance to ${fmtUsd(exitClearingBalance)}, clearing the cure target ${cureTarget.toFixed(2)}x). ` +
+      `Expected accrual over the ${termYears.toFixed(0)}-year term at sustainable ` +
+      `cash flow ≈ ${fmtUsd(expectedAccrual)} (${fullyFunded ? 'meets target' : 'shortfall ' + fmtUsd(reserveTarget - expectedAccrual) + ' — pair with springing recourse'}).`,
+    structuralChanges: [
+      `Sweep all NCF above debt service + operating reserves into a controlled refi-reserve account`,
+      `Reserve target ${fmtUsd(reserveTarget)} by maturity (post-sweep effective balance ${fmtUsd(exitClearingBalance)})`,
+      `Expected accrual at ${fmtUsd(annualSweep)}/yr × ${termYears.toFixed(0)}yr = ${fmtUsd(expectedAccrual)} ` +
+      (fullyFunded ? '(fully funded)' : `(short by ${fmtUsd(reserveTarget - expectedAccrual)})`),
+      `Released to take-out at maturity OR distributable subject to DSCR / occupancy tests`,
+    ],
+    requiredReserve: reserveTarget,
+    riskReduction: 'moderate',
+    severity: 'medium',
+    addressesDimensions: ['refinance-feasibility'],
+  };
+}
+
+/** EXIT MID-BAND — springing_dscr_recourse. Springing recourse on DSCR test;
+ *  sponsor liability if coverage breaches at any test date. */
+function buildSpringingDscrRecourseProposal(
+  dealResult: EvaluateDealResult | undefined,
+  ai: AdjustedInputs,
+  desk: MitigationDeskConstants,
+): MitigationProposal | null {
+  if (!dealResult) return null;
+  const refiDim = dealResult.dimensions.refinanceFeasibility;
+  if (refiDim.applicability !== 'applicable') return null;
+  const exitDscr = refiDim.derivedOutputs?.exitDscr;
+  if (typeof exitDscr !== 'number' || !Number.isFinite(exitDscr)) return null;
+
+  const assetType = resolveAssetTypeFromDeal(dealResult);
+  const floor = resolveExitDscrStructuredFloor(assetType);
+  const band = classifyExitDscrBand(exitDscr, floor, EXIT_DSCR_REFINANCEABLE_THRESHOLD);
+  if (band !== 'structured') return null;
+
+  const currentLoan = ai.loan.loanAmount.adjusted;
+  // Single-tier: 25% recourse springing on DSCR breach at any quarterly test.
+  // The recourse is the liability cap if springing triggers; sized as a
+  // percentage of L for committee transparency.
+  const springingRecoursePct = 0.25;
+  const dscrTriggerForSpring = desk.T_DSCR;
+  return {
+    id: 'springing_dscr_recourse_structured',
+    principleIds: [],
+    lever: 'springing_dscr_recourse',
+    leverKind: 'guaranty',
+    title: 'Springing DSCR recourse — coverage-conditional sponsor liability',
+    description:
+      `Exit DSCR ${exitDscr.toFixed(2)}x is in the desk's STRUCTURED BAND (floor ${floor.toFixed(2)}x, ` +
+      `trigger ${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x). Pair the cash-sweep refi reserve with ` +
+      `SPRINGING recourse: sponsor liability up to ${(springingRecoursePct * 100).toFixed(0)}% of ` +
+      `${fmtUsd(currentLoan)} (= ${fmtUsd(springingRecoursePct * currentLoan)}) triggers if quarterly ` +
+      `DSCR falls below ${dscrTriggerForSpring.toFixed(2)}x. Holds proceeds at origination; spring ` +
+      `provides a downside backstop the take-out lender prices into refi.`,
+    structuralChanges: [
+      `Sponsor recourse up to ${(springingRecoursePct * 100).toFixed(0)}% of loan (${fmtUsd(springingRecoursePct * currentLoan)}) — SPRINGING only`,
+      `Trigger: quarterly DSCR test < ${dscrTriggerForSpring.toFixed(2)}x at any test date through maturity`,
+      `Cures: 4 consecutive clean quarters releases the recourse`,
+      `Pairs with cash_sweep_refi_reserve — refi reserve funds first; springing recourse is downside backstop`,
+    ],
+    riskReduction: 'moderate',
+    severity: 'medium',
+    addressesDimensions: ['refinance-feasibility'],
+  };
+}
 
 /* ------------------ require_guaranty (v2 lever 2) ----------------- */
 /*

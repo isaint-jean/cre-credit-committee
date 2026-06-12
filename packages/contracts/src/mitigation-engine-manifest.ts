@@ -63,4 +63,24 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   //       MITIGATION_ENGINE_VERSION docstring), even when the snapshot
   //       hash doesn't change on the copy edit alone.
   '1.2': '6d5a636f4dc05df9698174e4b8c817934988f440d8d2bda2eebcc78072eb03e9' as ContentHash,
+  // v1.3 — STRUCTURE-FIRST inversion. Three new mid-band desk knobs entered
+  // the hash snapshot (asset-keyed maps, operator-judgment, ISABELLE-TO-CALIBRATE):
+  //   T_LTV_STRUCTURED_CEILING_BY_ASSET    (Office 0.88, _default 0.85)
+  //   T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET (Office 1.00, _default 1.10)
+  // Three new lever names added to MITIGATION_LEVERS contract:
+  //   leverage_band_recourse     — LTV mid-band (trigger < ltv ≤ ceiling)
+  //   cash_sweep_refi_reserve    — exit mid-band (floor ≤ exit < 1.20)
+  //   springing_dscr_recourse    — exit mid-band (paired with cash sweep)
+  // Lever copy changes (convention bump even without snapshot drift):
+  //   reduce_proceeds LTV-arm: three-band — fires ONLY above ceiling, sizes
+  //     to ceiling × stressedValue (NOT retired T_LTV_TARGET 0.68).
+  //   require_amortization: three-band — fires ONLY below floor; NEW day-1
+  //     DSCR gate; if amort would blow day-1, returns
+  //     'amortization_blocked_by_day1_dscr' diagnostic with equivalent cut
+  //     hint, which composition uses to size the proceeds reduction.
+  //   compose-mitigations: rewritten — structure-first aggregation. HOLD
+  //     full proceeds when no breach is past its limit; CUT only when ltv
+  //     > ceiling OR amort blocked. Reconciliation reports per-dim band
+  //     classification + structural cure + cut driver if any.
+  '1.3': '476a29766a4e1b81b4eae883e54633de6e91488f8a857191506d16268a03b4d6' as ContentHash,
 };

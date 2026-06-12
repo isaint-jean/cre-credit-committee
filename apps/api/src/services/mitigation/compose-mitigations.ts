@@ -149,6 +149,16 @@ export interface ComposedMitigationPackage {
 
 const DE_LEVERING_LEVERS = new Set<string>(['reduce_proceeds', 'require_amortization']);
 
+/** Lever ids that represent the structure-first mid-band cures. They are
+ *  NOT de-levering — they hold proceeds. Composition keeps them as-is and
+ *  surfaces "leverage/exit held within structured tolerance" in the
+ *  reconciliation rather than the legacy "amort → $0 superseded by cut". */
+const MID_BAND_LEVERS = new Set<string>([
+  'leverage_band_recourse',
+  'cash_sweep_refi_reserve',
+  'springing_dscr_recourse',
+]);
+
 /** USD formatter used in reconciliation notes. */
 function fmtUsd(n: number): string {
   if (Math.abs(n) >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
@@ -169,16 +179,35 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
     desk,
   });
 
-  /* ---- (1) PARTITION. -------------------------------------------------- */
+  /* ---- (1) PARTITION (v1.3 structure-first). --------------------------- */
+  // Three sets:
+  //   de-levering   — reduce_proceeds (cut) + require_amortization (paydown
+  //                   OR day-1-blocked diagnostic with cut hint).
+  //   mid-band      — leverage_band_recourse / cash_sweep_refi_reserve /
+  //                   springing_dscr_recourse. These HOLD proceeds; they
+  //                   are NOT orthogonal in the doctrine sense — they ARE
+  //                   the structured cure for a mid-band breach.
+  //   orthogonal    — everything else (lockbox / springing-cash-trap /
+  //                   guaranty / fund_reserve / condition_precedent).
+  //                   These pass through and stack on top.
   const initialReduce = initialProposals.find(p => p.lever === 'reduce_proceeds');
   const initialAmort  = initialProposals.find(p => p.lever === 'require_amortization');
-  const orthogonal    = initialProposals.filter(p => !DE_LEVERING_LEVERS.has(p.lever));
+  const initialMidBand = initialProposals.filter(p => MID_BAND_LEVERS.has(p.lever));
+  const orthogonal    = initialProposals.filter(
+    p => !DE_LEVERING_LEVERS.has(p.lever) && !MID_BAND_LEVERS.has(p.lever),
+  );
 
   const originalLoanAmount = args.adjustedInputs.loan.loanAmount.adjusted;
 
-  /* ---- (2) DE-LEVERING resolution (single pass). ----------------------- */
-  // If reduce_proceeds didn't fire, L' = originalLoan; amortization stands.
-  // Otherwise L' = originalLoan - requiredEquity; recompute and re-evaluate.
+  /* ---- (2) Structure-first aggregation. -------------------------------- */
+  // Identify CUT-FORCING proposals:
+  //   (a) reduce_proceeds   — fires when LTV > ceiling (cut to ceiling)
+  //   (b) require_amortization with id 'amortization_blocked_by_day1_dscr' —
+  //       the lever signaled "exit < floor AND day-1 DSCR would be violated";
+  //       the diagnostic carries an equivalent_cut field via requiredPaydown
+  //       (the cut quantum sized to clear exit at IO).
+  // If neither, NO CUT — hold proceeds; mid-band levers + orthogonal pass.
+  // If one or both, pick the smaller L' (binding constraint).
   let finalLoanAmount = originalLoanAmount;
   let composedAmort: MitigationProposal | null = initialAmort ?? null;
   let finalState: DealComputeState = {
@@ -188,79 +217,113 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
   };
   const notes: string[] = [];
 
-  if (initialReduce !== undefined) {
-    const requiredEquity = initialReduce.requiredEquity ?? 0;
-    if (!(requiredEquity > 0)) {
-      // Pathological — reduce_proceeds fired but carries no equity gap.
-      // Treat as no-op composition; amortization stands.
-      notes.push(
-        `reduce_proceeds fired but requiredEquity is non-positive (${fmtUsd(requiredEquity)}); ` +
-        `treating as no de-lever step — composition pass-through.`,
+  // Detect a day-1-blocked amortization (diagnostic that carries a cut hint).
+  const amortBlocked = initialAmort?.id === 'amortization_blocked_by_day1_dscr';
+  const amortCutHint = amortBlocked
+    ? originalLoanAmount - (initialAmort!.requiredPaydown ?? 0)  // L' implied by the equivalent cut
+    : null;
+
+  // Detect a cut-forcing reduce_proceeds.
+  const reduceCut = initialReduce !== undefined
+    ? Math.max(0, originalLoanAmount - (initialReduce.requiredEquity ?? 0))
+    : null;
+
+  // Collect the cut-forcing candidates and pick the binding (smallest L').
+  const cutCandidates: Array<{ source: string; lPrime: number }> = [];
+  if (reduceCut !== null) {
+    const bindingMetric = initialReduce!.targetMetric ?? 'ltv';
+    cutCandidates.push({ source: `reduce_proceeds (${bindingMetric} arm — LTV above ceiling)`, lPrime: reduceCut });
+  }
+  if (amortCutHint !== null) {
+    cutCandidates.push({ source: 'require_amortization day-1-DSCR fallback (exit below floor)', lPrime: amortCutHint });
+  }
+
+  if (cutCandidates.length === 0) {
+    /* ---- STRUCTURE-FIRST HOLD PATH ----
+     * No dimension is past its limit. Hold proceeds at full origination.
+     * Mid-band levers (if any fired) carry the structured cure. The
+     * reconciliation describes the held state per dimension. */
+    const heldBands: string[] = [];
+    const ltvBand = initialMidBand.find(p => p.lever === 'leverage_band_recourse');
+    const exitSweep = initialMidBand.find(p => p.lever === 'cash_sweep_refi_reserve');
+    const exitSpring = initialMidBand.find(p => p.lever === 'springing_dscr_recourse');
+    if (ltvBand !== undefined) {
+      heldBands.push(
+        `Stressed LTV — held within the structured band; structural cure: ${ltvBand.title}.`,
       );
-    } else {
-      const targetLoan = originalLoanAmount - requiredEquity;
-      const bindingMetric = initialReduce.targetMetric ?? 'ltv';
-      notes.push(
-        `Proceeds reduction ${fmtUsd(requiredEquity)} → L' = ${fmtUsd(targetLoan)} ` +
-        `(reduce_proceeds, ${bindingMetric} arm binding at the original loan).`,
-      );
-
-      /* ---- (2b) Recompute at L'. */
-      const recomputed = args.recomputeAtLoan(targetLoan);
-      finalLoanAmount = targetLoan;
-      finalState = recomputed;
-
-      /* ---- (2c) Re-run produceMitigations on the recomputed state.   */
-      const recomputedProposals = produceMitigations({
-        adjustedInputs: recomputed.adjustedInputs,
-        uwModel: recomputed.uwModel,
-        firedFlags: args.firedFlags,
-        dealResult: recomputed.dealResult,
-        desk,
-      });
-
-      /* ---- (2d) Composed amortization. */
-      const recomputedAmort = recomputedProposals.find(p => p.lever === 'require_amortization') ?? null;
-      composedAmort = recomputedAmort;
-
-      if (initialAmort !== undefined && recomputedAmort === null) {
-        notes.push(
-          `Standalone amortization ${fmtUsd(initialAmort.requiredPaydown ?? NaN)} → $0 ` +
-          `(superseded by the ${fmtUsd(requiredEquity)} proceeds cut — exit DSCR clears at L' = ${fmtUsd(targetLoan)}).`,
-        );
-      } else if (initialAmort !== undefined && recomputedAmort !== null) {
-        notes.push(
-          `Standalone amortization ${fmtUsd(initialAmort.requiredPaydown ?? NaN)} → composed residual ` +
-          `${fmtUsd(recomputedAmort.requiredPaydown ?? NaN)} (proceeds cut narrowed the exit gap but didn't ` +
-          `close it; residual amort sizes off L' = ${fmtUsd(targetLoan)}).`,
-        );
-      } else if (initialAmort === undefined && recomputedAmort !== null) {
-        // Should not happen — proceeds cut can't CREATE an exit-DSCR breach.
-        // Defensive note for diagnostics.
-        notes.push(
-          `Unexpected: amortization fired at L' = ${fmtUsd(targetLoan)} but not at the original loan. ` +
-          `Investigate; proceeds reduction should monotonically improve exit DSCR.`,
-        );
-      }
-
-      /* Sanity: recomputed reduce_proceeds should have CLEARED at L'.
-       * Diagnostic only — pass-through; we keep the original reduceProp. */
-      const recomputedReduce = recomputedProposals.find(p => p.lever === 'reduce_proceeds');
-      if (recomputedReduce !== undefined) {
-        notes.push(
-          `Diagnostic: reduce_proceeds still fires at L' (binding ${recomputedReduce.targetMetric ?? '?'}) — ` +
-          `composition assumed monotonic clearance; investigate.`,
-        );
-      }
     }
-  } else if (initialAmort !== undefined) {
-    notes.push(
-      `reduce_proceeds did not fire; amortization stands alone as sized ` +
-      `(${fmtUsd(initialAmort.requiredPaydown ?? NaN)} paydown to target maturity balance ` +
-      `${fmtUsd((initialAmort as any).targetMaturityBalance ?? NaN)}).`,
-    );
+    if (exitSweep !== undefined || exitSpring !== undefined) {
+      const parts: string[] = [];
+      if (exitSweep !== undefined)  parts.push('cash sweep refi reserve');
+      if (exitSpring !== undefined) parts.push('springing DSCR recourse');
+      heldBands.push(
+        `Exit DSCR — held within the structured band; structural cure: ${parts.join(' + ')}.`,
+      );
+    }
+    if (heldBands.length === 0) {
+      notes.push(`No breaches forcing a cut; no mid-band levers fired — composition is identity over orthogonal levers.`);
+    } else {
+      notes.push(`Structure-first hold at full proceeds (${fmtUsd(originalLoanAmount)}). No proceeds cut applied.`);
+      for (const h of heldBands) notes.push(h);
+    }
+    composedAmort = null;  // amortization not part of the hold path (mid-band exit uses sweep+springing, not amort).
   } else {
-    notes.push('Neither de-levering lever fired; composition is identity over orthogonal levers.');
+    /* ---- CUT PATH ----
+     * One or more dimensions past their limit. Pick the smallest L' as the
+     * BINDING constraint. Report all forcing paths transparently. */
+    cutCandidates.sort((a, b) => a.lPrime - b.lPrime);
+    const binding = cutCandidates[0]!;
+    const targetLoan = binding.lPrime;
+    notes.push(
+      `Proceeds reduction ${fmtUsd(originalLoanAmount - targetLoan)} → L' = ${fmtUsd(targetLoan)} ` +
+      `(binding: ${binding.source}).`,
+    );
+    if (cutCandidates.length > 1) {
+      const alternatives = cutCandidates.slice(1)
+        .map(c => `${c.source} would have required L' = ${fmtUsd(c.lPrime)}`)
+        .join('; ');
+      notes.push(`Non-binding paths: ${alternatives} (smallest L' wins).`);
+    }
+
+    /* Recompute + re-run produceMitigations at L'. */
+    const recomputed = args.recomputeAtLoan(targetLoan);
+    finalLoanAmount = targetLoan;
+    finalState = recomputed;
+    const recomputedProposals = produceMitigations({
+      adjustedInputs: recomputed.adjustedInputs,
+      uwModel: recomputed.uwModel,
+      firedFlags: args.firedFlags,
+      dealResult: recomputed.dealResult,
+      desk,
+    });
+
+    const recomputedAmort = recomputedProposals.find(p => p.lever === 'require_amortization') ?? null;
+    composedAmort = recomputedAmort;
+
+    if (initialAmort !== undefined && recomputedAmort === null) {
+      const initialAmortPaydown = initialAmort.requiredPaydown ?? NaN;
+      const noun = amortBlocked ? 'equivalent cut' : 'standalone amortization';
+      notes.push(
+        `${noun} ${fmtUsd(initialAmortPaydown)} → $0 ` +
+        `(superseded by the ${fmtUsd(originalLoanAmount - targetLoan)} proceeds cut — exit DSCR clears at L' = ${fmtUsd(targetLoan)}).`,
+      );
+    } else if (initialAmort !== undefined && recomputedAmort !== null) {
+      notes.push(
+        `Standalone amortization ${fmtUsd(initialAmort.requiredPaydown ?? NaN)} → composed residual ` +
+        `${fmtUsd(recomputedAmort.requiredPaydown ?? NaN)} (proceeds cut narrowed the exit gap but didn't ` +
+        `close it; residual amort sizes off L' = ${fmtUsd(targetLoan)}).`,
+      );
+    }
+
+    // Sanity check: at L', neither reduce_proceeds nor a day-1-blocked
+    // amortization should re-fire. Diagnostic only.
+    const recomputedReduce = recomputedProposals.find(p => p.lever === 'reduce_proceeds');
+    if (recomputedReduce !== undefined) {
+      notes.push(
+        `Diagnostic: reduce_proceeds still fires at L' (binding ${recomputedReduce.targetMetric ?? '?'}) — ` +
+        `investigate; cut should monotonically clear LTV.`,
+      );
+    }
   }
 
   /* ---- (3) Orthogonal covenant magnitudes at L'. ----------------------- */
@@ -283,11 +346,21 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
   }
 
   /* ---- (4) Compose the final lever list. ------------------------------- */
-  // Order: de-levering first (origination terms; loan-size moves), then orthogonal
-  // (structural covenants / reserves / conditions). The lender reads top-down.
+  // Order: cut (if any) first, then mid-band structural cures (when we held),
+  // then orthogonal. The lender reads top-down: origination move, structural
+  // package, covenant scaffolding.
+  //
+  // When the HOLD path ran: NO reduce_proceeds, NO amortization (mid-band
+  // exit is structured by sweep + springing, not amortized).
+  // When the CUT path ran: include the cut + any residual amortization (the
+  // amort-blocked diagnostic does NOT get included — the cut SUPERSEDES it).
   const proposals: MitigationProposal[] = [];
-  if (initialReduce !== undefined) proposals.push(initialReduce);
-  if (composedAmort !== null)      proposals.push(composedAmort);
+  if (cutCandidates.length > 0 && initialReduce !== undefined) proposals.push(initialReduce);
+  if (composedAmort !== null && composedAmort.id !== 'amortization_blocked_by_day1_dscr') {
+    proposals.push(composedAmort);
+  }
+  // Mid-band levers — only when we held proceeds (no cut) AND they fired.
+  if (cutCandidates.length === 0) proposals.push(...initialMidBand);
   proposals.push(...orthogonal);
 
   /* ---- (5) Assemble reconciliation. ------------------------------------ */
