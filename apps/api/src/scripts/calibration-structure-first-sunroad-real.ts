@@ -51,6 +51,8 @@ import {
   resolveExitDscrStructuredFloor,
   computeFundedExitFigures,
   resolveOperatingReservesPctOfEgi,
+  interpolateLeverageBandTier,
+  resolveLeverageBandTierEndpoints,
   DEFAULT_MITIGATION_DESK,
 } from '../services/mitigation/produce-mitigations.js';
 import { EXIT_DSCR_REFINANCEABLE_THRESHOLD } from '../doctrine-clean/index.js';
@@ -348,6 +350,63 @@ async function main(): Promise<void> {
   console.log(`  v1.3 cut vs v1.2         : ${recon.proceedsReduction === 0 ? 'no cut — holds full size' : `${fmtUsd(18_730_000 - recon.proceedsReduction)} smaller`}`);
   console.log(`  Drift                    : ${drift ? '✗ DRIFT' : '✓ NO DRIFT'}`);
   console.log(`  Memo HTML                : ${OUT_HTML}`);
+  console.log('');
+
+  /* ===================== v1.6 LEVERAGE-BAND INTERPOLATION ============= */
+  console.log('================================================================');
+  console.log('v1.6 — LEVERAGE-BAND CONVEX INTERPOLATION (Sunroad p=1.0 vs synthetic mid-band p=0.40)');
+  console.log('================================================================');
+  console.log('');
+  // Sunroad at L' lands at p=1.0 (cut TO ceiling = 0.80). Heavy tier fires.
+  // Synthetic mid-band at stressedLtv 0.74 → p=0.40, w=0.16 → light-leaning.
+  const officeEndpoints = resolveLeverageBandTierEndpoints('Office');
+  console.log(`  Endpoints (Office; [ISABELLE-CALIBRATED]):`);
+  console.log(`    light (at trigger 70.00%): recourse ${fmtPct(officeEndpoints.light.recoursePct)}  NW ${officeEndpoints.light.netWorthMultiple.toFixed(2)}×  liquidity ${fmtPct(officeEndpoints.light.liquidityPct)}`);
+  console.log(`    heavy (at ceiling 80.00%): recourse ${fmtPct(officeEndpoints.heavy.recoursePct)}  NW ${officeEndpoints.heavy.netWorthMultiple.toFixed(2)}×  liquidity ${fmtPct(officeEndpoints.heavy.liquidityPct)}`);
+  console.log('');
+  console.log('  Interpolation formula:');
+  console.log('    p = clamp((stressedLtv − T_LTV_TRIGGER) / (ceiling − T_LTV_TRIGGER), 0, 1)');
+  console.log('    w = p²  (convex)');
+  console.log('    field = light_field + (heavy_field − light_field) × w');
+  console.log('');
+
+  /* --- Sunroad at L' (post-cut, stressedLtv = 0.80 = ceiling) --- */
+  const sunroadFinalLtv = (composedMitigationPackage.finalState.dealResult.dimensions.capRateValuationStress.derivedOutputs?.stressedLtv as number) ?? 0;
+  const sunroadInterp = interpolateLeverageBandTier(sunroadFinalLtv, DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER, ltvCeiling, officeEndpoints);
+  // Pull the actual proposal from the composed package for cross-check.
+  const sunroadLbr = composedMitigationPackage.proposals.find(p => p.lever === 'leverage_band_recourse');
+  const sunroadLPrime = composedMitigationPackage.finalLoanAmount;
+  console.log('  ──── Sunroad (CUT path, at L′) ────');
+  console.log(`    stressedLtv at L'        : ${fmtPct(sunroadFinalLtv)}  (cut TO ceiling)`);
+  console.log(`    p                        : ${sunroadInterp.p.toFixed(2)}`);
+  console.log(`    w (= p²)                 : ${sunroadInterp.w.toFixed(2)}`);
+  console.log(`    interpolated recoursePct : ${fmtPct(sunroadInterp.recoursePct)}  → $${(sunroadInterp.recoursePct * sunroadLPrime / 1_000_000).toFixed(2)}M cap on L'=${fmtUsd(sunroadLPrime)}`);
+  console.log(`    interpolated NW multiple : ${sunroadInterp.netWorthMultiple.toFixed(2)}×  → $${(sunroadInterp.netWorthMultiple * sunroadLPrime / 1_000_000).toFixed(2)}M`);
+  console.log(`    interpolated liquidityPct: ${fmtPct(sunroadInterp.liquidityPct)}  → $${(sunroadInterp.liquidityPct * sunroadLPrime / 1_000_000).toFixed(2)}M`);
+  console.log(`    leverage_band_recourse fired in package: ${sunroadLbr ? '✓ YES (id=' + sunroadLbr.id + ')' : '✗ NO'}`);
+  console.log('');
+
+  /* --- Synthetic mid-band (stressedLtv = 0.74) --- */
+  const synthLtv = 0.74;
+  const synthInterp = interpolateLeverageBandTier(synthLtv, DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER, ltvCeiling, officeEndpoints);
+  // For dollar magnitudes, assume the same L' as Sunroad for comparability.
+  const synthLoan = 100_000_000;
+  console.log('  ──── Synthetic mid-band (Office; stressedLtv = 0.74) ────');
+  console.log(`    stressedLtv              : ${fmtPct(synthLtv)}  (mid-band, well below ceiling)`);
+  console.log(`    p                        : ${synthInterp.p.toFixed(2)}`);
+  console.log(`    w (= p²)                 : ${synthInterp.w.toFixed(2)}`);
+  console.log(`    interpolated recoursePct : ${fmtPct(synthInterp.recoursePct)}  → $${(synthInterp.recoursePct * synthLoan / 1_000_000).toFixed(2)}M cap on a ${fmtUsd(synthLoan)} loan`);
+  console.log(`    interpolated NW multiple : ${synthInterp.netWorthMultiple.toFixed(2)}×  → $${(synthInterp.netWorthMultiple * synthLoan / 1_000_000).toFixed(2)}M`);
+  console.log(`    interpolated liquidityPct: ${fmtPct(synthInterp.liquidityPct)}  → $${(synthInterp.liquidityPct * synthLoan / 1_000_000).toFixed(2)}M`);
+  console.log('');
+
+  /* --- Comparison --- */
+  console.log('  ──── Comparison ────');
+  console.log(`    recoursePct  Sunroad (p=1.0) ${fmtPct(sunroadInterp.recoursePct)} vs synthetic (p=0.40) ${fmtPct(synthInterp.recoursePct)}  → synthetic is ${((sunroadInterp.recoursePct - synthInterp.recoursePct) / sunroadInterp.recoursePct * 100).toFixed(1)}% LIGHTER`);
+  console.log(`    NW multiple  Sunroad ${sunroadInterp.netWorthMultiple.toFixed(2)}× vs synthetic ${synthInterp.netWorthMultiple.toFixed(2)}×  → synthetic ${((sunroadInterp.netWorthMultiple - synthInterp.netWorthMultiple) / sunroadInterp.netWorthMultiple * 100).toFixed(1)}% LIGHTER`);
+  console.log(`    liquidityPct Sunroad ${fmtPct(sunroadInterp.liquidityPct)} vs synthetic ${fmtPct(synthInterp.liquidityPct)}  → synthetic ${((sunroadInterp.liquidityPct - synthInterp.liquidityPct) / sunroadInterp.liquidityPct * 100).toFixed(1)}% LIGHTER`);
+  console.log('');
+  console.log('  ✓ Interpolation produces materially different terms for mid-band vs ceiling deals.');
   console.log('');
 }
 

@@ -212,6 +212,83 @@ export function classifyExitDscrBand(exitDscr: number, floor: number, threshold:
   return 'beyond-floor';
 }
 
+/* ----- v1.6 — convex band-position interpolation for leverage_band_recourse */
+/*
+ * Light tier (at trigger) → heavy tier (at ceiling), interpolated by a
+ * convex (quadratic, p²) curve over band position. Asset-keyed map so
+ * non-Office classes can override later; Office-anchored for now —
+ * operator-judgment, ISABELLE-CALIBRATED.
+ *
+ * Math (pure):
+ *   p = clamp((stressedLtv − T_LTV_TRIGGER) / (ceiling − T_LTV_TRIGGER), 0, 1)
+ *   w = p²
+ *   field = light_field + (heavy_field − light_field) × w
+ *
+ * Interpretation: deals deep in the band (close to trigger) get LIGHT
+ * structure; deals near/at the ceiling get the FULL heavy tier. A linear
+ * interpolation would over-recourse mid-band deals; the convex curve
+ * keeps low-p deals light and concentrates the recourse intensity near
+ * the ceiling — matches the desk's calibrated comfort line.
+ */
+export interface LeverageBandTierEndpoints {
+  readonly light: { readonly recoursePct: number; readonly netWorthMultiple: number; readonly liquidityPct: number };
+  readonly heavy: { readonly recoursePct: number; readonly netWorthMultiple: number; readonly liquidityPct: number };
+}
+
+const LEVERAGE_BAND_RECOURSE_TIERS_BY_ASSET: ReadonlyMap<string, LeverageBandTierEndpoints> = new Map([
+  // Office-anchored defaults. [ISABELLE-CALIBRATED — operator-judgment;
+  // anchors to the desk's B-piece leverage-comfort curve over the
+  // structured LTV band (trigger 0.70 → ceiling 0.80 for Office).]
+  ['Office', {
+    light: { recoursePct: 0.10, netWorthMultiple: 1.0, liquidityPct: 0.05 },
+    heavy: { recoursePct: 0.40, netWorthMultiple: 1.5, liquidityPct: 0.10 },
+  }],
+  // _default mirrors Office for now — structure supports per-asset override
+  // when other classes get a calibration. [ISABELLE-TO-CALIBRATE per asset.]
+  ['_default', {
+    light: { recoursePct: 0.10, netWorthMultiple: 1.0, liquidityPct: 0.05 },
+    heavy: { recoursePct: 0.40, netWorthMultiple: 1.5, liquidityPct: 0.10 },
+  }],
+]);
+
+export function resolveLeverageBandTierEndpoints(assetType: string | null): LeverageBandTierEndpoints {
+  if (assetType !== null && LEVERAGE_BAND_RECOURSE_TIERS_BY_ASSET.has(assetType)) {
+    return LEVERAGE_BAND_RECOURSE_TIERS_BY_ASSET.get(assetType)!;
+  }
+  return LEVERAGE_BAND_RECOURSE_TIERS_BY_ASSET.get('_default')!;
+}
+
+/** Pure interpolator. Returns the per-field values + p + w for audit. */
+export interface LeverageBandInterpolation {
+  readonly p: number;
+  readonly w: number;
+  readonly recoursePct: number;
+  readonly netWorthMultiple: number;
+  readonly liquidityPct: number;
+}
+
+export function interpolateLeverageBandTier(
+  stressedLtv: number,
+  trigger: number,
+  ceiling: number,
+  endpoints: LeverageBandTierEndpoints,
+): LeverageBandInterpolation {
+  if (!(ceiling > trigger)) {
+    // Defensive — should never happen (knob discipline).
+    return { p: 0, w: 0, recoursePct: endpoints.light.recoursePct, netWorthMultiple: endpoints.light.netWorthMultiple, liquidityPct: endpoints.light.liquidityPct };
+  }
+  const rawP = (stressedLtv - trigger) / (ceiling - trigger);
+  const p = Math.max(0, Math.min(1, rawP));
+  const w = p * p;  // convex (quadratic)
+  return {
+    p,
+    w,
+    recoursePct:      endpoints.light.recoursePct      + (endpoints.heavy.recoursePct      - endpoints.light.recoursePct)      * w,
+    netWorthMultiple: endpoints.light.netWorthMultiple + (endpoints.heavy.netWorthMultiple - endpoints.light.netWorthMultiple) * w,
+    liquidityPct:     endpoints.light.liquidityPct     + (endpoints.heavy.liquidityPct     - endpoints.light.liquidityPct)     * w,
+  };
+}
+
 /** Resolve the canonical asset-class string from a dealResult, via dim 8's
  *  derived `canonicalAssetClassIndex` index into ASSET_CLASS_ENUM. Returns
  *  null when dim 8 didn't resolve. Used by structure-first sizing to look up
@@ -399,6 +476,10 @@ export function buildMitigationEngineHashSnapshot() {
     // v1.3 structure-first band knobs — asset-keyed [ISABELLE-TO-CALIBRATE].
     ltvStructuredCeilingByAsset:    Array.from(T_LTV_STRUCTURED_CEILING_BY_ASSET.entries()),
     exitDscrStructuredFloorByAsset: Array.from(T_EXIT_DSCR_STRUCTURED_FLOOR_BY_ASSET.entries()),
+    // v1.6 leverage-band convex-interpolation endpoints (Office-anchored;
+    // _default mirrors Office until per-asset calibration). Light at trigger,
+    // heavy at ceiling; convex (p²) interpolation in the lever.
+    leverageBandRecourseTiersByAsset: Array.from(LEVERAGE_BAND_RECOURSE_TIERS_BY_ASSET.entries()),
   };
 }
 
@@ -1297,14 +1378,20 @@ function buildLeverageBandRecourseProposal(
   if (band !== 'structured') return null;
 
   const currentLoan = ai.loan.loanAmount.adjusted;
-  // Single-tier structured recourse: 25% sponsor recourse + NW 1× loan +
-  // liquidity 5% of loan. Mirrors the guaranty "mild" tier from the existing
-  // GUARANTY_TIER_TERMS, but driven by LEVERAGE in the structured band (not
-  // by sponsor dim 9). Operator-judgment scoping — magnitude-by-band-position
-  // is a follow-up calibration.
-  const recoursePct = 0.25;
-  const nwMultiple = 1.0;
-  const liquidityPct = 0.05;
+  // v1.6 — CONVEX (p²) interpolation between light + heavy endpoints.
+  // Light = at the trigger (mild structure); heavy = at the ceiling (full
+  // structure). Convex (not linear) keeps low-p deals light and concentrates
+  // recourse intensity near the ceiling — matches the desk's calibrated
+  // comfort curve. On the CUT path, the lever runs against the recomputed
+  // state at L', so a deal cut TO the ceiling lands at p=1 → full heavy.
+  const endpoints = resolveLeverageBandTierEndpoints(assetType);
+  const interp = interpolateLeverageBandTier(stressedLtv, trigger, ceiling, endpoints);
+  const recoursePct = interp.recoursePct;
+  const nwMultiple = interp.netWorthMultiple;
+  const liquidityPct = interp.liquidityPct;
+  // Format helpers for the audit-friendly description.
+  const pStr = interp.p.toFixed(2);
+  const wStr = interp.w.toFixed(2);
   return {
     id: 'leverage_band_recourse_structured',
     principleIds: [],
@@ -1314,15 +1401,20 @@ function buildLeverageBandRecourseProposal(
     description:
       `Stressed LTV ${(stressedLtv * 100).toFixed(2)}% sits in the desk's STRUCTURED BAND ` +
       `for ${assetType ?? 'this asset class'} (trigger ${(trigger * 100).toFixed(2)}%, ` +
-      `ceiling ${(ceiling * 100).toFixed(2)}%). Structure can cover this leverage band — ` +
-      `HOLD origination proceeds at ${fmtUsd(currentLoan)} and require sponsor recourse + ` +
-      `balance-sheet covenants commensurate with the structured-band tier (v1.3 fires at ` +
-      `one tier; band-position interpolation is a follow-up calibration).`,
+      `ceiling ${(ceiling * 100).toFixed(2)}%). Band position p = ${pStr} ` +
+      `((${(stressedLtv * 100).toFixed(2)}% − ${(trigger * 100).toFixed(2)}%) / ` +
+      `(${(ceiling * 100).toFixed(2)}% − ${(trigger * 100).toFixed(2)}%)); convex (p²) ` +
+      `weight w = ${wStr} interpolates light (at trigger) → heavy (at ceiling) endpoints, ` +
+      `setting recourse ${(recoursePct * 100).toFixed(1)}%, NW ${nwMultiple.toFixed(2)}×, ` +
+      `liquidity ${(liquidityPct * 100).toFixed(1)}%. HOLD origination proceeds at ` +
+      `${fmtUsd(currentLoan)} and require sponsor recourse + balance-sheet covenants ` +
+      `commensurate with this band-position tier.`,
     structuralChanges: [
       `Hold loan amount at ${fmtUsd(currentLoan)} (no proceeds cut — LTV is within the structured band)`,
-      `Partial payment guaranty: ${(recoursePct * 100).toFixed(0)}% recourse on payment from a creditworthy guarantor`,
-      `Guarantor net-worth covenant: minimum NW ≥ ${nwMultiple.toFixed(1)}× loan (≥ ${fmtUsd(nwMultiple * currentLoan)})`,
-      `Guarantor liquidity covenant: minimum liquidity ≥ ${(liquidityPct * 100).toFixed(0)}% of loan (≥ ${fmtUsd(liquidityPct * currentLoan)})`,
+      `Band position p = ${pStr}, convex weight w = ${wStr} (endpoints: light at trigger → heavy at ceiling)`,
+      `Partial payment guaranty: ${(recoursePct * 100).toFixed(1)}% recourse on payment (≈ ${fmtUsd(recoursePct * currentLoan)} cap) from a creditworthy guarantor`,
+      `Guarantor net-worth covenant: minimum NW ≥ ${nwMultiple.toFixed(2)}× loan (≥ ${fmtUsd(nwMultiple * currentLoan)})`,
+      `Guarantor liquidity covenant: minimum liquidity ≥ ${(liquidityPct * 100).toFixed(1)}% of loan (≥ ${fmtUsd(liquidityPct * currentLoan)})`,
       'Annual guarantor financial certification + standard bad-boy carve-outs',
     ],
     riskReduction: 'moderate',

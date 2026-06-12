@@ -427,6 +427,14 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
   const sizingHtml = sizing.length === 0 ? '' : `<span class="memo-condition-sizing"> &nbsp;·&nbsp; ${esc(sizing.join(' · '))}</span>`;
   const fundingTag = fundingTagFor(p.lever);
   const fundingChip = fundingTag === '' ? '' : ` <span class="memo-condition-funding">${esc(fundingTag)}</span>`;
+  // v1.6 — surface the lever's structuralChanges as a compact key-terms list
+  // under the title. This is where the interpolated leverage_band_recourse
+  // terms (recourse %, NW ×, liquidity %) become visible to the lender.
+  // We render ALL structuralChanges for full audit transparency.
+  const keyTermsHtml = p.structuralChanges.length === 0 ? '' : `
+      <ul class="memo-condition-terms">
+        ${p.structuralChanges.map(s => `<li>${esc(s)}</li>`).join('')}
+      </ul>`;
   return `
     <li class="memo-condition">
       <div class="memo-condition-head">
@@ -435,6 +443,7 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
         ${sizingHtml}
       </div>
       <div class="memo-condition-title">${esc(p.title)}</div>
+      ${keyTermsHtml}
       ${covMagnitudes}
     </li>`;
 }
@@ -690,6 +699,17 @@ const STYLE = `
     font-size: 10.5pt;
     margin-top: 3pt;
     color: #2a2a2a;
+  }
+  .memo-condition-terms {
+    margin: 5pt 0 0 0;
+    padding-left: 16pt;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9.5pt;
+    color: #2a2a2a;
+  }
+  .memo-condition-terms li {
+    margin-bottom: 2pt;
+    line-height: 1.4;
   }
   .memo-condition-magnitudes {
     margin-top: 4pt;

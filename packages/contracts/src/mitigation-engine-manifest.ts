@@ -124,4 +124,24 @@ export const MITIGATION_ENGINE_MANIFEST: MitigationEngineManifest = {
   //   Convention bump — copy changes also bump the version even when the
   //   snapshot hash doesn't move (see MITIGATION_ENGINE_VERSION docstring).
   '1.5': '64c9c9e5ae0f95b80d7d2268d508b54ad4374a3d33e5de998925b3d5606ae16e' as ContentHash,
+  // v1.6 — LTV-band CONVEX INTERPOLATION for leverage_band_recourse.
+  //   New desk knob in the hash snapshot:
+  //     LEVERAGE_BAND_RECOURSE_TIERS_BY_ASSET — asset-keyed; Office (and
+  //     _default for now) carries light + heavy endpoints
+  //     (light: recourse 0.10 / NW 1.0× / liq 0.05; heavy: 0.40 / 1.5× / 0.10).
+  //     Operator-judgment, ISABELLE-CALIBRATED. Structure supports per-asset
+  //     override; _default mirrors Office until other classes calibrate.
+  //   Logic change:
+  //     - buildLeverageBandRecourseProposal interpolates each term via
+  //       p = clamp((stressedLtv − T_LTV_TRIGGER) / (ceiling − T_LTV_TRIGGER), 0, 1)
+  //       w = p² (convex)
+  //       value = light + (heavy − light) × w
+  //     - Description shows p, w, and the per-field interpolation so the
+  //       lender can audit the math.
+  //     - On the CUT path, the lever runs against the recomputed state at L'
+  //       (composeMitigations already passes recomputed dealResult to the
+  //       recomputed produceMitigations call). A deal cut TO the ceiling
+  //       lands at p=1 → full heavy tier.
+  //   Hash drift: new desk knob added to snapshot.
+  '1.6': '1fe37c7fc48691f6f9020d219f13926e4e1a95087060239062ae4b479a7106e7' as ContentHash,
 };
