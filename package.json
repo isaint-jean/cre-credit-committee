@@ -6,6 +6,7 @@
     "apps/*"
   ],
   "scripts": {
+    "prepare": "husky",
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "cd apps/api && npm run dev",
     "dev:web": "cd apps/web && npm run dev",
@@ -20,6 +21,7 @@
     "concurrently": "^9.0.0",
     "dependency-cruiser": "^16.4.0",
     "eslint": "^9.10.0",
+    "husky": "^9.1.7",
     "typescript": "^5.5.0"
   }
 }

@@ -1,0 +1,12 @@
+# Engine-integrity gate — runs the four check-ready engine boot checks
+# (doctrine, judgment, narrative, mitigation). Each runner process.exit(1)s
+# on its typed BootCheckError, so any hash drift / missing manifest entry
+# blocks the commit.
+#
+# Fast (<5s on cached tsx). Mirrored authoritatively in
+# .github/workflows/engine-integrity.yml. Typecheck stays in CI — too slow
+# for pre-commit; people --no-verify around slow hooks.
+#
+# If a check fails: either revert the desk-constant change, or bump the
+# engine's *_VERSION and append a new manifest entry, then re-stage.
+npm --workspace=apps/api run check:engines

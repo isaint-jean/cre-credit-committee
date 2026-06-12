@@ -1,0 +1,57 @@
+# Engine-integrity gate — recompute the canonical hash of every check-ready
+# engine snapshot and compare against the registered manifest entry. If a
+# desk constant moves without a version bump (or vice versa), the runner
+# throws the engine's typed BootCheckError and exits non-zero.
+#
+# SCOPE — gates the FOUR check-ready engines (each has a manifest +
+# boot-check module + standalone runner):
+#   - doctrine        (DOCTRINE_VERSION                 → DOCTRINE_MANIFEST)
+#   - judgment        (JUDGMENT_ENGINE_VERSION          → JUDGMENT_ENGINE_MANIFEST)
+#   - narrative       (NARRATIVE_ENGINE_VERSION         → NARRATIVE_ENGINE_MANIFEST)
+#   - mitigation      (MITIGATION_ENGINE_VERSION        → MITIGATION_ENGINE_MANIFEST)
+#
+# OUT OF SCOPE (version-only — pass trivially because there is nothing to
+# check yet; build a manifest + check module before adding here):
+#   - render          (RENDER_VERSION) ← next priority — touches user-visible output
+#   - handbook        (HANDBOOK_ENGINE_VERSION) ← next priority — touches user-visible output
+#   - extraction      (EXTRACTION_ENGINE_VERSION)
+#   - stress          (STRESS_ENGINE_VERSION)
+#   - valuation       (VALUATION_ENGINE_VERSION)
+#   - projection      (PROJECTION_VERSION)
+#   - render-contract (RENDER_CONTRACT_VERSION)
+#   - manifesto       (MANIFESTO_CONTRACT_VERSION)
+#
+# Local mirror: .husky/pre-commit runs the same aggregator so drift is caught
+# before the push, not after. Pre-commit and CI invoke the SAME script
+# (`check:engines` in apps/api/package.json) so the two stay in lockstep.
+name: engine-integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: engine-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Engine-integrity check (doctrine + judgment + narrative + mitigation)
+        run: npm --workspace=apps/api run check:engines
