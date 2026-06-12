@@ -532,6 +532,11 @@ export function evaluateCapRateValuationStress(
       stressedValue,
       stressedLtv,
       valuationAggressiveness,
+      // Pass-through of the concluded value the dim consumed — surfaced so
+      // downstream consumers (memo renderer / RenderedAnalysis) can display
+      // the raw comparator alongside the doctrine-stressed value without
+      // re-reading from the rationale prose. Bijective: equals input.concludedValue.
+      concludedValue: input.concludedValue,
       // Source tag carried forward for the lender-facing audit. Resolution
       // precedence (extraction → operator fallback) and confidence semantics
       // live in adapters/extraction-to-dealbag.ts::resolveConcludedValue.

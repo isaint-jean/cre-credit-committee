@@ -45,8 +45,10 @@ import { synthesizeUwModelFromInputs } from './synthesize-uw-model-from-graph.js
 import { produceMitigations } from './mitigation/produce-mitigations.js';
 import {
   composeMitigations,
+  type ComposedMitigationPackage,
   type DealComputeState,
 } from './mitigation/compose-mitigations.js';
+import type { EvaluateDealResult } from '../doctrine-clean/scoring/evaluate-deal.js';
 import { evaluateDeal } from '../doctrine-clean/index.js';
 import { computeMaturityBalance } from '../doctrine-clean/dimensions/refinance-feasibility.js';
 import { computeMitigationProposalSetId } from '../util/content-hash.js';
@@ -64,6 +66,29 @@ export interface EvaluateAndNarrateResult {
   readonly handbookEvaluation: HandbookEvaluation;
   readonly narrative: NarrativeEvaluation;
   readonly mitigationProposalSet: MitigationProposalSet;
+  /**
+   * v1.6 — clean-doctrine EvaluateDealResult (in-memory; not persisted).
+   * Surfaced for downstream consumers that need the structured doctrine
+   * outputs (dim contributions, derivedOutputs incl. dim-7 stressedValue +
+   * concludedValueSource) without re-hydrating from the bridged
+   * DoctrineEvaluation. The memo renderer uses this to project the
+   * AuthoritativeNumbers block + clean-doctrine findings deterministically.
+   * Additive — existing callers (build-and-ingest routes,
+   * ingest-extraction-result, apply-revision-delta, validation-real-deal)
+   * may ignore.
+   */
+  readonly dealResult: EvaluateDealResult;
+  /**
+   * v1.6 — composed mitigation package (sequential single-pass de-levering
+   * resolution applied; reconciliation notes attached). In-memory; not
+   * persisted. Surfaced for downstream consumers (memo renderer) that need
+   * the composed final L', the reconciliation prose ("standalone amortization
+   * $X → $0, superseded by $Y proceeds cut"), and the covenant-magnitude
+   * resolution against L' — none of which are reachable from the persisted
+   * MitigationProposalSet (which holds the RAW pre-composition proposals).
+   * Additive; existing callers may ignore.
+   */
+  readonly composedMitigationPackage: ComposedMitigationPackage;
 }
 
 /* ----------- v1.6 wiring — recompute helper for composeMitigations -------- */
@@ -251,5 +276,14 @@ export async function evaluateAndNarrate(
   );
   store.insertNarrative(narrative);
 
-  return { evaluation, handbookEvaluation, narrative, mitigationProposalSet };
+  return {
+    evaluation,
+    handbookEvaluation,
+    narrative,
+    mitigationProposalSet,
+    // v1.6 surface — in-memory pass-through for downstream consumers
+    // (memo renderer; future consumers may layer on additively).
+    dealResult,
+    composedMitigationPackage,
+  };
 }
