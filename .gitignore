@@ -17,3 +17,5 @@ apps/api/data/
 .DS_Store
 *.log
 .claude/settings.local.*
+.claude/
+data/
