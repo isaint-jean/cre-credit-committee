@@ -147,6 +147,7 @@ export function evaluateDeal(
   /* (3) SPINE-DEPENDENT — LTV (dim 1), refinance (dim 4). */
   const leverageLtv = evaluateLeverageLtv({ stressedLtv });
   const refinanceFeasibility = evaluateRefinanceFeasibility({
+    assetType: deal.assetType,
     loanAmount: deal.loanAmount,
     coupon: deal.coupon,
     amortMonths: deal.amortMonths,

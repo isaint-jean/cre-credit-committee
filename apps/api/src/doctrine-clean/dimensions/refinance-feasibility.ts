@@ -99,6 +99,14 @@
 import type { DimensionContribution } from '../types.js';
 
 export interface RefinanceFeasibilityInput {
+  /**
+   * Asset type (canonical class string the extractor / clean adapter
+   * emits, e.g. 'Office'). Used to select the stressed refi take-out
+   * constant by asset-key (see STRESSED_REFI_CONSTANT_BY_ASSET); the
+   * per-deal `stressedRefiConstant` override still takes precedence.
+   * Null falls through to the _default key (0.0925).
+   */
+  readonly assetType: string | null;
   /** Loan amount at origination, in dollars. */
   readonly loanAmount: number | null;
   /** Coupon in decimal (e.g., 0.0424 = 4.24%). Drives amortization. */
@@ -131,7 +139,41 @@ export interface RefinanceFeasibilityInput {
   readonly stressedRefiConstant?: number | null;
 }
 
-const DEFAULT_STRESSED_REFI_CONSTANT = 0.0925;
+/**
+ * Stressed take-out constant by asset class — OPERATOR-JUDGMENT locked
+ * desk knob. Anchored to KBRA office Watch refi test + DBRS post-GFC
+ * stressed take-out treatment; NOT employer-derived.
+ *
+ * Office carries a tightened constant (10.00%) reflecting the post-2020
+ * structural-pressure thesis (work-from-home dislocation + re-leasing
+ * uncertainty raises the take-out lender's required cushion). All
+ * other asset classes fall through to the _default = 9.25% (the
+ * agency-convention central value: ~7.25% stressed rate over 30-yr
+ * amort), unchanged from prior behavior.
+ *
+ * Per-deal override: `RefinanceFeasibilityInput.stressedRefiConstant`
+ * takes precedence over this map when provided. Selection order:
+ *   1. input.stressedRefiConstant (if non-null and > 0)
+ *   2. STRESSED_REFI_CONSTANT_BY_ASSET[assetType] (if assetType resolves)
+ *   3. STRESSED_REFI_CONSTANT_BY_ASSET['_default'] (0.0925)
+ */
+const STRESSED_REFI_CONSTANT_BY_ASSET: ReadonlyMap<string, number> = new Map([
+  ['Office',   0.10],
+  ['_default', 0.0925],
+]);
+
+/** Resolve the stressed refi constant for an asset class (used as
+ *  fallback when no per-deal override is supplied). */
+function resolveStressedRefiConstant(assetType: string | null): number {
+  if (assetType !== null && STRESSED_REFI_CONSTANT_BY_ASSET.has(assetType)) {
+    return STRESSED_REFI_CONSTANT_BY_ASSET.get(assetType)!;
+  }
+  return STRESSED_REFI_CONSTANT_BY_ASSET.get('_default')!;
+}
+
+/** Legacy export — preserved for callers that still reference the
+ *  scalar default. New code reads via resolveStressedRefiConstant. */
+const DEFAULT_STRESSED_REFI_CONSTANT = STRESSED_REFI_CONSTANT_BY_ASSET.get('_default')!;
 
 /**
  * Compute the loan balance AT MATURITY for refi-exit purposes.
@@ -248,9 +290,13 @@ export function evaluateRefinanceFeasibility(
     };
   }
 
+  // Selection order:
+  //   (1) per-deal override (input.stressedRefiConstant) — top precedence
+  //   (2) asset-keyed lookup (STRESSED_REFI_CONSTANT_BY_ASSET[assetType])
+  //   (3) fall-through _default (0.0925)
   const stressedRefiConstant = (input.stressedRefiConstant ?? null) !== null && input.stressedRefiConstant! > 0
     ? input.stressedRefiConstant!
-    : DEFAULT_STRESSED_REFI_CONSTANT;
+    : resolveStressedRefiConstant(input.assetType);
 
   const { balance, basis } = computeMaturityBalance(
     input.loanAmount, input.coupon, input.amortMonths, input.ioYears, input.termYears,
@@ -335,4 +381,5 @@ export function evaluateRefinanceFeasibility(
 }
 
 export const STRESSED_REFI_CONSTANT_DEFAULT = DEFAULT_STRESSED_REFI_CONSTANT;
+export const STRESSED_REFI_CONSTANT_BY_ASSET_TABLE = STRESSED_REFI_CONSTANT_BY_ASSET;
 export { computeMaturityBalance };

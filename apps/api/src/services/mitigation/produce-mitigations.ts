@@ -59,6 +59,23 @@ export interface MitigationDeskConstants {
    * avoid edge-of-cliff sizings.
    */
   readonly T_LTV_TARGET: number;
+  /**
+   * Exit-DSCR CURE TARGET — desk knob owned by the LEVER (sizing only).
+   *
+   * Ownership split (locked desk policy):
+   *   - The doctrine owns the BREACH TRIGGER on exit DSCR:
+   *     `EXIT_DSCR_REFINANCEABLE_THRESHOLD = 1.20` in
+   *     doctrine-clean/dimensions/refinance-feasibility.ts. Dim 4
+   *     scores against it; the amortization lever's fire-gate also
+   *     reads it. Do not duplicate it here.
+   *   - The desk owns the CURE TARGET — the level the lever SIZES TO
+   *     when it fires. Setting CURE_TARGET > TRIGGER produces a
+   *     cushion: cured loans land above the doctrine's refinanceable
+   *     line, not just at it. Mirror of T_LTV_TRIGGER/T_LTV_TARGET.
+   *
+   * Provenance: operator-judgment. NOT employer-derived.
+   */
+  readonly T_EXIT_DSCR_CURE_TARGET: number;
   /** Rollover-as-pct-of-income trigger for the TI/LC reserve (decimal). */
   readonly T_ROLLOVER: number;
   /** Reserve sizing multiplier (downtime + TI proxy). */
@@ -73,6 +90,7 @@ export const DEFAULT_MITIGATION_DESK: MitigationDeskConstants = {
   T_DY: 0.085,
   T_LTV_TRIGGER: 0.70,
   T_LTV_TARGET: 0.68,
+  T_EXIT_DSCR_CURE_TARGET: 1.25,
   T_ROLLOVER: 0.20,
   COVERAGE_FACTOR: 0.75,
   MATERIALITY_MIN_PROCEEDS_CUT_PCT: 0.02,
@@ -141,7 +159,7 @@ export function produceMitigations(args: ProduceMitigationsArgs): MitigationProp
   // Reads dim 4 (refinance-feasibility) from the threaded dealResult.
   // Sizes a target maturity balance so the exit DSCR clears the
   // doctrine's refinanceable threshold at the stressed refi constant.
-  const amortProp = buildAmortizationProposal(args.adjustedInputs, args.dealResult);
+  const amortProp = buildAmortizationProposal(args.adjustedInputs, args.dealResult, desk);
   if (amortProp !== null) proposals.push(amortProp);
 
   // Mitigant v2 phase 2 lever 2 — sponsor payment guaranty / partial recourse.
@@ -603,7 +621,8 @@ const MAX_IMPLIED_AMORT_YEARS = 40;
 
 function buildAmortizationProposal(
   ai: AdjustedInputs,
-  dealResult?: EvaluateDealResult,
+  dealResult: EvaluateDealResult | undefined,
+  desk: MitigationDeskConstants,
 ): MitigationProposal | null {
   if (!dealResult) return null;
   const refiDim = dealResult.dimensions.refinanceFeasibility;
@@ -631,8 +650,17 @@ function buildAmortizationProposal(
   const termMonths = ai.loan.termMonths.adjusted;
   if (!(termMonths > 0)) return null;
 
-  // B_target so re-computed exit DSCR clears the doctrine's threshold.
-  const bTarget = sustainableNcf / (stressedRefiConstant * EXIT_DSCR_REFINANCEABLE_THRESHOLD);
+  // B_target so re-computed exit DSCR clears the DESK's CURE TARGET — NOT
+  // the doctrine's TRIGGER. Cure target ≥ trigger produces a cushion: cured
+  // loans land above the refinanceable line by
+  //   sustainableNCF / (stressedRefiConstant × cureTarget)
+  //   −
+  //   sustainableNCF / (stressedRefiConstant × trigger)
+  // (≈ 4% of B_trigger at the default 1.25 / 1.20 split).
+  // Fire gate above still reads the doctrine's TRIGGER (1.20); only the
+  // sizing target lives on the desk knob.
+  const cureTarget = desk.T_EXIT_DSCR_CURE_TARGET;
+  const bTarget = sustainableNcf / (stressedRefiConstant * cureTarget);
 
   // Edge: target balance ≥ current loan → already refinanceable; lever wouldn't move the needle.
   if (bTarget >= currentLoan) return null;
@@ -649,9 +677,9 @@ function buildAmortizationProposal(
         `Concluded exit DSCR ${exitDscr.toFixed(2)}x falls below the doctrine's ` +
         `${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x refinanceable threshold at the ` +
         `${(stressedRefiConstant * 100).toFixed(2)}% stressed take-out constant. The math ` +
-        `(sustainable NCF ${fmtUsd(sustainableNcf)} / (${(stressedRefiConstant * 100).toFixed(2)}% × ${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x)) ` +
+        `(sustainable NCF ${fmtUsd(sustainableNcf)} / (${(stressedRefiConstant * 100).toFixed(2)}% × ${cureTarget.toFixed(2)}x cure target)) ` +
         `implies a target maturity balance ≤ $0 — meaning even a fully amortizing loan to $0 won't ` +
-        `clear the refi at the stressed constant. A proceeds reduction (reduce_proceeds lever) is required.`,
+        `cure the refi at the stressed constant. A proceeds reduction (reduce_proceeds lever) is required.`,
       structuralChanges: [
         'Amortization alone cannot satisfy the doctrine\'s refinanceable threshold.',
         'Pair with reduce_proceeds: cut origination loan first, then size amortization off the new balance.',
@@ -703,8 +731,10 @@ function buildAmortizationProposal(
     exitDscr < 1.15 ? 'moderate' :
     'marginal';
 
-  // After-target exit DSCR (the threshold by construction).
-  const afterExitDscr = EXIT_DSCR_REFINANCEABLE_THRESHOLD;
+  // After-target exit DSCR (the desk's cure target by construction).
+  // Cure target ≥ trigger means the cured loan lands above the
+  // doctrine's refinanceable line, not just at it.
+  const afterExitDscr = cureTarget;
 
   return {
     id: 'amortization_refi',
@@ -719,7 +749,8 @@ function buildAmortizationProposal(
       `Amortizing from ${fmtUsd(currentLoan)} down to ${fmtUsd(bTarget)} by maturity ` +
       `(${fmtUsd(requiredPaydown)} total paydown, ≈ ${impliedAmortYears.toFixed(1)}-year amort schedule at ` +
       `the loan's ${(couponDecimal * 100).toFixed(2)}% coupon over a ${(termMonths / 12).toFixed(0)}-year term) ` +
-      `brings the exit DSCR to ${afterExitDscr.toFixed(2)}x — refinanceable at the doctrine's stressed constant.`,
+      `brings the exit DSCR to ${afterExitDscr.toFixed(2)}x — clearing the doctrine's ` +
+      `${EXIT_DSCR_REFINANCEABLE_THRESHOLD.toFixed(2)}x refinanceable line with the desk's cure cushion.`,
     structuralChanges: [
       `Convert interest-only to amortizing (or increase amortization to ≈ ${impliedAmortYears.toFixed(0)}-year schedule)`,
       `Amortize from ${fmtUsd(currentLoan)} to ${fmtUsd(bTarget)} by maturity (${fmtUsd(requiredPaydown)} total paydown)`,

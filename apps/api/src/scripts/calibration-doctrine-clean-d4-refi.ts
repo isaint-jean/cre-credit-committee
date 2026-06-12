@@ -120,6 +120,7 @@ function main(): void {
       concludedValue: r.concludedValue, loanAmount: r.loanAmount, marketTier: 'Unknown',
     });
     const refi = evaluateRefinanceFeasibility({
+      assetType: r.assetType,
       loanAmount: r.loanAmount, coupon: r.coupon, amortMonths: null, ioYears: null, termYears: null,
       sustainableNcf: norm.sustainableNcf, sustainableNoi: norm.sustainableNoi,
       stressedValue: (dim7.derivedOutputs?.stressedValue as number | undefined | null) ?? null,

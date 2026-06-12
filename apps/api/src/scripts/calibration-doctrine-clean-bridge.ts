@@ -237,7 +237,7 @@ function main(): void {
     const ltv = evaluateLeverageLtv({ stressedLtv: (dim7.derivedOutputs?.stressedLtv as number | undefined | null) ?? null });
     const dscr = evaluateCoverageDscr({ sustainableNcf: norm.sustainableNcf, loanAmount: r.loanAmount, coupon: r.coupon, amortMonths: null, ioYears: null, termYears: null });
     const dy = evaluateDebtYield({ sustainableNoi: norm.sustainableNoi, loanAmount: r.loanAmount, assetType: r.assetType, subType: r.subType });
-    const refi = evaluateRefinanceFeasibility({ loanAmount: r.loanAmount, coupon: r.coupon, amortMonths: null, ioYears: null, termYears: null, sustainableNcf: norm.sustainableNcf, sustainableNoi: norm.sustainableNoi, stressedValue: (dim7.derivedOutputs?.stressedValue as number | undefined | null) ?? null });
+    const refi = evaluateRefinanceFeasibility({ assetType: r.assetType, loanAmount: r.loanAmount, coupon: r.coupon, amortMonths: null, ioYears: null, termYears: null, sustainableNcf: norm.sustainableNcf, sustainableNoi: norm.sustainableNoi, stressedValue: (dim7.derivedOutputs?.stressedValue as number | undefined | null) ?? null });
     const roll = evaluateRollover({ pctIncomeExpiringWithinTerm: r.pctIncomeExpiringWithinTerm, assetType: r.assetType, tenantDataStatus: r.tenantDataStatus as any });
     const conc = evaluateIncomeConcentration({ assetType: r.assetType, largestTenantPct: r.largestTenantPct, largestTenantBasis: 'NRA' });
     const ac = evaluateAssetClass({ assetType: r.assetType, subType: r.subType, propertyName: r.propertyName });

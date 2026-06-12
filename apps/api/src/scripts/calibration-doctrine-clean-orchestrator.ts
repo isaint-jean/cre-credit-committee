@@ -102,6 +102,7 @@ function manualChain(r: CorpusRecord, sponsorAssessment: SponsorAssessment | nul
     sustainableNoi: norm.sustainableNoi, loanAmount: r.loanAmount, assetType: r.assetType, subType: r.subType,
   });
   const refi = evaluateRefinanceFeasibility({
+    assetType: r.assetType,
     loanAmount: r.loanAmount, coupon: r.coupon, amortMonths: null, ioYears: null, termYears: null,
     sustainableNcf: norm.sustainableNcf, sustainableNoi: norm.sustainableNoi,
     stressedValue: (dim7.derivedOutputs?.stressedValue as number | undefined | null) ?? null,
