@@ -72,6 +72,7 @@ export interface DealBag {
     | 'extracted-appraisal'
     | 'extracted-asr'
     | 'operator-supplied'
+    | 'extracted-annex-a'      // v8.1 — issuer's prospectus-disclosed appraisal
     | null;
 
   /* Cashflow inputs */

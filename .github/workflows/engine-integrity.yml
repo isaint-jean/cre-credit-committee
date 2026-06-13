@@ -3,12 +3,18 @@
 # desk constant moves without a version bump (or vice versa), the runner
 # throws the engine's typed BootCheckError and exits non-zero.
 #
-# SCOPE — gates the FOUR check-ready engines (each has a manifest +
-# boot-check module + standalone runner):
-#   - doctrine        (DOCTRINE_VERSION                 → DOCTRINE_MANIFEST)
-#   - judgment        (JUDGMENT_ENGINE_VERSION          → JUDGMENT_ENGINE_MANIFEST)
-#   - narrative       (NARRATIVE_ENGINE_VERSION         → NARRATIVE_ENGINE_MANIFEST)
-#   - mitigation      (MITIGATION_ENGINE_VERSION        → MITIGATION_ENGINE_MANIFEST)
+# SCOPE — gates the FIVE check-ready engines (each has a manifest +
+# boot-check module + standalone runner) plus one architectural-invariant
+# regression test:
+#   - doctrine            (DOCTRINE_VERSION             → DOCTRINE_MANIFEST)
+#   - judgment            (JUDGMENT_ENGINE_VERSION      → JUDGMENT_ENGINE_MANIFEST)
+#   - narrative           (NARRATIVE_ENGINE_VERSION     → NARRATIVE_ENGINE_MANIFEST)
+#   - mitigation          (MITIGATION_ENGINE_VERSION    → MITIGATION_ENGINE_MANIFEST)
+#   - committee-memo      (COMMITTEE_MEMO_VERSION       → COMMITTEE_MEMO_MANIFEST)
+#   - model-a-boundary    (architectural-invariant test — Annex-A-only deal
+#                          must NOT leak issuer-stated figures into the
+#                          answer-key; regression for the stage-2 attempt-1
+#                          uwY1Noi→spine trap)
 #
 # OUT OF SCOPE (version-only — pass trivially because there is nothing to
 # check yet; build a manifest + check module before adding here):

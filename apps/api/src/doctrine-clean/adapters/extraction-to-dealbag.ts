@@ -72,7 +72,13 @@ import type { DealBag } from '../scoring/evaluate-deal.js';
 export type ConcludedValueSource =
   | 'extracted-appraisal'   // appraisal.valueConclusion from raw extraction
   | 'extracted-asr'         // asr.impliedValue from raw extraction
-  | 'operator-supplied';    // explicit operator input via AdapterOptions
+  | 'operator-supplied'     // explicit operator input via AdapterOptions
+  | 'extracted-annex-a';    // annexA.concludedValue — issuer's prospectus-disclosed
+                             // appraised value; LAST-resort fallback, used only on
+                             // Annex-A-backed deals with no other value source.
+                             // Cross-reference grade — lower confidence than a
+                             // third-party appraisal report; surfaced verbatim in
+                             // the lender-facing dim-7 rationale.
 
 /**
  * Operator-supplied value contract. EXPLICIT INPUT — surfaced via
@@ -158,7 +164,14 @@ export function pickIssuerNoi(extraction: ExtractionResult): number | null {
  *   1. appraisal.valueConclusion        → source 'extracted-appraisal'
  *   2. asr.impliedValue                 → source 'extracted-asr'
  *   3. operatorSuppliedValue.value      → source 'operator-supplied'
- *   4. null                             (dim 7 routes to HITL)
+ *   4. annexA.concludedValue            → source 'extracted-annex-a'  (v8.1 +
+ *                                          stage-2 boundary report option (c) —
+ *                                          LAST resort; issuer's prospectus-
+ *                                          disclosed appraised value, lower
+ *                                          confidence than a third-party
+ *                                          appraisal report. Surfaces in the
+ *                                          dim-7 rationale as a confidence note.)
+ *   5. null                             (dim 7 routes to HITL)
  *
  * Source-agnostic stressing: the cap-rate floor is applied to sustainable
  * NCF; the concluded value is the COMPARATOR (valuation aggressiveness).
@@ -197,6 +210,17 @@ export function resolveConcludedValue(
       operatorSuppliedValue.value > 0) {
     return { value: operatorSuppliedValue.value, source: 'operator-supplied' };
   }
+  // v8.1 — Annex A as LAST-resort fallback (boundary report option c).
+  // concludedValue is dim-7's COMPARATOR (valuation aggressiveness); the
+  // stressedValue itself is re-derived from sustainable NCF / cap floor, so
+  // routing the issuer's appraised value here is a confidence downgrade, not
+  // an answer-key leak. dim-7 surfaces a verbatim confidence note when this
+  // path fires (lower confidence than a third-party appraisal report).
+  if (extraction.annexA?.concludedValue !== undefined &&
+      extraction.annexA?.concludedValue !== null &&
+      extraction.annexA.concludedValue > 0) {
+    return { value: extraction.annexA.concludedValue, source: 'extracted-annex-a' };
+  }
   return null;
 }
 
@@ -211,6 +235,20 @@ export function pickConcludedValue(extraction: ExtractionResult): number | null 
  *   1. PropertyMetadata.occupancyEconomic (preferred — economic basis)
  *   2. PropertyMetadata.occupancyPhysical (physical basis)
  *   3. 1 − extraction.sellerUw.underwrittenVacancy (derived from sellerUw)
+ *
+ * ★ MODEL-A BOUNDARY — DO NOT route `extraction.annexA.occupancyCurrent`
+ * here. underwrittenOccupancy is a SPINE INPUT: it scales sustainableNoi
+ * via the DBRS stabilized-floor haircut at sustainable-cashflow.ts:366-367
+ * (when UW occupancy > stabilized floor, ratio = (1-floor)/UW occupancy
+ * multiplies sustainableNoi). On a both-sources deal, routing annexA
+ * occupancy here would let the issuer's stated occupancy shift the spine.
+ * Annex A occupancy is cross-reference-only — it surfaces on the
+ * field-authority view with the [ISSUER] badge but never feeds the spine.
+ * Caught by check:model-a-boundary if the v8.1 generalizer adds it.
+ *
+ * Pre-existing note: path #3 (sellerUw.underwrittenVacancy) is ALREADY
+ * issuer-derived — that's a separate Model-A blur in the legacy pipeline,
+ * not introduced by Annex A.
  */
 export function pickOccupancy(
   propertyMetadata: PropertyMetadata | null,

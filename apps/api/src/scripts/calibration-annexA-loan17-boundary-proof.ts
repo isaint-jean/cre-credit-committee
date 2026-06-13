@@ -147,15 +147,13 @@ async function main(): Promise<void> {
     subType:      annexA.subType,
     loanAmount:   annexA.loanAmount,
     coupon:       annexA.coupon,
-    // Option (c) routing — Annex A is priority-3 fallback for concludedValue
-    // (operator-supplied stays #1 when present; this deal has no operator
-    // value, no extracted appraisal, no extracted ASR). Tagged
-    // 'extracted-asr' for the existing dim-7 source-tag enum until that
-    // enum is widened to 'extracted-annex-a' in a separate (doctrine v1.5)
-    // pass — value semantics identical; the tag downgrade only changes the
-    // rationale string on dim-7 output.
+    // Option (c) routing — Annex A is the LAST-resort fallback for
+    // concludedValue (appraisal > asr > operator-supplied > annexA; this
+    // deal has none of the first three). v8.1 widened the enum to
+    // 'extracted-annex-a'; dim-7 surfaces a confidence note verbatim:
+    // "lower data confidence than a third-party appraisal report".
     concludedValue:       annexA.concludedValue,
-    concludedValueSource: 'extracted-asr',
+    concludedValueSource: 'extracted-annex-a',
     // ★ MODEL A BOUNDARY ENFORCED HERE ★
     //
     // DealBag.uwY1Noi feeds the doctrine's sustainable-cashflow normalization

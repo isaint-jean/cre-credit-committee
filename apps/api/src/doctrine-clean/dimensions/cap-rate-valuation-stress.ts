@@ -166,6 +166,7 @@ export interface CapRateValuationStressInput {
     | 'extracted-appraisal'
     | 'extracted-asr'
     | 'operator-supplied'
+    | 'extracted-annex-a'      // v8.1 — issuer's prospectus-disclosed appraisal
     | null;
   /** Loan amount in dollars. Used to compute stressed LTV (derived output). */
   readonly loanAmount: number | null;
@@ -492,10 +493,18 @@ export function evaluateCapRateValuationStress(
     concludedValueSource === 'extracted-appraisal' ? 'extracted appraisal (third-party)'
     : concludedValueSource === 'extracted-asr'     ? 'extracted ASR implied value'
     : concludedValueSource === 'operator-supplied' ? 'OPERATOR-SUPPLIED'
+    : concludedValueSource === 'extracted-annex-a' ? 'extracted Annex A (issuer prospectus)'
     : 'unspecified source';
+  // v8.1 — confidence note also fires for 'extracted-annex-a' (option (c)
+  // last-resort fallback; the issuer's prospectus-disclosed appraised value
+  // carries lower data confidence than a third-party appraisal report).
   const operatorConfidenceNote = concludedValueSource === 'operator-supplied'
     ? ' [VALUATION BASIS: operator-supplied — lower data confidence than a third-party ' +
       'appraisal; data-confidence note, NOT a score penalty. Stressed-value math unchanged.]'
+    : concludedValueSource === 'extracted-annex-a'
+    ? ' [VALUATION BASIS: extracted Annex A — issuer\'s prospectus-disclosed appraised value, ' +
+      'lower data confidence than a third-party appraisal report; data-confidence note, ' +
+      'NOT a score penalty. Stressed-value math unchanged.]'
     : '';
 
   return {
