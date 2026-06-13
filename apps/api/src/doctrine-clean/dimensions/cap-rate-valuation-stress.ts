@@ -200,7 +200,7 @@ interface AssetCapRateFloor {
   readonly source: string;
 }
 
-const ASSET_FLOORS: readonly AssetCapRateFloor[] = [
+export const ASSET_FLOORS: readonly AssetCapRateFloor[] = [
   {
     assetClass: 'Multifamily',
     goingInDecimal: 0.0650,
@@ -295,27 +295,27 @@ const FLOOR_BY_ASSET: ReadonlyMap<string, AssetCapRateFloor> =
  * applied UNCHANGED on top of the subtype floor by the dimension's main
  * path — the subtype map sets the BASE going-in rate only.
  */
-const OFFICE_SUBTYPE_FLOORS: ReadonlyMap<string, { goingInDecimal: number; subtypeLabel: string }> = new Map([
+export const OFFICE_SUBTYPE_FLOORS: ReadonlyMap<string, { goingInDecimal: number; subtypeLabel: string }> = new Map([
   ['cbd',       { goingInDecimal: 0.0900,  subtypeLabel: 'Office CBD' }],
   ['suburban',  { goingInDecimal: 0.0850,  subtypeLabel: 'Office Suburban' }],
   ['medical',   { goingInDecimal: 0.0775,  subtypeLabel: 'Office Medical' }],
 ]);
 
 /** Default Office floor used when subType is null OR doesn't match any key. */
-const OFFICE_SUBTYPE_DEFAULT_FLOOR = 0.0900;
+export const OFFICE_SUBTYPE_DEFAULT_FLOOR = 0.0900;
 
 /** Constant +50 bps terminal widening (standard CMBS / CREFC convention). */
-const TERMINAL_WIDEN_BPS = 0.0050;
+export const TERMINAL_WIDEN_BPS = 0.0050;
 
 /** Market-tier deltas in bps (asset-agnostic). */
-const MARKET_TIER_DELTAS: Record<'Primary' | 'Secondary' | 'Tertiary' | 'Unknown', number> = {
+export const MARKET_TIER_DELTAS: Record<'Primary' | 'Secondary' | 'Tertiary' | 'Unknown', number> = {
   Primary:   -0.0050,   // -50 bps tighter
   Secondary:  0.0000,
   Tertiary:  +0.0050,   // +50 bps wider
   Unknown:    0.0000,
 };
 
-interface ValuationBand {
+export interface ValuationBand {
   readonly tier: 'low' | 'moderate' | 'elevated' | 'high';
   readonly riskContribution: number;
   readonly minAggressiveness: number;     // inclusive lower edge
@@ -323,7 +323,7 @@ interface ValuationBand {
   readonly rationale: string;
 }
 
-const VALUATION_BANDS: readonly ValuationBand[] = [
+export const VALUATION_BANDS: readonly ValuationBand[] = [
   {
     tier: 'low',
     riskContribution: 0.10,

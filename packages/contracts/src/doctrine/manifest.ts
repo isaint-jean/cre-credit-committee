@@ -79,4 +79,27 @@ export const DOCTRINE_MANIFEST: DoctrineManifest = {
   // RISK_DIMENSION_RULES set; manual DOCTRINE_VERSION bump required to
   // change. Mirror of pre-v1.10 judgment situation.
   '1.3': 'b28476735047bfc23d9d2dbdfa7c58f83d55cca4a85df2988a2093c75aa0c48a' as ContentHash,
+  // v1.4 (2026-06-13) — COVERAGE EXPANSION, NOT CALIBRATION. The dim-7
+  // cap-rate floor table (ASSET_FLOORS, OFFICE_SUBTYPE_FLOORS,
+  // OFFICE_SUBTYPE_DEFAULT_FLOOR, MARKET_TIER_DELTAS, TERMINAL_WIDEN_BPS,
+  // VALUATION_BANDS — at apps/api/src/doctrine-clean/dimensions/cap-rate-
+  // valuation-stress.ts) is folded into the doctrine hash snapshot under a
+  // new spineConstants block. Mirrors the v1.10 judgment-engine pattern
+  // (deskConstants alongside rules/flags). Closes the highest-value gate
+  // gap surfaced by the valuation/stress recon: dim-7 produces stressedValue
+  // — the single most load-bearing number in the lender memo — and the
+  // pre-v1.4 doctrine snapshot {rules, flags, reasonCodes, weights, bands,
+  // rulesByComponent} did NOT cover the floor table. A silent retune of
+  // (e.g.) OFFICE_SUBTYPE_FLOORS['cbd'] 0.0900 → 0.0750 would have shifted
+  // every Office CBD deal's stressedLtv, every downstream mitigation cut,
+  // and every memo's "Doctrine-stressed value (dim 7)" row, while passing
+  // the v1.3 boot check unchanged. This bump expands coverage — NO floor
+  // moved, NO market-tier delta moved, NO band edge moved. Sunroad's
+  // stressedValue / stressedLtv / $7.48M cut all byte-identical pre/post.
+  // VALUATION_BANDS projected: ±Infinity sentinels → null (canonical-json
+  // rejects non-finite numbers), prose `rationale` field dropped from the
+  // hash (narrative engine governs end-user prose, not doctrine).
+  // ASSET_FLOORS hashed as-is including the `source:` citation strings —
+  // citation drift is provenance drift, in scope.
+  '1.4': '577ce5772eaa1f28a58ecfa953428aa8951ef0c80272b4c820267ef3415b6c06' as ContentHash,
 };

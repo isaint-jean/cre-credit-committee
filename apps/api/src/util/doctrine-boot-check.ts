@@ -24,6 +24,22 @@ import {
   RATING_BANDS,
 } from '@cre/contracts';
 import { computeContentHash } from './content-hash.js';
+// v1.4 — dim-7 cap-rate floor table folded into the snapshot. These are the
+// constants that produce stressedValue (the load-bearing memo number); a
+// silent retune of any floor / tier delta / valuation band would have
+// passed the v1.3 boot check and rippled through every downstream signal
+// (stressedLtv, mitigation LTV-arm cut sizing, leverage-band classification,
+// the memo's "Doctrine-stressed value (dim 7)" row). Folding here closes
+// that gap without moving any number — the constants don't change; only
+// the hash scope does.
+import {
+  ASSET_FLOORS,
+  OFFICE_SUBTYPE_FLOORS,
+  OFFICE_SUBTYPE_DEFAULT_FLOOR,
+  MARKET_TIER_DELTAS,
+  TERMINAL_WIDEN_BPS,
+  VALUATION_BANDS,
+} from '../doctrine-clean/dimensions/cap-rate-valuation-stress.js';
 
 export class DoctrineBootCheckError extends Error {
   override readonly name = 'DoctrineBootCheckError';
@@ -51,6 +67,27 @@ function buildDoctrineHashSnapshot() {
     weights: DOCTRINE_COMPONENT_WEIGHTS,
     bands: RATING_BANDS,
     rulesByComponent: DOCTRINE_RULES_BY_COMPONENT,
+    // v1.4 — dim-7 spine constants. Mirrors the v1.10 judgment-engine
+    // pattern (deskConstants block alongside rules/flags). Maps converted to
+    // entry arrays so insertion order participates in the digest. Bands are
+    // projected to a hash-stable shape: load-bearing math (tier,
+    // riskContribution, edges) + ±Infinity sentinels collapsed to null
+    // (canonicalize() rejects non-finite numbers). Prose `rationale` is
+    // skipped — narrative engine governs end-user prose.
+    spineConstants: {
+      // cap-rate-valuation-stress.ts (dim 7) — the load-bearing lookups
+      capRateAssetFloors:        ASSET_FLOORS,
+      officeSubtypeFloors:       Array.from(OFFICE_SUBTYPE_FLOORS.entries()),
+      officeSubtypeDefaultFloor: OFFICE_SUBTYPE_DEFAULT_FLOOR,
+      marketTierDeltas:          MARKET_TIER_DELTAS,
+      terminalWidenBps:          TERMINAL_WIDEN_BPS,
+      valuationBands: VALUATION_BANDS.map(b => ({
+        tier: b.tier,
+        riskContribution: b.riskContribution,
+        minAggressiveness: Number.isFinite(b.minAggressiveness) ? b.minAggressiveness : null,
+        maxAggressiveness: Number.isFinite(b.maxAggressiveness) ? b.maxAggressiveness : null,
+      })),
+    },
   };
 }
 
