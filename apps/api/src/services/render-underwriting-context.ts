@@ -346,6 +346,42 @@ export function renderUnderwritingContext(
       // Null when no reference NOI is available (t12Actual absent on this
       // deal). Server-builds the caveat displayValue so the UI does not
       // need to compose prose.
+      //
+      // ─── DEFERRED: single-sourcing into the engine (2026-06-12, Isabelle) ───
+      //
+      // This is the ONLY remaining value-affecting derivation in the web
+      // renderer (the funded-exit move was completed 4efb130). Single-sourcing
+      // is DEFERRED — not skipped — because the axis is empirically dormant
+      // on the entire current corpus:
+      //
+      //   ai.metrics.trailingActualNoi is NULL for every deal today, per the
+      //   contract comment at packages/contracts/src/adjusted-inputs.ts:266-270
+      //   ("Null today for every deal until a separate class-(b) ingest slot
+      //   for true trailing operating statements lands"). The IIFE below
+      //   exits at the early guard (derived === null || ref === null) on every
+      //   run; checkNoiDivergence is invoked zero times in practice. Verified
+      //   empirically on the real Sunroad bundle by
+      //   apps/api/src/scripts/calibration-noi-divergence-crosscheck-sunroad.ts
+      //   (kept as a regression artifact).
+      //
+      // Gate-protection IS already in place for what matters:
+      //   - NOI_DIVERGENCE_THRESHOLD (0.20) is snapshotted into the judgment-
+      //     engine hash via deskConstants (judgment-engine-boot-check.ts:24-26).
+      //     A silent retune is caught by the engine-integrity gate.
+      //   - The renderer imports the canonical helper (checkNoiDivergence);
+      //     a hardcoded literal swap would be a code-review catch, not a hash
+      //     catch — same as it was before move 1 for the funded-exit axis.
+      //
+      // When a t12Actual-bearing bundle lands (class-(b) ingest), do
+      // option (a): add `noiDivergence: { flagged, shortfallPct, derivedNoi,
+      // referenceNoi } | null` to AdjustedMetrics, populate from the
+      // already-computed `divergence` object at apply-judgment-adjustments.ts:425
+      // (currently discarded except for the boolean flag), and drop this
+      // IIFE in favor of a structured read. Accept the AnalysisId cascade
+      // (5th in series — pattern documented at adjusted-inputs.ts:308) as
+      // the cost of doing it right. Real work, observable benefit then.
+      //
+      // ─── END DEFERRED NOTE ───
       noiDivergence: (() => {
         const derived = adjustedInputs.metrics.noi;
         const ref = adjustedInputs.metrics.trailingActualNoi;
