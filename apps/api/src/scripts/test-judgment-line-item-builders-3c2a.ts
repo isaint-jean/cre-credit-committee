@@ -72,6 +72,7 @@ function makeExtraction(o: Partial<ExtractionResult> = {}): ExtractionResult {
     extractionEngineVersion: '1.5',
     dealRef: 'TEST', rentRoll: null, inPlace: null, t12Actual: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {},
     ...o,

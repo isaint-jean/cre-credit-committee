@@ -436,6 +436,12 @@ export async function buildExtractionResult(
     sellerUwOperatingStatement,
     asr,
     loanTerms,
+    // v1.6 — Annex A slot. Always null today via the production composer;
+    // the adapter is exercised standalone (see Stage-1 validation harness
+    // in apps/api/src/scripts/calibration-annexA-stage1-validation.ts). When
+    // Stage 2 wires Annex A into the composer, this becomes a call to
+    // runAnnexAAdapter(...) and the result.extraction is threaded here.
+    annexA: null,
     sourceDocuments,
     extractorVersions,
   };

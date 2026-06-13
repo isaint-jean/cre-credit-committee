@@ -112,6 +112,7 @@ function makeExtractionResult(): ExtractionResult {
     sellerUwOperatingStatement: null,
     asr: null,
     loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {},
   };
@@ -600,6 +601,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       sellerUwOperatingStatement: null,
       asr: null,
       loanTerms: null,
+    annexA: null,
       sourceDocuments: [],
       extractorVersions: {} as Record<string, string>,
     };

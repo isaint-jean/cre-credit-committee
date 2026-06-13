@@ -97,6 +97,7 @@ function makeExtraction(opts: Partial<{
     appraisal: 'appraisal' in opts ? opts.appraisal! : null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: 'asr' in opts ? opts.asr! : null,
     loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {},
   };

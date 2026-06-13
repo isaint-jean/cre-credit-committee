@@ -194,6 +194,7 @@ function makeSparseExtractionBody() {
     appraisal: null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: null,
+    annexA: null,
     sourceDocuments: [] as readonly SourceDocumentRef[],
     extractorVersions: {} as Record<string, string>,
   };
@@ -257,6 +258,7 @@ console.log('\nExtractionResult — null preservation in canonical form:');
     appraisal: null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: null,
+    annexA: null,
     sourceDocuments: [] as readonly SourceDocumentRef[],
     extractorVersions: {} as Record<string, string>,
   };

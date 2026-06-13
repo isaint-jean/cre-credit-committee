@@ -91,6 +91,7 @@ function makeExtraction(opts: {
     sellerUw: null,
     sellerUwOperatingStatement: opts.sellerUwOperatingStatement ?? null,
     asr: null, loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {},
   } as ExtractionResult;

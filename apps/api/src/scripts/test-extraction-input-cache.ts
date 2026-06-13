@@ -128,6 +128,7 @@ console.log('\nrecord-graph-store — extraction_input_cache ops:');
     dealRef: 'TEST',
     rentRoll: null, inPlace: null, t12Actual: null, pca: null, appraisal: null,
     asr: null, sellerUw: null, sellerUwOperatingStatement: null, loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {} as Record<string, string>,
   };

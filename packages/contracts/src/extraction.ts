@@ -267,6 +267,79 @@ export interface LoanTermsExtraction {
   readonly maturityDate: ISODateTime | null;
 }
 
+/* ------------------------------- 424B5 Annex A ------------------------------ */
+
+/**
+ * 424B5 prospectus Annex A — issuer-stated, per-loan stratification tables.
+ * Cross-reference layer: these numbers are what the ISSUER underwrote and what
+ * the appraiser concluded as of cut-off; they are NOT the answer key. The
+ * system underwrites independently from operating statements + rent rolls and
+ * IMPROVES on the issuer's numbers (Model A frame, per handbook §I and the
+ * NOI-recon precedence rule P-III-15).
+ *
+ * MUST NEVER drive `AdjustedInputs.metrics.noi`. The issuer-NOI fields below
+ * target the dedicated cross-reference slots:
+ *   - issuer-CF GS-U/W column   → AdjustedInputs.metrics.issuerCfUwNoi
+ *   - issuer-prospectus UW NOI  → AdjustedInputs.metrics.issuerStatedNoiSellerUw
+ *                                  (when the Annex A figure is the issuer's
+ *                                   prospectus-disclosed UW NOI, not the CF column)
+ * The system's `metrics.noi` continues to flow from the judgment cascade
+ * against `t12Actual → sellerUwOperatingStatement → inPlace`. See the boundary
+ * report in the v1.6 commit for the cell-by-cell destination map.
+ *
+ * 22 fields mirror the spike's DealBag (apps/api/src/scripts/clean-corpus-
+ * spike-annexA.ts, hand-decoded for WFRBS 2013-C11 Loan #17) — the exact
+ * shape the productionized parser populates. Field-population status per
+ * source shelf is tracked in the adapter's report; null fields here mean
+ * the Annex A column for this loan was absent / "Various" / NAV.
+ */
+export interface AnnexAExtraction {
+  /** Origination loan amount (cut-off principal balance — pre-paydown). */
+  readonly loanAmount: number | null;
+  /** Original term to maturity, years. */
+  readonly termYears: number | null;
+  /** Original amortization term, months. 0 = balloon-only / IO. */
+  readonly amortMonths: number | null;
+  /** Interest-only period, years. */
+  readonly ioYears: number | null;
+  /** Mortgage rate, 0..1 fraction. */
+  readonly coupon: number | null;
+  /** Loan maturity date (ARD when applicable). */
+  readonly maturityDate: ISODateTime | null;
+  /** Canonical asset class from the General Property Type column. */
+  readonly assetType: string | null;
+  /** Specific Property Type / subtype string from Annex A. */
+  readonly subType: string | null;
+  /** Physical / underwritten occupancy at issuer cut-off, 0..1 fraction. */
+  readonly occupancyCurrent: number | null;
+  /** Most-Recent / TTM NOI from issuer's operating-statement summary. */
+  readonly t12Noi: number | null;
+  /** Most-Recent / TTM EGI (revenue) from issuer's operating-statement summary. */
+  readonly t12Egi: number | null;
+  /** Most-Recent / TTM operating expenses from issuer's operating-statement summary. */
+  readonly t12OpEx: number | null;
+  /** Prior-year actual NOI (one year before TTM), when separately disclosed. */
+  readonly priorPeriodNoi: number | null;
+  /** Issuer's Underwritten NOI as disclosed in Annex A's UW column. */
+  readonly uwY1Noi: number | null;
+  /** Issuer's underwritten NCF DSCR (issuer's DS basis). */
+  readonly uwDscr: number | null;
+  /** Issuer's underwritten NOI Debt Yield. */
+  readonly uwDebtYield: number | null;
+  /** Appraised value at issuer cut-off, dollars. */
+  readonly concludedValue: number | null;
+  /** Cut-off LTV ratio (loan / appraised value), 0..1 fraction. */
+  readonly concludedLtv: number | null;
+  /** Upfront PIP / CapEx / Engineering reserve dollars (named-reserve cell). */
+  readonly pipOrCapexReserve: number | null;
+  /** Upfront TI/LC reserve dollars (named-reserve cell). */
+  readonly tiLcReserve: number | null;
+  /** Largest tenant name. Null for hospitality / multifamily / self-storage. */
+  readonly largestTenant: string | null;
+  /** Largest-tenant lease expiration date (ISO). Null for non-tenant assets. */
+  readonly leaseExpirationLargest: ISODateTime | null;
+}
+
 /* ------------------------------ ExtractionResult ---------------------------- */
 
 /**
@@ -342,6 +415,14 @@ export interface ExtractionResult {
   readonly sellerUwOperatingStatement: OperatingStatementExtraction | null;
   readonly asr: ASRExtraction | null;
   readonly loanTerms: LoanTermsExtraction | null;
+  /**
+   * 424B5 prospectus Annex A — issuer-stated per-loan stratification. Always
+   * null when the deal has no Annex A source filing OR when the parser couldn't
+   * locate the section. CROSS-REFERENCE LAYER ONLY — see the AnnexAExtraction
+   * docstring for the Model-A boundary contract. v1.6 addition (engine version
+   * label bump 1.5 → 1.6 covers the new slot; no manifest gates this today).
+   */
+  readonly annexA: AnnexAExtraction | null;
 
   readonly sourceDocuments: readonly SourceDocumentRef[];
 

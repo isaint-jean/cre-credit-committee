@@ -88,6 +88,7 @@ function makeExtractionResult(): ExtractionResult {
     appraisal: null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
     loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {},
   };

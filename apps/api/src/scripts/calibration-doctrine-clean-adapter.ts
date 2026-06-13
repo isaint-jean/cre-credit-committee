@@ -70,6 +70,7 @@ function mkExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionResu
     sellerUwOperatingStatement: null,
     asr: null,
     loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {},
     ...overrides,

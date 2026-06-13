@@ -66,6 +66,7 @@ function makeExtraction(overrides: Partial<ExtractionResult> = {}): ExtractionRe
     dealRef: 'TEST-1',
     rentRoll: null, inPlace: null, t12Actual: null, pca: null,
     appraisal: null, sellerUw: null, sellerUwOperatingStatement: null, asr: null, loanTerms: null,
+    annexA: null,
     sourceDocuments: [],
     extractorVersions: {},
     ...overrides,

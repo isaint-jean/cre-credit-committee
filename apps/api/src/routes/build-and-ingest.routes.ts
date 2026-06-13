@@ -288,7 +288,8 @@ export function makeBuildAndIngestHandler(
     /* Optional loanTerms (Ticket K #7). When provided, parses as
        JSON-stringified LoanTermsExtraction and threads into composer args.
        When absent or empty string, treated as undefined (composer projects
-       loanTerms: null, judgment throws JE_LOAN_AMOUNT_MISSING). */
+       loanTerms: null,
+    annexA: null, judgment throws JE_LOAN_AMOUNT_MISSING). */
     let loanTerms: LoanTermsExtraction | undefined;
     if (body.loanTerms !== undefined && body.loanTerms !== null && body.loanTerms !== '') {
       try {
