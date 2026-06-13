@@ -118,5 +118,10 @@ export * from './narrative-engine-manifest.js';
 export * from './mitigation.js';
 export * from './mitigation-engine-manifest.js';
 
+// COMMITTEE_MEMO_MANIFEST — format-version registry for the lender-facing
+// committee memo (apps/api/src/services/render-memo/build-committee-memo.ts).
+// Gates section order / headings / null sentinel drift.
+export * from './committee-memo-manifest.js';
+
 // Typed error payloads
 export * from './errors.js';

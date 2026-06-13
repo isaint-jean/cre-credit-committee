@@ -33,6 +33,7 @@
  *     the working surface (RenderedAnalysisView.tsx).
  */
 import type { NarrativeEvaluation } from '@cre/contracts';
+import { COMMITTEE_MEMO_VERSION } from '@cre/contracts';
 import {
   projectAuthoritativeNumbers,
   extractCleanDoctrineFindings,
@@ -48,6 +49,15 @@ import type {
   SponsorBurdenProfile,
 } from '../mitigation/compose-mitigations.js';
 import type { MitigationProposal } from '@cre/contracts';
+import {
+  MEMO_SECTION_ORDER,
+  MEMO_SECTION_HEADINGS,
+  MEMO_RESTRUCTURE_TITLES,
+  MEMO_RESTRUCTURE_SUBHEADS,
+  MEMO_CALLOUT_LABELS,
+  MEMO_NULL_SENTINEL,
+  type MemoSectionId,
+} from './committee-memo-format.js';
 
 /* --------------------------- public surface ------------------------------ */
 
@@ -72,19 +82,19 @@ export function buildCommitteeMemo(input: BuildCommitteeMemoInput): string {
 /* --------------------------- formatting helpers --------------------------- */
 
 function fmtUsd(n: number | null | undefined): string {
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  if (n === null || n === undefined || !Number.isFinite(n)) return MEMO_NULL_SENTINEL;
   if (Math.abs(n) >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
   if (Math.abs(n) >= 1_000)     return '$' + (n / 1_000).toFixed(0)     + 'K';
   return '$' + n.toFixed(0);
 }
 
 function fmtPct(n: number | null | undefined): string {
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  if (n === null || n === undefined || !Number.isFinite(n)) return MEMO_NULL_SENTINEL;
   return (n * 100).toFixed(2) + '%';
 }
 
 function fmtDscr(n: number | null | undefined): string {
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  if (n === null || n === undefined || !Number.isFinite(n)) return MEMO_NULL_SENTINEL;
   return n.toFixed(2) + 'x';
 }
 
@@ -135,7 +145,7 @@ function leverDisplayName(lever: string): string {
 }
 
 function renderHeader(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
-  const ratingLabel = auth.ratingRecommendation ?? '—';
+  const ratingLabel = auth.ratingRecommendation ?? MEMO_NULL_SENTINEL;
   return `
     <header class="memo-header">
       <div class="memo-header-row">
@@ -149,8 +159,8 @@ function renderHeader(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers
         </div>
       </div>
       <div class="memo-attribution">
-        Asset class: ${esc(auth.assetType ?? '—')}${auth.subType ? ' / ' + esc(auth.subType) : ''}
-        &nbsp;·&nbsp; Prepared by CRE Credit Committee — narrative engine v${esc(input.narrative.engineVersion)}
+        Asset class: ${esc(auth.assetType ?? MEMO_NULL_SENTINEL)}${auth.subType ? ' / ' + esc(auth.subType) : ''}
+        &nbsp;·&nbsp; Prepared by CRE Credit Committee — narrative engine v${esc(input.narrative.engineVersion)} · memo format v${esc(COMMITTEE_MEMO_VERSION)}
       </div>
     </header>`;
 }
@@ -158,7 +168,7 @@ function renderHeader(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers
 function renderExecutiveSummary(narrative: NarrativeEvaluation): string {
   return `
     <section class="memo-section">
-      <h2 class="memo-section-title">Executive Summary</h2>
+      <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS.executive_summary}</h2>
       <p class="memo-prose">${proseToHtml(narrative.executiveSummary)}</p>
     </section>`;
 }
@@ -191,7 +201,7 @@ function renderStressedCreditProfile(auth: AuthoritativeNumbers, funded: FundedE
     : `<p class="memo-disclosure"><strong>Valuation basis: ${esc(basisLabel)}.</strong></p>`;
   return `
     <section class="memo-section">
-      <h2 class="memo-section-title">Stressed Credit Profile</h2>
+      <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS.stressed_credit_profile}</h2>
       <table class="memo-table memo-table-credit">
         <thead><tr><th class="memo-th-label">Metric</th><th class="memo-th-note">Context</th><th class="memo-th-num">Value</th></tr></thead>
         <tbody>
@@ -223,7 +233,7 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
   const headline = isStructuredHold
     ? `
     <div class="memo-callout-headline">
-      <div class="memo-callout-headline-label">Recommended structure</div>
+      <div class="memo-callout-headline-label">${MEMO_CALLOUT_LABELS.hold}</div>
       <div class="memo-callout-headline-figure">
         HOLD at ${esc(fmtUsd(originalLoan))}
       </div>
@@ -233,7 +243,7 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
     </div>`
     : `
     <div class="memo-callout-headline">
-      <div class="memo-callout-headline-label">Recommended restructure</div>
+      <div class="memo-callout-headline-label">${MEMO_CALLOUT_LABELS.cut}</div>
       <div class="memo-callout-headline-figure">
         ${esc(fmtUsd(proceedsCut))} proceeds reduction
       </div>
@@ -249,7 +259,7 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
   const whyShape = isStructuredHold
     ? `
     <div class="memo-callout-section">
-      <h3 class="memo-callout-subhead">Why this shape</h3>
+      <h3 class="memo-callout-subhead">${MEMO_RESTRUCTURE_SUBHEADS.whyShape}</h3>
       <p>
         The doctrine-stressed LTV
         (loan / dim-7 stressed value ${esc(fmtUsd(auth.stressedValue))})
@@ -264,7 +274,7 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
     </div>`
     : `
     <div class="memo-callout-section">
-      <h3 class="memo-callout-subhead">Why this shape</h3>
+      <h3 class="memo-callout-subhead">${MEMO_RESTRUCTURE_SUBHEADS.whyShape}</h3>
       <p>
         At the original loan amount, the doctrine-stressed LTV
         (loan / dim-7 stressed value ${esc(fmtUsd(auth.stressedValue))})
@@ -294,7 +304,7 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
     ? ''
     : `
     <div class="memo-callout-section">
-      <h3 class="memo-callout-subhead">Composition reconciliation</h3>
+      <h3 class="memo-callout-subhead">${MEMO_RESTRUCTURE_SUBHEADS.compositionReconciliation}</h3>
       <ul class="memo-recon-list">
         ${reconNotes.map(n => `<li>${esc(n)}</li>`).join('')}
       </ul>
@@ -305,13 +315,13 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
     ? ''
     : `
     <div class="memo-callout-section">
-      <h3 class="memo-callout-subhead">Structural conditions (orthogonal levers)</h3>
+      <h3 class="memo-callout-subhead">${MEMO_RESTRUCTURE_SUBHEADS.orthogonalConditions}</h3>
       <ul class="memo-condition-list">
         ${orthogonal.map(p => renderOrthogonalProposal(p, composed)).join('')}
       </ul>
     </div>`;
 
-  const sectionTitle = isStructuredHold ? 'Structuring Package' : 'Restructuring Package';
+  const sectionTitle = isStructuredHold ? MEMO_RESTRUCTURE_TITLES.hold : MEMO_RESTRUCTURE_TITLES.cut;
   return `
     <section class="memo-section memo-restructure-section">
       <h2 class="memo-section-title">${esc(sectionTitle)}</h2>
@@ -414,7 +424,7 @@ function renderSponsorBurden(profile: SponsorBurdenProfile, finalLoanAmount: num
 
   return `
     <section class="memo-section memo-sponsor-burden-section">
-      <h2 class="memo-section-title">Sponsor Burden</h2>
+      <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS.sponsor_burden}</h2>
       <table class="memo-table memo-table-burden">
         <thead><tr><th class="memo-th-label">Commitment</th><th class="memo-th-note">Source</th><th class="memo-th-num">Amount</th></tr></thead>
         <tbody>
@@ -478,7 +488,7 @@ function renderRiskAssessment(narrative: NarrativeEvaluation, findings: readonly
     </table>`;
   return `
     <section class="memo-section">
-      <h2 class="memo-section-title">Risk Assessment</h2>
+      <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS.risk_assessment}</h2>
       ${findingsTable}
       <p class="memo-prose memo-prose-with-table">${proseToHtml(narrative.redFlagAssessment)}</p>
     </section>`;
@@ -487,7 +497,7 @@ function renderRiskAssessment(narrative: NarrativeEvaluation, findings: readonly
 function renderCommitteeRecommendation(narrative: NarrativeEvaluation): string {
   return `
     <section class="memo-section">
-      <h2 class="memo-section-title">Committee Recommendation</h2>
+      <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS.committee_recommendation}</h2>
       <p class="memo-prose">${proseToHtml(narrative.committeeRecommendation)}</p>
     </section>`;
 }
@@ -499,6 +509,7 @@ function renderFooter(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers
   return `
     <footer class="memo-footer">
       <div>Narrative engine v${esc(input.narrative.engineVersion)}
+        &nbsp;·&nbsp; Memo format v${esc(COMMITTEE_MEMO_VERSION)}
         &nbsp;·&nbsp; Valuation basis: ${esc(basisLabel)}
         &nbsp;·&nbsp; ${esc(input.memoDate)}</div>
       <div class="memo-footer-fine">
@@ -820,6 +831,22 @@ function renderHtml(
   findings: readonly CleanDoctrineFinding[],
   funded: FundedExitProjection,
 ): string {
+  // v1.0 — section order is sourced from MEMO_SECTION_ORDER (the hashed
+  // constant). Each section is dispatched through SECTION_RENDERERS so
+  // the constant DRIVES render order — the two cannot desync. Reordering
+  // the constant moves the rendered sections; the boot check additionally
+  // catches the same reorder as a hash drift.
+  const SECTION_RENDERERS: Readonly<Record<MemoSectionId, () => string>> = {
+    header:                   () => renderHeader(input, auth),
+    executive_summary:        () => renderExecutiveSummary(input.narrative),
+    stressed_credit_profile:  () => renderStressedCreditProfile(auth, funded),
+    restructuring_package:    () => renderRestructuringPackage(auth, input.composedMitigationPackage, funded),
+    sponsor_burden:           () => renderSponsorBurden(input.composedMitigationPackage.sponsorBurdenProfile, input.composedMitigationPackage.finalLoanAmount),
+    risk_assessment:          () => renderRiskAssessment(input.narrative, findings),
+    committee_recommendation: () => renderCommitteeRecommendation(input.narrative),
+    footer:                   () => renderFooter(input, auth),
+  };
+  const sections = MEMO_SECTION_ORDER.map(id => SECTION_RENDERERS[id]()).join('\n  ');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -829,14 +856,7 @@ function renderHtml(
 </head>
 <body>
 <article class="memo-document">
-  ${renderHeader(input, auth)}
-  ${renderExecutiveSummary(input.narrative)}
-  ${renderStressedCreditProfile(auth, funded)}
-  ${renderRestructuringPackage(auth, input.composedMitigationPackage, funded)}
-  ${renderSponsorBurden(input.composedMitigationPackage.sponsorBurdenProfile, input.composedMitigationPackage.finalLoanAmount)}
-  ${renderRiskAssessment(input.narrative, findings)}
-  ${renderCommitteeRecommendation(input.narrative)}
-  ${renderFooter(input, auth)}
+  ${sections}
 </article>
 </body>
 </html>`;

@@ -160,6 +160,38 @@ export const NARRATIVE_ENGINE_VERSION = '1.6' as const;
  */
 export const MITIGATION_ENGINE_VERSION = '1.8' as const;
 
+/**
+ * Committee-memo FORMAT version. Distinct from RENDER_VERSION (7.15) —
+ * RENDER_VERSION governs the web RenderedAnalysis projection + its cache
+ * key; this version governs the lender-facing committee memo's shape:
+ * section order, headings, callout labels, the null sentinel. Drift in
+ * any of those without a bump is caught by COMMITTEE_MEMO_FORMAT_DRIFT
+ * at boot (apps/api/src/util/committee-memo-boot-check.ts) and in CI
+ * via npm run check:committee-memo (folded into check:engines).
+ *
+ * Scope discipline:
+ *   - Numeric values flow from the engines (each engine carries its own
+ *     version). Bumping COMMITTEE_MEMO_VERSION does NOT imply any number
+ *     moved.
+ *   - LLM-generated narrative prose is NARRATIVE_ENGINE_VERSION's
+ *     concern. The memo's footer carries both versions so a reader can
+ *     see them independently.
+ *
+ * Bump rules (mirrors the other engine versions):
+ *   MINOR (1.0 → 1.1): rename a heading, reorder a callout subhead,
+ *     swap the null sentinel for a different glyph.
+ *   MAJOR (1.0 → 2.0): re-architect the section order (e.g. drop
+ *     Sponsor Burden as a top-level section, restructure footer).
+ *
+ * Workflow when changing memo format:
+ *   1. Edit apps/api/src/services/render-memo/committee-memo-format.ts.
+ *   2. Bump COMMITTEE_MEMO_VERSION here AND extend CommitteeMemoVersion.
+ *   3. Run `npm run committee-memo:print-hash` and append to
+ *      COMMITTEE_MEMO_MANIFEST.
+ *   4. Run `npm run check:committee-memo` to verify the gate passes.
+ */
+export const COMMITTEE_MEMO_VERSION = '1.0' as const;
+
 export type DoctrineVersion = '1.0' | '1.1' | '1.2' | '1.3';
 /**
  * Historical-replay union: includes every JUDGMENT_ENGINE_VERSION ever shipped so
@@ -181,6 +213,13 @@ export type HandbookEngineVersion = typeof HANDBOOK_ENGINE_VERSION;
  * when adding a new narrative-engine revision.
  */
 export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6';
+
+/**
+ * Historical-replay union for the committee-memo format. EXTEND (do not
+ * replace) when bumping COMMITTEE_MEMO_VERSION; COMMITTEE_MEMO_MANIFEST
+ * is keyed on this union.
+ */
+export type CommitteeMemoVersion = '1.0';
 
 /**
  * Historical-replay union: includes every MITIGATION_ENGINE_VERSION ever shipped so
