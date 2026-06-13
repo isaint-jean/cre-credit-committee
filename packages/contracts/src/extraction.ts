@@ -322,7 +322,15 @@ export interface AnnexAExtraction {
   readonly priorPeriodNoi: number | null;
   /** Issuer's Underwritten NOI as disclosed in Annex A's UW column. */
   readonly uwY1Noi: number | null;
-  /** Issuer's underwritten NCF DSCR (issuer's DS basis). */
+  /**
+   * Issuer's UW NOI DSCR (NOI / UW DS basis — matches prospectus's first
+   * DSCR column position; for WFRBS 2013-C11 this is the "UW NOI DSCR (x)"
+   * column at T4 position 1). UW NCF DSCR is column 2 in T4 and is NOT
+   * currently surfaced on AnnexAExtraction; add as a sibling field if a
+   * future consumer needs it. (Originally docstring'd as NCF DSCR per the
+   * spike's hand-decode convention — corrected 2026-06-13 in lockstep with
+   * the t12Noi / uwY1Noi swap; the numeric VALUE was always the NOI DSCR.)
+   */
   readonly uwDscr: number | null;
   /** Issuer's underwritten NOI Debt Yield. */
   readonly uwDebtYield: number | null;

@@ -166,10 +166,35 @@ export function runAnnexAAdapter(args: AnnexAAdapterArgs): AnnexAAdapterResult {
 
 /* ---- proven payload: WFRBS 2013-C11 / Loan #17 (Minot Hotel Portfolio) ----
  * Source: hand-decoded from the prospectus at /tmp/wfrbs-2013-c11-424B5.htm
- * by clean-corpus-spike-annexA.ts:280-322. Cross-referenced verbatim here so
- * the adapter is the single export point for the typed payload; the spike
- * remains the audit-trail document (with row offsets, surrounding context,
- * and the 10-D realized-loss cross-reference). */
+ * by clean-corpus-spike-annexA.ts:280-322. The DOLLAR VALUES were always
+ * correct; only the two NOI field LABELS were inverted vs the prospectus's
+ * stated identities.
+ *
+ * ★ CORRECTION 2026-06-13 — UW NOI vs TTM NOI label inversion fixed in
+ * lockstep across the stack (this file, check-model-a-boundary.ts,
+ * shelf-generalizer LOAN_17_BASELINE, the boundary-proof display, and the
+ * AnnexAExtraction.uwDscr docstring). The spike's hand-decode wired:
+ *   - $2,823,742 (prospectus's "UW Net Operating Income" column) → t12Noi
+ *   - $3,330,324 (prospectus's "Most Recent NOI" column)          → uwY1Noi
+ * Inverted. Verified by TWO independent prospectus-stated identities:
+ *
+ *   Identity #1 — stated UW NOI DY foots only against $2.82M:
+ *     stated UW NOI DY = 18.90%; loan = $15.00M
+ *     ⇒ UW NOI = 0.189 × $15.00M = $2,835,000  ≈ $2,823,742 ✓
+ *
+ *   Identity #2 — stated UW NOI DSCR foots only against $2.82M (independent):
+ *     stated UW NOI DSCR = 2.77x; annual DS = $1,019,072 (4.677% / 25y / $15M)
+ *     ⇒ UW NOI = 2.77 × $1,019,072 = $2,822,861  ≈ $2,823,742 ✓
+ *
+ * Both independent identities pin UW NOI = $2.82M. $3.33M sits in the
+ * prospectus's "Most Recent NOI" column — that's the TTM NOI. The spike
+ * was a transcription slip; the inversion is shelf-wide (the v8.1
+ * shelf-generalizer flagged 21 prior-CLEAN loans whose DY-via-NOI deltas
+ * traced to the same inversion). Stage 1 + Stage 2 contracts inherited the
+ * spike convention; this correction realigns them to prospectus truth.
+ * Model-A boundary holds in both conventions (the guard tests whether
+ * annexA is read by spine code, not which value sits in which field); 5
+ * engine hashes unchanged. */
 const WFRBS_2013_C11_LOAN_17_VALUES: AnnexAExtraction = {
   // T2 — Pool weights row
   loanAmount: 15_000_000,
@@ -182,16 +207,23 @@ const WFRBS_2013_C11_LOAN_17_VALUES: AnnexAExtraction = {
   // T1 — Property metadata
   assetType: 'Hotel',
   subType: 'Limited Service + Full Service (mixed)',
-  // T5 — TTM financials
-  occupancyCurrent: 0.812,
-  t12Noi: 2_823_742,
-  t12Egi: 8_785_777,
-  t12OpEx: 5_962_035,
+  occupancyCurrent: 0.812,  // T5 (UW header) — UW occupancy %
+  // ★ CORRECTED — full T5/T6 prospectus-column-truth alignment.
+  // The three t12* fields all source from the "Most Recent NOI" table (TTM
+  // data per the prospectus column header) so the intra-T5 foot identity
+  // (t12Noi ≈ t12Egi − t12OpEx) holds. The three uwY1* fields source from
+  // the "UW Net Operating Income" table (UW data). Spike convention had ALL
+  // three swapped per row — the v8.1 brief originally enumerated only the
+  // NOIs but the full TTM/UW alignment requires Revenue and Expenses too,
+  // else the intra-T5 foot check fires shelf-wide.
+  t12Noi: 3_330_324,        // T6 "Most Recent NOI" — TTM NOI
+  t12Egi: 9_432_760,        // T6 "Most Recent Revenue" — TTM Revenue
+  t12OpEx: 6_102_436,       // T6 "Most Recent Expenses" — TTM Expenses
   // T7 — 2011 actual NOI
   priorPeriodNoi: 1_763_001,
-  // T6 — Underwritten financials (UW NOI)
-  uwY1Noi: 3_330_324,
-  // T4 — Metrics (issuer's UW NCF DSCR + UW NOI DY)
+  // ★ CORRECTED: uwY1Noi = Issuer UW NOI (UW Net Operating Income column)
+  uwY1Noi: 2_823_742,       // T5 (UW header) — UW NOI; foots stated UW NOI DY (18.90%) and stated UW NOI DSCR (2.77x)
+  // T4 — Metrics (uwDscr is UW NOI DSCR — position 1 in T4 per prospectus header order)
   uwDscr: 2.77,
   uwDebtYield: 0.189,
   // T4 — Appraised value, cut-off LTV

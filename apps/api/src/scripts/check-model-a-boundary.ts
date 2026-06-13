@@ -65,8 +65,12 @@ import type {
 } from '@cre/contracts';
 
 const AS_OF: ISODateTime = '2026-06-13T00:00:00Z' as ISODateTime;
-const ORIGINAL_ISSUER_UW_NOI = 3_330_324;   // canonical Loan-#17 issuer UW NOI
-const ORIGINAL_ISSUER_TTM_NOI = 2_823_742;  // canonical Loan-#17 issuer TTM NOI
+// ★ CORRECTED 2026-06-13 — swapped in lockstep with the AnnexAExtraction
+// payload (the spike's hand-decode labels for "UW NOI" and "TTM NOI" were
+// inverted vs prospectus column-header truth; see annexA.adapter.ts:167-195
+// for the two-identity proof).
+const ORIGINAL_ISSUER_UW_NOI = 2_823_742;   // canonical Loan-#17 issuer UW NOI (prospectus "UW Net Operating Income" col)
+const ORIGINAL_ISSUER_TTM_NOI = 3_330_324;  // canonical Loan-#17 issuer TTM NOI (prospectus "Most Recent NOI" col)
 
 class ModelABoundaryViolationError extends Error {
   override readonly name = 'MODEL_A_BOUNDARY_VIOLATION';

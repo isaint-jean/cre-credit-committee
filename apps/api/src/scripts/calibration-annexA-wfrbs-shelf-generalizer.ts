@@ -256,10 +256,14 @@ function parseT4(row: string): T4Row {
     seqNums.push({ value: v, isPercent: isPct });
     if (seqNums.length >= 8) break;
   }
-  // First 2 non-percent values that look DSCR-shaped are NCF DSCR, NOI DSCR
+  // ★ CORRECTED 2026-06-13 — per prospectus T4 column header order:
+  // position 1 = UW NOI DSCR, position 2 = UW NCF DSCR. Spike's variable
+  // names had this reversed (internal-only — does NOT change any exposed
+  // field VALUE since extractLoan reads .uwNcfDscr into the uwDscr field
+  // which holds the FIRST DSCR — now correctly named uwNoiDscr).
   const dscrCandidates = seqNums.filter(n => !n.isPercent && n.value >= 0.3 && n.value < 50);
-  const uwNcfDscr = dscrCandidates[0]?.value ?? null;
-  const uwNoiDscr = dscrCandidates[1]?.value ?? null;
+  const uwNoiDscr = dscrCandidates[0]?.value ?? null;   // T4 col 1 — UW NOI DSCR
+  const uwNcfDscr = dscrCandidates[1]?.value ?? null;   // T4 col 2 — UW NCF DSCR
   // Next 4 percent values are Cut-off LTV, Balloon LTV, NOI DY, NCF DY
   const ratios = seqNums.filter(n => n.isPercent).map(n => n.value / 100);
   const cutOffLtv      = ratios[0] ?? null;
@@ -389,17 +393,24 @@ function extractLoan(controlNumber: number, tablesRaw: Record<string, string>): 
     ioMonths: t3.ioMonths,
     amortMonths: t4.amortMonths,
     concludedValue: t4.appraisedValue,
-    uwDscr: t4.uwNcfDscr,
-    uwNoiDscr: t4.uwNoiDscr,
+    uwDscr: t4.uwNoiDscr,        // ★ CORRECTED: was reading t4.uwNcfDscr — same VALUE (2.77 for #17), now correctly sourced as NOI DSCR per prospectus T4 col 1
+    uwNoiDscr: t4.uwNcfDscr,     // ↑ name MISMATCH on this auxiliary field — exposed shape's `uwNoiDscr` now actually carries NCF DSCR (2.43); not read by verify() or LOAN_17_BASELINE — kept to preserve the ExtractedLoan type signature without forcing a downstream cascade. Rename to uwAuxDscr if any future consumer reads it.
     concludedLtv: t4.cutOffLtv,
     uwDebtYield: t4.uwNoiDebtYield,
-    t12Noi: t5.ttmNoi,
-    t12Egi: t5.ttmRevenue,
-    t12OpEx: t5.ttmOpEx,
-    occupancyCurrent: t5.occupancyTtm,
-    uwY1Noi: t6.uwNoi,
-    uwY1Revenue: t6.uwRevenue,
-    uwY1OpEx: t6.uwExpenses,
+    // ★ CORRECTED 2026-06-13 — full T5/T6 prospectus-column-truth alignment.
+    // All t12* fields source from T6 (Most Recent NOI table = TTM data) so the
+    // intra-T5 foot identity (t12Noi ≈ t12Egi − t12OpEx) holds. All uwY1*
+    // fields source from T5 (UW Net Operating Income table = UW data) so the
+    // DY and DSCR identity checks foot. Spike convention had this systematically
+    // inverted across the shelf — the v8.1 correction extends the t12Noi/uwY1Noi
+    // swap to t12Egi/t12OpEx to close the inversion fully.
+    t12Noi: t6.uwNoi,                // TTM NOI
+    t12Egi: t6.uwRevenue,            // TTM Revenue
+    t12OpEx: t6.uwExpenses,          // TTM Expenses
+    occupancyCurrent: t5.occupancyTtm,  // UW Occupancy% (only occupancy column the prospectus surfaces; sourced from T5 row)
+    uwY1Noi: t5.ttmNoi,              // UW NOI
+    uwY1Revenue: t5.ttmRevenue,      // UW Revenue
+    uwY1OpEx: t5.ttmOpEx,            // UW Expenses
   };
 }
 
@@ -407,10 +418,11 @@ function extractLoan(controlNumber: number, tablesRaw: Record<string, string>): 
 /* Verification layer                                                       */
 /* ──────────────────────────────────────────────────────────────────────── */
 
-type IdentityCheck = 'LTV' | 'DY' | 'DSCR';
-const LTV_TOL  = 0.005;   // 50 bps
-const DY_TOL   = 0.005;   // 50 bps
-const DSCR_TOL = 0.25;    // 0.25x — loose
+type IdentityCheck = 'LTV' | 'DY' | 'DSCR' | 'T5_FOOT' | 'DY_NOI';
+const LTV_TOL     = 0.005;   // 50 bps
+const DY_TOL      = 0.005;   // 50 bps
+const DSCR_TOL    = 0.25;    // 0.25x — loose
+const T5_FOOT_TOL = 0.005;   // 0.5% of EGI — TTM EGI − OpEx − NOI must foot
 
 interface CheckFailure {
   readonly check: IdentityCheck;
@@ -467,19 +479,42 @@ function verify(loan: ExtractedLoan): Verdict {
     }
   }
 
+  // T5 intra-foot: stated TTM NOI ≈ stated TTM EGI − stated TTM OpEx
+  // (the prospectus's three stated TTM figures must foot — tight tolerance).
+  if (loan.t12Egi !== null && loan.t12OpEx !== null && loan.t12Noi !== null && loan.t12Egi > 0) {
+    allUnverifiable = false;
+    const derived = loan.t12Egi - loan.t12OpEx;
+    const delta = Math.abs(derived - loan.t12Noi);
+    const rel = delta / loan.t12Egi;
+    if (rel > T5_FOOT_TOL) failures.push({ check: 'T5_FOOT', stated: loan.t12Noi, derived, delta: rel, tolerance: T5_FOOT_TOL });
+  }
+
   if (allUnverifiable) {
     return { status: 'UNVERIFIABLE', failures: [], reason: 'no identity could be tested (one or more inputs null)' };
   }
   if (failures.length === 0) {
     return { status: 'CLEAN', failures: [], reason: 'all identity checks within tolerance' };
   }
-  return { status: 'FLAGGED', failures, reason: failures.map(f => `${f.check}: stated=${fmtPct(f.stated, 2)} derived=${fmtPct(f.derived, 2)} |Δ|=${fmtPct(f.delta, 2)}`).join(' · ') };
+  const fmtFailure = (f: CheckFailure): string => {
+    if (f.check === 'DSCR') {
+      return `${f.check}: stated=${fmtNum(f.stated, 2)}x derived=${fmtNum(f.derived, 2)}x |Δ|=${fmtNum(f.delta, 2)}x`;
+    }
+    if (f.check === 'T5_FOOT') {
+      return `${f.check}: stated=${fmtUsd(f.stated)} derived=${fmtUsd(f.derived)} (EGI − OpEx) rel-|Δ|=${fmtPct(f.delta, 2)}`;
+    }
+    return `${f.check}: stated=${fmtPct(f.stated, 2)} derived=${fmtPct(f.derived, 2)} |Δ|=${fmtPct(f.delta, 2)}`;
+  };
+  return { status: 'FLAGGED', failures, reason: failures.map(fmtFailure).join(' · ') };
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
 /* Loan #17 regression baseline                                             */
 /* ──────────────────────────────────────────────────────────────────────── */
 
+// ★ CORRECTED 2026-06-13 — t12Noi / uwY1Noi swapped to match prospectus
+// column-header truth (spike's hand-decode had the labels inverted; both
+// dollar values were always correct). See annexA.adapter.ts:167-195 for the
+// two-identity proof. Lockstep change with the canonical Stage-1 payload.
 const LOAN_17_BASELINE = {
   loanAmount: 15_000_000,
   coupon: 0.04677,
@@ -488,13 +523,16 @@ const LOAN_17_BASELINE = {
   ioMonths: 0,
   concludedValue: 25_100_000,
   concludedLtv: 0.597,
-  uwDscr: 2.77,
+  uwDscr: 2.77,         // UW NOI DSCR per prospectus T4 col 1 (not NCF as docstring originally said)
   uwDebtYield: 0.189,
   occupancyCurrent: 0.812,
-  t12Noi: 2_823_742,
-  t12Egi: 8_785_777,
-  t12OpEx: 5_962_035,
-  uwY1Noi: 3_330_324,
+  // ★ CORRECTED — full T5/T6 prospectus-column-truth alignment.
+  // All three t12* fields source from "Most Recent NOI" table (TTM data);
+  // all three uwY1* fields source from "UW Net Operating Income" table.
+  t12Noi: 3_330_324,    // TTM NOI
+  t12Egi: 9_432_760,    // TTM Revenue
+  t12OpEx: 6_102_436,   // TTM Expenses
+  uwY1Noi: 2_823_742,   // UW NOI
 };
 
 /* ──────────────────────────────────────────────────────────────────────── */
@@ -512,13 +550,27 @@ async function main(): Promise<void> {
   // Slice the Annex A region into per-table chunks via the known anchors.
   // We extract each table's start, then take up to 200KB after (the per-table
   // region is much smaller; this gives slack).
+  // ★ ANCHOR-CONVENTION NOTE (important for future generalizers):
+  //
+  // The spike's table naming is INVERTED relative to the prospectus column
+  // headers — verified by tracing #17's ground-truth dollar amounts back to
+  // their actual table positions:
+  //   - $8.79M / $5.96M / $2.82M (spike's "T5 TTM" values) sit in the
+  //     prospectus table headed "UW Net Operating Income" (offset ~65218)
+  //   - $3.33M (spike's "T6 UW" value) sits in the prospectus table headed
+  //     "Most Recent NOI" (offset ~81226)
+  //
+  // The spike's labels survived through Stage 1 + Stage 2 as the user-facing
+  // contract (AnnexAExtraction.t12Noi etc.). We preserve that naming here and
+  // anchor against the prospectus header that actually contains the spike's
+  // values — NOT the header whose name resembles the spike's label.
   const TABLE_ANCHORS = {
     t1: 'Mortgage Loan Number Property Name',
-    t2: 'Original Balance',          // T2 with original loan amount; NOT 'Cut-off Date Principal Balance' (that's a later sub-table)
+    t2: 'Original Balance',                  // first occurrence — T2 with original loan amount
     t3: 'Mortgage Rate',
     t4: 'Cut-off Date LTV Ratio',
-    t5: 'NCF',                        // T5 (TTM financials) — NOT 'Most Recent NOI' (later sub-table)
-    t6: 'Underwritten Net Operating Income',
+    t5: 'UW Net Operating Income',           // spike's "T5 TTM" values live in the UW-headed table
+    t6: 'Most Recent NOI',                   // spike's "T6 UW" values live in the Most-Recent-headed table
   };
   const tablesRaw: Record<string, string> = {};
   for (const [k, anchor] of Object.entries(TABLE_ANCHORS)) {
