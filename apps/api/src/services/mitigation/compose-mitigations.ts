@@ -174,6 +174,24 @@ export interface SponsorBurdenProfile {
   readonly flagCopy: string | null;            // human-readable when flagged
 }
 
+/**
+ * v1.5 funded-exit projection at L' — the post-cut funded-basis exit DSCR
+ * the cash_sweep_refi_reserve lever delivers. Computed once during
+ * composition and attached to the package so the renderer (build-committee-
+ * memo.ts) can READ instead of recompute. Single source of truth lives here.
+ *
+ * All fields null when dim 4 didn't resolve, rc is missing, or the deal
+ * lacks a maturity balance — same sentinel behavior the memo previously
+ * implemented locally.
+ */
+export interface FundedExitProjection {
+  readonly rawExitAtFinalLoan: number | null;
+  readonly fundedExitAtFinalLoan: number | null;
+  readonly reserveTarget: number | null;
+  readonly expectedAccrual: number | null;
+  readonly residualUnfunded: number | null;
+}
+
 export interface ComposedMitigationPackage {
   /** Final lever list to present to the lender. */
   readonly proposals: readonly MitigationProposal[];
@@ -187,6 +205,9 @@ export interface ComposedMitigationPackage {
   readonly finalState: DealComputeState;
   /** v1.7 — sponsor burden profile derived from the composed package. */
   readonly sponsorBurdenProfile: SponsorBurdenProfile;
+  /** v1.8 — funded-exit projection at L' (single source of truth; replaces
+   *  the memo renderer's local recomputation). */
+  readonly fundedExitProjection: FundedExitProjection;
 }
 
 /* ------------------------------- entry point ------------------------------ */
@@ -458,6 +479,9 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
     proposals, finalState, finalLoanAmount, originalLoanAmount - finalLoanAmount,
   );
 
+  /* ---- (7) v1.8 — Funded-exit projection at L'. ------------------------ */
+  const fundedExitProjection = projectFundedExitAtFinalLoan(finalState);
+
   return {
     proposals,
     initialProposals,
@@ -465,6 +489,48 @@ export function composeMitigations(args: ComposeMitigationsArgs): ComposedMitiga
     finalLoanAmount,
     finalState,
     sponsorBurdenProfile,
+    fundedExitProjection,
+  };
+}
+
+/* ─── v1.8 — funded-exit projection at L' (single source of truth) ────────
+ *
+ * Pure derivation from finalState — mirrors what cash_sweep_refi_reserve
+ * sizes the trap against (NETTED basis + cap at reserve target). Mirrored
+ * exactly from the prior local copy in build-committee-memo.ts so the
+ * refactor moves the source without moving the number.
+ */
+function projectFundedExitAtFinalLoan(finalState: DealComputeState): FundedExitProjection {
+  const finalAi = finalState.adjustedInputs;
+  const finalDim4 = finalState.dealResult.dimensions.refinanceFeasibility;
+  const finalSustNcf = finalState.dealResult.normalization.sustainableNcf;
+  const rawExit = finalDim4.derivedOutputs?.exitDscr;
+  const rc = finalDim4.derivedOutputs?.stressedRefiConstant;
+  const maturityBalance = finalDim4.derivedOutputs?.maturityBalance;
+  if (typeof rawExit !== 'number' || typeof rc !== 'number' || typeof maturityBalance !== 'number') {
+    return { rawExitAtFinalLoan: null, fundedExitAtFinalLoan: null, reserveTarget: null, expectedAccrual: null, residualUnfunded: null };
+  }
+  if (typeof finalSustNcf !== 'number' || !(finalSustNcf > 0)) {
+    return { rawExitAtFinalLoan: rawExit, fundedExitAtFinalLoan: null, reserveTarget: null, expectedAccrual: null, residualUnfunded: null };
+  }
+  const assetType = resolveAssetTypeFromDeal(finalState.dealResult);
+  const egi = finalAi.income.effectiveGrossIncome.adjusted;
+  const opReservesAnnual = Math.max(0, resolveOperatingReservesPctOfEgi(assetType) * egi);
+  const cureTarget = DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET;
+  const exitClearing = finalSustNcf / (rc * cureTarget);
+  const reserveTarget = Math.max(0, maturityBalance - exitClearing);
+  const dsAnnual = finalAi.loan.debtServiceAnnual.adjusted;
+  const termMonths = finalAi.loan.termMonths.adjusted;
+  const funded = computeFundedExitFigures(
+    finalSustNcf, dsAnnual, termMonths, rc, maturityBalance,
+    opReservesAnnual, reserveTarget,
+  );
+  return {
+    rawExitAtFinalLoan: rawExit,
+    fundedExitAtFinalLoan: funded.fundedExitDscr,
+    reserveTarget,
+    expectedAccrual: funded.expectedAccrual,
+    residualUnfunded: funded.residualUnfunded,
   };
 }
 

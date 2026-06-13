@@ -42,13 +42,11 @@ import type {
   CleanDoctrineFinding,
 } from '../narrative/prompt-templates.js';
 import type { EvaluateDealResult } from '../../doctrine-clean/scoring/evaluate-deal.js';
-import type { ComposedMitigationPackage, SponsorBurdenProfile } from '../mitigation/compose-mitigations.js';
-import {
-  DEFAULT_MITIGATION_DESK,
-  computeFundedExitFigures,
-  resolveOperatingReservesPctOfEgi,
-} from '../mitigation/produce-mitigations.js';
-import { ASSET_CLASS_ENUM } from '../../doctrine-clean/index.js';
+import type {
+  ComposedMitigationPackage,
+  FundedExitProjection,
+  SponsorBurdenProfile,
+} from '../mitigation/compose-mitigations.js';
 import type { MitigationProposal } from '@cre/contracts';
 
 /* --------------------------- public surface ------------------------------ */
@@ -61,73 +59,13 @@ export interface BuildCommitteeMemoInput {
   readonly composedMitigationPackage: ComposedMitigationPackage;
 }
 
-/**
- * v1.5 funded-exit projection — pure derivation from finalState. Used for
- * the Stressed Credit Profile row showing raw exit → funded exit (after the
- * hard cash trap accrual). NETTED basis + cap at reserve target, identical
- * to what cash_sweep_refi_reserve uses. Returns null when dim 4 didn't
- * resolve, no rc, or the deal lacks a maturity balance.
- */
-export interface FundedExitProjection {
-  readonly rawExitAtFinalLoan: number | null;
-  readonly fundedExitAtFinalLoan: number | null;
-  readonly reserveTarget: number | null;
-  readonly fundedFloor: number | null;
-  readonly expectedAccrual: number | null;
-  readonly residualUnfunded: number | null;
-}
-
-function projectFundedExitAtFinalLoan(
-  dealResult: EvaluateDealResult,
-  composed: ComposedMitigationPackage,
-): FundedExitProjection {
-  const finalAi = composed.finalState.adjustedInputs;
-  const finalDim4 = composed.finalState.dealResult.dimensions.refinanceFeasibility;
-  const finalDim8 = composed.finalState.dealResult.dimensions.assetClass;
-  const finalSustNcf = composed.finalState.dealResult.normalization.sustainableNcf;
-  const rawExit = finalDim4.derivedOutputs?.exitDscr;
-  const rc = finalDim4.derivedOutputs?.stressedRefiConstant;
-  const maturityBalance = finalDim4.derivedOutputs?.maturityBalance;
-  if (typeof rawExit !== 'number' || typeof rc !== 'number' || typeof maturityBalance !== 'number') {
-    return { rawExitAtFinalLoan: null, fundedExitAtFinalLoan: null, reserveTarget: null, fundedFloor: null, expectedAccrual: null, residualUnfunded: null };
-  }
-  if (typeof finalSustNcf !== 'number' || !(finalSustNcf > 0)) {
-    return { rawExitAtFinalLoan: rawExit, fundedExitAtFinalLoan: null, reserveTarget: null, fundedFloor: null, expectedAccrual: null, residualUnfunded: null };
-  }
-  // Resolve asset type from dim 8 index → enum.
-  const idx = finalDim8.derivedOutputs?.canonicalAssetClassIndex;
-  const assetType = typeof idx === 'number' && idx >= 0 && idx < ASSET_CLASS_ENUM.length
-    ? ASSET_CLASS_ENUM[idx]!
-    : null;
-  const egi = finalAi.income.effectiveGrossIncome.adjusted;
-  const opReservesAnnual = Math.max(0, resolveOperatingReservesPctOfEgi(assetType) * egi);
-  const cureTarget = DEFAULT_MITIGATION_DESK.T_EXIT_DSCR_CURE_TARGET;
-  const exitClearing = finalSustNcf / (rc * cureTarget);
-  const reserveTarget = Math.max(0, maturityBalance - exitClearing);
-  const dsAnnual = finalAi.loan.debtServiceAnnual.adjusted;
-  const termMonths = finalAi.loan.termMonths.adjusted;
-  const funded = computeFundedExitFigures(
-    finalSustNcf, dsAnnual, termMonths, rc, maturityBalance,
-    opReservesAnnual, reserveTarget,
-  );
-  // Funded floor by asset — read the same desk knob.
-  // (computeFundedExitFigures does NOT use the floor; only the band gate does.)
-  const fundedFloor = null;  // memo doesn't need the floor in the projection — value lives in the AuthoritativeNumbers projection via T_EXIT_DSCR_CURE_TARGET-adjacent
-  void fundedFloor;
-  return {
-    rawExitAtFinalLoan: rawExit,
-    fundedExitAtFinalLoan: funded.fundedExitDscr,
-    reserveTarget,
-    fundedFloor: null,
-    expectedAccrual: funded.expectedAccrual,
-    residualUnfunded: funded.residualUnfunded,
-  };
-}
-
 export function buildCommitteeMemo(input: BuildCommitteeMemoInput): string {
   const auth = projectAuthoritativeNumbers(input.dealResult, input.composedMitigationPackage);
   const findings = extractCleanDoctrineFindings(input.dealResult);
-  const fundedProj = projectFundedExitAtFinalLoan(input.dealResult, input.composedMitigationPackage);
+  // v1.8 — funded-exit projection now lives on ComposedMitigationPackage
+  // (single source of truth in compose-mitigations.ts). Renderer READS
+  // instead of recomputing — no desk-knob imports, no engine helpers here.
+  const fundedProj = input.composedMitigationPackage.fundedExitProjection;
   return renderHtml(input, auth, findings, fundedProj);
 }
 
@@ -305,8 +243,9 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
       </div>
     </div>`;
 
-  // Why this shape: band-aware.
-  const ltvTrigger = DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER;
+  // Why this shape: band-aware. v1.8 — trigger pre-projected on AuthoritativeNumbers
+  // so the renderer reads a value, not a desk knob.
+  const ltvTrigger = auth.ltvTrigger;
   const whyShape = isStructuredHold
     ? `
     <div class="memo-callout-section">

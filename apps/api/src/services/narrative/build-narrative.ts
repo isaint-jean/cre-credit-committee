@@ -304,6 +304,7 @@ export function projectAuthoritativeNumbers(
     stressedValue:        num(dim7d, 'stressedValue'),
     stressedLtv:          num(dim7d, 'stressedLtv'),
     stressedLtvAtFinalLoan: num(dim7Final.derivedOutputs ?? {}, 'stressedLtv'),
+    ltvTrigger:           DEFAULT_MITIGATION_DESK.T_LTV_TRIGGER,
     concludedValue:       num(dim7d, 'concludedValue') ?? null,
     concludedValueSource: concludedValueSource as AuthoritativeNumbers['concludedValueSource'],
     valuationConfidenceNote,

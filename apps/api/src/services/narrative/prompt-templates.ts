@@ -441,6 +441,7 @@ export interface AuthoritativeNumbers {
   readonly stressedValue: number | null;
   readonly stressedLtv: number | null;
   readonly stressedLtvAtFinalLoan: number | null;
+  readonly ltvTrigger: number | null;                // 0.70 desk knob (v1.8 — pre-projected so renderer reads, doesn't read DEFAULT_MITIGATION_DESK)
   readonly concludedValue: number | null;
   readonly concludedValueSource:
     | 'extracted-appraisal'
