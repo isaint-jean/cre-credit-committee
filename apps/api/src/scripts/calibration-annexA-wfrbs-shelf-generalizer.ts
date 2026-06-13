@@ -302,16 +302,52 @@ function parseT5(row: string): T5Row {
 }
 
 interface T6Row { uwRevenue: number | null; uwExpenses: number | null; uwNoi: number | null; }
+
+/** True when `raw` is a bare 4-digit standalone integer in the year range
+ *  1900-2100 (no comma, no decimal — financial figures use commas; years
+ *  in CMBS prospectuses don't). Defensive: only applied in parseT6 where
+ *  the row may carry a period descriptor like "Actual 2011" before the
+ *  comma-formatted financial figures. Class B fix (2026-06-13). */
+function isBareYearToken(raw: string): boolean {
+  if (!/^\d{4}$/.test(raw)) return false;
+  const n = Number(raw);
+  return n >= 1900 && n <= 2100;
+}
+
 function parseT6(row: string): T6Row {
-  // T6: starts with [period text e.g. "TTM 7/31/2012"] then [revenue] [expenses] [noi] [capex] [ncf]
+  // T6 layout examples (period descriptor varies):
+  //   TTM-format       — "<id> <name> <seller> TTM 7/31/2012 9,432,760 6,102,436 3,330,324 ..."
+  //   Actual-YYYY      — "<id> <name> <seller> Actual 2011 16,671,189 1,627,694 15,043,495 ..."
+  // The TTM-format date contains slashes so num() rejects it. The Actual-YYYY
+  // format leaves a bare year that num() would accept as a financial figure
+  // — class B bug across #5/#24/#36/#72/#74. isBareYearToken() rejects it.
   const t = tokenize(row);
   const si = findSellerIdx(t);
   if (si < 0) return { uwRevenue: null, uwExpenses: null, uwNoi: null };
-  // Skip non-numeric prefix tokens after seller (period text)
+  // Two-stage positional capture:
+  //  (a) FIRST number must be >= $1,000 (the Revenue figure; filters out
+  //      stray small ints, e.g. unit counts that occasionally appear after
+  //      the seller code on portfolio rows).
+  //  (b) Subsequent numbers (Expenses, NOI) may include $0 — net-lease
+  //      properties (e.g. Walgreens, fast-food single-tenant) routinely
+  //      report $0 operating expenses because the tenant pays directly.
+  //      Without this relaxation, the parser skips the zero and captures
+  //      NCF as OpEx, collapsing the foot identity to 0. Class B fix
+  //      (2026-06-13) — surfaced by the year-token filter exposing the
+  //      original parser's eagerness on non-zero values.
   const bigNums: Array<{ idx: number; value: number }> = [];
   for (let i = si + 1; i < t.length && bigNums.length < 3; i++) {
-    const v = num(t[i]);
-    if (v !== null && v >= 1_000 && v <= 5_000_000_000) bigNums.push({ idx: i, value: v });
+    const raw = t[i] ?? '';
+    if (isBareYearToken(raw)) continue;       // ★ class B fix #1 — period-descriptor year
+    const v = num(raw);
+    if (v === null) continue;
+    if (bigNums.length === 0) {
+      // First slot: Revenue — must be > noise floor.
+      if (v >= 1_000 && v <= 5_000_000_000) bigNums.push({ idx: i, value: v });
+    } else {
+      // Subsequent slots: Expenses, NOI — allow $0 (net-lease has OpEx=0).
+      if (v >= 0 && v <= 5_000_000_000) bigNums.push({ idx: i, value: v });
+    }
   }
   const uwRevenue  = bigNums[0]?.value ?? null;
   const uwExpenses = bigNums[1]?.value ?? null;
