@@ -63,7 +63,13 @@ export type SourceDocument =
   | 'equityContributionSchedule'
   | 'uwMemo'
   | 'manualInput'
-  | 'derived';
+  | 'derived'
+  /** 424B5 prospectus Annex A — issuer-stated stratification tables. v8
+   *  field-authority addition; routes via ExtractionResult.annexA (stage 1
+   *  contract). Always paired with underwritingProvenance: 'issuer-stated'
+   *  on FieldRef so the lender-facing renderer badges these cells distinctly
+   *  from system-underwritten or operator-supplied values. */
+  | 'annexA';
 
 /** Locked valuation context discriminator for cap-rate / NOI / value cells. */
 export type ValuationContext = 'asIs' | 'stabilized' | 'exit' | 'market';
@@ -285,6 +291,37 @@ export interface FormatPolicy {
  * `suppressedFor: AssetClass[]` field below — assetOverrides can ONLY
  * substitute a different FieldRef, never delete one.
  */
+/**
+ * UNDERWRITING PROVENANCE — semantic origin of a cell's value, distinct from
+ * the FieldCandidateSource attribution tier above. The TIER tells us which
+ * adjudication slot won (ASR vs adjustedInput vs manual etc.); the
+ * PROVENANCE tells the LENDER who underwrote the number.
+ *
+ *   - 'system-underwritten' — produced by the judgment engine's own
+ *     analysis of the source documents (the answer-key path). Default
+ *     for any cell sourcing from t12Actual / inPlace / sellerUwOperatingStatement
+ *     / rentRoll, plus all `derived` cells computed from those.
+ *
+ *   - 'issuer-stated'       — the issuer (originator / arranger) disclosed
+ *     this figure as part of the prospectus / ASR. Annex A is the canonical
+ *     issuer-stated source. The system DOES NOT trust these numbers as the
+ *     answer key (Model-A frame); cross-references only. Lender-facing UI
+ *     MUST badge these visibly distinct from system-underwritten cells.
+ *
+ *   - 'operator-supplied'   — the desk operator overrode or sourced this
+ *     value (e.g., concludedValue when the bundle ships only an operator-
+ *     supplied BOV). Provenance is recorded for audit; underwriting math
+ *     proceeds unchanged.
+ *
+ * Field-authority registry v8 addition. Optional on FieldRef so legacy
+ * cells that don't carry the badge default to undefined and the renderer
+ * shows no provenance pill for them.
+ */
+export type UnderwritingProvenance =
+  | 'system-underwritten'
+  | 'issuer-stated'
+  | 'operator-supplied';
+
 export interface FieldRef {
   cellAddress: string;
   meaning: string;
@@ -304,6 +341,9 @@ export interface FieldRef {
   /** Asset classes for which this entry is suppressed (no materialization). */
   suppressedFor?: readonly AssetClass[];
   resolutionState: ResolutionState;
+  /** v8 — underwriting-side provenance badge for the lender-facing renderer.
+   *  See UnderwritingProvenance for semantics. Omitted on legacy cells. */
+  underwritingProvenance?: UnderwritingProvenance;
 }
 
 export interface EntityCollectionDefinition {

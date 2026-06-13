@@ -402,11 +402,17 @@ const DEBT_STACK_FIELDS: readonly FieldRef[] = [
     fallbacks: [
       { document: 'commitment', surface: 'resolvedContext',
         extractionPath: 'loan.commitmentMaturityDate' },
+      // v8 — Annex A fallback for backbone deals with no commitment / loan docs.
+      // Routes via ExtractionResult.annexA (issuer-stated; the prospectus discloses
+      // origination terms verbatim). Provenance is loanDocs when present.
+      { document: 'annexA', surface: 'resolvedContext',
+        extractionPath: 'annexA.maturityDate' },
     ],
     missingBehavior: blank,
     conflictPolicy: PRESERVE_PRECEDENCE,
     formatPolicy: { type: 'date', preserveOriginal: true },
-    resolutionState: 'unmapped',
+    resolutionState: 'mapped',
+    underwritingProvenance: 'system-underwritten',
   },
   {
     cellAddress: 'Maturity_Balance',
@@ -1553,7 +1559,12 @@ const ALL_FIELDS: readonly FieldRef[] = [
 
 export const PROPERTY_AND_LOAN_SUMMARY_REGISTRY: FieldAuthorityRegistry =
   Object.freeze({
-    contractVersion: 7,
+    // v8 (2026-06-13) — Annex A productionization stage 2. ~15 cells flipped
+    // unmapped → mapped with primary binding to ExtractionResult.annexA (new
+    // SourceDocument 'annexA'). Issuer-stated cells carry
+    // underwritingProvenance: 'issuer-stated' so the lender-facing renderer
+    // badges them distinctly from system-underwritten / operator-supplied.
+    contractVersion: 8,
     fields: Object.freeze(indexFields(ALL_FIELDS)),
     collections: Object.freeze({
       Tenant:        TENANT_COLLECTION,
