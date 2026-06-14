@@ -54,6 +54,8 @@ import {
   fmtNum,
   verify,
   type ExtractedLoan,
+  type PariPassuCombination,
+  type CrossCollatGroup,
 } from './lib/annexA-verify.js';
 
 const ANNEX_A_PATH = '/tmp/cgcmt-2013-gc15-424B5.htm';
@@ -445,12 +447,139 @@ function parseT8(row: string): T8Row {
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
+/* Convention parsers — CGCMT-specific shapes                               */
+/* ──────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Parse Related Group + Crossed Group from a T1 row.
+ *
+ * Column order after Property Name:
+ *   ... [Related Group] [Crossed Group] [Address] [City] [State] [Zip] [Property Type]
+ *
+ * Both group columns are EITHER "NAP" or "Group <token>" — the pair appears
+ * adjacent in every T1 row. We pattern-match the adjacent pair to avoid
+ * having to track the variable property-name length (which can include
+ * digits like "125 Third Avenue" and even literal "Group N" in the name
+ * itself — e.g. #10 "Group 10 Hotel Portfolio"; the adjacent-pair regex
+ * sidesteps both issues because the property name never produces a
+ * `(NAP|Group X) (NAP|Group Y)` adjacent pair).
+ *
+ * Returns null tag when the column is "NAP" or when no pair is found.
+ */
+const GROUP_PAIR_RE = /(NAP|Group\s+\w+)\s+(NAP|Group\s+\w+)/;
+function parseT1ConventionTags(row: string | null): { related: string | null; crossed: string | null } {
+  if (row === null) return { related: null, crossed: null };
+  const m = GROUP_PAIR_RE.exec(row);
+  if (m === null) return { related: null, crossed: null };
+  const norm = (s: string): string | null => (s.trim().toUpperCase() === 'NAP' ? null : s.trim());
+  return { related: norm(m[1] ?? ''), crossed: norm(m[2] ?? '') };
+}
+
+/**
+ * Parse the "Pari Passu Companion Loan Summary" table in the Annex B prose
+ * region. Each row lists the trust-slice loan name + companion balance +
+ * combined whole-loan balance. We extract the whole-loan balance for each
+ * named loan and resolve property names to control numbers via the T1
+ * Property Name column.
+ *
+ * Table shape (verbatim, observed at offset ~1,641,955):
+ *
+ *   Pari Passu Companion Loan Summary
+ *   Mortgage Loan Name | Mortgage Loan Cut-off Date Balance | Pari Passu
+ *     Companion Loan Cut-off Date Balance | Whole Loan Cut-off Date Balance
+ *     | Controlling P&S Agreement | UW NCF DSCR | UW NOI Debt Yield |
+ *     Cut-off Date LTV Ratio
+ *
+ *   Walpole Shopping Mall $17,500,000 $47,000,000 $64,500,000 CGCMT 2013-GC15 1.33x 9.2% 75.0%
+ *
+ * For CGCMT 2013-GC15 only ONE loan is pari-passu (Walpole, #20); the
+ * regex is written for N-row generality.
+ */
+function parseCgcmtPariPassuTable(annexA: string): Map<string, number> {
+  const out = new Map<string, number>();
+  const tableStart = annexA.indexOf('Pari Passu Companion Loan Summary');
+  if (tableStart < 0) return out;
+  // Skip past the column-header row: the last words of the header are
+  // "Cut-off Date LTV Ratio" — data rows begin immediately after that.
+  // Without this skip, a lazy regex like `[A-Z][^$]{2,80}?` matches
+  // from the first capital ('UW' / 'Mortgage') in the header all the
+  // way to the dollar figure, producing junk names like
+  // "UW NCF DSCR UW NOI Debt Yield Cut-off Date LTV Ratio Walpole Shopping Mall".
+  const headerEndMarker = 'Cut-off Date LTV Ratio';
+  const headerEnd = annexA.indexOf(headerEndMarker, tableStart);
+  if (headerEnd < 0) return out;
+  const dataStart = headerEnd + headerEndMarker.length;
+  const tableEnd = Math.min(annexA.length, dataStart + 4000);
+  const table = annexA.slice(dataStart, tableEnd);
+  // Pattern: <Property Name>  $<trust>  $<companion>  $<whole>  CGCMT…
+  // Property name = capital-letter start, then anything that isn't "$"
+  // (the dollar sign anchors the start of the trust balance — most
+  // robust delimiter). Whole-loan balance is the third $-figure.
+  const rowRe = /([A-Z][^$]{2,80}?)\s+\$([\d,]+)\s+\$([\d,]+)\s+\$([\d,]+)\s+CGCMT/g;
+  let m;
+  while ((m = rowRe.exec(table)) !== null) {
+    const name = (m[1] ?? '').trim();
+    const whole = Number((m[4] ?? '').replace(/,/g, ''));
+    if (name && Number.isFinite(whole)) out.set(name, whole);
+  }
+  return out;
+}
+
+/**
+ * Build a map of property names → control numbers from the T1 chunk so we
+ * can resolve Pari-Passu table entries (keyed by property name) to control
+ * numbers (which is what ExtractedLoan.pariPassuCombination is indexed by).
+ */
+function buildNameToControlMap(t1Chunk: string): Map<string, number> {
+  const out = new Map<string, number>();
+  // Per-row pattern: capture "Control# Loan [footnotes] SELLER PropertyName" up to the GROUP_PAIR
+  const sellerRe = '(?:CGMRC|GSMC|RMF|SMF\\s+I|RAIT\\s+Funding,\\s+LLC|RCMC|The\\s+Bancorp\\s+Bank)';
+  const rowRe = new RegExp(
+    `(?<![\\d.])\\b(\\d+)\\s+Loan\\s+(?:[\\d,]+(?:\\s+[\\d,]+)*\\s+)?${sellerRe}\\s+([A-Z][^]+?)\\s+(?:NAP|Group\\s+\\w+)\\s+(?:NAP|Group\\s+\\w+)`,
+    'g',
+  );
+  let m;
+  while ((m = rowRe.exec(t1Chunk)) !== null) {
+    const n = Number(m[1]);
+    const name = (m[2] ?? '').trim();
+    if (Number.isFinite(n) && name) out.set(name, n);
+  }
+  return out;
+}
+
+/**
+ * Resolve a Pari-Passu table entry's name → control number. Tries exact
+ * match first; falls back to a normalized comparison (e.g. the summary
+ * table uses "Walpole Shopping Mall" while the T1 row carries "Walpole
+ * Shopping Mall" — usually identical, but defensive).
+ */
+function resolvePariPassu(
+  ppTable: Map<string, number>,
+  nameToN: Map<string, number>,
+): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const [name, whole] of ppTable) {
+    let n = nameToN.get(name);
+    if (n === undefined) {
+      // case-insensitive fallback
+      for (const [k, v] of nameToN) {
+        if (k.toLowerCase() === name.toLowerCase()) { n = v; break; }
+      }
+    }
+    if (n !== undefined) out.set(n, whole);
+  }
+  return out;
+}
+
+/* ──────────────────────────────────────────────────────────────────────── */
 /* Per-loan aggregation                                                     */
 /* ──────────────────────────────────────────────────────────────────────── */
 
 function extractLoan(
   controlNumber: number,
   tables: Record<string, string>,
+  pariPassuByControlNum: Map<number, number>,
+  crossCollatByControlNum: Map<number, CrossCollatGroup>,
 ): ExtractedLoan {
   const r1 = extractLoanRow(tables.t1 ?? '', controlNumber);
   const r2 = extractLoanRow(tables.t2 ?? '', controlNumber);
@@ -488,9 +617,19 @@ function extractLoan(
     uwY1Noi: t7.uwY1Noi,
     uwY1Revenue: null,
     uwY1OpEx: null,
-    // NEXT STEP — Related Group + Crossed Group columns in T1 + footnote follow-ups.
-    pariPassuCombination: null,
-    crossCollatGroup: null,
+    // STEP 3 wiring: pari-passu from the "Pari Passu Companion Loan Summary"
+    // table; cross-collat from the T1 "Crossed Group" column. Related Group
+    // is a borrower-relationship tag, NOT a denominator convention — it is
+    // captured separately for display and does NOT flow into ExtractedLoan.
+    pariPassuCombination: pariPassuByControlNum.has(controlNumber)
+      ? ({
+          noteNumber: 'A-1',                     // CGCMT 2013-GC15 has a single pari-passu loan (#20 Walpole);
+                                                 // noteNumber/totalNotes are display-only — denom is the combined balance scalar
+          totalNotes: 2,
+          combinedCutOffBalance: pariPassuByControlNum.get(controlNumber)!,
+        } satisfies PariPassuCombination)
+      : null,
+    crossCollatGroup: crossCollatByControlNum.get(controlNumber) ?? null,
   };
 }
 
@@ -500,7 +639,7 @@ function extractLoan(
 
 async function main(): Promise<void> {
   console.log('================================================================');
-  console.log('CGCMT 2013-GC15 — Annex A shelf walker (STEP 2: rows + financials only)');
+  console.log('CGCMT 2013-GC15 — Annex A shelf walker (STEP 3: conventions wired)');
   console.log('================================================================\n');
 
   const raw = fs.readFileSync(ANNEX_A_PATH, 'utf8');
@@ -515,10 +654,76 @@ async function main(): Promise<void> {
   }
   console.log('');
 
+  /* ─── Pre-walk: build convention maps ─── */
+
+  // Cross-collat: scan T1 rows for the Crossed Group column. Loans
+  // sharing a non-NAP Crossed Group value are members of the same
+  // cross-collat group. Related Group is also captured (display only).
+  const relatedTagByN = new Map<number, string>();   // for display only
+  const crossedTagByN = new Map<number, string>();   // intermediate; finalized into CrossCollatGroup below
+  for (let n = 1; n <= 120; n++) {
+    const r1 = extractLoanRow(tables.t1 ?? '', n);
+    if (r1 === null) continue;
+    const tags = parseT1ConventionTags(r1);
+    if (tags.related !== null) relatedTagByN.set(n, tags.related);
+    if (tags.crossed !== null) crossedTagByN.set(n, tags.crossed);
+  }
+  // Group loans by Crossed Group tag → CrossCollatGroup objects
+  const groupsByTag = new Map<string, number[]>();
+  for (const [n, tag] of crossedTagByN) {
+    if (!groupsByTag.has(tag)) groupsByTag.set(tag, []);
+    groupsByTag.get(tag)!.push(n);
+  }
+  const crossCollatByControlNum = new Map<number, CrossCollatGroup>();
+  for (const [tag, members] of groupsByTag) {
+    const memberIds = [...members].sort((a, b) => a - b);
+    const group: CrossCollatGroup = { groupId: `XC-${tag.replace(/\s+/g, '-')}`, memberIds };
+    for (const id of memberIds) crossCollatByControlNum.set(id, group);
+  }
+
+  console.log('Cross-collat groups (from T1 Crossed Group column):');
+  if (groupsByTag.size === 0) {
+    console.log('  (none)');
+  } else {
+    for (const [tag, members] of [...groupsByTag.entries()].sort()) {
+      console.log(`  Crossed=${tag}  → group XC-${tag.replace(/\s+/g, '-')}  members {${members.map(n => '#' + n).join(', ')}}`);
+    }
+  }
+
+  console.log('\nRelated Groups (display only — does NOT trigger aggregation):');
+  const relatedByTag = new Map<string, number[]>();
+  for (const [n, tag] of relatedTagByN) {
+    if (!relatedByTag.has(tag)) relatedByTag.set(tag, []);
+    relatedByTag.get(tag)!.push(n);
+  }
+  if (relatedByTag.size === 0) {
+    console.log('  (none)');
+  } else {
+    for (const [tag, members] of [...relatedByTag.entries()].sort()) {
+      console.log(`  Related=${tag}  → members {${members.map(n => '#' + n).join(', ')}}  (no denominator change)`);
+    }
+  }
+  console.log('');
+
+  // Pari-passu: parse the "Pari Passu Companion Loan Summary" table.
+  const ppNameMap = parseCgcmtPariPassuTable(annexA);
+  const nameToN = buildNameToControlMap(tables.t1 ?? '');
+  const pariPassuByControlNum = resolvePariPassu(ppNameMap, nameToN);
+
+  console.log('Pari-passu loans (from "Pari Passu Companion Loan Summary" table):');
+  if (pariPassuByControlNum.size === 0) {
+    console.log('  (none detected)');
+  } else {
+    for (const [n, whole] of [...pariPassuByControlNum.entries()].sort((a, b) => a[0] - b[0])) {
+      console.log(`  #${n}  whole-loan cut-off $${(whole / 1_000_000).toFixed(1)}M`);
+    }
+  }
+  console.log('');
+
   // Walk 1..120; each control# is a candidate. Real CGCMT pool size is 97 per cover.
   const loans: ExtractedLoan[] = [];
   for (let n = 1; n <= 120; n++) {
-    const loan = extractLoan(n, tables);
+    const loan = extractLoan(n, tables, pariPassuByControlNum, crossCollatByControlNum);
     if (loan.loanAmount !== null || loan.concludedValue !== null) {
       loans.push(loan);
     }
