@@ -899,6 +899,21 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   // (which read `a.metrics.impliedValue`, a field that no longer exists
   // and produced library-median-derived $113.58M) is structurally overridden.
   //
+  // PATH-DEPENDENT BEHAVIOR — the cell renders ONLY when the upstream
+  // pipeline populated `metrics.value` with an operator-supplied valuation:
+  //   - calibration-memo-v1 path: loads AdjustedInputs directly from
+  //     phase4-sunroad.db where `value: 126200361.95` is persisted from a
+  //     run that DID have operator input wired → cell renders $126.20M.
+  //   - phase14-produce-workbook path: routes through the legacy producer
+  //     (ingestExtractionResult → analysis-to-adjusted-inputs.adapter →
+  //     metrics.value = null), which has NO operator-input seam → cell
+  //     correctly stays blank.
+  // Phase14's blank is by design, not a wiring bug. Populating it for
+  // phase14 requires either (a) an operator-input field at deal-setup
+  // plumbed through the legacy producer, or (b) phase14 switching to the
+  // clean-room `evaluateAndNarrate` path. Both are out of scope for the
+  // schema layer.
+  //
   // Concluded_Cap_Rate stays awaiting_input: the operator supplied a value
   // anchored to ratings actions on comparable towers, NOT a cap rate.
   // The implied (NOI/value = ~6.75%) is a derivation the memo doesn't

@@ -287,10 +287,32 @@ function fmt(n: number | null): string {
     if (/^[A-Z]+\d+$/.test(ref)) {
       cell = ws.getCell(ref);
     } else {
+      // ExcelJS getMatrix returns a SPARSE 2D structure shaped as
+      // sheets[name][row][col] — the cell's coordinate is at the actual
+      // (row, col), NOT at index [0]. The prior `[0]` index always read
+      // null and fell through to ws.getCell('A1'), producing FALSE
+      // "written=null" reports for every named-range cell even when the
+      // cell was correctly populated by the writer. Walk the matrix to
+      // find the first populated coordinate (defined names point to a
+      // single cell or a contiguous range; the first non-null entry is
+      // the binding target).
       try {
         const dnRanges = (wb.definedNames as any).getMatrix(ref);
-        const r = dnRanges?.sheets?.[sheet]?.[0];
-        if (r) cell = ws.getCell(r);
+        const sheetMatrix = dnRanges?.sheets?.[sheet];
+        if (Array.isArray(sheetMatrix)) {
+          outer:
+          for (let rIdx = 0; rIdx < sheetMatrix.length; rIdx++) {
+            const row = sheetMatrix[rIdx];
+            if (!Array.isArray(row)) continue;
+            for (let cIdx = 0; cIdx < row.length; cIdx++) {
+              const entry = row[cIdx];
+              if (entry && typeof entry === 'object' && typeof entry.address === 'string') {
+                cell = ws.getCell(entry.address);
+                break outer;
+              }
+            }
+          }
+        }
       } catch { /* fall through */ }
       if (!cell) cell = ws.getCell('A1');
     }
