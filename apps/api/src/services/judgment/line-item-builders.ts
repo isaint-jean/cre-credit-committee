@@ -318,7 +318,12 @@ export function buildOtherIncome(args: {
       { slot: args.extraction.sellerUwOperatingStatement,      source: 'SELLER_UW' },
     ];
     for (const { slot, source: slotSource } of recoverySlots) {
-      if (slot === null) continue;
+      // Loose-null guard matches the cascade above (lines 286-294) — a contract-
+      // valid ExtractionResult has these fields typed `OperatingStatementExtraction
+      // | null`, but degenerate fixtures (e.g. test-null-fidelity passing
+      // `{ extraction: {} as any }`) yield undefined. No production behavior
+      // change: contract-conforming inputs only ever produce null or an object here.
+      if (slot === null || slot === undefined) continue;
       const ti  = slot.income.totalIncome;
       const gpr = slot.income.grossPotentialRent;
       if (ti === null || gpr === null) continue;
