@@ -251,13 +251,16 @@ function parseT3(row: string): T3Row {
     const raw = t[i] ?? '';
     if (isSubRowToken(t, i)) break;
     if (raw === 'Yes' || raw === 'No') {
-      // Walk forward up to 4 tokens; the first numeric in range [1, 20]
-      // (and not a percent) is the mortgage rate.
-      for (let j = i + 1; j < Math.min(t.length, i + 5); j++) {
+      // Walk forward up to 6 tokens; the first numeric in range [1, 20]
+      // formatted as a decimal (5.05000 / 4.94000 etc.) is the mortgage
+      // rate. The `.` requirement rejects related-borrower "Group N" tags
+      // (e.g. "No Yes - Group 1 5.05000 ...") which otherwise let an
+      // integer 1-9 win the coupon scan and trash DSCR for 7 loans.
+      for (let j = i + 1; j < Math.min(t.length, i + 7); j++) {
         const rj = t[j] ?? '';
         if (rj === 'Yes' || rj === 'No') continue;
         const v = num(rj);
-        if (v !== null && v > 0 && v < 20 && !rj.endsWith('%')) {
+        if (v !== null && v > 0 && v < 20 && rj.includes('.') && !rj.endsWith('%')) {
           coupon = v / 100;
           break;
         }
@@ -281,20 +284,31 @@ function parseT4(row: string): T4Row {
   // [Last IO Pmt] / [First P&I Pmt] / Term / Amort / I/O Period /
   // Seasoning / Due Date.
   //
-  // The Last IO Pmt and First P&I Pmt columns are dates when present and
-  // blank for full-IO loans. The Term / Amort / I/O Period / Seasoning /
-  // Due Date columns are small integers. So: collect tokens that look
-  // like 0-500 integers (skip dollar Service / date tokens / sub-row
-  // markers); the first 3 ints map to [Term, Amort, I/O Period].
+  // ANCHOR on the Annual DS column — it's the first decimal-formatted
+  // number ≥ $1K after the seller. Property names containing leading
+  // digits ("131 West Wilson Street", "369 Lexington Avenue", "2 West
+  // 46th Street") tokenize to small integers that would otherwise
+  // pollute the Term/Amort/IO collector and silently wreck DSCR — same
+  // shape as CGCMT #23. Anchoring after Annual DS makes property-name
+  // digits structurally unreachable.
+  let anchorIdx = -1;
+  for (let i = si; i < t.length; i++) {
+    const raw = t[i] ?? '';
+    if (isSubRowToken(t, i)) break;
+    const v = num(raw);
+    if (v !== null && raw.includes('.') && v >= 1000) {
+      anchorIdx = i;
+      break;
+    }
+  }
+  if (anchorIdx < 0) return { ioMonths: null, originalTermMonths: null, amortMonths: null };
   const ints: number[] = [];
-  for (let i = si; i < t.length && ints.length < 8; i++) {
+  for (let i = anchorIdx + 1; i < t.length && ints.length < 8; i++) {
     const raw = t[i] ?? '';
     if (isSubRowToken(t, i)) break;
     if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw)) continue;   // dates
     const v = num(raw);
     if (v !== null && Number.isInteger(v) && v >= 0 && v <= 500 && !raw.includes('.')) {
-      // raw.includes('.') filters the Annual DS ($X,XXX,XXX.XX) which is
-      // a decimal — IO/Term/Amort/Seasoning/Due Date are all integers.
       ints.push(v);
     }
   }
@@ -317,6 +331,11 @@ function parseT6(row: string): T6Row {
   // After seller + property name: 3 trailing periods of [Revenues,
   // Expenses, NOI]. We take the FIRST period (Most Recent). Stop at
   // sub-row marker. Skip dates.
+  // Require comma-separated formatting for the FIRST T6 financial — real
+  // Most Recent revenues are millions ("15,748,916") and tokenize with commas;
+  // property-name leading digits like "1615 L Street" or "1660 Bay Street"
+  // are bare 4-digit integers and would otherwise pollute the EGI slot
+  // (same shape as the parseT4 leading-digit bug, but at a different col).
   const bigNums: number[] = [];
   for (let i = si; i < t.length && bigNums.length < 3; i++) {
     const raw = t[i] ?? '';
@@ -325,7 +344,7 @@ function parseT6(row: string): T6Row {
     const v = num(raw);
     if (v === null) continue;
     if (bigNums.length === 0) {
-      if (v >= 1_000 && v <= 5_000_000_000) bigNums.push(v);
+      if (v >= 1_000 && v <= 5_000_000_000 && raw.includes(',')) bigNums.push(v);
     } else {
       if (v >= 0 && v <= 5_000_000_000) bigNums.push(v);
     }
@@ -417,6 +436,44 @@ function parseT8(row: string): T8Row {
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
+/* Pari-passu summary table                                                 */
+/* ──────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Parse the "Pari Passu Companion Loans" summary table near the front of the
+ * prospectus (~@90,846). Format per row:
+ *   <controlNumber> <Property Name multi-token> $ <inTrust> <pct> % $ <PP companion> <$ <subordinate> | N/A>
+ *
+ * Only 4 rows on this shelf (#1 Veritas, #2 Miracle Mile Shops, #3 1615 L
+ * Street, #4 Hulen Mall). The prefix integer IS the loan control number
+ * (verified: in-trust balance per row matches the T2 loanAmount each loan
+ * extracts). Combined senior balance = in-trust + PP companion (subordinate
+ * sits in a different debt layer — the issuer's stated UW NCF DSCR / LTV /
+ * DY use senior-only, hand-verified per loan in step 2 recon).
+ */
+function parsePariPassuSummary(full: string): Map<number, number> {
+  const out = new Map<number, number>();
+  const tableStart = full.indexOf('Pari Passu Companion Loans Original Balance');
+  if (tableStart < 0) return out;
+  const region = full.slice(tableStart, tableStart + 2000);
+  // <N> <name…> $ <inTrust> <pct> % $ <PPcompanion>
+  // The `,` in the negative lookbehind is load-bearing: without it, "$ 20,000,000 2 Miracle"
+  // matches the trailing "000" of the previous row's subordinate balance as the next row's
+  // prefix integer (parses to controlNumber 0). With "," in the deny list, only true row-leads
+  // — preceded by whitespace — match.
+  const rowRe = /(?<![\d.,])\b(\d{1,3})\s+([A-Za-z0-9][^$]+?)\s+\$\s+([\d,]+)\s+[\d.]+\s*%\s+\$\s+([\d,]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = rowRe.exec(region)) !== null) {
+    const controlNumber = Number(m[1]);
+    const inTrust = Number((m[3] ?? '').replace(/,/g, ''));
+    const ppCompanion = Number((m[4] ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(inTrust) || !Number.isFinite(ppCompanion)) continue;
+    out.set(controlNumber, inTrust + ppCompanion);
+  }
+  return out;
+}
+
+/* ──────────────────────────────────────────────────────────────────────── */
 /* Per-loan aggregation                                                     */
 /* ──────────────────────────────────────────────────────────────────────── */
 
@@ -437,6 +494,7 @@ interface JpmbbLoan extends ExtractedLoan {
 function extractLoan(
   controlNumber: number,
   tables: Record<string, string>,
+  pariPassuCombined: ReadonlyMap<number, number>,
 ): JpmbbLoan {
   const r2 = extractLoanRow(tables.t2 ?? '', controlNumber);
   const r3 = extractLoanRow(tables.t3 ?? '', controlNumber);
@@ -474,8 +532,17 @@ function extractLoan(
     statedRatioNumerator: t7.statedRatioNumeratorNcf,
     uwY1Revenue: t7.uwY1Revenue,
     uwY1OpEx: t7.uwY1OpEx,
-    pariPassuCombination: null,   // step 2
-    crossCollatGroup: null,       // step 2
+    pariPassuCombination: pariPassuCombined.has(controlNumber)
+      ? {
+          noteNumber: 'A-1',                                       // display-only
+          totalNotes: 2,                                            // display-only
+          combinedCutOffBalance: pariPassuCombined.get(controlNumber)!,
+        }
+      : null,
+    crossCollatGroup: null,        // no mortgage-loan cross-collat groups on JPMBB 2013-C15
+                                   // (the 6 cross-collat hits are MEZZ-LAYER #6/#10; per the
+                                   // prospectus, "the related mortgage loans are NOT cross-
+                                   // collateralized or cross-defaulted with each other")
     _internal: {
       statedRatioNumeratorNoi: t7.statedRatioNumeratorNoi,
       statedRatioNumeratorNcf: t7.statedRatioNumeratorNcf,
@@ -501,6 +568,9 @@ async function main(): Promise<void> {
   console.log(`Stripped doc: ${annexA.length.toLocaleString()} bytes\n`);
 
   const tables = locateTableChunks(annexA);
+  const pariPassuCombined = parsePariPassuSummary(annexA);
+  console.log(`Pari-passu summary table: ${pariPassuCombined.size} loans wired (` +
+              `${[...pariPassuCombined.entries()].map(([n, b]) => `#${n}→$${(b/1e6).toFixed(1)}M`).join(', ')})\n`);
   console.log('Table chunks located (anchor / length):');
   for (const k of ['t2', 't3', 't4', 't5', 't6', 't7', 't8']) {
     const len = (tables[k] ?? '').length;
@@ -511,7 +581,7 @@ async function main(): Promise<void> {
   // Walk 1..120; pool count is 68 per prospectus cover.
   const loans: JpmbbLoan[] = [];
   for (let n = 1; n <= 120; n++) {
-    const loan = extractLoan(n, tables);
+    const loan = extractLoan(n, tables, pariPassuCombined);
     if (loan.loanAmount !== null || loan.concludedValue !== null) {
       loans.push(loan);
     }
