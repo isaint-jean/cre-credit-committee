@@ -115,8 +115,40 @@ function extractLoanRow(tableText: string, controlNumber: number): string | null
   const m = re.exec(tableText);
   if (m === null) return null;
   const start = m.index;
-  // End at next loan row (number 1-200, not 17.01 or similar)
-  const stopRe = new RegExp(`(?<![\\d\\.])\\b(?:[1-9][0-9]?|1[0-9]{2})\\s+[A-Z][A-Za-z]`, 'g');
+  // End at next loan row (number 1-200, not 17.01 or similar).
+  //
+  // ★ TWO false-positive truncation patterns the prior stop regex hit (both
+  //   diagnosed 2026-06-14 against WFRBS 2013-C11; together they were
+  //   responsible for 13 silent-CLEAN loans surfaced by the UNCHECKED
+  //   verdict):
+  //
+  //   (A) Comma-tail-of-thousands segment + capital unit. The previous
+  //       single-char (?<![\d\.]) lookbehind only checked one char back; a
+  //       comma is neither digit nor period, so on "1,302,107 Sq. Ft." the
+  //       stop matched "107 Sq" — truncating mid-number. Widened lookbehind
+  //       to (?<![\d\.,]) rejects this whole class (#1, #5, #81).
+  //
+  //   (B) Standalone unit count + capital unit label. "98 Rooms" /
+  //       "168 Pads" / "19 Units" looked structurally identical to a real
+  //       next-row marker ("42 Marketplace") but are intra-row unit counts
+  //       for hotels / MHCs / apartments. No comma precedes them, so (A)
+  //       alone doesn't fix this. Added a unit-label negative-lookahead
+  //       denylist after the integer + whitespace.
+  //
+  //   Denylist words: observed in WFRBS 2013-C11 (Rooms, Units, Pads,
+  //   Sq.?, Ft.?). Extra-conservative defensive additions (Beds, Acres,
+  //   Spaces, Bays, Stalls) cover CMBS asset classes not on this shelf but
+  //   plausible on others. Property names starting with these tokens are
+  //   not rejected because the negation requires \b after the unit word
+  //   ("Suites X" passes — "Sq" then "uites" lacks the word-boundary so
+  //   Sq\.?\b fails; "Square Park" likewise).
+  const stopRe = new RegExp(
+    `(?<![\\d\\.,])` +
+    `\\b(?:[1-9][0-9]?|1[0-9]{2})\\s+` +
+    `(?!(?:Rooms|Units|Pads|Sq\\.?|Ft\\.?|Beds|Acres|Spaces|Bays|Stalls)\\b)` +
+    `[A-Z][A-Za-z]`,
+    'g',
+  );
   stopRe.lastIndex = start + 8;  // skip past the current loan number itself
   const stop = stopRe.exec(tableText);
   const end = stop ? stop.index : start + 800;
@@ -165,10 +197,29 @@ function parseT2(row: string): T2Row {
   const si = findSellerIdx(t);
   if (si < 0) return { originalLoanAmount: null, cutOffPrincipal: null, balloonBalance: null, maturityDate: null };
   // Walk forward from seller looking for first $-amount-looking token (>1M, comma-formatted or plain).
+  //
+  // ★ Bug A — NRA-skip (2026-06-14): in the T2 column layout NRA / sqft comes
+  // BEFORE the loan-amount columns ("...1,302,107 Sq. Ft. 215 155,000,000..."),
+  // so for properties whose NRA ≥ $1M the bare numeric would otherwise become
+  // dollarish[0] and the engine would read the SqFt count as if it were the
+  // trust-slice loan amount — collapsing the LTV identity (e.g. on WFRBS #5
+  // Brennan Industrial Portfolio II 3,913,170 sqft, derived LTV 2.1% vs
+  // stated 65.0%). Skip any numeric token whose IMMEDIATELY-FOLLOWING token
+  // is a sqft unit label (Sq./Sq/Ft./Ft/SF). Real loan amounts in T2 are
+  // followed by another large number, a percent ("% pool" column), or a
+  // date — never by a unit label, so the filter has no false positives on
+  // the 56 loans whose NRA is already < $1M (those tokens never entered
+  // dollarish to begin with) and corrects:
+  //   #1, #2, #6  — cosmetic loanAmount display (pari-passu rescue still
+  //                 drives the verdict; denom = combined balance)
+  //   #5         — verdict FLAGGED → CLEAN (denom = real trust slice)
+  const NRA_UNIT_LABEL = /^(?:Sq\.?|Ft\.?|SF)$/;
   const numericTokens: Array<{ idx: number; value: number }> = [];
   for (let i = si + 1; i < Math.min(t.length, si + 30); i++) {
     const v = num(t[i]);
-    if (v !== null && v >= 100_000) numericTokens.push({ idx: i, value: v });
+    if (v === null || v < 100_000) continue;
+    if (NRA_UNIT_LABEL.test(t[i + 1] ?? '')) continue;
+    numericTokens.push({ idx: i, value: v });
   }
   // Sequence of major figures: original, cutoff, balloon, dates.
   // Filter to those that look like dollar amounts (>= $1M typically for CMBS).
