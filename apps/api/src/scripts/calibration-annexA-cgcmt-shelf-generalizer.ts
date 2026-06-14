@@ -274,28 +274,49 @@ function parseT4(row: string): T4Row {
   // After seller + Property Name (multi-tok): [Original IO (mos)] [Remaining IO (mos)]
   //   [Original Term (mos)] [Remaining Term (mos)] [Original Amort (mos)] [Remaining Amort (mos)]
   //   [Origination Date] [Due Date] [First Due] [Last IO] [First P&I] [Maturity/ARD] [Y/N]
-  // Property name token count is variable. Anchor on the FIRST run of 1-4 small integers (months)
-  // and extract first / third / fifth as IO/Term/Amort.
-  const intRun: number[] = [];
-  let inRun = false;
-  for (let i = si; i < t.length; i++) {
+  //
+  // The month-tuple has a distinctive STRUCTURE: 3 consecutive (original,
+  // remaining) pairs where each pair's two integers differ by at most ~12
+  // (one year of seasoning maximum). The previous "first-run-of-small-ints"
+  // heuristic mis-anchored on property-name-trailing digits like
+  // "NorthSteppe Realty 1" or "Rivercrest Wal-Mart Portfolio 5"
+  // (#23/#49/#95), shifting every downstream field by 1-2 positions.
+  //
+  // Fix: collect all integer-like tokens (up to 12 — column structure is
+  // bounded), then slide a 6-window looking for [a, a~, b, b~, c, c~]
+  // with |a-a~|, |b-b~|, |c-c~| all ≤ 12. The first window that matches is
+  // the month tuple; spurious property-name digits like "1" or "5" produce
+  // earlier windows whose later pairs fail (e.g. (0, 120) diff 120, far
+  // beyond the seasoning threshold).
+  //
+  // VERIFIED 2026-06-14 by /tmp/cgcmt-t4-diff.mjs sweep across all 97
+  // loans: exactly 3 amortMonths values change vs the prior heuristic
+  // (#23: 119→300, #49: 119→360, #95: 119→300); 94 loans byte-identical.
+  // No false-positive shifts.
+  const ints: number[] = [];
+  for (let i = si; i < t.length && ints.length < 12; i++) {
     const v = num(t[i]);
-    const isMonthLike = v !== null && Number.isInteger(v) && v >= 0 && v <= 500;
-    if (isMonthLike) {
-      intRun.push(v);
-      inRun = true;
-      if (intRun.length >= 6) break;
-    } else if (inRun) {
-      // Run broken — if we have at least 4 ints, treat the first 4-6 as the term tuple
-      if (intRun.length >= 4) break;
-      intRun.length = 0;
-      inRun = false;
+    if (v !== null && Number.isInteger(v) && v >= 0 && v <= 500) {
+      ints.push(v);
+    }
+    // Continue past non-numeric tokens (property name words, dates with
+    // slashes, etc.). Dates like "7/31/2013" yield null from num() so they
+    // don't pollute the int sequence.
+  }
+  for (let i = 0; i + 6 <= ints.length; i++) {
+    const a = ints[i]!, b = ints[i + 1]!, c = ints[i + 2]!, d = ints[i + 3]!, e = ints[i + 4]!, f = ints[i + 5]!;
+    if (Math.abs(a - b) <= 12 && Math.abs(c - d) <= 12 && Math.abs(e - f) <= 12) {
+      return { ioMonths: a, originalTermMonths: c, amortMonths: e };
     }
   }
+  // Fallback: no valid month-tuple window found — use positional read of
+  // first 6 ints (matches the original heuristic). In practice every loan
+  // in CGCMT 2013-GC15 hits the window; this fallback exists for
+  // defensive correctness against future shelves with non-standard rows.
   return {
-    ioMonths: intRun[0] ?? null,
-    originalTermMonths: intRun[2] ?? null,
-    amortMonths: intRun[4] ?? null,
+    ioMonths: ints[0] ?? null,
+    originalTermMonths: ints[2] ?? null,
+    amortMonths: ints[4] ?? null,
   };
 }
 
@@ -310,10 +331,23 @@ function parseT6(row: string): T6Row {
   if (si < 0) return { t12Egi: null, t12OpEx: null, t12Noi: null };
   // After seller + Property Name (multi-tok): [Most Recent NOI Date] [Most Recent EGI]
   //   [Most Recent Expenses] [Most Recent NOI] [more cols…] [UW EGI] [UW Expenses]
-  // Strategy: collect numeric tokens >= 1000 (and not 4-digit bare year), take first 3.
+  //
+  // ★ Sub-property guard (step 4 fix): the main-loan row ends where the
+  // first sub-property marker "X.NN Property" appears. Stop the walk
+  // there so a sub-property identifier like "49.01" isn't parsed by
+  // num() as the float 49.01 and captured as Most Recent NOI (the
+  // diagnosed #49 Rivercrest Wal-Mart misread — the Wal-Mart triple-net
+  // main row legitimately omits Most Recent NOI as N/A, so without this
+  // guard the walk steps past the N/A region into sub-property data).
+  // The sub-property marker is structurally true about the layout, not a
+  // brittle format assumption.
+  //
+  // Strategy: collect numeric tokens (and not 4-digit bare year), take
+  // first 3. STOP at first token whose next token is "Property".
   const bigNums: number[] = [];
   for (let i = si; i < t.length && bigNums.length < 3; i++) {
     const raw = t[i] ?? '';
+    if (t[i + 1] === 'Property') break;  // sub-property marker — end of main row data
     if (/^\d{4}$/.test(raw)) { const y = Number(raw); if (y >= 1900 && y <= 2100) continue; }
     const v = num(raw);
     if (v === null) continue;
