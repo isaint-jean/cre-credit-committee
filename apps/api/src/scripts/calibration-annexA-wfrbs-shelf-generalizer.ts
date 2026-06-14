@@ -53,19 +53,15 @@ import {
   type PariPassuCombination,
   type CrossCollatGroup,
 } from './lib/annexA-verify.js';
+import {
+  stripHtml,
+  tokenize,
+  num,
+  isBareYearToken,
+} from './lib/annexA-tokens.js';
 
 const ANNEX_A_PATH = '/tmp/wfrbs-2013-c11-424B5.htm';
 const ANNEX_A_BODY_OFFSET = 3_541_025;  // from clean-corpus-spike-annexA.ts
-
-function stripHtml(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;|&#160;/g, ' ')
-    .replace(/&#8211;|&#8212;|&#150;|&#151;/g, '-')
-    .replace(/&#146;|&#145;|&#147;|&#148;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ');
-}
 
 const SELLERS = ['WFB', 'RBS', 'CGMRC', 'JLC', 'GACC', 'GS', 'LCF', 'CIIICM', 'WFCMC', 'LIG'];
 
@@ -146,21 +142,6 @@ function extractLoanRow(tableText: string, controlNumber: number): string | null
   const stop = stopRe.exec(tableText);
   const end = stop ? stop.index : start + 800;
   return tableText.slice(start, Math.min(end, start + 800));
-}
-
-/** Tokenize a row into clean tokens, after stripping HTML. */
-function tokenize(row: string): string[] {
-  return row.trim().split(/\s+/);
-}
-
-/** Parse a number out of a token: strip $, %, commas, parentheses; treat
- *  "Various", "NAV", "N/A", "-" as null. */
-function num(tok: string | undefined): number | null {
-  if (tok === undefined) return null;
-  const cleaned = tok.replace(/[\$,\s%\(\)]/g, '');
-  if (['Various', 'NAV', 'N/A', '-', ''].includes(cleaned)) return null;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
 }
 
 /** Locate the column index of the property's "(seller)" token — the
@@ -366,17 +347,6 @@ function parseT5(row: string): T5Row {
 }
 
 interface T6Row { uwRevenue: number | null; uwExpenses: number | null; uwNoi: number | null; }
-
-/** True when `raw` is a bare 4-digit standalone integer in the year range
- *  1900-2100 (no comma, no decimal — financial figures use commas; years
- *  in CMBS prospectuses don't). Defensive: only applied in parseT6 where
- *  the row may carry a period descriptor like "Actual 2011" before the
- *  comma-formatted financial figures. Class B fix (2026-06-13). */
-function isBareYearToken(raw: string): boolean {
-  if (!/^\d{4}$/.test(raw)) return false;
-  const n = Number(raw);
-  return n >= 1900 && n <= 2100;
-}
 
 function parseT6(row: string): T6Row {
   // T6 layout examples (period descriptor varies):

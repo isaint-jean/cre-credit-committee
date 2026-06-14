@@ -57,22 +57,14 @@ import {
   type PariPassuCombination,
   type CrossCollatGroup,
 } from './lib/annexA-verify.js';
+import {
+  stripHtml,
+  tokenize,
+  num,
+  isBareYearToken,
+} from './lib/annexA-tokens.js';
 
 const ANNEX_A_PATH = '/tmp/cgcmt-2013-gc15-424B5.htm';
-
-function stripHtml(s: string): string {
-  return s
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;|&#160;/g, ' ')
-    .replace(/&#8211;|&#8212;|&#150;|&#151;/g, '-')
-    .replace(/&#8217;|&#146;|&#145;/g, "'")
-    .replace(/&#8220;|&#8221;|&#147;|&#148;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ');
-}
 
 /**
  * Sellers seen in CGCMT 2013-GC15 (7 originators per cover). The regex
@@ -85,20 +77,6 @@ function stripHtml(s: string): string {
  */
 const SELLER_RE_SRC =
   '(?:CGMRC|GSMC|RMF|SMF\\s+I|RAIT\\s+Funding,\\s+LLC|RCMC|The\\s+Bancorp\\s+Bank)';
-
-/** Tokenize a row, splitting on whitespace. */
-function tokenize(row: string): string[] {
-  return row.trim().split(/\s+/);
-}
-
-/** Parse a number out of a token. */
-function num(tok: string | undefined): number | null {
-  if (tok === undefined) return null;
-  const cleaned = tok.replace(/[$,\s%()]/g, '');
-  if (['Various', 'NAP', 'NAV', 'N/A', '-', '—', ''].includes(cleaned)) return null;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
-}
 
 /**
  * Locate a per-table chunk by its header text and slice to the next
@@ -348,7 +326,7 @@ function parseT6(row: string): T6Row {
   for (let i = si; i < t.length && bigNums.length < 3; i++) {
     const raw = t[i] ?? '';
     if (t[i + 1] === 'Property') break;  // sub-property marker — end of main row data
-    if (/^\d{4}$/.test(raw)) { const y = Number(raw); if (y >= 1900 && y <= 2100) continue; }
+    if (isBareYearToken(raw)) continue;
     const v = num(raw);
     if (v === null) continue;
     if (bigNums.length === 0) {
