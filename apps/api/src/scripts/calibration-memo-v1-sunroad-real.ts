@@ -87,7 +87,7 @@ const OUT_HTML = path.resolve('/tmp/sunroad-memo-v1.html');
  * Captured 2026-06-14 against:
  *   - mitigation engine v1.8 (commit 6743116)
  *   - doctrine v1.4         (commit 0e5a179)
- *   - narrative engine v1.6 (NARRATIVE_ENGINE_VERSION constant)
+ *   - narrative engine v1.7 (NARRATIVE_ENGINE_VERSION constant)
  *   - committee memo v1.0   (COMMITTEE_MEMO_VERSION constant)
  *
  * Verified stable across two independent live-Sonnet runs while full-HTML
@@ -99,13 +99,20 @@ const OUT_HTML = path.resolve('/tmp/sunroad-memo-v1.html');
  * the change is intentional — re-baseline this constant — or it's a
  * regression and the gate just caught it.
  *
- * Retired prior baseline (full-HTML sha):
+ * Retired prior baselines:
  *   90c09c048d453db6ab635f50d3e615f634a2abfcf10e51defc8aef5a13577019
- * That value was a pre-v1.5 mitigation-engine warm-cache coincidence, not
- * a reproducible invariant; see the NON-DETERMINISM NOTICE in the header.
+ *     — pre-v1.5 mitigation-engine warm-cache coincidence (full-HTML, not
+ *       reproducible). See NON-DETERMINISM NOTICE in the header.
+ *   f71ec7421e1076ff62b12abc44be3aebde6f4026d509540bf80852baf99aebe6
+ *     — narrative engine v1.6 structural baseline. Retired 2026-06-14 on
+ *       the v1.6 → v1.7 bump (committee_recommendation prompt tighten:
+ *       force one paragraph; forbid trailing synthesis ¶ + unbid
+ *       qualitative claims). The version footer carries "v1.7" in 3
+ *       deterministic locations — that string move alone shifts the sha;
+ *       the redacted prose itself is unchanged in structure.
  */
 const EXPECTED_STRUCTURAL_SHA =
-  'f71ec7421e1076ff62b12abc44be3aebde6f4026d509540bf80852baf99aebe6';
+  '505b13f6ffe512678b06a823d22d0d621bb84e20957c389741633bdf80f7363d';
 
 function copyDb(): void {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB);

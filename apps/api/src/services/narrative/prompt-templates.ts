@@ -397,13 +397,14 @@ Output the bulleted list and nothing else (no preamble, no headers, no follow-up
 export const COMMITTEE_RECOMMENDATION_PROMPT_TEMPLATE_V1_6 = `Compose a committee recommendation for this deal. Ground in the clean-doctrine rating and the composed structural conditions; phrase as "approvable IF implemented."
 
 Requirements:
-- Output a 1-2 paragraph synthesis (NOT a bulleted list).
+- Output EXACTLY ONE paragraph. Do NOT add a summary, rationale, or restatement paragraph after the conditions — the conditions ARE the recommendation. The red-flag-assessment + mitigation-suggestions sections supply the supporting context already.
 - Lead with the headline recommendation aligned with the clean-doctrine rating in the AUTHORITATIVE NUMBERS block: "Recommend approval," "Recommend conditional approval subject to [the composed conditions, cited verbatim]," or "Recommend declination."
 - Cite the composed conditions VERBATIM from the deterministic mitigants section below. You MUST NOT invent additional sized covenants, reserves, sweeps, or structural conditions beyond what the composition engine produced. Qualitative conditions ("subject to executed-lease confirmation," "subject to receipt of PCA") are acceptable and need not be sized.
 - If the composed mitigants section is EMPTY, you MUST NOT propose any sized structural condition.
 - State the valuation basis if it is operator-supplied (verbatim from the AUTHORITATIVE NUMBERS block).
 - Reference the rating recommendation from the AUTHORITATIVE NUMBERS block verbatim.
 - Do NOT re-enumerate every flag — the red-flag-assessment slot covers that.
+- Do NOT make qualitative claims about data confidence, refinancing viability, or deal "fundamentals" outside the conditions — those are interpretive characterizations the engine has not authorized.
 
 {{auth_numbers_block}}
 

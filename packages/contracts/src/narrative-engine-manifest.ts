@@ -78,4 +78,16 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // renders the COMPOSED package + reconciliation; handbook flags are
   // qualitative-only supporting observations (metric strings stripped).
   '1.6': 'b5d7cc191c3b9896a6bcfd271b053297181950974e11ce04f3fc5f47046ce81e' as ContentHash,
+  // v1.7 — committee_recommendation tightened (2026-06-14). The slot
+  // template now requires EXACTLY ONE paragraph (was "1-2 paragraph
+  // synthesis"), forbids a trailing summary/rationale paragraph, and
+  // forbids qualitative claims about data confidence or refinancing
+  // viability outside the cited conditions. Closes a generative-drift
+  // window in the synthesis ¶: empirical 3-run sample showed the slot
+  // restating engine figures (correct today) AND introducing unbid
+  // interpretive characterizations ("lower data confidence than third-
+  // party appraisal"). The structural-sha redaction regex covers the
+  // entire <p class="memo-prose"> span, so the memo's structural sha
+  // (f71ec742…) is unchanged.
+  '1.7': '0621c6940c0aa29ad51b377a7e054670b941a22dc2c93220bf3a2be4132d665c' as ContentHash,
 };
