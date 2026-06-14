@@ -935,7 +935,16 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   {
     slot: 'Property_Loan_Summary',
     range: 'E41',
-    selector: ltvAppraisalSelector,
+    // nullSelector (not ltvAppraisalSelector) — awaiting_input only flags
+    // the cell as preliminary; it does NOT blank the value. The previous
+    // ltvAppraisalSelector returned adjustedInputs.metrics.ltv (impliedValue-
+    // basis ≈ 69.21% on the phase14 Sunroad re-run), which both (a) used the
+    // wrong basis (impliedValue, not the operator-supplied concluded value)
+    // AND (b) contradicted the memo's single-LTV-basis discipline (the gate
+    // in calibration-memo-v1-sunroad-real.ts asserts 65.34% / 40.90% are
+    // ABSENT from the memo). nullSelector forces a genuinely blank cell —
+    // honest absence rather than a value that the memo refuses to validate.
+    selector: nullSelector,
     cellState: 'awaiting_input',
     comment: () =>
       'Appraised-basis LTV is intentionally not surfaced. (1) No appraisal ' +
