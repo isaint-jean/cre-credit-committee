@@ -20,10 +20,20 @@
  *
  * `isSingleTenant` semantics — null distinguishes UNKNOWN from FALSE:
  *
- *   - rentRoll === null              → null   (UNKNOWN: missing data)
- *   - rentRoll.units.length === 0    → false  (structurally observable: no tenants)
- *   - distinct(non-null tenantName) === 1 → true
- *   - distinct(non-null tenantName) !== 1 → false
+ *   - rentRoll === null                              → null   (UNKNOWN: missing data)
+ *   - rentRoll.units.length === 0                    → false  (structurally observable: no tenants)
+ *   - rentRoll has ONLY unit-kind lines (multifamily/MHC/residential)
+ *                                                    → null   (UNKNOWN: single-vs-multi-tenant
+ *                                                              is a tenant-roll concept; the
+ *                                                              question is malformed for a unit roll)
+ *   - distinct(non-null tenantName from tenant lines) === 1 → true
+ *   - distinct(non-null tenantName from tenant lines) !== 1 → false
+ *
+ * The unit-kind filter is a STRUCTURAL check on the line's own self-described
+ * shape, NOT an asset-class branch — the discriminant is set by the parser
+ * (parse-rent-roll-xlsx.ts header-content detection or the AI extractor's
+ * per-line `kind` tag), not by an asset_profile lookup. The "MUST NOT branch
+ * on asset class" invariant above is preserved.
  *
  * Returning null on the empty-units case would incorrectly trigger downstream
  * INSUFFICIENT_DATA classification and conservatism gating; the empty array is a fact,
@@ -44,8 +54,20 @@ function deriveIsSingleTenant(extraction: ExtractionResult): boolean | null {
   if (rentRoll === null) return null;
   if (rentRoll.units.length === 0) return false;
 
+  // Batch-1 convention: explicit-unit-only filter. Untyped legacy units
+  // (persisted pre-PR-2 with no `kind` field) default to the tenant path —
+  // existing isSingleTenant behavior preserved exactly for Sunroad and any
+  // other pre-discriminant data.
+  const tenantLines = rentRoll.units.filter(u => u.kind !== 'unit');
+  if (tenantLines.length === 0) {
+    // The rent roll has ONLY unit-kind lines — a residential roll. The
+    // single-vs-multi-tenant question is malformed; return null (UNKNOWN)
+    // rather than asserting either answer.
+    return null;
+  }
+
   const distinctTenants = new Set<string>();
-  for (const unit of rentRoll.units) {
+  for (const unit of tenantLines) {
     if (unit.tenantName !== null) distinctTenants.add(unit.tenantName);
   }
   return distinctTenants.size === 1;
