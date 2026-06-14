@@ -87,9 +87,29 @@ function extractLoanRow(tableText: string, controlNumber: number): string | null
   // Build the seller regex group dynamically
   const sellerRe = SELLERS.join('|');
   // Match: word boundary + control number (NOT preceded by .digit) + space + property name + seller code
-  // (?<![\d\.]) means: not preceded by a digit or a period — excludes "17.01" matching "01"
+  //   (?<![\d\.])         — not preceded by digit or period (excludes "17.01" matching "01")
+  //   \b{N}\s+            — exact control number + whitespace
+  //   (?!\d+\.)           — ★ Bug B fix #1 (2026-06-14): name must NOT begin with a
+  //                          sub-property pattern "N.NN" (e.g., "15.01"). Chunk may
+  //                          contain a stray loose integer (loan #15's T3 row puts
+  //                          "17" as an IO-period count near sub-property
+  //                          "15.01 Piedmont Plaza"). "1 Mission" passes because
+  //                          "1 " is digit-space, not digit-period.
+  //   (?:[A-Z]|\d\s+[A-Z]) — ★ Bug B fix #2 (2026-06-14) — REFINED. Name first
+  //                          token is either:
+  //                            • an uppercase letter (the standard case), OR
+  //                            • a SINGLE digit followed by whitespace and an
+  //                              uppercase letter (address-style "1 Mission").
+  //                          Single-digit-only — eliminates the original [A-Z0-9]
+  //                          widening's regression on multi-digit ADR/RevPAR
+  //                          values (e.g. "30 Meadows Building" or
+  //                          "10 Holiday Inn National Airport" — the digit run
+  //                          fails the `\d\s+` because the second digit isn't
+  //                          whitespace).
+  //   […chars…]{1,118}?   — rest of the name (allowed char class, lazy)
+  //   \s+(seller)\b       — name ends at the seller code (fixed enum)
   const re = new RegExp(
-    `(?<![\\d\\.])\\b${controlNumber}\\s+([A-Z][A-Za-z0-9\\s'\\-&,\\.\\(\\)\\/]{2,120}?)\\s+(${sellerRe})\\b`,
+    `(?<![\\d\\.])\\b${controlNumber}\\s+(?!\\d+\\.)((?:[A-Z]|\\d\\s+[A-Z])[A-Za-z0-9\\s'\\-&,\\.\\(\\)\\/]{1,118}?)\\s+(${sellerRe})\\b`,
     'g',
   );
   const m = re.exec(tableText);
@@ -608,10 +628,29 @@ async function main(): Promise<void> {
     t5: 'UW Net Operating Income',           // spike's "T5 TTM" values live in the UW-headed table
     t6: 'Most Recent NOI',                   // spike's "T6 UW" values live in the Most-Recent-headed table
   };
+  // ★ Bug B fix (2026-06-14): hard chunk boundary. Previously each table's
+  // raw text was sliced as `[anchor, anchor+200_000)` — overlapping every
+  // downstream table since they all sit within 200K of each other. When the
+  // name regex failed to match a row (e.g. loan #50's "1 Mission" being
+  // rejected by the [A-Z]-only anchor), the walker fell through into T4
+  // territory and parseT2 read a T4 row as if it were T2. With the regex fix
+  // alone, that fallthrough is still possible for any future unmatched name
+  // — defensive in depth. Slice each chunk to end at the NEXT anchor offset
+  // (anchors sorted by document position), capped at 200K so no chunk is
+  // smaller than a normal stratification table.
+  const anchorOffsets = Object.entries(TABLE_ANCHORS).map(([k, anchor]) => ({
+    k, anchor, offset: annexA.indexOf(anchor),
+  })).filter(x => x.offset >= 0).sort((a, b) => a.offset - b.offset);
   const tablesRaw: Record<string, string> = {};
-  for (const [k, anchor] of Object.entries(TABLE_ANCHORS)) {
-    const i = annexA.indexOf(anchor);
-    tablesRaw[k] = i < 0 ? '' : annexA.slice(i, i + 200_000);
+  for (let i = 0; i < anchorOffsets.length; i++) {
+    const cur = anchorOffsets[i]!;
+    const next = anchorOffsets[i + 1];
+    // End at next anchor (hard boundary) OR +200K (last anchor).
+    const end = next !== undefined ? next.offset : Math.min(annexA.length, cur.offset + 200_000);
+    tablesRaw[cur.k] = annexA.slice(cur.offset, end);
+  }
+  for (const k of Object.keys(TABLE_ANCHORS)) {
+    if (tablesRaw[k] === undefined) tablesRaw[k] = '';  // preserve missing-anchor sentinel
   }
   console.log('Table anchors located:');
   for (const k of Object.keys(TABLE_ANCHORS)) {
