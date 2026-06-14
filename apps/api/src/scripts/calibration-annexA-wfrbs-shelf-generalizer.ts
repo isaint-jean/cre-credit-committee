@@ -536,7 +536,7 @@ interface CheckFailure {
 }
 
 interface Verdict {
-  readonly status: 'CLEAN' | 'FLAGGED' | 'UNVERIFIABLE';
+  readonly status: 'CLEAN' | 'FLAGGED' | 'UNCHECKED';
   readonly failures: readonly CheckFailure[];
   readonly reason: string;
 }
@@ -553,7 +553,18 @@ function computeAnnualDs(loan: number, rate: number, amortMonths: number): numbe
 
 function verify(loan: ExtractedLoan): Verdict {
   const failures: CheckFailure[] = [];
-  let allUnverifiable = true;
+  // Track per-check execution. The three LOAD-BEARING identities (LTV, DY,
+  // DSCR) interrelate loan size, value, and NOI — when at least one ran we
+  // actually verified something about the deal. T5_FOOT is purely INTRA-row
+  // (TTM EGI − OpEx ≈ TTM NOI) and validates the TTM triple's internal
+  // consistency only; it does NOT verify the cross-table relationships and
+  // MUST NOT promote a loan with all-null load-bearing inputs to CLEAN.
+  // Pre-2026-06-14 the single `allUnverifiable` flag conflated these, which
+  // produced silent-CLEAN verdicts whenever T5_FOOT happened to run on a
+  // loan whose loanAmount/concludedValue/uwY1Noi were all null (~12 loans
+  // on the WFRBS 2013-C11 shelf alone — see the Loan #1 walker-bug
+  // diagnosis from 2026-06-14).
+  const ran = { LTV: false, DY: false, DSCR: false, T5_FOOT: false };
 
   // ★ Whole-loan-aware denominator: pari-passu deals foot identities against
   // the COMBINED whole-loan balance, not the trust slice. The prospectus
@@ -567,7 +578,7 @@ function verify(loan: ExtractedLoan): Verdict {
 
   // LTV: derived = denom / concludedValue
   if (denom !== null && loan.concludedValue !== null && loan.concludedLtv !== null && loan.concludedValue > 0) {
-    allUnverifiable = false;
+    ran.LTV = true;
     const derived = denom / loan.concludedValue;
     const delta = Math.abs(derived - loan.concludedLtv);
     if (delta > LTV_TOL) failures.push({ check: 'LTV', stated: loan.concludedLtv, derived, delta, tolerance: LTV_TOL });
@@ -575,7 +586,7 @@ function verify(loan: ExtractedLoan): Verdict {
 
   // DY: derived = uwY1Noi / denom
   if (loan.uwY1Noi !== null && denom !== null && loan.uwDebtYield !== null && denom > 0) {
-    allUnverifiable = false;
+    ran.DY = true;
     const derived = loan.uwY1Noi / denom;
     const delta = Math.abs(derived - loan.uwDebtYield);
     if (delta > DY_TOL) failures.push({ check: 'DY', stated: loan.uwDebtYield, derived, delta, tolerance: DY_TOL });
@@ -583,7 +594,7 @@ function verify(loan: ExtractedLoan): Verdict {
 
   // DSCR: derived = uwY1Noi / computedDs(denom, coupon, amortMonths) — LOOSE
   if (loan.uwY1Noi !== null && denom !== null && loan.coupon !== null && loan.amortMonths !== null && loan.uwDscr !== null && denom > 0) {
-    allUnverifiable = false;
+    ran.DSCR = true;
     const ds = computeAnnualDs(denom, loan.coupon, loan.amortMonths);
     if (ds !== null && ds > 0) {
       const derived = loan.uwY1Noi / ds;
@@ -594,19 +605,40 @@ function verify(loan: ExtractedLoan): Verdict {
 
   // T5 intra-foot: stated TTM NOI ≈ stated TTM EGI − stated TTM OpEx
   // (the prospectus's three stated TTM figures must foot — tight tolerance).
+  // INFORMATIONAL: see ran.LTV/DY/DSCR for verdict gating; this check alone
+  // never promotes UNCHECKED to CLEAN.
   if (loan.t12Egi !== null && loan.t12OpEx !== null && loan.t12Noi !== null && loan.t12Egi > 0) {
-    allUnverifiable = false;
+    ran.T5_FOOT = true;
     const derived = loan.t12Egi - loan.t12OpEx;
     const delta = Math.abs(derived - loan.t12Noi);
     const rel = delta / loan.t12Egi;
     if (rel > T5_FOOT_TOL) failures.push({ check: 'T5_FOOT', stated: loan.t12Noi, derived, delta: rel, tolerance: T5_FOOT_TOL });
   }
 
-  if (allUnverifiable) {
-    return { status: 'UNVERIFIABLE', failures: [], reason: 'no identity could be tested (one or more inputs null)' };
+  const loadBearingRan = ran.LTV || ran.DY || ran.DSCR;
+  if (!loadBearingRan) {
+    // UNCHECKED — no load-bearing identity could run. List the null inputs so
+    // the cause is visible (and so the eventual walker fix knows what to
+    // populate). `denom`-derivation note: when loanAmount AND pari-passu are
+    // both null, denom is null and ALL three load-bearing identities skip
+    // regardless of the other inputs.
+    const nullInputs: string[] = [];
+    if (denom === null) nullInputs.push(loan.pariPassuCombination === null ? 'loanAmount' : 'pariPassuDenom');
+    if (loan.concludedValue === null) nullInputs.push('concludedValue');
+    if (loan.uwY1Noi === null) nullInputs.push('uwY1Noi');
+    if (loan.concludedLtv === null) nullInputs.push('concludedLtv');
+    if (loan.uwDebtYield === null) nullInputs.push('uwDebtYield');
+    if (loan.uwDscr === null) nullInputs.push('uwDscr');
+    if (loan.coupon === null) nullInputs.push('coupon');
+    if (loan.amortMonths === null) nullInputs.push('amortMonths');
+    const t5tag = ran.T5_FOOT
+      ? (failures.some(f => f.check === 'T5_FOOT') ? '; T5_FOOT ran AND FAILED' : '; T5_FOOT ran (informational only — no promotion)')
+      : '';
+    return { status: 'UNCHECKED', failures: [], reason: `no load-bearing identity ran — null: ${nullInputs.join(', ') || '(none)'}${t5tag}` };
   }
   if (failures.length === 0) {
-    return { status: 'CLEAN', failures: [], reason: 'all identity checks within tolerance' };
+    const ranList = (['LTV', 'DY', 'DSCR', 'T5_FOOT'] as const).filter(k => ran[k]).join('+');
+    return { status: 'CLEAN', failures: [], reason: `${ranList} within tolerance` };
   }
   const fmtFailure = (f: CheckFailure): string => {
     if (f.check === 'DSCR') {
@@ -746,9 +778,9 @@ async function main(): Promise<void> {
 
   // Run verification per loan
   const verdicts = loans.map(loan => ({ loan, verdict: verify(loan) }));
-  const clean       = verdicts.filter(v => v.verdict.status === 'CLEAN');
-  const flagged     = verdicts.filter(v => v.verdict.status === 'FLAGGED');
-  const unverifiable = verdicts.filter(v => v.verdict.status === 'UNVERIFIABLE');
+  const clean     = verdicts.filter(v => v.verdict.status === 'CLEAN');
+  const flagged   = verdicts.filter(v => v.verdict.status === 'FLAGGED');
+  const unchecked = verdicts.filter(v => v.verdict.status === 'UNCHECKED');
 
   console.log('================================================================');
   console.log('PER-LOAN VERDICT TABLE');
@@ -759,7 +791,7 @@ async function main(): Promise<void> {
   for (const { loan, verdict } of verdicts) {
     const tag = verdict.status === 'CLEAN' ? '✓ CLEAN'
               : verdict.status === 'FLAGGED' ? '⚑ FLAGGED'
-              : '? UNVERIFY';
+              : '? UNCHECKED';
     console.log(`${String(loan.controlNumber).padEnd(4)}${tag.padEnd(15)}${fmtUsd(loan.loanAmount).padEnd(13)}${verdict.reason}`);
   }
   console.log('');
@@ -770,7 +802,7 @@ async function main(): Promise<void> {
   console.log(`  total loans extracted   : ${loans.length}`);
   console.log(`  ✓ CLEAN                 : ${clean.length}`);
   console.log(`  ⚑ FLAGGED                : ${flagged.length}`);
-  console.log(`  ? UNVERIFIABLE           : ${unverifiable.length}`);
+  console.log(`  ? UNCHECKED              : ${unchecked.length}`);
   console.log('');
 
   // Pool cross-foot (simple — sum of extracted loanAmounts)
