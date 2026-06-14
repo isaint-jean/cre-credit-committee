@@ -44,6 +44,15 @@
  *     wiring.
  */
 import * as fs from 'node:fs';
+import {
+  fmtUsd,
+  fmtPct,
+  fmtNum,
+  verify,
+  type ExtractedLoan,
+  type PariPassuCombination,
+  type CrossCollatGroup,
+} from './lib/annexA-verify.js';
 
 const ANNEX_A_PATH = '/tmp/wfrbs-2013-c11-424B5.htm';
 const ANNEX_A_BODY_OFFSET = 3_541_025;  // from clean-corpus-spike-annexA.ts
@@ -56,22 +65,6 @@ function stripHtml(s: string): string {
     .replace(/&#146;|&#145;|&#147;|&#148;/g, "'")
     .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ');
-}
-
-function fmtUsd(n: number | null): string {
-  if (n === null || !Number.isFinite(n)) return '—';
-  if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
-  if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
-  if (Math.abs(n) >= 1e3) return '$' + (n / 1e3).toFixed(0) + 'K';
-  return '$' + Math.round(n);
-}
-function fmtPct(n: number | null, d = 2): string {
-  if (n === null || !Number.isFinite(n)) return '—';
-  return (n * 100).toFixed(d) + '%';
-}
-function fmtNum(n: number | null, d = 2): string {
-  if (n === null || !Number.isFinite(n)) return '—';
-  return n.toFixed(d);
 }
 
 const SELLERS = ['WFB', 'RBS', 'CGMRC', 'JLC', 'GACC', 'GS', 'LCF', 'CIIICM', 'WFCMC', 'LIG'];
@@ -443,79 +436,12 @@ function parseT1(row: string): T1Row {
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
-/* Per-loan aggregation across the 6 tables                                 */
+/* Per-loan aggregation across the 6 tables.                                */
+/* ExtractedLoan / PariPassuCombination / CrossCollatGroup types live in    */
+/* the issuer-neutral verdict module (./lib/annexA-verify.ts) and are       */
+/* imported above. The WFRBS walker produces this shape via parseT1-T6 +    */
+/* the two footnote parsers below; CGCMT produces it via its own parsers.   */
 /* ──────────────────────────────────────────────────────────────────────── */
-
-interface PariPassuCombination {
-  readonly noteNumber: string;
-  readonly totalNotes: number;
-  readonly combinedCutOffBalance: number;
-}
-
-/**
- * Cross-collateralized GROUP MEMBERSHIP (extraction-side, not aggregated).
- *
- * Distinct from pari-passu (which is one whole loan split into two notes
- * sharing the trust). Cross-collat is N DISTINCT loans, each with its own
- * loanAmount / concludedValue / NOI, whose stated LTV/DSCR/DY ratios in the
- * prospectus are computed on the GROUP-AGGREGATE basis (per the footnote
- * @212072 + general convention @211631:
- *
- *   "the applicable loan-to-value ratio, debt service coverage ratio or
- *    debt yield for each such mortgage loan is based upon the ratio or
- *    yield (as applicable) for the aggregate indebtedness evidenced by
- *    all loans in the group").
- *
- * Stored here is JUST the group identity + sibling list. The aggregated
- * denominator (sum of loanAmounts) and numerators (sum of concludedValues
- * / uwY1Nois) are computed at verify-time from the sibling records — they
- * are NOT baked onto the loan, so each loan keeps its own extracted
- * trust-slice values untouched. This is the two-pass pattern: pass 1
- * extracts each loan standalone; pass 2 (verify) resolves siblings.
- *
- * Mutually exclusive with PariPassuCombination by construction: the parsers
- * key on distinct footnote sentence shapes ("Note A-N of … pari passu
- * companion loans" vs "which are cross-collateralized"), and verify()
- * asserts a loan never has both set.
- */
-interface CrossCollatGroup {
-  readonly groupId: string;        // synthetic — derived from sorted memberIds
-  readonly memberIds: readonly number[];  // sorted ascending
-}
-
-interface ExtractedLoan {
-  readonly controlNumber: number;
-  // T1
-  readonly generalPropertyType: string | null;
-  readonly specificPropertyType: string | null;
-  // T2
-  readonly loanAmount: number | null;     // == originalLoanAmount (THIS trust's slice)
-  readonly maturityDate: string | null;
-  // T3
-  readonly coupon: number | null;
-  readonly originalTermMonths: number | null;
-  readonly ioMonths: number | null;
-  // T4
-  readonly amortMonths: number | null;
-  readonly concludedValue: number | null;  // == appraised
-  readonly uwDscr: number | null;          // NCF DSCR (preferred over NOI)
-  readonly uwNoiDscr: number | null;
-  readonly concludedLtv: number | null;
-  readonly uwDebtYield: number | null;     // NOI DY (matches the spike)
-  // T5
-  readonly t12Noi: number | null;
-  readonly t12Egi: number | null;
-  readonly t12OpEx: number | null;
-  readonly occupancyCurrent: number | null;
-  // T6
-  readonly uwY1Noi: number | null;
-  readonly uwY1Revenue: number | null;
-  readonly uwY1OpEx: number | null;
-  // Footnote-#4 — pari-passu split-loan combination (null for single-trust loans)
-  readonly pariPassuCombination: PariPassuCombination | null;
-  // Cross-collat group membership (extraction-only; aggregation happens at verify-time)
-  readonly crossCollatGroup: CrossCollatGroup | null;
-}
 
 /**
  * Footnote parser: scan the Annex A's footnote-#4 prose region for pari-passu
@@ -665,199 +591,6 @@ function extractLoan(
   };
 }
 
-/* ──────────────────────────────────────────────────────────────────────── */
-/* Verification layer                                                       */
-/* ──────────────────────────────────────────────────────────────────────── */
-
-type IdentityCheck = 'LTV' | 'DY' | 'DSCR' | 'T5_FOOT' | 'DY_NOI';
-const LTV_TOL     = 0.005;   // 50 bps
-const DY_TOL      = 0.005;   // 50 bps
-const DSCR_TOL    = 0.25;    // 0.25x — loose
-const T5_FOOT_TOL = 0.005;   // 0.5% of EGI — TTM EGI − OpEx − NOI must foot
-
-interface CheckFailure {
-  readonly check: IdentityCheck;
-  readonly stated: number | null;
-  readonly derived: number | null;
-  readonly delta: number | null;
-  readonly tolerance: number;
-}
-
-interface Verdict {
-  readonly status: 'CLEAN' | 'FLAGGED' | 'UNCHECKED';
-  readonly failures: readonly CheckFailure[];
-  readonly reason: string;
-}
-
-/** Annualized debt service for an amortizing loan. */
-function computeAnnualDs(loan: number, rate: number, amortMonths: number): number | null {
-  if (amortMonths === 0) return loan * rate;  // IO
-  const r = rate / 12;
-  if (r <= 0) return null;
-  const n = amortMonths;
-  const monthly = loan * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
-  return monthly * 12;
-}
-
-function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, ExtractedLoan>): Verdict {
-  const failures: CheckFailure[] = [];
-  // Track per-check execution. The three LOAD-BEARING identities (LTV, DY,
-  // DSCR) interrelate loan size, value, and NOI — when at least one ran we
-  // actually verified something about the deal. T5_FOOT is purely INTRA-row
-  // (TTM EGI − OpEx ≈ TTM NOI) and validates the TTM triple's internal
-  // consistency only; it does NOT verify the cross-table relationships and
-  // MUST NOT promote a loan with all-null load-bearing inputs to CLEAN.
-  // Pre-2026-06-14 the single `allUnverifiable` flag conflated these, which
-  // produced silent-CLEAN verdicts whenever T5_FOOT happened to run on a
-  // loan whose loanAmount/concludedValue/uwY1Noi were all null (~12 loans
-  // on the WFRBS 2013-C11 shelf alone — see the Loan #1 walker-bug
-  // diagnosis from 2026-06-14).
-  const ran = { LTV: false, DY: false, DSCR: false, T5_FOOT: false };
-
-  // ★ Group-aware identity basis. THREE bases possible, in precedence order:
-  //
-  //   1. pariPassuCombination — pari-passu split-loan: the trust holds one
-  //      note of a multi-note whole loan. denom = combined whole-loan
-  //      balance (a SINGLE pre-extracted scalar, no sibling lookup needed).
-  //      Numerator (concludedValue, uwY1Noi) stays the property's own — the
-  //      property is ONE asset, just split into two notes for trust-vs-
-  //      external ownership. {#1,#2,#6} on this shelf.
-  //
-  //   2. crossCollatGroup — N DISTINCT loans on N DISTINCT properties,
-  //      cross-collateralized as a group. Per footnote @212072 + general
-  //      convention @211631 the issuer's stated LTV/DSCR/DY are computed
-  //      against the GROUP AGGREGATE: SUM of all members' loanAmounts on
-  //      one side, SUM of all members' concludedValues / uwY1Nois on the
-  //      other. The aggregation is computed HERE at verify-time from
-  //      sibling records (via `loanLookup`); we never mutate any
-  //      ExtractedLoan record. {#57,#58} on this shelf.
-  //
-  //   3. neither — standalone: denom = own loanAmount, numerators = own
-  //      concludedValue / uwY1Noi. The vast majority of loans.
-  //
-  // Pari-passu and cross-collat are MUTUALLY EXCLUSIVE by parser-shape
-  // construction (their footnote sentences don't overlap). We assert it
-  // here as a runtime guard against a future parser bug.
-  if (loan.pariPassuCombination !== null && loan.crossCollatGroup !== null) {
-    throw new Error(
-      `INVARIANT: loan #${loan.controlNumber} is tagged BOTH pari-passu AND ` +
-      `cross-collat — these are mutually exclusive group constructs. Re-check ` +
-      `the parsers.`,
-    );
-  }
-
-  // Compute (denom, ltvNumerator, dyNumerator) under the precedence above.
-  // ltvNumerator = aggregated concludedValue for LTV's denominator side
-  //               (so the identity is denom / ltvNumerator).
-  // dyNumerator  = aggregated uwY1Noi for DY/DSCR's numerator side.
-  let denom: number | null;
-  let ltvDenom: number | null;     // value side of LTV
-  let dyNoi: number | null;        // NOI side of DY/DSCR
-  if (loan.pariPassuCombination !== null) {
-    denom    = loan.pariPassuCombination.combinedCutOffBalance;
-    ltvDenom = loan.concludedValue;   // property's own appraisal (whole-loan IS this single property)
-    dyNoi    = loan.uwY1Noi;          // property's own UW NOI
-  } else if (loan.crossCollatGroup !== null) {
-    // Sum from sibling records. If ANY member is missing a field, the
-    // aggregate is null (and the corresponding identity check skips —
-    // honest UNCHECKED rather than partial-foot misreport).
-    const members = loan.crossCollatGroup.memberIds.map(id => loanLookup.get(id)).filter((x): x is ExtractedLoan => x !== undefined);
-    const sumOrNull = (values: ReadonlyArray<number | null>): number | null =>
-      values.every(v => v !== null) ? values.reduce<number>((s, v) => s + (v as number), 0) : null;
-    denom    = sumOrNull(members.map(m => m.loanAmount));
-    ltvDenom = sumOrNull(members.map(m => m.concludedValue));
-    dyNoi    = sumOrNull(members.map(m => m.uwY1Noi));
-  } else {
-    denom    = loan.loanAmount;
-    ltvDenom = loan.concludedValue;
-    dyNoi    = loan.uwY1Noi;
-  }
-
-  // LTV: derived = denom / ltvDenom
-  if (denom !== null && ltvDenom !== null && loan.concludedLtv !== null && ltvDenom > 0) {
-    ran.LTV = true;
-    const derived = denom / ltvDenom;
-    const delta = Math.abs(derived - loan.concludedLtv);
-    if (delta > LTV_TOL) failures.push({ check: 'LTV', stated: loan.concludedLtv, derived, delta, tolerance: LTV_TOL });
-  }
-
-  // DY: derived = dyNoi / denom
-  if (dyNoi !== null && denom !== null && loan.uwDebtYield !== null && denom > 0) {
-    ran.DY = true;
-    const derived = dyNoi / denom;
-    const delta = Math.abs(derived - loan.uwDebtYield);
-    if (delta > DY_TOL) failures.push({ check: 'DY', stated: loan.uwDebtYield, derived, delta, tolerance: DY_TOL });
-  }
-
-  // DSCR: derived = dyNoi / computedDs(denom, coupon, amortMonths) — LOOSE
-  if (dyNoi !== null && denom !== null && loan.coupon !== null && loan.amortMonths !== null && loan.uwDscr !== null && denom > 0) {
-    ran.DSCR = true;
-    const ds = computeAnnualDs(denom, loan.coupon, loan.amortMonths);
-    if (ds !== null && ds > 0) {
-      const derived = dyNoi / ds;
-      const delta = Math.abs(derived - loan.uwDscr);
-      if (delta > DSCR_TOL) failures.push({ check: 'DSCR', stated: loan.uwDscr, derived, delta, tolerance: DSCR_TOL });
-    }
-  }
-
-  // T5 intra-foot: stated TTM NOI ≈ stated TTM EGI − stated TTM OpEx
-  // (the prospectus's three stated TTM figures must foot — tight tolerance).
-  // INFORMATIONAL: see ran.LTV/DY/DSCR for verdict gating; this check alone
-  // never promotes UNCHECKED to CLEAN.
-  if (loan.t12Egi !== null && loan.t12OpEx !== null && loan.t12Noi !== null && loan.t12Egi > 0) {
-    ran.T5_FOOT = true;
-    const derived = loan.t12Egi - loan.t12OpEx;
-    const delta = Math.abs(derived - loan.t12Noi);
-    const rel = delta / loan.t12Egi;
-    if (rel > T5_FOOT_TOL) failures.push({ check: 'T5_FOOT', stated: loan.t12Noi, derived, delta: rel, tolerance: T5_FOOT_TOL });
-  }
-
-  const loadBearingRan = ran.LTV || ran.DY || ran.DSCR;
-  if (!loadBearingRan) {
-    // UNCHECKED — no load-bearing identity could run. List the null inputs so
-    // the cause is visible (and so the eventual walker fix knows what to
-    // populate). `denom`-derivation note: when loanAmount AND pari-passu are
-    // both null, denom is null and ALL three load-bearing identities skip
-    // regardless of the other inputs.
-    const nullInputs: string[] = [];
-    if (denom === null) {
-      nullInputs.push(
-        loan.pariPassuCombination !== null ? 'pariPassuDenom'
-        : loan.crossCollatGroup !== null    ? `crossCollatGroupLoanAmount(${loan.crossCollatGroup.groupId})`
-        : 'loanAmount',
-      );
-    }
-    if (ltvDenom === null) {
-      nullInputs.push(loan.crossCollatGroup !== null ? `crossCollatGroupConcludedValue(${loan.crossCollatGroup.groupId})` : 'concludedValue');
-    }
-    if (dyNoi === null) {
-      nullInputs.push(loan.crossCollatGroup !== null ? `crossCollatGroupUwY1Noi(${loan.crossCollatGroup.groupId})` : 'uwY1Noi');
-    }
-    if (loan.concludedLtv === null) nullInputs.push('concludedLtv');
-    if (loan.uwDebtYield === null) nullInputs.push('uwDebtYield');
-    if (loan.uwDscr === null) nullInputs.push('uwDscr');
-    if (loan.coupon === null) nullInputs.push('coupon');
-    if (loan.amortMonths === null) nullInputs.push('amortMonths');
-    const t5tag = ran.T5_FOOT
-      ? (failures.some(f => f.check === 'T5_FOOT') ? '; T5_FOOT ran AND FAILED' : '; T5_FOOT ran (informational only — no promotion)')
-      : '';
-    return { status: 'UNCHECKED', failures: [], reason: `no load-bearing identity ran — null: ${nullInputs.join(', ') || '(none)'}${t5tag}` };
-  }
-  if (failures.length === 0) {
-    const ranList = (['LTV', 'DY', 'DSCR', 'T5_FOOT'] as const).filter(k => ran[k]).join('+');
-    return { status: 'CLEAN', failures: [], reason: `${ranList} within tolerance` };
-  }
-  const fmtFailure = (f: CheckFailure): string => {
-    if (f.check === 'DSCR') {
-      return `${f.check}: stated=${fmtNum(f.stated, 2)}x derived=${fmtNum(f.derived, 2)}x |Δ|=${fmtNum(f.delta, 2)}x`;
-    }
-    if (f.check === 'T5_FOOT') {
-      return `${f.check}: stated=${fmtUsd(f.stated)} derived=${fmtUsd(f.derived)} (EGI − OpEx) rel-|Δ|=${fmtPct(f.delta, 2)}`;
-    }
-    return `${f.check}: stated=${fmtPct(f.stated, 2)} derived=${fmtPct(f.derived, 2)} |Δ|=${fmtPct(f.delta, 2)}`;
-  };
-  return { status: 'FLAGGED', failures, reason: failures.map(fmtFailure).join(' · ') };
-}
 
 /* ──────────────────────────────────────────────────────────────────────── */
 /* Loan #17 regression baseline                                             */
