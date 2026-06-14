@@ -37,6 +37,8 @@
  *   AdjustedInputs as a precedence input for the loan atoms; it does not
  *   modify or replace it.
  */
+import type { AssetProfile } from '@cre/contracts';
+import { ASSET_TYPE_LABELS } from '@cre/contracts';
 import type {
   AdjustedInputs,
   Analysis,
@@ -81,6 +83,14 @@ export interface HydrationSources {
   registry?: FieldAuthorityRegistry;
   /** Asset class for asset-aware overrides. Required when `registry` is set. */
   assetClass?: AssetType;
+  /**
+   * Optional asset profile. When supplied, `assetProfile.propertyType` is used
+   * as a TERTIARY fallback for `property.type` (after propertyMetadata and
+   * the extraction descriptors). Callers without an AssetProfile in scope
+   * may omit it — the property-type cell simply stays at the prior
+   * precedence chain's result.
+   */
+  assetProfile?: AssetProfile;
 }
 
 export interface HydrationOutcome {
@@ -134,10 +144,21 @@ function pickFirstNumber(candidates: Array<number | null | undefined>): number |
 // source document — making it strictly weaker. Prefer the new source when
 // present; fall back to descriptors so analyses created before Batch 1H
 // continue to populate.
-function buildPropertyAtoms(analysis: Analysis): UnderwritingPropertyAtoms {
+function buildPropertyAtoms(
+  analysis: Analysis,
+  assetProfile: AssetProfile | undefined,
+): UnderwritingPropertyAtoms {
   const pm   = analysis.propertyMetadata;
   const desc = analysis.extractionResult?.descriptors;
   const stru = analysis.extractionResult?.structural;
+  // Tertiary fallback for `type`: assetProfile.propertyType is a real value
+  // on every deal that reaches doctrine evaluation. Used only when both
+  // propertyMetadata.propertySubtype and extraction-descriptor propertyType
+  // are absent — typical on bundles built before the Batch 1H AI extractor
+  // ran (e.g. the Sunroad phase4 calibration bundle).
+  const assetProfileLabel = assetProfile?.propertyType
+    ? ASSET_TYPE_LABELS[assetProfile.propertyType]
+    : null;
   return {
     name:              pickFirstString([pm?.propertyName,     desc?.propertyName.value]),
     street:            pickFirstString([pm?.address,          desc?.street.value]),
@@ -147,7 +168,7 @@ function buildPropertyAtoms(analysis: Analysis): UnderwritingPropertyAtoms {
     // county and ownershipInterest have no descriptor / structural source;
     // propertyMetadata is the only origin today.
     county:            pickFirstString([pm?.county]),
-    type:              pickFirstString([pm?.propertySubtype,  desc?.propertyType.value]),
+    type:              pickFirstString([pm?.propertySubtype,  desc?.propertyType.value, assetProfileLabel]),
     yearBuilt:         pickFirstNumber([pm?.yearBuilt,        stru?.yearBuilt.value]),
     totalSquareFeet:   pickFirstNumber([pm?.totalSquareFeet,  stru?.totalSquareFeet.value]),
     units:             stru?.units.value ?? null,
@@ -288,7 +309,7 @@ export function hydrateUnderwritingContext(
     rollUpAggregation: s.mode === 'roll_up' ? buildRollUpStub() : null,
 
     // NEW atomic blocks — populated from extractionResult + AdjustedInputs.
-    property:               buildPropertyAtoms(s.analysis),
+    property:               buildPropertyAtoms(s.analysis, s.assetProfile),
     loan:                   buildLoanAtoms(s.analysis, s.adjustedInputs),
     parties:                buildPartyAtoms(s.analysis),
     comparablesLinkageRefs: buildComparablesLinkageRefs(s.analysis),

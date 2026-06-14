@@ -128,7 +128,10 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-function composeRenderPayload(analysis: Analysis): ReturnType<typeof buildRenderPayload> {
+function composeRenderPayload(
+  analysis: Analysis,
+  assetProfile?: import('@cre/contracts').AssetProfile,
+): ReturnType<typeof buildRenderPayload> {
   const adjustedInputs: SharedAdjustedInputs | null = adaptAnalysisToAdjustedInputs(analysis);
   if (!adjustedInputs) throw new Error('adapt → AdjustedInputs returned null');
   const assetClass: SharedAssetType = analysis.assetType;
@@ -136,7 +139,7 @@ function composeRenderPayload(analysis: Analysis): ReturnType<typeof buildRender
   const variantKey: StructuralVariantKey = resolveStructuralVariant(
     assetClass, adjustedInputs, {}, RENDER_CONTRACT_VERSION,
   );
-  const underwritingContext = hydrateUnderwritingContext({ analysis, adjustedInputs, mode });
+  const underwritingContext = hydrateUnderwritingContext({ analysis, adjustedInputs, mode, assetProfile });
   const floorBindings = buildFloorBindings(adjustedInputs);
   const conservatismStatus: RenderConservatismStatus = {
     approved: floorBindings.length === 0,
@@ -228,8 +231,13 @@ function fmt(n: number | null): string {
     overallAdjustmentBias: 'conservative',
   } as any;
 
+  // Fetch the AssetProfile derived during ingest — surfaces `propertyType`
+  // ("Office") for the v9 Property_Type cell tertiary fallback. Optional:
+  // when null, Property_Type stays blank (no regression).
+  const assetProfile = store.getAssetProfile(ingestResult.evaluation.assetProfileId);
+
   console.log('\n--- composing render payload (v9)');
-  const payload = composeRenderPayload(analysisShell);
+  const payload = composeRenderPayload(analysisShell, assetProfile ?? undefined);
   console.log(`  contractVersion:   ${payload.contractVersion}`);
   console.log(`  schemaAddresses:   ${payload.schemaAddresses.length}`);
   console.log(`  cellBindings keys: ${Object.keys(payload.cellBindings).length}`);
