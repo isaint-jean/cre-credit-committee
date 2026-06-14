@@ -19,9 +19,9 @@
  *   2. Verification layer (reusable for every future shelf):
  *        - LTV check : stated concludedLtv  vs  loanAmount / concludedValue
  *                       [EXACT — tolerance 50 bps]
- *        - DY check  : stated uwDebtYield   vs  uwY1Noi / loanAmount
+ *        - DY check  : stated uwDebtYield   vs  statedRatioNumerator / loanAmount
  *                       [EXACT — tolerance 50 bps]
- *        - DSCR check: stated uwDscr        vs  uwY1Noi / computedDS
+ *        - DSCR check: stated uwDscr        vs  statedRatioNumerator / computedDS
  *                       [APPROXIMATE — tolerance 0.25x; issuer DSCR is
  *                        NCF-basis not NOI-basis so loose; flag only gross]
  *        - Pool cross-foot: sum(extracted loanAmounts) vs stated pool total
@@ -569,21 +569,22 @@ function extractLoan(
     amortMonths: t4.amortMonths,
     concludedValue: t4.appraisedValue,
     uwDscr: t4.uwNoiDscr,        // ★ CORRECTED: was reading t4.uwNcfDscr — same VALUE (2.77 for #17), now correctly sourced as NOI DSCR per prospectus T4 col 1
-    uwNoiDscr: t4.uwNcfDscr,     // ↑ name MISMATCH on this auxiliary field — exposed shape's `uwNoiDscr` now actually carries NCF DSCR (2.43); not read by verify() or LOAN_17_BASELINE — kept to preserve the ExtractedLoan type signature without forcing a downstream cascade. Rename to uwAuxDscr if any future consumer reads it.
     concludedLtv: t4.cutOffLtv,
     uwDebtYield: t4.uwNoiDebtYield,
     // ★ CORRECTED 2026-06-13 — full T5/T6 prospectus-column-truth alignment.
     // All t12* fields source from T6 (Most Recent NOI table = TTM data) so the
-    // intra-T5 foot identity (t12Noi ≈ t12Egi − t12OpEx) holds. All uwY1*
+    // intra-T5 foot identity (t12Noi ≈ t12Egi − t12OpEx) holds. All UW
     // fields source from T5 (UW Net Operating Income table = UW data) so the
     // DY and DSCR identity checks foot. Spike convention had this systematically
-    // inverted across the shelf — the v8.1 correction extends the t12Noi/uwY1Noi
-    // swap to t12Egi/t12OpEx to close the inversion fully.
+    // inverted across the shelf — the v8.1 correction extends the t12Noi
+    // vs. statedRatioNumerator swap to t12Egi/t12OpEx to close the inversion fully.
     t12Noi: t6.uwNoi,                // TTM NOI
     t12Egi: t6.uwRevenue,            // TTM Revenue
     t12OpEx: t6.uwExpenses,          // TTM Expenses
     occupancyCurrent: t5.occupancyTtm,  // UW Occupancy% (only occupancy column the prospectus surfaces; sourced from T5 row)
-    uwY1Noi: t5.ttmNoi,              // UW NOI
+    // For WFRBS, the issuer's stated DY/DSCR ratios are computed on NOI.
+    // We carry UW NOI into the role-based statedRatioNumerator slot.
+    statedRatioNumerator: t5.ttmNoi, // UW NOI — the numerator behind WFRBS's stated DY/DSCR
     uwY1Revenue: t5.ttmRevenue,      // UW Revenue
     uwY1OpEx: t5.ttmOpEx,            // UW Expenses
     pariPassuCombination: pariPassuMap.get(controlNumber) ?? null,
@@ -596,10 +597,11 @@ function extractLoan(
 /* Loan #17 regression baseline                                             */
 /* ──────────────────────────────────────────────────────────────────────── */
 
-// ★ CORRECTED 2026-06-13 — t12Noi / uwY1Noi swapped to match prospectus
-// column-header truth (spike's hand-decode had the labels inverted; both
-// dollar values were always correct). See annexA.adapter.ts:167-195 for the
-// two-identity proof. Lockstep change with the canonical Stage-1 payload.
+// ★ CORRECTED 2026-06-13 — t12Noi / statedRatioNumerator swapped to match
+// prospectus column-header truth (spike's hand-decode had the labels
+// inverted; both dollar values were always correct). See
+// annexA.adapter.ts:167-195 for the two-identity proof. Lockstep change
+// with the canonical Stage-1 payload.
 const LOAN_17_BASELINE = {
   loanAmount: 15_000_000,
   coupon: 0.04677,
@@ -613,11 +615,12 @@ const LOAN_17_BASELINE = {
   occupancyCurrent: 0.812,
   // ★ CORRECTED — full T5/T6 prospectus-column-truth alignment.
   // All three t12* fields source from "Most Recent NOI" table (TTM data);
-  // all three uwY1* fields source from "UW Net Operating Income" table.
-  t12Noi: 3_330_324,    // TTM NOI
-  t12Egi: 9_432_760,    // TTM Revenue
-  t12OpEx: 6_102_436,   // TTM Expenses
-  uwY1Noi: 2_823_742,   // UW NOI
+  // statedRatioNumerator sources from "UW Net Operating Income" table
+  // (WFRBS issuer used NOI as the ratio numerator).
+  t12Noi: 3_330_324,                // TTM NOI
+  t12Egi: 9_432_760,                // TTM Revenue
+  t12OpEx: 6_102_436,               // TTM Expenses
+  statedRatioNumerator: 2_823_742,  // UW NOI — the numerator behind WFRBS's stated DY/DSCR
 };
 
 /* ──────────────────────────────────────────────────────────────────────── */
@@ -813,7 +816,7 @@ async function main(): Promise<void> {
     ['t12Noi',              loan17.t12Noi ?? 0,              LOAN_17_BASELINE.t12Noi],
     ['t12Egi',              loan17.t12Egi ?? 0,              LOAN_17_BASELINE.t12Egi],
     ['t12OpEx',             loan17.t12OpEx ?? 0,             LOAN_17_BASELINE.t12OpEx],
-    ['uwY1Noi',             loan17.uwY1Noi ?? 0,             LOAN_17_BASELINE.uwY1Noi],
+    ['statedRatioNumerator', loan17.statedRatioNumerator ?? 0, LOAN_17_BASELINE.statedRatioNumerator],
   ];
   let pass = true;
   console.log('  field                    extracted       baseline        match?');

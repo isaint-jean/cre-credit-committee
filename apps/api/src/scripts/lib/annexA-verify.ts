@@ -40,9 +40,9 @@ export interface PariPassuCombination {
  *
  * Stored here is JUST the group identity + sibling list. The aggregated
  * denominator (sum of loanAmounts) and numerators (sum of concludedValues
- * / uwY1Nois) are computed at verify-time from the sibling records — they
- * are NOT baked onto the loan, so each loan keeps its own extracted
- * trust-slice values untouched.
+ * / statedRatioNumerators) are computed at verify-time from the sibling
+ * records — they are NOT baked onto the loan, so each loan keeps its own
+ * extracted trust-slice values untouched.
  *
  * Mutually exclusive with PariPassuCombination by construction (the
  * per-issuer parsers key on disjoint footnote sentence shapes); verify()
@@ -65,11 +65,25 @@ export interface CrossCollatGroup {
  * unchanged.
  *
  * Field caveats noted at the walker layer (NOT contract leaks):
- *   - `uwNoiDscr` historically carries NCF DSCR in the WFRBS walker due
- *     to an internal mismatch documented at the assignment site;
- *     verify() reads `uwDscr` only, so this is auxiliary.
  *   - `uwY1Revenue` / `uwY1OpEx` are carried for downstream display/audit;
  *     verify() does not read them.
+ *
+ * ★ KEY ROLE-BASED FIELDS (do not confuse with NOI / NCF accounting names):
+ *
+ *   `statedRatioNumerator` — the cashflow figure the issuer USED as the
+ *     numerator for the stated DY (uwDebtYield) and DSCR (uwDscr) ratios.
+ *     For WFRBS 2013-C11 this is the property's UW NOI. For CGCMT
+ *     2013-GC15 this is the property's UW NCF. The contract carries the
+ *     issuer-chosen value so that verify() can foot the stated ratios
+ *     without any NOI-vs-NCF accounting knowledge. The field name
+ *     deliberately avoids "NOI" or "NCF" — populate with WHATEVER the
+ *     issuer used to compute the ratios appearing in `uwDebtYield` and
+ *     `uwDscr`.
+ *
+ *   `uwDscr` / `uwDebtYield` — the issuer's STATED ratio values, read
+ *     verbatim from the prospectus column. Whether the issuer computed
+ *     these on NOI or NCF is encoded into `statedRatioNumerator` (NOT
+ *     into the field name).
  */
 export interface ExtractedLoan {
   readonly controlNumber: number;
@@ -83,20 +97,19 @@ export interface ExtractedLoan {
   readonly coupon: number | null;
   readonly originalTermMonths: number | null;
   readonly ioMonths: number | null;
-  // T4-equivalent
+  // T4-equivalent (load-bearing ratios — stated values)
   readonly amortMonths: number | null;
   readonly concludedValue: number | null;  // == appraised
-  readonly uwDscr: number | null;          // NOI DSCR (verify() reads this one)
-  readonly uwNoiDscr: number | null;       // auxiliary — see walker site
+  readonly uwDscr: number | null;          // STATED DSCR — verify() reads this
   readonly concludedLtv: number | null;
-  readonly uwDebtYield: number | null;     // NOI DY (matches the spike)
+  readonly uwDebtYield: number | null;     // STATED DY — verify() reads this
   // T5-equivalent
   readonly t12Noi: number | null;
   readonly t12Egi: number | null;
   readonly t12OpEx: number | null;
   readonly occupancyCurrent: number | null;
   // T6-equivalent
-  readonly uwY1Noi: number | null;
+  readonly statedRatioNumerator: number | null;  // ★ numerator behind uwDscr + uwDebtYield (NOI on WFRBS, NCF on CGCMT)
   readonly uwY1Revenue: number | null;
   readonly uwY1OpEx: number | null;
   // Footnote-derived group memberships (issuer-agnostic shapes)
@@ -176,7 +189,7 @@ export function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, Extr
   // MUST NOT promote a loan with all-null load-bearing inputs to CLEAN.
   // Pre-2026-06-14 the single `allUnverifiable` flag conflated these, which
   // produced silent-CLEAN verdicts whenever T5_FOOT happened to run on a
-  // loan whose loanAmount/concludedValue/uwY1Noi were all null (~12 loans
+  // loan whose loanAmount/concludedValue/statedRatioNumerator were all null (~12 loans
   // on the WFRBS 2013-C11 shelf alone — see the Loan #1 walker-bug
   // diagnosis from 2026-06-14).
   const ran = { LTV: false, DY: false, DSCR: false, T5_FOOT: false };
@@ -186,7 +199,7 @@ export function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, Extr
   //   1. pariPassuCombination — pari-passu split-loan: the trust holds one
   //      note of a multi-note whole loan. denom = combined whole-loan
   //      balance (a SINGLE pre-extracted scalar, no sibling lookup needed).
-  //      Numerator (concludedValue, uwY1Noi) stays the property's own — the
+  //      Numerator (concludedValue, statedRatioNumerator) stays the property's own — the
   //      property is ONE asset, just split into two notes for trust-vs-
   //      external ownership.
   //
@@ -194,12 +207,12 @@ export function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, Extr
   //      cross-collateralized as a group. The issuer's stated LTV/DSCR/DY
   //      are computed against the GROUP AGGREGATE: SUM of all members'
   //      loanAmounts on one side, SUM of all members' concludedValues /
-  //      uwY1Nois on the other. The aggregation is computed HERE at
+  //      statedRatioNumerators on the other. The aggregation is computed HERE at
   //      verify-time from sibling records (via `loanLookup`); we never
   //      mutate any ExtractedLoan record.
   //
   //   3. neither — standalone: denom = own loanAmount, numerators = own
-  //      concludedValue / uwY1Noi. The vast majority of loans.
+  //      concludedValue / statedRatioNumerator. The vast majority of loans.
   //
   // Pari-passu and cross-collat are MUTUALLY EXCLUSIVE by parser-shape
   // construction (their footnote sentences don't overlap). We assert it
@@ -215,14 +228,14 @@ export function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, Extr
   // Compute (denom, ltvNumerator, dyNumerator) under the precedence above.
   // ltvNumerator = aggregated concludedValue for LTV's denominator side
   //               (so the identity is denom / ltvNumerator).
-  // dyNumerator  = aggregated uwY1Noi for DY/DSCR's numerator side.
+  // dyNumerator  = aggregated statedRatioNumerator for DY/DSCR's numerator side.
   let denom: number | null;
   let ltvDenom: number | null;     // value side of LTV
   let dyNoi: number | null;        // NOI side of DY/DSCR
   if (loan.pariPassuCombination !== null) {
     denom    = loan.pariPassuCombination.combinedCutOffBalance;
     ltvDenom = loan.concludedValue;   // property's own appraisal (whole-loan IS this single property)
-    dyNoi    = loan.uwY1Noi;          // property's own UW NOI
+    dyNoi    = loan.statedRatioNumerator;   // property's own stated-ratio numerator (issuer-chosen NOI or NCF)
   } else if (loan.crossCollatGroup !== null) {
     // Sum from sibling records. If ANY member is missing a field, the
     // aggregate is null (and the corresponding identity check skips —
@@ -232,11 +245,11 @@ export function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, Extr
       values.every(v => v !== null) ? values.reduce<number>((s, v) => s + (v as number), 0) : null;
     denom    = sumOrNull(members.map(m => m.loanAmount));
     ltvDenom = sumOrNull(members.map(m => m.concludedValue));
-    dyNoi    = sumOrNull(members.map(m => m.uwY1Noi));
+    dyNoi    = sumOrNull(members.map(m => m.statedRatioNumerator));
   } else {
     denom    = loan.loanAmount;
     ltvDenom = loan.concludedValue;
-    dyNoi    = loan.uwY1Noi;
+    dyNoi    = loan.statedRatioNumerator;
   }
 
   // LTV: derived = denom / ltvDenom
@@ -297,7 +310,7 @@ export function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, Extr
       nullInputs.push(loan.crossCollatGroup !== null ? `crossCollatGroupConcludedValue(${loan.crossCollatGroup.groupId})` : 'concludedValue');
     }
     if (dyNoi === null) {
-      nullInputs.push(loan.crossCollatGroup !== null ? `crossCollatGroupUwY1Noi(${loan.crossCollatGroup.groupId})` : 'uwY1Noi');
+      nullInputs.push(loan.crossCollatGroup !== null ? `crossCollatGroupStatedRatioNumerator(${loan.crossCollatGroup.groupId})` : 'statedRatioNumerator');
     }
     if (loan.concludedLtv === null) nullInputs.push('concludedLtv');
     if (loan.uwDebtYield === null) nullInputs.push('uwDebtYield');

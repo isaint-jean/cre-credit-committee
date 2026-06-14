@@ -361,16 +361,15 @@ function parseT6(row: string): T6Row {
 }
 
 interface T7Row {
-  uwY1Noi: number | null;
-  uwDscr: number | null;          // UW NCF DSCR per the column header
-  uwDebtYield: number | null;     // Debt Yield on UW NCF (%)
-  concludedValue: number | null;  // Appraised Value ($) — but the As-Stabilized one is in T8;
-                                  // verify this is the right value-side once spot-checked.
+  statedRatioNumerator: number | null;   // Underwritten NCF ($) on CGCMT — matches the prospectus's NCF-based stated DY/DSCR
+  uwDscr: number | null;                 // UW NCF DSCR per the column header
+  uwDebtYield: number | null;            // Debt Yield on UW NCF (%)
+  concludedValue: number | null;         // Appraised Value ($)
 }
 function parseT7(row: string): T7Row {
   const t = tokenize(row);
   const si = findPostSellerIdx(t);
-  if (si < 0) return { uwY1Noi: null, uwDscr: null, uwDebtYield: null, concludedValue: null };
+  if (si < 0) return { statedRatioNumerator: null, uwDscr: null, uwDebtYield: null, concludedValue: null };
   // After seller + property name, the financial column sequence per the
   // T7 header is:
   //   [0] Underwritten NOI ($)               — large $ value
@@ -383,13 +382,12 @@ function parseT7(row: string): T7Row {
   //   [7] Appraised Value ($)                — large $ value
   //
   // ★ CGCMT-NUMERATOR NOTE: the prospectus's stated DSCR (col 5) and DY
-  // (col 6) are both COMPUTED ON NCF, not NOI. So to make the identity
-  // checks foot, we put the NCF ($, col 4) into the contract's
-  // `uwY1Noi` slot (which the issuer-agnostic verify() uses as the
-  // DY/DSCR numerator) rather than NOI ($, col 0). The field is
-  // semantically "the numerator that matches the stated ratios", not
-  // "always NOI" — CGCMT differs from WFRBS here, and the contract
-  // doesn't change.
+  // (col 6) are both COMPUTED ON NCF, not NOI. So we put the NCF ($, col
+  // 4) into the contract's role-based `statedRatioNumerator` slot (which
+  // the issuer-agnostic verify() uses as the DY/DSCR numerator). The
+  // contract field name deliberately avoids "NOI" / "NCF" so each
+  // issuer's walker populates whatever numerator the issuer USED for the
+  // stated ratios — CGCMT uses NCF, WFRBS uses NOI; same contract.
   //
   // ★ PROPERTY-NAME DIGIT SKIP: CGCMT property names may begin with a
   // multi-digit address (e.g. "400 Broome Street", "75 19th Street",
@@ -426,7 +424,7 @@ function parseT7(row: string): T7Row {
     seq.push({ value: v, isPct, raw });
   }
   const ncfEntry  = seq[4];
-  const uwY1Noi   = ncfEntry?.value !== null && ncfEntry?.value !== undefined && ncfEntry.value >= 0
+  const statedRatioNumerator = ncfEntry?.value !== null && ncfEntry?.value !== undefined && ncfEntry.value >= 0
                     ? ncfEntry.value : null;
   const dscrEntry = seq[5];
   const uwDscr    = dscrEntry?.value !== null && dscrEntry?.value !== undefined && !dscrEntry.isPct
@@ -440,7 +438,7 @@ function parseT7(row: string): T7Row {
   const concludedValue = appraisedEntry?.value !== null && appraisedEntry?.value !== undefined
                     && appraisedEntry.value >= 500_000
                     ? appraisedEntry.value : null;
-  return { uwY1Noi, uwDscr, uwDebtYield, concludedValue };
+  return { statedRatioNumerator, uwDscr, uwDebtYield, concludedValue };
 }
 
 interface T8Row {
@@ -627,7 +625,7 @@ function extractLoan(
   const t3 = r3 ? parseT3(r3) : { coupon: null, originalTermMonths: null };
   const t4 = r4 ? parseT4(r4) : { originalTermMonths: null, ioMonths: null, amortMonths: null };
   const t6 = r6 ? parseT6(r6) : { t12Egi: null, t12OpEx: null, t12Noi: null };
-  const t7 = r7 ? parseT7(r7) : { uwY1Noi: null, uwDscr: null, uwDebtYield: null, concludedValue: null };
+  const t7 = r7 ? parseT7(r7) : { statedRatioNumerator: null, uwDscr: null, uwDebtYield: null, concludedValue: null };
   const t8 = r8 ? parseT8(r8) : { concludedLtv: null, occupancyCurrent: null };
   return {
     controlNumber,
@@ -641,14 +639,15 @@ function extractLoan(
     amortMonths: t4.amortMonths,
     concludedValue: t7.concludedValue,
     uwDscr: t7.uwDscr,
-    uwNoiDscr: null,
     concludedLtv: t8.concludedLtv,
     uwDebtYield: t7.uwDebtYield,
     t12Noi: t6.t12Noi,
     t12Egi: t6.t12Egi,
     t12OpEx: t6.t12OpEx,
     occupancyCurrent: t8.occupancyCurrent,
-    uwY1Noi: t7.uwY1Noi,
+    // CGCMT issuer computes stated DY/DSCR on NCF, so we carry NCF in the
+    // role-based numerator slot (see parseT7 NUMERATOR NOTE).
+    statedRatioNumerator: t7.statedRatioNumerator,
     uwY1Revenue: null,
     uwY1OpEx: null,
     // STEP 3 wiring: pari-passu from the "Pari Passu Companion Loan Summary"
@@ -806,7 +805,7 @@ async function main(): Promise<void> {
     console.log(`  #${id}:`);
     console.log(`    loanAmount      : ${fmtUsd(l.loanAmount)}`);
     console.log(`    concludedValue  : ${fmtUsd(l.concludedValue)}`);
-    console.log(`    uwY1Noi         : ${fmtUsd(l.uwY1Noi)}`);
+    console.log(`    statedRatioNumerator (NCF on CGCMT): ${fmtUsd(l.statedRatioNumerator)}`);
     console.log(`    coupon          : ${l.coupon === null ? '—' : (l.coupon * 100).toFixed(3) + '%'}`);
     console.log(`    amortMonths     : ${l.amortMonths ?? '—'}`);
     console.log(`    concludedLtv    : ${fmtPct(l.concludedLtv)}`);
