@@ -44,11 +44,34 @@ export const TENANT_STATUS = [
 ] as const;
 export type TenantStatus = (typeof TENANT_STATUS)[number];
 
-// One tenant / unit row. Every numeric field is `number | null`; strings are
-// `string | null`. Parsers MUST preserve null when the source has no value.
-// percentOfTotalSF is computed by the producer at hydration time, not stored
-// at parse time — leave null for parsers; producer fills it.
-export interface RentRollLine {
+/**
+ * Line-level discriminated union (PR 1 — multifamily honest-shape).
+ *
+ * `kind: 'tenant'` carries the office/retail/industrial tenant-lease shape.
+ * `kind: 'unit'`   carries the multifamily/MHC/student-housing unit shape.
+ *
+ * Field semantics that are MEANINGLESS for the other variant are absent —
+ * `leaseType` (NNN/MG/FSG/...) only on tenant; `concessionsMonthly` /
+ * `bedrooms` / `unitType` only on unit. This is the field-means-two-things
+ * trap we explicitly refused (uwY1Noi/statedRatioNumerator was the prior
+ * teaching case). Honest shape: same name → same semantics.
+ *
+ * Top-level RentRoll.lines is a heterogeneous array of these — typical
+ * rent rolls are homogeneous (all tenant OR all unit) but the contract
+ * doesn't enforce homogeneity (mixed-use deals with a ground-floor
+ * commercial tenant + residential units above would be tagged
+ * per-line). Consumers reading variant-specific fields MUST narrow via
+ * `if (line.kind === 'tenant')` — tsc --strict enforces this.
+ *
+ * Every numeric field is `number | null`; strings are `string | null`.
+ * Parsers MUST preserve null when the source has no value. percentOfTotalSF
+ * is computed by the producer at hydration time, not stored at parse time
+ * — leave null for parsers; producer fills it.
+ */
+
+/** Office / retail / industrial line — one tenant lease per row. */
+export interface TenantRentRollLine {
+  readonly kind: 'tenant';
   readonly tenantName: string | null;
   readonly suite: string | null;                    // unit / suite identifier
   readonly squareFeet: number | null;
@@ -67,6 +90,39 @@ export interface RentRollLine {
   readonly downtimeMonths: number | null;
   readonly notes: string | null;
 }
+
+/**
+ * Multifamily / MHC / student-housing line — one residential unit per row.
+ *
+ *   `leaseEndOrMTM: null` means month-to-month (the typical multifamily case).
+ *   No `leaseType` — the office NNN/MG/FSG vocabulary is meaningless for
+ *   residential leases.
+ *   No `recoveriesAnnual`/`newTiPsf`/etc. — these are office-only structural
+ *   fields with no residential analog.
+ */
+export interface UnitRentRollLine {
+  readonly kind: 'unit';
+  readonly unitId: string;                          // required — multifamily unit identity
+  readonly status: TenantStatus;                    // OCCUPIED / VACANT / PRELEASED / HOLDOVER / UNKNOWN
+  readonly squareFeet: number | null;               // unit SF
+  readonly bedrooms: number | null;                 // mix indicator; null for studios / unknown
+  readonly bathrooms: number | null;
+  readonly unitType: string | null;                 // e.g. "1BR/1BA", "Studio", "Townhome"
+  readonly leaseStart: ISODateTime | null;
+  readonly leaseEndOrMTM: ISODateTime | null;       // null === month-to-month (NOT missing data)
+  readonly inPlaceRentMonthly: number | null;
+  readonly marketRentMonthly: number | null;
+  readonly concessionsMonthly: number | null;       // dollars/month equivalent of concession amortized over lease term
+  readonly securityDeposit: number | null;
+  readonly notes: string | null;
+}
+
+/**
+ * Discriminated union. Use `if (line.kind === 'tenant')` / `'unit'` to
+ * narrow before reading variant-specific fields. tsc --strict will reject
+ * any read of a variant-specific field on the bare union.
+ */
+export type RentRollLine = TenantRentRollLine | UnitRentRollLine;
 
 // Top-level rent roll. The `lines` array is the truth; aggregate stats
 // (tenant count, occupied SF, etc.) are NOT cached on this record because

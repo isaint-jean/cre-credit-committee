@@ -68,9 +68,24 @@ export interface SourceDocumentRef {
 
 /* --------------------------------- rent roll -------------------------------- */
 
-export interface RentRollUnit {
-  readonly unitId: string;
-  readonly tenantName: string | null;            // null for vacant units
+/**
+ * Line-level discriminated union for the EXTRACTION-side rent-roll type
+ * (mirrors the persisted RentRoll.lines discipline at
+ * `packages/contracts/src/rent-roll.ts`). `kind: 'tenant'` carries the
+ * office/retail/industrial shape; `kind: 'unit'` carries the
+ * multifamily/MHC/student-housing shape. Consumers reading variant-
+ * specific fields MUST narrow on `kind` — tsc --strict enforces this.
+ *
+ * Naming note: this type is still called `RentRollUnit` for historical
+ * back-compat (it's the export the doctrine-clean adapter reads), but
+ * the meaning is now "one rent-roll line" — tenant or unit per discriminant.
+ */
+
+/** Office / retail / industrial extraction-side line. */
+export interface TenantUnit {
+  readonly kind: 'tenant';
+  readonly unitId: string;                       // suite or unit identifier (kept generic; legacy adapter synthesizes "unit-N" when source is null)
+  readonly tenantName: string | null;            // null for vacant
   readonly leaseStart: ISODateTime | null;
   readonly leaseEnd: ISODateTime | null;
   readonly baseRentMonthly: number | null;
@@ -79,6 +94,24 @@ export interface RentRollUnit {
   readonly concessions: number | null;           // dollars/month equivalent
   readonly securityDeposit: number | null;
 }
+
+/** Multifamily / MHC / student-housing extraction-side line. */
+export interface ResidentialUnit {
+  readonly kind: 'unit';
+  readonly unitId: string;
+  readonly bedrooms: number | null;
+  readonly bathrooms: number | null;
+  readonly unitType: string | null;              // "1BR/1BA", "Studio", "Townhome", etc.
+  readonly leaseStart: ISODateTime | null;
+  readonly leaseEndOrMTM: ISODateTime | null;    // null === month-to-month (NOT missing data)
+  readonly baseRentMonthly: number | null;
+  readonly inPlaceRentMonthly: number | null;
+  readonly occupied: boolean;
+  readonly concessionsMonthly: number | null;    // dollars/month
+  readonly securityDeposit: number | null;
+}
+
+export type RentRollUnit = TenantUnit | ResidentialUnit;
 
 export interface RentRollExtraction {
   readonly units: readonly RentRollUnit[];
