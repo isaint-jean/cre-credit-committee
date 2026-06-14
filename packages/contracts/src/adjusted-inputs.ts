@@ -252,6 +252,34 @@ export interface AdjustedAssumptions {
  * Numbers are nullable because the inputs can produce null (e.g., DSCR is null if debt service
  * is zero). Doctrine routes nulls through the INSUFFICIENT_DATA reason code rather than coercing.
  */
+/**
+ * Producer-computed NOI-divergence facts. Mirrors the judgment-engine v1.8
+ * NOI divergence check (`apps/api/src/services/judgment/noi-divergence.ts`)
+ * persisted as a typed struct on AdjustedMetrics so the render layer can
+ * read it without importing the judgment helper (closes the
+ * render-no-producers boundary violation in render-underwriting-context.ts
+ * that lived from 2026-06-06 / commit 72d70ee).
+ *
+ * SINGLE SOURCE OF TRUTH. The threshold (`NOI_DIVERGENCE_THRESHOLD = 0.20`)
+ * stays in `judgment/noi-divergence.ts` and is folded into the hashed
+ * judgment `deskConstants` snapshot — a silent retune still trips
+ * JUDGMENT_ENGINE_HASH_DRIFT at boot.
+ *
+ * Null when reference NOI is unavailable (extraction.t12Actual.noi absent
+ * or non-positive). Today this is corpus-wide null per the
+ * `trailingActualNoi` doctrine note below.
+ */
+export interface NoiDivergenceFacts {
+  /** True when finalNoi is materially below trailingActualNoi (shortfall ≥ threshold). */
+  readonly flagged: boolean;
+  /** (trailingActualNoi − derivedNoi) / trailingActualNoi. Positive = below reference. */
+  readonly shortfallPct: number;
+  /** The system's concluded NOI (post-cap). Same value the gate compared. */
+  readonly derivedNoi: number;
+  /** Reference NOI used for the divergence check — extraction.t12Actual.noi. */
+  readonly referenceNoi: number;
+}
+
 export interface AdjustedMetrics {
   readonly noi: number | null;
   readonly value: number | null;                          // = noi / capRate.adjusted
@@ -261,6 +289,22 @@ export interface AdjustedMetrics {
   readonly expenseRatio: number | null;                   // = totalOpEx / EGI
   readonly top1IncomeShare: number | null;                // 0..1; from rent roll
   readonly pctIncomeExpiringWithinTerm: number | null;    // 0..1; from rent roll vs term
+  /**
+   * Producer-side NOI-divergence facts. Computed by the judgment engine in
+   * `apply-judgment-adjustments.ts` from `finalNoi` + `extraction.t12Actual.noi`
+   * via `checkNoiDivergence(...)`. Render reads as a typed struct — no
+   * judgment-side reach-back. Null when no reference NOI available; see
+   * `NoiDivergenceFacts` above for the per-field semantics.
+   *
+   * AdjustedInputs body grow → AnalysisId cascade (5th in series, same
+   * flavor as the prior four — `maturityDate` (2026-05-31),
+   * `concludedCapRate` (§14.3 Decision 3 + Delta X), the period-fix
+   * trailing/issuer denormalization (2026-05-31), and the Phase 1 RentRoll
+   * link). Forward-only: re-runs produce new ids; no migration required on
+   * persisted rows (render uses `?? null` to tolerate stored bodies that
+   * predate the field). Documented schema evolution.
+   */
+  readonly noiDivergence: NoiDivergenceFacts | null;
   /**
    * Trailing-actual NOI — sourced from `OperatingStatementExtraction.t12Actual.noi`
    * (strict T-12 trailing-actuals column). Null today for every deal until a

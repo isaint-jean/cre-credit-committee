@@ -190,7 +190,7 @@ const defaultAdjustedInputs: AdjustedInputs = {
   metrics: {
     noi: 0, value: 0, dscr: 1.35, ltvAppraisal: 0, debtYield: 0.10,
     expenseRatio: 0, top1IncomeShare: 0, pctIncomeExpiringWithinTerm: 0,
-    issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+    issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
   },
   confidenceReduction: 0,
   topLevelAdjustments: [],

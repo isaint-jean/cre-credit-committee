@@ -225,7 +225,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId, salt = 0): Adj
       inPlaceNoi: null,
       trailingActualNoi: null,
       issuerStatedNoiSellerUw: null,
-      issuerStatedNoiAsr: null,
+      issuerStatedNoiAsr: null, noiDivergence: null,
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],

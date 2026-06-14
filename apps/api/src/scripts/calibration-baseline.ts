@@ -486,7 +486,7 @@ function synthesizeAdjustedInputs(d: DealBag): AdjustedInputs | null {
       issuerCfUwNoi: null,
       inPlaceNoi: null,
       issuerStatedNoiSellerUw: null,
-      issuerStatedNoiAsr: null,
+      issuerStatedNoiAsr: null, noiDivergence: null,
     },
     dataConfidence: 'validated',
     confidenceReduction: 0,

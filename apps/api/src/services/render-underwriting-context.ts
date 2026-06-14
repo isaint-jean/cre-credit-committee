@@ -67,7 +67,6 @@ import {
   NULL_SENTINEL,
 } from './render-sentinels.js';
 import { computeRenderedAnalysisId } from '../util/content-hash.js';
-import { checkNoiDivergence } from './judgment/noi-divergence.js';
 
 // 7.5 (Phase 1) + 7.6 (Phase 2 red_flag_assessment) + 7.7 (Phase 3
 // mitigation_suggestions) + 7.8 (Phase 4 committee_recommendation) helper.
@@ -341,65 +340,27 @@ export function renderUnderwritingContext(
           : adjustedInputs.dataConfidence === 'low_confidence' ? 'Low confidence'
           : 'Validated',
       },
-      // v7.13 — NOI divergence axis. Re-derived via the same helper the
-      // judgment engine uses (single source of truth for the 0.20 threshold).
-      // Null when no reference NOI is available (t12Actual absent on this
-      // deal). Server-builds the caveat displayValue so the UI does not
-      // need to compose prose.
-      //
-      // ─── DEFERRED: single-sourcing into the engine (2026-06-12, Isabelle) ───
-      //
-      // This is the ONLY remaining value-affecting derivation in the web
-      // renderer (the funded-exit move was completed 4efb130). Single-sourcing
-      // is DEFERRED — not skipped — because the axis is empirically dormant
-      // on the entire current corpus:
-      //
-      //   ai.metrics.trailingActualNoi is NULL for every deal today, per the
-      //   contract comment at packages/contracts/src/adjusted-inputs.ts:266-270
-      //   ("Null today for every deal until a separate class-(b) ingest slot
-      //   for true trailing operating statements lands"). The IIFE below
-      //   exits at the early guard (derived === null || ref === null) on every
-      //   run; checkNoiDivergence is invoked zero times in practice. Verified
-      //   empirically on the real Sunroad bundle by
-      //   apps/api/src/scripts/calibration-noi-divergence-crosscheck-sunroad.ts
-      //   (kept as a regression artifact).
-      //
-      // Gate-protection IS already in place for what matters:
-      //   - NOI_DIVERGENCE_THRESHOLD (0.20) is snapshotted into the judgment-
-      //     engine hash via deskConstants (judgment-engine-boot-check.ts:24-26).
-      //     A silent retune is caught by the engine-integrity gate.
-      //   - The renderer imports the canonical helper (checkNoiDivergence);
-      //     a hardcoded literal swap would be a code-review catch, not a hash
-      //     catch — same as it was before move 1 for the funded-exit axis.
-      //
-      // When a t12Actual-bearing bundle lands (class-(b) ingest), do
-      // option (a): add `noiDivergence: { flagged, shortfallPct, derivedNoi,
-      // referenceNoi } | null` to AdjustedMetrics, populate from the
-      // already-computed `divergence` object at apply-judgment-adjustments.ts:425
-      // (currently discarded except for the boolean flag), and drop this
-      // IIFE in favor of a structured read. Accept the AnalysisId cascade
-      // (5th in series — pattern documented at adjusted-inputs.ts:308) as
-      // the cost of doing it right. Real work, observable benefit then.
-      //
-      // ─── END DEFERRED NOTE ───
+      // v7.13 — NOI divergence axis. Structured read of the producer-side
+      // NoiDivergenceFacts persisted on AdjustedMetrics (see
+      // `packages/contracts/src/adjusted-inputs.ts` `noiDivergence` field).
+      // The computation + threshold live in the judgment engine; render is
+      // pure shape transform + caveat string. `?? null` tolerates stored
+      // AdjustedInputs bodies that predate the field.
       noiDivergence: (() => {
-        const derived = adjustedInputs.metrics.noi;
-        const ref = adjustedInputs.metrics.trailingActualNoi;
-        if (derived === null || ref === null) return null;
-        const r = checkNoiDivergence({ derivedNoi: derived, trailingActualNoi: ref });
-        if (r === null) return null;
-        const status: 'flagged' | 'within_band' = r.flagged ? 'flagged' : 'within_band';
+        const d = adjustedInputs.metrics.noiDivergence ?? null;
+        if (d === null) return null;
+        const status: 'flagged' | 'within_band' = d.flagged ? 'flagged' : 'within_band';
         const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
-        const pct = (r.shortfallPct * 100).toFixed(1);
-        const caveat = r.flagged
-          ? `Concluded NOI ${usd(derived)} is ${pct}% below the trailing-12 actual of ${usd(ref)} — review the conservatism floors and recovery assumptions before relying on the recommendation.`
+        const pct = (d.shortfallPct * 100).toFixed(1);
+        const caveat = d.flagged
+          ? `Concluded NOI ${usd(d.derivedNoi)} is ${pct}% below the trailing-12 actual of ${usd(d.referenceNoi)} — review the conservatism floors and recovery assumptions before relying on the recommendation.`
           : '';
         return {
           status: { value: status, displayValue: status === 'flagged' ? 'Flagged' : 'Within band' },
-          derivedNoi: { value: derived, displayValue: applyNumericSentinel(derived) },
-          referenceNoi: { value: ref, displayValue: applyNumericSentinel(ref) },
-          shortfallPct: { value: r.shortfallPct, displayValue: applyNumericSentinel(r.shortfallPct) },
-          caveat: { value: caveat, displayValue: caveat },
+          derivedNoi:   { value: d.derivedNoi,   displayValue: applyNumericSentinel(d.derivedNoi) },
+          referenceNoi: { value: d.referenceNoi, displayValue: applyNumericSentinel(d.referenceNoi) },
+          shortfallPct: { value: d.shortfallPct, displayValue: applyNumericSentinel(d.shortfallPct) },
+          caveat:       { value: caveat,         displayValue: caveat },
         };
       })(),
       // v7.15 — doctrine coverage axis. Surfaces engine v1.3 cap + v1.1

@@ -348,7 +348,7 @@ console.log('\nConservatism gate (direct invocation):');
       noi: 750_000, value: 12_500_000, dscr: null, ltvAppraisal: null,
       debtYield: null, expenseRatio: 0.21, top1IncomeShare: null,
       pctIncomeExpiringWithinTerm: null,
-      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],

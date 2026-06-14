@@ -93,7 +93,7 @@ function buildAi(loanAmount: number, coupon: number, termYears: number, ioYears:
       ltvAppraisal: null, debtYield,
       expenseRatio: 0.35, top1IncomeShare: null, pctIncomeExpiringWithinTerm: null,
       trailingActualNoi: null, issuerCfUwNoi: null, inPlaceNoi: null,
-      issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
     },
     topLevelAdjustments: [], dataQualityFlags: [],
     dataConfidence: 'validated' as any,

@@ -140,7 +140,7 @@ function buildAi(loanAmount: number): AdjustedInputs {
       dscr: 1.50,
       ltvAppraisal: null,
       debtYield: 0.12,
-      expenseRatio: 0.35, top1IncomeShare: null, pctIncomeExpiringWithinTerm: null, trailingActualNoi: null, issuerCfUwNoi: null, inPlaceNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      expenseRatio: 0.35, top1IncomeShare: null, pctIncomeExpiringWithinTerm: null, trailingActualNoi: null, issuerCfUwNoi: null, inPlaceNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
     },
     topLevelAdjustments: [], dataQualityFlags: [],
   } as unknown as AdjustedInputs;

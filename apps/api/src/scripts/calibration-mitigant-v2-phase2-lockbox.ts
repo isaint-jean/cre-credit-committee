@@ -55,7 +55,7 @@ function buildAi(egi: number): AdjustedInputs {
     expenses: {} as any, capitalReserves: {} as any,
     loan: { loanAmount: li(30_000_000, 30_000_000), interestRate: li(0.045, 0.045), termMonths: li(120, 120), amortizationMonths: li(360, 360), ioPeriodMonths: li(0, 0), maturityBalance: li(null, 28_000_000), maturityDate: '2034-12-01T00:00:00.000Z' as any, debtServiceAnnual: li(null, 1_350_000) },
     assumptions: { capRate: li(0.07, 0.07), terminalCapRate: li(0.075, 0.075), concludedCapRate: null, rentGrowthPct: li(0.02, 0.02), expenseGrowthPct: li(0.025, 0.025) },
-    metrics: { noi: egi * 0.65, value: egi * 0.65 / 0.07, dscr: 2.59, ltvAppraisal: 0.55, debtYield: 0.117, expenseRatio: 0.35, top1IncomeShare: null, pctIncomeExpiringWithinTerm: null, trailingActualNoi: null, issuerCfUwNoi: null, inPlaceNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null },
+    metrics: { noi: egi * 0.65, value: egi * 0.65 / 0.07, dscr: 2.59, ltvAppraisal: 0.55, debtYield: 0.117, expenseRatio: 0.35, top1IncomeShare: null, pctIncomeExpiringWithinTerm: null, trailingActualNoi: null, issuerCfUwNoi: null, inPlaceNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null , noiDivergence: null},
     topLevelAdjustments: [], dataQualityFlags: [],
   } as unknown as AdjustedInputs;
 }

@@ -507,6 +507,20 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       expenseRatio,
       top1IncomeShare,
       pctIncomeExpiringWithinTerm,
+      // NOI-divergence facts (judgment v1.8) persisted as a typed struct so
+      // render can read without importing this engine. `divergence` already
+      // computed at :425; we reuse the result and add finalNoi + reference
+      // for render's caveat composition. Null when checkNoiDivergence
+      // returned null (no reference NOI). The AdjustmentEntry push above
+      // is unchanged.
+      noiDivergence: divergence === null
+        ? null
+        : {
+            flagged:      divergence.flagged,
+            shortfallPct: divergence.shortfallPct,
+            derivedNoi:   finalNoi,
+            referenceNoi: extraction.t12Actual!.noi!,
+          },
       // §2.3-legitimate: Stage 4 is the ONLY pipeline stage allowed to read
       // ExtractionResult. We denormalize trailing-actual NOI + the four
       // cross-reference NOI values onto AdjustedInputs.metrics here so the

@@ -254,7 +254,7 @@ function synthesizeAdjustedInputs(r: AnswerKeyRecord): AdjustedInputs | null {
       pctIncomeExpiringWithinTerm: null,
       trailingActualNoi: r.t12Noi,
       issuerCfUwNoi: null, inPlaceNoi: null,
-      issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
     },
     dataConfidence: 'validated',
     confidenceReduction: 0,

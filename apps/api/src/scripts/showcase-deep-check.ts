@@ -277,7 +277,7 @@ function mkAI(bag: ShowcaseBag, withRentRoll: boolean): AdjustedInputs {
       pctIncomeExpiringWithinTerm: pctRoll,
       trailingActualNoi: bag.t12noi,
       issuerCfUwNoi: null, inPlaceNoi: null,
-      issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
     },
     dataConfidence: bag.t12noi !== null ? 'validated' : 'low_confidence',
     confidenceReduction: 0,

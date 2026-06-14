@@ -49,6 +49,7 @@ import {
 import { evaluateAndNarrate } from './evaluate-and-narrate.js';
 import type { LLMCallFn } from './narrative/build-narrative.js';
 import { annualDebtService, maturityBalance } from './judgment/amortization.js';
+import { checkNoiDivergence } from './judgment/noi-divergence.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 /**
@@ -298,6 +299,18 @@ export function recomputeDerivedFields(
     expenseRatio,
     top1IncomeShare: body.metrics.top1IncomeShare,
     pctIncomeExpiringWithinTerm: body.metrics.pctIncomeExpiringWithinTerm,
+    // NOI-divergence: recompute against the REVISED noi (income/expense
+    // overrides shift the denominator), with trailingActualNoi anchored
+    // from the parent body unchanged (deltas do not re-extract source
+    // documents — the reference floor is the original extraction's
+    // t12Actual.noi). Same checkNoiDivergence helper the judgment engine
+    // uses (single source of truth for the 0.20 threshold).
+    noiDivergence: (() => {
+      const ref = body.metrics.trailingActualNoi;
+      const div = checkNoiDivergence({ derivedNoi: noi, trailingActualNoi: ref });
+      if (div === null) return null;
+      return { flagged: div.flagged, shortfallPct: div.shortfallPct, derivedNoi: noi, referenceNoi: ref! };
+    })(),
     // NOI-reconciliation fields (P-III-15) — revision deltas do NOT re-extract source
     // documents, so trailing-actual and issuer-stated NOI carry through from the body
     // unchanged. The NOI denominator above (`noi`) may shift via delta-driven income/

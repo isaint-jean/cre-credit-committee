@@ -58,7 +58,7 @@ function buildAi(opts: { noi: number; loanAmount: number; interestRate: number; 
     expenses: {} as any, capitalReserves: {} as any,
     loan: { loanAmount: li(opts.loanAmount, opts.loanAmount), interestRate: li(opts.interestRate, opts.interestRate), termMonths: li(120, 120), amortizationMonths: li(opts.amortMonths, opts.amortMonths), ioPeriodMonths: li(0, 0), maturityBalance: li(null, opts.loanAmount * 0.92), maturityDate: '2034-12-01T00:00:00.000Z' as any, debtServiceAnnual: li(null, opts.loanAmount * opts.interestRate) },
     assumptions: { capRate: li(0.07, 0.07), terminalCapRate: li(0.075, 0.075), concludedCapRate: null, rentGrowthPct: li(0.02, 0.02), expenseGrowthPct: li(0.025, 0.025) },
-    metrics: { noi: opts.noi, value: opts.noi / 0.07, dscr: opts.dscr, ltvAppraisal: opts.ltvAppraisal ?? null, debtYield: opts.debtYield, expenseRatio: 0.35, top1IncomeShare: null, pctIncomeExpiringWithinTerm: opts.pctRollover ?? null, trailingActualNoi: null, issuerCfUwNoi: null, inPlaceNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null },
+    metrics: { noi: opts.noi, value: opts.noi / 0.07, dscr: opts.dscr, ltvAppraisal: opts.ltvAppraisal ?? null, debtYield: opts.debtYield, expenseRatio: 0.35, top1IncomeShare: null, pctIncomeExpiringWithinTerm: opts.pctRollover ?? null, trailingActualNoi: null, issuerCfUwNoi: null, inPlaceNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null , noiDivergence: null},
     topLevelAdjustments: [], dataQualityFlags: [],
   } as unknown as AdjustedInputs;
 }

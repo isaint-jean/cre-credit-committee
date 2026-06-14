@@ -61,6 +61,7 @@ function makeAdjustedInputs(metrics: {
       trailingActualNoi: metrics.trailingActualNoi,
       issuerStatedNoiSellerUw: metrics.issuerStatedNoiSellerUw,
       issuerStatedNoiAsr: metrics.issuerStatedNoiAsr,
+      noiDivergence: null,
     },
   } as unknown as AdjustedInputs;
 }

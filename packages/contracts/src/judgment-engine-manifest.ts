@@ -125,4 +125,15 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // v1.9); the hash MOVED because the snapshot shape changed. See
   // docs/desk-threshold-hashing-design.md.
   '1.10': 'd0950410bd1fc7027d1fd910771f3be7368818824cdf429ed42fb57eb810d081' as ContentHash,
+  // Producer-side persistence of NoiDivergenceFacts on AdjustedMetrics (2026-06-14).
+  // Closes the render-no-producers boundary violation in render-underwriting-context.ts
+  // by moving the divergence struct from a render-side re-derivation to a producer-side
+  // field. apply-judgment-adjustments.ts now persists the already-computed `divergence`
+  // object (was discarded except for the flag); apply-revision-delta.ts re-runs
+  // checkNoiDivergence against the revised noi with trailingActualNoi anchored from
+  // the parent body. No engine-state change: deskConstants (incl. NOI_DIVERGENCE_THRESHOLD)
+  // unchanged, rule registry unchanged → hash byte-identical to 1.10 by construction.
+  // The version bump anchors the AdjustedInputs body grow (NoiDivergenceFacts field
+  // added to AdjustedMetrics) and the documented AnalysisId cascade (5th in series).
+  '1.11': 'd0950410bd1fc7027d1fd910771f3be7368818824cdf429ed42fb57eb810d081' as ContentHash,
 };

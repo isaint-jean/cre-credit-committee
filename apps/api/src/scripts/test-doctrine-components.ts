@@ -124,7 +124,7 @@ function makeAdjustedInputs(opts: Partial<{
       expenseRatio: 0.25,
       top1IncomeShare: opts.top1IncomeShare === undefined ? 0.25 : opts.top1IncomeShare,
       pctIncomeExpiringWithinTerm: opts.pctIncomeExpiringWithinTerm === undefined ? 0.20 : opts.pctIncomeExpiringWithinTerm,
-      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
     },
     dataConfidence: 'validated',
     confidenceReduction: 0,

@@ -203,7 +203,7 @@ function makeAdjustedInputs(librarySnapshotId: LibrarySnapshotId): AdjustedInput
       inPlaceNoi: null,
       trailingActualNoi: null,
       issuerStatedNoiSellerUw: null,
-      issuerStatedNoiAsr: null,
+      issuerStatedNoiAsr: null, noiDivergence: null,
     },
     confidenceReduction: 0.05,
     topLevelAdjustments: [],

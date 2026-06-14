@@ -240,7 +240,7 @@ function buildDefaultAdjustedInputs(args: {
     metrics: {
       noi: 0, value: 0, dscr: args.dscr, ltvAppraisal: 0, debtYield: args.debtYield,
       expenseRatio: 0, top1IncomeShare: 0, pctIncomeExpiringWithinTerm: 0,
-      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null,
+      issuerCfUwNoi: null, inPlaceNoi: null, trailingActualNoi: null, issuerStatedNoiSellerUw: null, issuerStatedNoiAsr: null, noiDivergence: null,
     },
     confidenceReduction: 0,
     topLevelAdjustments: [],
