@@ -112,6 +112,7 @@ const LOAN_17_ANNEXA: AnnexAExtraction = {
   tiLcReserve: null,
   largestTenant: null,
   leaseExpirationLargest: null,
+  pariPassuCombination: null,   // #17 Minot Hotel Portfolio — single-trust loan
 };
 
 function makeAnnexAOnlyExtraction(): ExtractionResult {

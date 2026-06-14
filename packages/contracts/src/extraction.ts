@@ -346,6 +346,47 @@ export interface AnnexAExtraction {
   readonly largestTenant: string | null;
   /** Largest-tenant lease expiration date (ISO). Null for non-tenant assets. */
   readonly leaseExpirationLargest: ISODateTime | null;
+  /**
+   * Pari-passu split-loan companion record. Populated when the loan is a
+   * Note in a pari-passu combination (this trust holds one note; other notes
+   * are held by other trusts). When set, the prospectus's stated LTV / DSCR /
+   * Debt Yield identities are computed against the COMBINED whole-loan
+   * cut-off balance, NOT the trust-slice loanAmount.
+   *
+   * Three pari-passu loans on WFRBS 2013-C11: #1 Republic Plaza
+   * ($280M combined), #2 Concord Mills ($235M), #6 One South Wacker Drive
+   * ($165M). Distinct from cross-collateralized constructs (e.g. #57/#58)
+   * — those do NOT populate this field.
+   *
+   * Source: prose footnote #4 in the Annex A footnotes region. Parser regex
+   * pattern: "For mortgage loan #N (PropertyName), the mortgage loan
+   * represents Note A-X of [count] pari passu companion loans, which have a
+   * combined Cut-off date principal balance of $Y."
+   */
+  readonly pariPassuCombination: PariPassuCombination | null;
+}
+
+/**
+ * Pari-passu split-loan companion data. When a mortgage loan is split into
+ * multiple notes (Note A-1, A-2, …) held by different trusts, this record
+ * captures the THIS-loan's note position and the FULL combined balance
+ * across all notes. The prospectus's stated LTV/DY/DSCR use the combined
+ * balance as denominator/DS-input; this trust's slice (`loanAmount`) is the
+ * portion of cash flows accrued to this trust's investors only.
+ *
+ * Optional on AnnexAExtraction — null for single-trust loans (the majority).
+ */
+export interface PariPassuCombination {
+  /** This trust's note position, e.g. "A-1" or "A-2". String to keep
+   *  open-shaped (some shelves use "A-3" or other conventions). */
+  readonly noteNumber: string;
+  /** Total notes across the combination (e.g. 2 for "two pari passu
+   *  companion loans"). */
+  readonly totalNotes: number;
+  /** Combined cut-off date principal balance across ALL notes — the
+   *  denominator used by the prospectus's stated identities (LTV, DY,
+   *  DSCR). Dollars. */
+  readonly combinedCutOffBalance: number;
 }
 
 /* ------------------------------ ExtractionResult ---------------------------- */

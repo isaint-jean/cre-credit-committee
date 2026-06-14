@@ -235,4 +235,7 @@ const WFRBS_2013_C11_LOAN_17_VALUES: AnnexAExtraction = {
   // T9 — Lease info (hospitality: not applicable)
   largestTenant: null,
   leaseExpirationLargest: null,
+  // Pari-passu — Loan #17 (Minot Hotel Portfolio) is a single-trust loan; no
+  // footnote-#4 entry exists, so the combination is null.
+  pariPassuCombination: null,
 };

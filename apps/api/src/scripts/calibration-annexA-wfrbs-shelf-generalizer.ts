@@ -395,13 +395,19 @@ function parseT1(row: string): T1Row {
 /* Per-loan aggregation across the 6 tables                                 */
 /* ──────────────────────────────────────────────────────────────────────── */
 
+interface PariPassuCombination {
+  readonly noteNumber: string;
+  readonly totalNotes: number;
+  readonly combinedCutOffBalance: number;
+}
+
 interface ExtractedLoan {
   readonly controlNumber: number;
   // T1
   readonly generalPropertyType: string | null;
   readonly specificPropertyType: string | null;
   // T2
-  readonly loanAmount: number | null;     // == originalLoanAmount
+  readonly loanAmount: number | null;     // == originalLoanAmount (THIS trust's slice)
   readonly maturityDate: string | null;
   // T3
   readonly coupon: number | null;
@@ -423,9 +429,49 @@ interface ExtractedLoan {
   readonly uwY1Noi: number | null;
   readonly uwY1Revenue: number | null;
   readonly uwY1OpEx: number | null;
+  // Footnote-#4 — pari-passu split-loan combination (null for single-trust loans)
+  readonly pariPassuCombination: PariPassuCombination | null;
 }
 
-function extractLoan(controlNumber: number, tablesRaw: Record<string, string>): ExtractedLoan {
+/**
+ * Footnote parser: scan the Annex A's footnote-#4 prose region for pari-passu
+ * companion-loan records. The pattern is consistent across the three deals on
+ * this shelf:
+ *   "For mortgage loan #N (PropertyName), the mortgage loan represents
+ *    Note A-X of [count-word] pari passu companion loans, which have a
+ *    combined Cut-off date principal balance of $Y."
+ *
+ * Key precision: `[^)]+` (instead of greedy `.*?`) for the property-name
+ * capture prevents a long preamble starting with another loan number (e.g.
+ * "#57 St. Helen Shops) and mortgage loan #58…") from being matched as a
+ * pari-passu entry. Cross-collateralized constructs use a different syntax
+ * ("which are cross-collateralized") and don't match this regex at all.
+ *
+ * Returns a map keyed by loanId → PariPassuCombination. Single-trust loans
+ * are absent from the map (callers default to null).
+ */
+const COUNT_WORDS: Readonly<Record<string, number>> = { two: 2, three: 3, four: 4, five: 5 };
+function parsePariPassuFootnotes(annexA: string): Map<number, PariPassuCombination> {
+  const out = new Map<number, PariPassuCombination>();
+  // [^)]+ stops at first ')' — bounds the property name to one parenthetical.
+  // \w+ matches the count word ("two", "three", etc.) — strict enough that
+  // cross-collateralized footnotes don't accidentally satisfy the structural
+  // signal ("represents Note A-X of two pari passu companion loans").
+  const re = /For\s+mortgage\s+loan\s+#(\d+)\s+\(([^)]+)\),\s+the\s+mortgage\s+loan\s+represents\s+Note\s+A-(\d+)\s+of\s+(\w+)\s+pari\s+passu\s+companion\s+loans,\s+which\s+have\s+a\s+combined\s+Cut-off\s+date\s+principal\s+balance\s+of\s+\$([\d,]+)/g;
+  let m;
+  while ((m = re.exec(annexA)) !== null) {
+    const id = Number(m[1]);
+    const noteNumber = `A-${m[3]}`;
+    const countWord = (m[4] ?? '').toLowerCase();
+    const totalNotes = COUNT_WORDS[countWord] ?? 0;
+    const combinedCutOffBalance = Number((m[5] ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(combinedCutOffBalance) || totalNotes < 2) continue;
+    out.set(id, { noteNumber, totalNotes, combinedCutOffBalance });
+  }
+  return out;
+}
+
+function extractLoan(controlNumber: number, tablesRaw: Record<string, string>, pariPassuMap: Map<number, PariPassuCombination>): ExtractedLoan {
   const row1 = extractLoanRow(tablesRaw.t1 ?? '', controlNumber);
   const row2 = extractLoanRow(tablesRaw.t2 ?? '', controlNumber);
   const row3 = extractLoanRow(tablesRaw.t3 ?? '', controlNumber);
@@ -467,6 +513,7 @@ function extractLoan(controlNumber: number, tablesRaw: Record<string, string>): 
     uwY1Noi: t5.ttmNoi,              // UW NOI
     uwY1Revenue: t5.ttmRevenue,      // UW Revenue
     uwY1OpEx: t5.ttmOpEx,            // UW Expenses
+    pariPassuCombination: pariPassuMap.get(controlNumber) ?? null,
   };
 }
 
@@ -508,26 +555,36 @@ function verify(loan: ExtractedLoan): Verdict {
   const failures: CheckFailure[] = [];
   let allUnverifiable = true;
 
-  // LTV: derived = loanAmount / concludedValue
-  if (loan.loanAmount !== null && loan.concludedValue !== null && loan.concludedLtv !== null && loan.concludedValue > 0) {
+  // ★ Whole-loan-aware denominator: pari-passu deals foot identities against
+  // the COMBINED whole-loan balance, not the trust slice. The prospectus
+  // footnote-#4 text is explicit: "All LTVs, DSCRs, Debt Yields … are based
+  // on Note A-1 and Note A-2 in the aggregate." Single-trust loans pass
+  // through with loanAmount (slice == whole). Numerator (uwY1Noi) is the
+  // property's UW NOI — independent of loan-combination structure.
+  const denom = loan.pariPassuCombination !== null
+    ? loan.pariPassuCombination.combinedCutOffBalance
+    : loan.loanAmount;
+
+  // LTV: derived = denom / concludedValue
+  if (denom !== null && loan.concludedValue !== null && loan.concludedLtv !== null && loan.concludedValue > 0) {
     allUnverifiable = false;
-    const derived = loan.loanAmount / loan.concludedValue;
+    const derived = denom / loan.concludedValue;
     const delta = Math.abs(derived - loan.concludedLtv);
     if (delta > LTV_TOL) failures.push({ check: 'LTV', stated: loan.concludedLtv, derived, delta, tolerance: LTV_TOL });
   }
 
-  // DY: derived = uwY1Noi / loanAmount
-  if (loan.uwY1Noi !== null && loan.loanAmount !== null && loan.uwDebtYield !== null && loan.loanAmount > 0) {
+  // DY: derived = uwY1Noi / denom
+  if (loan.uwY1Noi !== null && denom !== null && loan.uwDebtYield !== null && denom > 0) {
     allUnverifiable = false;
-    const derived = loan.uwY1Noi / loan.loanAmount;
+    const derived = loan.uwY1Noi / denom;
     const delta = Math.abs(derived - loan.uwDebtYield);
     if (delta > DY_TOL) failures.push({ check: 'DY', stated: loan.uwDebtYield, derived, delta, tolerance: DY_TOL });
   }
 
-  // DSCR: derived = uwY1Noi / computedDs(loan, coupon, amortMonths) — LOOSE
-  if (loan.uwY1Noi !== null && loan.loanAmount !== null && loan.coupon !== null && loan.amortMonths !== null && loan.uwDscr !== null && loan.loanAmount > 0) {
+  // DSCR: derived = uwY1Noi / computedDs(denom, coupon, amortMonths) — LOOSE
+  if (loan.uwY1Noi !== null && denom !== null && loan.coupon !== null && loan.amortMonths !== null && loan.uwDscr !== null && denom > 0) {
     allUnverifiable = false;
-    const ds = computeAnnualDs(loan.loanAmount, loan.coupon, loan.amortMonths);
+    const ds = computeAnnualDs(denom, loan.coupon, loan.amortMonths);
     if (ds !== null && ds > 0) {
       const derived = loan.uwY1Noi / ds;
       const delta = Math.abs(derived - loan.uwDscr);
@@ -658,12 +715,27 @@ async function main(): Promise<void> {
   }
   console.log('');
 
+  // ★ Pari-passu footnote parse — runs once over the full Annex A region.
+  // Footnote-#4 text lives well past the stratification tables (~offset 213K
+  // in WFRBS 2013-C11), so it's outside any individual table chunk; we walk
+  // the whole annexA string.
+  const pariPassuMap = parsePariPassuFootnotes(annexA);
+  console.log('Pari-passu loans (from footnote-#4 prose):');
+  if (pariPassuMap.size === 0) {
+    console.log('  (none detected)');
+  } else {
+    for (const [id, pp] of [...pariPassuMap.entries()].sort((a, b) => a[0] - b[0])) {
+      console.log(`  #${id}  Note ${pp.noteNumber} of ${pp.totalNotes} pari-passu loans, combined cut-off $${(pp.combinedCutOffBalance / 1_000_000).toFixed(0)}M`);
+    }
+  }
+  console.log('');
+
   // Walk loans 1..100 attempting extraction. WFRBS 2013-C11 has 80 loans
   // (per the 10-D filing); we'll find which control numbers are real and
   // skip gaps.
   const loans: ExtractedLoan[] = [];
   for (let n = 1; n <= 100; n++) {
-    const loan = extractLoan(n, tablesRaw);
+    const loan = extractLoan(n, tablesRaw, pariPassuMap);
     // A loan exists if at least one of T2/T4 returned a positive loan amount or appraised value.
     if (loan.loanAmount !== null || loan.concludedValue !== null) {
       loans.push(loan);
