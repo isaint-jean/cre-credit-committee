@@ -653,14 +653,33 @@ function populateRentRollTab(
     }
   }
 
+  // The 'Rent Roll' tab is tenant/office-shaped — its columns (tenantName,
+  // squareFeet, leaseType NNN/MG/FSG, leaseStart/leaseEnd-as-expiration,
+  // contractRentPsf, uwBaseRentPsf) are office-vocabulary. The blank
+  // template has NO equivalent per-unit input slot for multifamily on
+  // 'Property Detail - MF SS MHP' — that tab is fully formula-driven
+  // (rows 25-29 read from 'Property & Loan Summary' INDEX/MATCH lookups,
+  // no per-unit input rows). PR 3 batch 3: filter to tenant-kind lines
+  // before writing. Unit lines are honestly DROPPED at render rather
+  // than coerced into tenant columns (which would misplace unitId into
+  // tenantName, monthly rent into contractRentPsf, etc. — exactly the
+  // field-means-two-things trap the discriminated union refuses).
+  // Multifamily property-level summary data flows through other
+  // workbook surfaces (Total_Units / Year_Built / Property_Type named
+  // ranges populated by Build C's render-schema path).
+  //
+  // Back-compat (batch-1 convention): skip explicit `kind: 'unit'` only —
+  // untyped legacy lines default to the tenant write path.
+  const tenantLines = rentRoll.lines.filter(l => l.kind !== 'unit');
+
   // Tenant rows. Cap at the template's allocated input rows; the Summary
   // block (Leased/Vacant/Total) starts around row 250 in the blank template.
   const SUMMARY_GUARD_ROW = 248;
   const writableRows = Math.max(0, SUMMARY_GUARD_ROW - RENT_ROLL_FIRST_DATA_ROW);
-  const lineLimit = Math.min(rentRoll.lines.length, writableRows);
+  const lineLimit = Math.min(tenantLines.length, writableRows);
 
   for (let i = 0; i < lineLimit; i++) {
-    const line = rentRoll.lines[i]!;
+    const line = tenantLines[i]!;
     const row = RENT_ROLL_FIRST_DATA_ROW + i;
     writes += writeTenantRow(worksheet, row, i + 1, line, entries);
   }
@@ -671,6 +690,10 @@ function populateRentRollTab(
 // Write one tenant row. Returns count of cells actually written. Every cell
 // is guarded: formula cells are skipped (the workbook may pin certain rows
 // or columns), and null line fields are skipped (no zero fabrication).
+//
+// Callers MUST pre-filter unit-kind lines (see `populateRentRollTab` above —
+// the writer is tenant-shape-only by design). Untyped legacy lines (no
+// `kind` field) are treated as tenant per the batch-1 back-compat convention.
 function writeTenantRow(
   worksheet: ExcelJS.Worksheet,
   row: number,
@@ -678,6 +701,8 @@ function writeTenantRow(
   line: RentRollLine,
   entries: MappedField[],
 ): number {
+  if (line.kind === 'unit') return 0;  // safety net — callers should have filtered
+
   let writes = 0;
 
   const psfFromAnnual = (annual: number | null, sqft: number | null): number | null => {

@@ -625,9 +625,10 @@ interface CuratedRentRoll {
   readonly otherAggregate: CuratedRentRollOtherAggregate | null; // null when totalTenantCount <= TOP_N
 }
 
-function curateTenantLine(line: RentRollLine): CuratedTenantLine {
+function curateTenantLine(line: Extract<RentRollLine, { kind: 'tenant' }> | (RentRollLine & { kind?: undefined })): CuratedTenantLine {
   // Derive inPlaceRentPsf strictly: both operands non-null → divide; else null.
   // No defaulting, no Math.max/min, no rounding (raw division — LLM sees full precision).
+  // Callers narrow to tenant-kind (or untyped legacy) before invoking.
   const sf = line.squareFeet;
   const rent = line.inPlaceRentAnnual;
   const psf = sf !== null && rent !== null && sf !== 0 ? rent / sf : null;
@@ -645,11 +646,24 @@ function curateTenantLine(line: RentRollLine): CuratedTenantLine {
 }
 
 function curateRentRoll(rentRoll: RentRoll): CuratedRentRoll {
+  // PR 3 batch 3: tenant-shape curation only — the LLM context is built
+  // around tenant attributes (tenantName, leaseType, leaseEnd, PSF rent).
+  // Unit-kind lines are filtered out so a multifamily roll produces an
+  // honest "no tenant data" curated context (totalTenantCount=0, empty
+  // topTenants, null otherAggregate) — the LLM sees the absence
+  // explicitly rather than receiving coerced unit data shaped as tenants.
+  // Back-compat (batch-1 convention): skip explicit `kind: 'unit'` only;
+  // untyped legacy lines default to the tenant path.
+  type TenantOrLegacyLine = Extract<RentRollLine, { kind: 'tenant' }> | (RentRollLine & { kind?: undefined });
+  const tenantLines = rentRoll.lines.filter(
+    (l): l is TenantOrLegacyLine => l.kind !== 'unit',
+  );
+
   // Stable sort by in-place income descending. Null incomes sort to the end
   // (still aggregated under "other" when they spill past TOP_N). Tie-break on
   // index so the sort is deterministic across V8 versions (Array.prototype.sort
   // is stable in modern Node, but we want the contract explicit).
-  const indexed = rentRoll.lines.map((line, idx) => ({ line, idx }));
+  const indexed = tenantLines.map((line, idx) => ({ line, idx }));
   indexed.sort((a, b) => {
     const ar = a.line.inPlaceRentAnnual;
     const br = b.line.inPlaceRentAnnual;
