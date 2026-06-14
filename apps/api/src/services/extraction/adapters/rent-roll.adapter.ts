@@ -103,17 +103,44 @@ export const RENT_ROLL_ADAPTER_VERSION = '0.1.0';
 export function projectToRentRollExtraction(rentRoll: RentRoll): RentRollExtraction {
   const lines = rentRoll.lines;
 
-  const units = lines.map((line, i) => ({
-    unitId: line.suite === null ? `unit-${i + 1}` : line.suite,
-    tenantName: line.tenantName,
-    leaseStart: line.leaseStart,
-    leaseEnd: line.leaseEnd,
-    baseRentMonthly: null,
-    inPlaceRentMonthly: line.inPlaceRentAnnual === null ? null : line.inPlaceRentAnnual / 12,
-    occupied: line.status === 'OCCUPIED',
-    concessions: null,
-    securityDeposit: null,
-  }));
+  // PR 3 batch 1 — discriminated-union honest projection. The legacy
+  // projector only knew the tenant shape and lost ALL unit-side data
+  // (concessions, monthly market rent, MTM semantics, bedrooms/unitType)
+  // when called with multifamily lines. Now each variant maps to the
+  // corresponding RentRollExtraction.units variant: tenant→TenantUnit
+  // (existing behavior preserved byte-for-byte plus the kind stamp),
+  // unit→ResidentialUnit (full multifamily field-set preserved).
+  const units = lines.map((line, i): RentRollExtraction['units'][number] => {
+    if (line.kind === 'tenant') {
+      return {
+        kind: 'tenant',
+        unitId: line.suite === null ? `unit-${i + 1}` : line.suite,
+        tenantName: line.tenantName,
+        leaseStart: line.leaseStart,
+        leaseEnd: line.leaseEnd,
+        baseRentMonthly: null,
+        inPlaceRentMonthly: line.inPlaceRentAnnual === null ? null : line.inPlaceRentAnnual / 12,
+        occupied: line.status === 'OCCUPIED',
+        concessions: null,
+        securityDeposit: null,
+      };
+    }
+    // line.kind === 'unit' — multifamily / MHC / student housing.
+    return {
+      kind: 'unit',
+      unitId: line.unitId,
+      bedrooms: line.bedrooms,
+      bathrooms: line.bathrooms,
+      unitType: line.unitType,
+      leaseStart: line.leaseStart,
+      leaseEndOrMTM: line.leaseEndOrMTM,            // null === MTM, semantic preserved
+      baseRentMonthly: null,                         // not carried on the persisted UnitRentRollLine
+      inPlaceRentMonthly: line.inPlaceRentMonthly,
+      occupied: line.status === 'OCCUPIED',
+      concessionsMonthly: line.concessionsMonthly,
+      securityDeposit: line.securityDeposit,
+    };
+  });
 
   let occupiedCount = 0;
   for (const line of lines) {

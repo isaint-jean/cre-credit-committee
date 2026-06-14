@@ -44,9 +44,16 @@ function rolloverWithinTermFraction(
   const now = new Date(extraction.analysisAsOfDate).getTime();
   const cutoff = now + (termMonths + bufferMonths) * 30.4375 * 24 * 60 * 60 * 1000;
 
+  // GATED — feeds tenant-lease-rollover applicability predicates. For
+  // multifamily / MHC / hotel / self-storage there is no tenant-lease
+  // term concept; filter tenant-only so the fraction is honestly
+  // computed against tenant lines only. Multifamily-only input → 0
+  // (no tenant lines), which routes the downstream applicability check
+  // to its conservative default.
   let totalAnnualRent = 0;
   let expiringAnnualRent = 0;
   for (const u of extraction.rentRoll.units) {
+    if (u.kind === 'unit') continue;            // back-compat: explicit-unit-only filter
     if (u.inPlaceRentMonthly === null) continue;
     const annual = u.inPlaceRentMonthly * 12;
     totalAnnualRent += annual;

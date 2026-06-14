@@ -287,7 +287,19 @@ export function pickOccupancy(
  */
 export function deriveTopTenantShare(rentRoll: RentRollExtraction | null): number | null {
   if (rentRoll === null) return null;
-  const occupied = rentRoll.units.filter(u => u.tenantName !== null);
+  // GATED — this output feeds dim 5 (income-concentration), which the dim's
+  // own asset-class gate (`UNIT_OR_ROOM_BASED_TYPES` at
+  // doctrine-clean/dimensions/income-concentration.ts:219) returns
+  // 'not-applicable-by-asset-type' on for Multifamily/MHC/Hotel/SelfStorage.
+  // For honesty (PR 3 batch 1 discipline), filter to tenant lines here too —
+  // a "top tenant share" is meaningless for a unit roll. Multifamily input
+  // returns null; the dim's N/A gate produces the correct verdict regardless.
+  // Back-compat: skip explicit `kind: 'unit'` only. Untyped legacy units
+  // (persisted before PR 2 or `as any` test fixtures) default to tenant.
+  const tenantUnits = rentRoll.units.filter(
+    (u): u is Extract<typeof u, { kind: 'tenant' }> => u.kind !== 'unit',
+  );
+  const occupied = tenantUnits.filter(u => u.tenantName !== null);
   if (occupied.length === 0) return null;
   // Group by tenantName; aggregate annualized rent. Prefer baseRentMonthly;
   // fall back to inPlaceRentMonthly when baseRent is unavailable.
@@ -352,8 +364,13 @@ export function deriveTenantDataStatus(
     if (assetType !== null && TENANT_BASED_TYPES.has(assetType)) return 'parse-failed';
     return null;
   }
+  // GATED at line ~348 by UNIT_OR_ROOM_BASED_TYPES check above (returns
+  // 'na-by-asset-type' before reaching this code for multifamily). Defensive
+  // tenant-only filter here keeps the data flow honest even if an upstream
+  // refactor changes the gate semantics.
   const occupiedNames = new Set(
     rentRoll.units
+      .filter((u): u is Extract<typeof u, { kind: 'tenant' }> => u.kind !== 'unit')  // back-compat: explicit-unit-only filter
       .filter(u => u.tenantName !== null)
       .map(u => u.tenantName!),
   );
@@ -376,9 +393,15 @@ export function deriveRolloverShare(
   if (rentRoll === null || maturityDate === null) return null;
   const matDate = new Date(maturityDate);
   if (Number.isNaN(matDate.getTime())) return null;
+  // GATED — feeds dim 6 (rollover), which gates Multifamily/MHC/Hotel/
+  // SelfStorage to 'not-applicable-by-asset-type' at
+  // doctrine-clean/dimensions/rollover.ts:190. Multifamily lacks the
+  // tenant-lease-expiration concept; filter tenant-only here so the
+  // numerator/denominator are computed honestly.
   let totalAnnual = 0;
   let expiringAnnual = 0;
   for (const u of rentRoll.units) {
+    if (u.kind === 'unit') continue;            // back-compat: explicit-unit-only filter
     if (u.tenantName === null) continue;
     const monthly = u.baseRentMonthly ?? u.inPlaceRentMonthly;
     if (monthly === null || monthly <= 0) continue;

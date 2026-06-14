@@ -156,14 +156,26 @@ function computeTop1IncomeShare(extraction: ExtractionResult, gri: number): numb
 }
 
 /**
- * True if any rent-roll unit has a null `inPlaceRentMonthly` or null `concessions`.
+ * True if any rent-roll unit is incomplete for downstream judgment math.
  * The orchestrator emits JE_RENT_ROLL_UNIT_INCOMPLETE when this returns true.
+ *
+ * MULTIFAMILY-RELEVANT — branches on the discriminant. For tenant lines
+ * the legacy check stays exact (inPlaceRentMonthly + concessions). For
+ * unit lines the residential analog is inPlaceRentMonthly +
+ * concessionsMonthly. The legacy code's untyped `u.concessions` would
+ * silently miss the residential concessions field and never flag a
+ * multifamily rent roll as concession-incomplete; this branching makes
+ * the completeness check honest for both shapes.
  */
 function hasIncompleteRentRollUnit(extraction: ExtractionResult): boolean {
   if (extraction.rentRoll === null) return false;
-  return extraction.rentRoll.units.some(
-    u => u.inPlaceRentMonthly === null || u.concessions === null,
-  );
+  return extraction.rentRoll.units.some(u => {
+    if (u.inPlaceRentMonthly === null) return true;
+    // Branch order matters: explicit-unit-else-treat-as-tenant. Untyped
+    // legacy fixtures default to the tenant shape (back-compat).
+    if (u.kind === 'unit') return u.concessionsMonthly === null;
+    return u.concessions === null;
+  });
 }
 
 function computePctIncomeExpiringWithinTerm(
@@ -175,9 +187,13 @@ function computePctIncomeExpiringWithinTerm(
   if (!Number.isFinite(now)) return null;
   const cutoff = now + termMonths * 30.4375 * 24 * 60 * 60 * 1000;
 
+  // GATED — feeds dim 6 (rollover), which routes Multifamily/MHC/Hotel/
+  // SelfStorage to N/A by asset class. Filter tenant-only so the fraction
+  // is honestly computed against tenant leases only.
   let totalAnnual = 0;
   let expiringAnnual = 0;
   for (const u of extraction.rentRoll.units) {
+    if (u.kind === 'unit') continue;            // back-compat: explicit-unit-only filter
     if (u.inPlaceRentMonthly === null) continue;
     const annual = u.inPlaceRentMonthly * 12;
     totalAnnual += annual;

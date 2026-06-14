@@ -447,18 +447,33 @@ export function buildConcessionsPct(args: {
 }): AdjustedLineItem {
   if (!args.applicable) return buildNotApplicableLineItem();
 
-  // Batch 6.2.1 (audit U7): when a unit has null `concessions` OR null `inPlaceRentMonthly`,
-  // skip the unit entirely rather than silently summing 0. The legacy `?? 0` understated the
-  // total rent denominator AND inflated the apparent concession ratio. The orchestrator emits
-  // JE_RENT_ROLL_UNIT_INCOMPLETE separately when any unit is incomplete.
+  // MULTIFAMILY-RELEVANT — branches on the discriminant. The legacy code's
+  // untyped `u.concessions` was tenant-only; for residential lines the
+  // analog is `concessionsMonthly`. Without this branch a multifamily rent
+  // roll's concessions would silently disappear into a null denominator,
+  // and the engine would substitute the default 2% concession rate even
+  // when the rent roll explicitly disclosed concessions.
+  //
+  // Batch 6.2.1 (audit U7): when a unit has null concessions (in EITHER
+  // variant) OR null `inPlaceRentMonthly`, skip the unit entirely rather
+  // than silently summing 0. The legacy `?? 0` understated the total rent
+  // denominator AND inflated the apparent concession ratio. The
+  // orchestrator emits JE_RENT_ROLL_UNIT_INCOMPLETE separately when any
+  // unit is incomplete.
   let raw: number | null = null;
   if (args.extraction.rentRoll) {
     let totalConc = 0;
     let totalRent = 0;
     let completeUnits = 0;
     for (const u of args.extraction.rentRoll.units) {
-      if (u.concessions === null || u.inPlaceRentMonthly === null) continue;
-      totalConc += u.concessions;
+      if (u.inPlaceRentMonthly === null) continue;
+      // Branch order matters: explicit-unit-else-treat-as-tenant. Untyped
+      // legacy fixtures (where `kind` is missing) default to the tenant
+      // shape — back-compat for persisted pre-PR-2 data and `as any` test
+      // fixtures. New code emits `kind` at construction sites.
+      const conc = u.kind === 'unit' ? u.concessionsMonthly : u.concessions;
+      if (conc === null) continue;
+      totalConc += conc;
       totalRent += u.inPlaceRentMonthly;
       completeUnits++;
     }

@@ -114,37 +114,49 @@ export function computeRefiWindowRollover(
   const cutoffMs =
     maturityPlusWindowDate !== null ? Date.parse(maturityPlusWindowDate) : null;
 
+  // GATED — refi-window's tenant-lease-rollover analysis is meaningless
+  // for multifamily / MHC / hotel / self-storage (no tenant-lease term;
+  // dim 6 routes those to N/A by asset class). Filter to tenant-kind
+  // lines so the analysis honestly applies to its intended scope.
+  // A multifamily input → empty perTenantSchedule, everyLeaseEndPresent
+  // false (no tenant lines), sourceDataComplete=false →
+  // verdict='insufficient_data' — the honest degraded result.
+  // Back-compat: skip explicit `kind: 'unit'` only. Untyped legacy lines
+  // (persisted before the discriminant landed) default to tenant.
+  const tenantLines = rentRoll === null
+    ? []
+    : rentRoll.lines.filter(
+        (l): l is Extract<typeof l, { kind: 'tenant' }> => l.kind !== 'unit',
+      );
+
   // Build per-tenant schedule first — surfaced even on insufficient data so the
   // LLM can see exactly which leases are missing dates and ask for them by name.
   const perTenantSchedule: RefiWindowRolloverTenantLine[] = [];
-  if (rentRoll !== null) {
-    for (const line of rentRoll.lines) {
-      const leaseEnd = line.leaseEnd;
-      let expiresWithinRefiWindow: boolean | null;
-      if (leaseEnd === null || cutoffMs === null || !Number.isFinite(cutoffMs)) {
-        expiresWithinRefiWindow = null;
-      } else {
-        const end = Date.parse(leaseEnd);
-        expiresWithinRefiWindow = Number.isFinite(end) ? end <= cutoffMs : null;
-      }
-      perTenantSchedule.push({
-        tenantName: line.tenantName,
-        suite: line.suite,
-        squareFeet: line.squareFeet,
-        leaseEnd,
-        expiresWithinRefiWindow,
-        inPlaceRentAnnual: line.inPlaceRentAnnual,
-      });
+  for (const line of tenantLines) {
+    const leaseEnd = line.leaseEnd;
+    let expiresWithinRefiWindow: boolean | null;
+    if (leaseEnd === null || cutoffMs === null || !Number.isFinite(cutoffMs)) {
+      expiresWithinRefiWindow = null;
+    } else {
+      const end = Date.parse(leaseEnd);
+      expiresWithinRefiWindow = Number.isFinite(end) ? end <= cutoffMs : null;
     }
+    perTenantSchedule.push({
+      tenantName: line.tenantName,
+      suite: line.suite,
+      squareFeet: line.squareFeet,
+      leaseEnd,
+      expiresWithinRefiWindow,
+      inPlaceRentAnnual: line.inPlaceRentAnnual,
+    });
   }
 
   // sourceDataComplete checks ALL three pillars: rent roll present, maturity present,
   // term present, and every tenant has leaseEnd. A single missing leaseEnd flips
   // sourceDataComplete=false → verdict=insufficient_data.
   const everyLeaseEndPresent =
-    rentRoll !== null &&
-    rentRoll.lines.length > 0 &&
-    rentRoll.lines.every((l) => l.leaseEnd !== null);
+    tenantLines.length > 0 &&
+    tenantLines.every((l) => l.leaseEnd !== null);
   const sourceDataComplete =
     rentRoll !== null &&
     maturityDate !== null &&
@@ -157,7 +169,7 @@ export function computeRefiWindowRollover(
   if (sourceDataComplete && rentRoll !== null && cutoffMs !== null) {
     let total = 0;
     let expiring = 0;
-    for (const line of rentRoll.lines) {
+    for (const line of tenantLines) {
       const rent = line.inPlaceRentAnnual;
       if (rent === null) continue;
       total += rent;
