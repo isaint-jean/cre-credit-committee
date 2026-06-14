@@ -86,7 +86,7 @@ function makeAdjustedInputs(adjustments: AdjustmentEntry[]): AdjustedInputs {
       amortizationMonths: 360, termMonths: 60, ioMonths: 0,
     },
     metrics: {
-      netOperatingIncome: 0, capRate: 0, impliedValue: null,
+      netOperatingIncome: 0, capRate: 0, impliedValue: null, value: null,
       annualDebtService: null, dscr: null, ltv: null, debtYield: null,
     },
     adjustments,

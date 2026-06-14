@@ -119,6 +119,7 @@ function makeAdjustedInputs(opts: Partial<{
       netOperatingIncome: opts.noi ?? 8_745_252,
       capRate:            opts.capRate ?? 0.075,
       impliedValue:       opts.impliedValue ?? 113_580_000,
+      value:              null,
       annualDebtService:  opts.annualDebtService ?? 6_514_340,
       dscr:               opts.dscr ?? 1.343,
       ltv:                opts.ltv ?? null,

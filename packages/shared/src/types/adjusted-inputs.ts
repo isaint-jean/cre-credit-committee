@@ -110,6 +110,15 @@ export interface AdjustedMetrics {
   netOperatingIncome: number;
   capRate: number;
   impliedValue: number | null;
+  /**
+   * Operator-/extraction-supplied concluded value. Distinct from `impliedValue`
+   * (engine value = NOI / capRate); `value` carries the persisted concluded
+   * valuation surfaced through the producer pipeline (operator-supplied BOV
+   * on Sunroad, appraisal-derived on appraised deals). Aligns the shared type
+   * with `@cre/contracts.AdjustedMetrics.value` — the runtime payload has
+   * always carried this field; the shared type just hadn't surfaced it.
+   */
+  value: number | null;
   annualDebtService: number | null;
   dscr: number | null;
   ltv: number | null;

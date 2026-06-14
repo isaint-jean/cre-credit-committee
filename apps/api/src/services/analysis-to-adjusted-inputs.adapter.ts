@@ -250,6 +250,11 @@ function buildMetrics(model: UnderwritingModel): AdjustedMetrics {
     netOperatingIncome: model.netOperatingIncome,
     capRate: model.capRate,
     impliedValue: model.impliedValue,
+    // Legacy Analysis path doesn't carry a separate concluded `value` distinct
+    // from `impliedValue` (engine-derived). When the producer pipeline supplies
+    // an operator-supplied / appraisal-derived concluded valuation, that route
+    // populates AdjustedMetrics.value directly — not through this adapter.
+    value: null,
     annualDebtService: model.annualDebtService,
     dscr: model.dscr,
     ltv: model.ltv,

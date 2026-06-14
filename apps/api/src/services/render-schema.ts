@@ -891,30 +891,40 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
       'selector wiring.',
   },
 
-  // ----- v9: Conclusions & Escrows — FLIPS from v8 concluded → awaiting_input
-  // The library-median cap rate is DANGEROUSLY OPTIMISTIC on Sunroad (7.5% vs
-  // analyst-concluded 8.5%). The valuation chain inherits the optimism
-  // ($113.58M vs analyst $103.1M). Both cells flip to awaiting_input until
-  // the cap-rate calibration ticket lands (cleanup ticket #6).
+  // ----- v9: Conclusions & Escrows ----------------------------------------
+  // Concluded_Value reads `adjustedInputs.metrics.value` — the persisted
+  // operator-supplied concluded valuation ($126.20M on Sunroad; matches the
+  // memo's verbatim "concluded value of $126.20M" callouts and the basis
+  // disclosure "valuation basis: operator-supplied"). The legacy v8 entry
+  // (which read `a.metrics.impliedValue`, a field that no longer exists
+  // and produced library-median-derived $113.58M) is structurally overridden.
+  //
+  // Concluded_Cap_Rate stays awaiting_input: the operator supplied a value
+  // anchored to ratings actions on comparable towers, NOT a cap rate.
+  // The implied (NOI/value = ~6.75%) is a derivation the memo doesn't
+  // validate; wiring it would invent a figure the deal record never made.
   {
     slot: 'Conclusion_Escrows',
     range: 'Concluded_Cap_Rate',
     selector: nullSelector,
     cellState: 'awaiting_input',
     comment: () =>
-      'Engine assumption.capRate is library median (7.5%) — optimistic vs ' +
-      'analyst-concluded cap rate (8.5% on Sunroad). Awaiting per-deal cap-rate ' +
-      'calibration rule (B-piece spread over comps).',
+      'Operator-supplied valuation is a $-value, not a cap rate (Sunroad: ' +
+      'BOV anchored to Q1 ratings actions on comparable Office CBD towers). ' +
+      'No concluded cap rate was provided; the NOI/value implication is a ' +
+      'derivation the deal record never made. Awaiting either an explicit ' +
+      'operator-supplied cap rate field or a per-deal calibration rule.',
   },
   {
     slot: 'Conclusion_Escrows',
     range: 'Concluded_Value',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
+    selector: num((a) => a.metrics.value),
+    cellState: 'concluded',
     comment: () =>
-      'Engine value derived from library-median cap rate (7.5%) is $113.58M on ' +
-      'Sunroad — $10.5M above analyst\'s concluded $103.1M at 8.5% cap. Awaiting ' +
-      'per-deal cap-rate calibration.',
+      'Operator-supplied valuation (Sunroad: BOV $126.20M, basis anchored ' +
+      'to Q1 ratings actions on comparable Office CBD towers). Matches the ' +
+      'memo\'s "concluded value of $126.20M; valuation basis: ' +
+      'operator-supplied" disclosure.',
   },
 
   // ----- v9 NEW: Extraction / data gaps — AWAITING_INPUT --------------------
@@ -928,9 +938,15 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
     selector: ltvAppraisalSelector,
     cellState: 'awaiting_input',
     comment: () =>
-      'LTV requires appraisal value; no appraisal slot in current 4-file ingest ' +
-      'model (CF + ASR + PCA + rent-roll). Awaiting appraisal ingest slot or ' +
-      'manual appraisal value input.',
+      'Appraised-basis LTV is intentionally not surfaced. (1) No appraisal ' +
+      'slot in the 4-file ingest model (CF + ASR + PCA + rent-roll). (2) The ' +
+      'memo follows a single-LTV-basis discipline using the doctrine-stressed ' +
+      'basis (Sunroad: 87.98% pre-cut / 80.00% at L′); the appraised-basis ' +
+      'figure (loanAmount / operator-supplied value) is deliberately absent ' +
+      'from memo prose and is omitted here for the same reason. Wiring it ' +
+      'bare without a basis qualifier would imply third-party appraisal ' +
+      'support that the deal does not have. Awaiting a basis-label cell ' +
+      'mechanism or an appraisal ingest slot.',
   },
   // P49 — NCF DSCR. Engine surfaces NOI DSCR only today; NCF = NOI − annual
   // reserves. Awaiting NCF metric on AdjustedInputs.metrics or render-side
