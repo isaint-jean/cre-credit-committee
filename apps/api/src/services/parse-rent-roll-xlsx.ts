@@ -45,26 +45,50 @@ interface ColumnMap {
   downtimeMonths?: number;
   status?: number;
   notes?: number;
+  // Unit-side columns (multifamily / MHC / student housing).
+  bedrooms?: number;
+  bathrooms?: number;
+  unitType?: number;
+  inPlaceRentMonthly?: number;
+  marketRentMonthly?: number;
+  concessionsMonthly?: number;
+  securityDeposit?: number;
 }
 
+// PATTERN ORDER MATTERS: the loop in `findHeaderRow` `break`s on the first
+// matching regex. Unit-side patterns are checked BEFORE the generic
+// "rent" / "market rent" patterns so headers like "Monthly Market Rent"
+// map to `marketRentMonthly` (a unit signal), not to `marketRent` (a tenant
+// signal) — otherwise the detector would misclassify multifamily rolls as
+// office.
 const HEADER_PATTERNS: { readonly key: keyof ColumnMap; readonly regex: RegExp }[] = [
-  { key: 'tenantName',     regex: /tenant\s*name|tenant$/i },
-  { key: 'suite',          regex: /suite|unit\s*(?:id|#|number)/i },
-  { key: 'squareFeet',     regex: /(?:^|\b)sf\b|sq\.?\s*ft|square\s*feet|gla|nra/i },
-  { key: 'leaseStart',     regex: /lease\s*start|commencement|start\s*date/i },
-  { key: 'leaseEnd',       regex: /lease\s*end|expir|maturity|end\s*date/i },
-  { key: 'inPlaceRent',    regex: /in[\s-]*place\s*rent|current\s*rent|contract\s*rent|base\s*rent/i },
-  { key: 'marketRent',     regex: /market\s*rent|appraisal\s*rent/i },
-  { key: 'leaseType',      regex: /lease\s*type|recovery\s*type/i },
-  { key: 'recoveries',     regex: /recover|reimburs/i },
-  { key: 'otherIncome',    regex: /other\s*income|parking|storage/i },
-  { key: 'newTiPsf',       regex: /new\s*ti(?!\s*lc)/i },
-  { key: 'renewTiPsf',     regex: /renew\s*ti(?!\s*lc)/i },
-  { key: 'newLcPct',       regex: /new\s*lc/i },
-  { key: 'renewLcPct',     regex: /renew\s*lc/i },
-  { key: 'downtimeMonths', regex: /downtime|down\s*time|vacancy\s*months/i },
-  { key: 'status',         regex: /status|occupanc/i },
-  { key: 'notes',          regex: /notes|comments/i },
+  // ----- Unit-specific patterns FIRST (strong multifamily signals) ---------
+  { key: 'bedrooms',           regex: /bedroom|^br$|#\s*beds?/i },
+  { key: 'bathrooms',          regex: /bathroom|^ba$|#\s*baths?/i },
+  { key: 'unitType',           regex: /unit\s*type|floor\s*plan/i },
+  { key: 'inPlaceRentMonthly', regex: /monthly\s*(?:rent|in[\s-]*place|contract|market)|rent\/mo|rent\s*per\s*month/i },
+  { key: 'marketRentMonthly',  regex: /monthly\s*market\s*rent|market\s*rent\/mo/i },
+  { key: 'concessionsMonthly', regex: /concession/i },
+  { key: 'securityDeposit',    regex: /security\s*deposit|^deposit$/i },
+  // ----- Shared columns (both kinds) ---------------------------------------
+  { key: 'tenantName',         regex: /tenant\s*name|tenant$/i },
+  { key: 'suite',              regex: /suite|unit\s*(?:id|#|number)|^unit$/i },
+  { key: 'squareFeet',         regex: /(?:^|\b)sf\b|sq\.?\s*ft|square\s*feet|gla|nra/i },
+  { key: 'leaseStart',         regex: /lease\s*start|commencement|start\s*date|move[\s-]?in/i },
+  { key: 'leaseEnd',           regex: /lease\s*end|expir|maturity|end\s*date/i },
+  { key: 'status',             regex: /status|occupanc/i },
+  { key: 'notes',              regex: /notes|comments/i },
+  // ----- Tenant-specific patterns LAST (strong office signals) -------------
+  { key: 'inPlaceRent',        regex: /in[\s-]*place\s*rent|current\s*rent|contract\s*rent|base\s*rent|annual\s*rent/i },
+  { key: 'marketRent',         regex: /market\s*rent|appraisal\s*rent/i },
+  { key: 'leaseType',          regex: /lease\s*type|recovery\s*type/i },
+  { key: 'recoveries',         regex: /recover|reimburs/i },
+  { key: 'otherIncome',        regex: /other\s*income|parking|storage/i },
+  { key: 'newTiPsf',           regex: /new\s*ti(?!\s*lc)/i },
+  { key: 'renewTiPsf',         regex: /renew\s*ti(?!\s*lc)/i },
+  { key: 'newLcPct',           regex: /new\s*lc/i },
+  { key: 'renewLcPct',         regex: /renew\s*lc/i },
+  { key: 'downtimeMonths',     regex: /downtime|down\s*time|vacancy\s*months/i },
 ];
 
 const LEASE_TYPE_NORMALIZE: { readonly [k: string]: LeaseType } = {
@@ -144,12 +168,72 @@ function findHeaderRow(worksheet: ExcelJS.Worksheet): { row: number; map: Column
         }
       }
     });
-    // Header row must have at least a tenant identifier and SF column.
-    if (map.tenantName !== undefined && map.squareFeet !== undefined) {
-      return { row: r, map };
-    }
+    // A header row qualifies if it has EITHER:
+    //   (tenant) tenantName + squareFeet          — the original office signal
+    //   (unit)   suite/unitId + (bedrooms | unitType | inPlaceRentMonthly | concessionsMonthly)
+    //                                              — multifamily signals; suite serves
+    //                                                as unitId via the shared regex
+    //                                                /suite|unit\s*(?:id|#|number)|^unit$/
+    const hasTenantSig = map.tenantName !== undefined && map.squareFeet !== undefined;
+    const hasUnitId    = map.suite !== undefined;
+    const hasUnitSig   = hasUnitId && (
+      map.bedrooms !== undefined ||
+      map.unitType !== undefined ||
+      map.inPlaceRentMonthly !== undefined ||
+      map.concessionsMonthly !== undefined
+    );
+    if (hasTenantSig || hasUnitSig) return { row: r, map };
   }
   return null;
+}
+
+/**
+ * Classify the header row as tenant- or unit-shaped using STRONG signals.
+ *
+ *   STRONG TENANT signals: leaseType, recoveries, TI/LC, downtime, marketRent
+ *     — these columns are office-vocabulary specific (NNN/MG/FSG, tenant
+ *       improvements, leasing commissions, expense reimbursements).
+ *   STRONG UNIT signals: bedrooms, bathrooms, unitType, inPlaceRentMonthly
+ *     (explicitly monthly), concessionsMonthly — these are residential
+ *     vocabulary with no office analog.
+ *
+ * Decision rule:
+ *   - At least one tenant signal AND zero unit signals → 'tenant'
+ *   - At least one unit signal AND zero tenant signals → 'unit'
+ *   - Both signal sets present (mixed-use header?) → 'tenant' (conservative;
+ *       the tenant parser handles a richer field set and the office-flavored
+ *       columns will preserve more data — the unit columns are dropped on
+ *       this row but the union still flags semantic mismatch downstream)
+ *   - Neither signal set present (just suite/SF/rent — ambiguous) → 'tenant'
+ *       (preserves prior behavior; the deal's asset class downstream is the
+ *       authoritative classifier and dim 5/6 N/A-by-asset gates protect the
+ *       doctrine score for any misclassified-as-tenant multifamily input).
+ *
+ * NOTE: parsing runs UPSTREAM of asset classification (the call site
+ * `routes/analysis.routes.ts:1066` passes only a buffer), so content
+ * detection is the only signal available today. A future enhancement could
+ * thread an optional `assetTypeHint` parameter through ParseRentRollOptions
+ * when the upload flow gains an operator-supplied asset-class field at
+ * deal setup.
+ */
+function detectRentRollKind(map: ColumnMap): 'tenant' | 'unit' {
+  const tenantSignals =
+    (map.leaseType        !== undefined ? 1 : 0) +
+    (map.recoveries       !== undefined ? 1 : 0) +
+    (map.newTiPsf         !== undefined ? 1 : 0) +
+    (map.renewTiPsf       !== undefined ? 1 : 0) +
+    (map.newLcPct         !== undefined ? 1 : 0) +
+    (map.renewLcPct       !== undefined ? 1 : 0) +
+    (map.downtimeMonths   !== undefined ? 1 : 0) +
+    (map.marketRent       !== undefined ? 1 : 0);
+  const unitSignals =
+    (map.bedrooms           !== undefined ? 1 : 0) +
+    (map.bathrooms          !== undefined ? 1 : 0) +
+    (map.unitType           !== undefined ? 1 : 0) +
+    (map.inPlaceRentMonthly !== undefined ? 1 : 0) +
+    (map.concessionsMonthly !== undefined ? 1 : 0);
+  if (unitSignals > 0 && tenantSignals === 0) return 'unit';
+  return 'tenant';
 }
 
 function isTotalsRow(worksheet: ExcelJS.Worksheet, row: number, map: ColumnMap): boolean {
@@ -234,12 +318,19 @@ async function parseRentRollXlsxImpl(buffer: Buffer, options: ParseRentRollOptio
     });
   }
 
-  // Tenant rows: every non-empty, non-total row from headerRow+1 onward.
+  // Detect tenant- vs unit-shape from the header signals, then dispatch
+  // each row to the appropriate parser. Detection is content-only because
+  // parsing runs upstream of asset classification — see
+  // `detectRentRollKind` for the signal weights and ambiguity-default
+  // rationale.
+  const kind = detectRentRollKind(map);
   const lines: RentRollLine[] = [];
   for (let r = headerRow + 1; r <= ws.rowCount; r++) {
     if (isTotalsRow(ws, r, map)) continue;
     if (isEmptyRow(ws, r, map)) continue;
-    lines.push(parseTenantRow(ws, r, map));
+    lines.push(kind === 'unit'
+      ? parseUnitRow(ws, r, map)
+      : parseTenantRow(ws, r, map));
   }
 
   const body = { asOfDate, propertyName, source, lines };
@@ -264,6 +355,7 @@ function parseTenantRow(ws: ExcelJS.Worksheet, row: number, map: ColumnMap): Ren
 
   void get;
   return {
+    kind: 'tenant',
     tenantName:        str(map.tenantName),
     suite:             str(map.suite),
     squareFeet:        num(map.squareFeet),
@@ -281,5 +373,55 @@ function parseTenantRow(ws: ExcelJS.Worksheet, row: number, map: ColumnMap): Ren
     renewLcPct:        num(map.renewLcPct),
     downtimeMonths:    num(map.downtimeMonths),
     notes:             str(map.notes),
+  };
+}
+
+/**
+ * Multifamily / MHC / student-housing row parser. Honesty discipline:
+ *   - VACANT units: status='VACANT', inPlaceRentMonthly=null (NOT 0 — a
+ *     coercion lie); marketRentMonthly may still be present (asking rent).
+ *   - MONTH-TO-MONTH: leaseEndOrMTM=null intentionally means MTM, NOT
+ *     missing data. We do not synthesize a date or coerce. The contract
+ *     comment at @cre/contracts.UnitRentRollLine.leaseEndOrMTM declares
+ *     this semantic; this parser honors it.
+ *   - CONCESSIONS absent: null, never 0.
+ *   - No leaseType on the unit shape — the office NNN/MG/FSG vocabulary
+ *     has no residential analog and the union type structurally forbids
+ *     it on UnitRentRollLine.
+ *
+ *   `unitId` is required on the contract; we fall back to a row-positional
+ *   synthetic id (`unit-<row#>`) only when the source omits a unit
+ *   identifier entirely. The synthetic id is positional, not stable across
+ *   re-parses of an edited rent roll — same discipline as the legacy
+ *   rent-roll.adapter.ts at `unit-${i+1}`.
+ */
+function parseUnitRow(ws: ExcelJS.Worksheet, row: number, map: ColumnMap): RentRollLine {
+  const num = (col: number | undefined) => (col === undefined ? null : cellNumber(ws.getCell(row, col)));
+  const str = (col: number | undefined) => (col === undefined ? null : cellString(ws.getCell(row, col)));
+  const date = (col: number | undefined) => (col === undefined ? null : cellDate(ws.getCell(row, col)));
+
+  const statusRaw = str(map.status);
+  const status: TenantStatus = statusRaw === null
+    ? 'UNKNOWN'
+    : (STATUS_NORMALIZE[statusRaw.toLowerCase().trim()] ?? 'UNKNOWN');
+
+  const explicitUnitId = str(map.suite);
+  const unitId = explicitUnitId ?? `unit-${row}`;
+
+  return {
+    kind: 'unit',
+    unitId,
+    status,
+    squareFeet:         num(map.squareFeet),
+    bedrooms:           num(map.bedrooms),
+    bathrooms:          num(map.bathrooms),
+    unitType:           str(map.unitType),
+    leaseStart:         date(map.leaseStart),
+    leaseEndOrMTM:      date(map.leaseEnd),                 // null === MTM by contract semantics
+    inPlaceRentMonthly: num(map.inPlaceRentMonthly),
+    marketRentMonthly:  num(map.marketRentMonthly),
+    concessionsMonthly: num(map.concessionsMonthly),
+    securityDeposit:    num(map.securityDeposit),
+    notes:              str(map.notes),
   };
 }
