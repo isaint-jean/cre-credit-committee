@@ -452,6 +452,37 @@ interface PariPassuCombination {
   readonly combinedCutOffBalance: number;
 }
 
+/**
+ * Cross-collateralized GROUP MEMBERSHIP (extraction-side, not aggregated).
+ *
+ * Distinct from pari-passu (which is one whole loan split into two notes
+ * sharing the trust). Cross-collat is N DISTINCT loans, each with its own
+ * loanAmount / concludedValue / NOI, whose stated LTV/DSCR/DY ratios in the
+ * prospectus are computed on the GROUP-AGGREGATE basis (per the footnote
+ * @212072 + general convention @211631:
+ *
+ *   "the applicable loan-to-value ratio, debt service coverage ratio or
+ *    debt yield for each such mortgage loan is based upon the ratio or
+ *    yield (as applicable) for the aggregate indebtedness evidenced by
+ *    all loans in the group").
+ *
+ * Stored here is JUST the group identity + sibling list. The aggregated
+ * denominator (sum of loanAmounts) and numerators (sum of concludedValues
+ * / uwY1Nois) are computed at verify-time from the sibling records — they
+ * are NOT baked onto the loan, so each loan keeps its own extracted
+ * trust-slice values untouched. This is the two-pass pattern: pass 1
+ * extracts each loan standalone; pass 2 (verify) resolves siblings.
+ *
+ * Mutually exclusive with PariPassuCombination by construction: the parsers
+ * key on distinct footnote sentence shapes ("Note A-N of … pari passu
+ * companion loans" vs "which are cross-collateralized"), and verify()
+ * asserts a loan never has both set.
+ */
+interface CrossCollatGroup {
+  readonly groupId: string;        // synthetic — derived from sorted memberIds
+  readonly memberIds: readonly number[];  // sorted ascending
+}
+
 interface ExtractedLoan {
   readonly controlNumber: number;
   // T1
@@ -482,6 +513,8 @@ interface ExtractedLoan {
   readonly uwY1OpEx: number | null;
   // Footnote-#4 — pari-passu split-loan combination (null for single-trust loans)
   readonly pariPassuCombination: PariPassuCombination | null;
+  // Cross-collat group membership (extraction-only; aggregation happens at verify-time)
+  readonly crossCollatGroup: CrossCollatGroup | null;
 }
 
 /**
@@ -522,7 +555,70 @@ function parsePariPassuFootnotes(annexA: string): Map<number, PariPassuCombinati
   return out;
 }
 
-function extractLoan(controlNumber: number, tablesRaw: Record<string, string>, pariPassuMap: Map<number, PariPassuCombination>): ExtractedLoan {
+/**
+ * Cross-collat parser. Detects sentences of the form:
+ *   "For mortgage loan #X (Name1) and mortgage loan #Y (Name2), which are
+ *    cross-collateralized, ..."
+ *
+ * The structural signal — "which are cross-collateralized" — does NOT appear
+ * in pari-passu footnotes (which use "represents Note A-N of ... pari passu
+ * companion loans"). So the two parsers are mutually exclusive on the
+ * sentence shape; a single loan id will never be tagged by both.
+ *
+ * WFRBS 2013-C11 has exactly one cross-collat pair {#57, #58}. The parser
+ * is written to handle N-member groups (>= 2) by recognizing variants like
+ * "mortgage loan #X ... mortgage loan #Y ... and mortgage loan #Z, which
+ * are cross-collateralized" — though this shelf has none.
+ *
+ * Returns a map keyed by loanId → CrossCollatGroup with sorted memberIds.
+ */
+function parseCrossCollatFootnotes(annexA: string): Map<number, CrossCollatGroup> {
+  const out = new Map<number, CrossCollatGroup>();
+  // Anchor on the phrase "which are cross-collateralized" — the plural "are"
+  // form is what's used in the FORWARD enumeration ("For mortgage loan #X
+  // and mortgage loan #Y, which are cross-collateralized"). We deliberately
+  // do NOT match "is cross-collateralized" (singular — used in the second-
+  // sentence backreference at @217395: "For mortgage loan #57, such mortgage
+  // loan is cross-collateralized and cross-defaulted with mortgage loan #58."
+  // — which would still resolve the same pair, but we avoid double-handling
+  // and rely on the first occurrence's group definition).
+  //
+  // For each anchor hit, scan a BACKWARD window of ~400 chars for
+  // "mortgage loan #N" references — property names can contain periods
+  // (e.g. "St. Helen Shops"), so a sentence-based [^.] window doesn't work.
+  // The window-based scan is bounded and robust to property-name punctuation.
+  const ANCHOR = /which\s+are\s+cross-collateralized/g;
+  const idRe = /mortgage\s+loan\s+#(\d+)/g;
+  const BACKWARD_WINDOW = 400;
+  let am;
+  while ((am = ANCHOR.exec(annexA)) !== null) {
+    const windowStart = Math.max(0, am.index - BACKWARD_WINDOW);
+    const window = annexA.slice(windowStart, am.index);
+    const ids: number[] = [];
+    let im;
+    idRe.lastIndex = 0;
+    while ((im = idRe.exec(window)) !== null) {
+      const id = Number(im[1]);
+      if (Number.isFinite(id) && !ids.includes(id)) ids.push(id);
+    }
+    if (ids.length < 2) continue;
+    const memberIds = [...ids].sort((a, b) => a - b);
+    const groupId = `XC-${memberIds.join('-')}`;
+    const group: CrossCollatGroup = { groupId, memberIds };
+    for (const id of memberIds) {
+      // First-write wins (defensive — a loan shouldn't appear in two groups)
+      if (!out.has(id)) out.set(id, group);
+    }
+  }
+  return out;
+}
+
+function extractLoan(
+  controlNumber: number,
+  tablesRaw: Record<string, string>,
+  pariPassuMap: Map<number, PariPassuCombination>,
+  crossCollatMap: Map<number, CrossCollatGroup>,
+): ExtractedLoan {
   const row1 = extractLoanRow(tablesRaw.t1 ?? '', controlNumber);
   const row2 = extractLoanRow(tablesRaw.t2 ?? '', controlNumber);
   const row3 = extractLoanRow(tablesRaw.t3 ?? '', controlNumber);
@@ -565,6 +661,7 @@ function extractLoan(controlNumber: number, tablesRaw: Record<string, string>, p
     uwY1Revenue: t5.ttmRevenue,      // UW Revenue
     uwY1OpEx: t5.ttmOpEx,            // UW Expenses
     pariPassuCombination: pariPassuMap.get(controlNumber) ?? null,
+    crossCollatGroup: crossCollatMap.get(controlNumber) ?? null,
   };
 }
 
@@ -602,7 +699,7 @@ function computeAnnualDs(loan: number, rate: number, amortMonths: number): numbe
   return monthly * 12;
 }
 
-function verify(loan: ExtractedLoan): Verdict {
+function verify(loan: ExtractedLoan, loanLookup: ReadonlyMap<number, ExtractedLoan>): Verdict {
   const failures: CheckFailure[] = [];
   // Track per-check execution. The three LOAD-BEARING identities (LTV, DY,
   // DSCR) interrelate loan size, value, and NOI — when at least one ran we
@@ -617,38 +714,87 @@ function verify(loan: ExtractedLoan): Verdict {
   // diagnosis from 2026-06-14).
   const ran = { LTV: false, DY: false, DSCR: false, T5_FOOT: false };
 
-  // ★ Whole-loan-aware denominator: pari-passu deals foot identities against
-  // the COMBINED whole-loan balance, not the trust slice. The prospectus
-  // footnote-#4 text is explicit: "All LTVs, DSCRs, Debt Yields … are based
-  // on Note A-1 and Note A-2 in the aggregate." Single-trust loans pass
-  // through with loanAmount (slice == whole). Numerator (uwY1Noi) is the
-  // property's UW NOI — independent of loan-combination structure.
-  const denom = loan.pariPassuCombination !== null
-    ? loan.pariPassuCombination.combinedCutOffBalance
-    : loan.loanAmount;
+  // ★ Group-aware identity basis. THREE bases possible, in precedence order:
+  //
+  //   1. pariPassuCombination — pari-passu split-loan: the trust holds one
+  //      note of a multi-note whole loan. denom = combined whole-loan
+  //      balance (a SINGLE pre-extracted scalar, no sibling lookup needed).
+  //      Numerator (concludedValue, uwY1Noi) stays the property's own — the
+  //      property is ONE asset, just split into two notes for trust-vs-
+  //      external ownership. {#1,#2,#6} on this shelf.
+  //
+  //   2. crossCollatGroup — N DISTINCT loans on N DISTINCT properties,
+  //      cross-collateralized as a group. Per footnote @212072 + general
+  //      convention @211631 the issuer's stated LTV/DSCR/DY are computed
+  //      against the GROUP AGGREGATE: SUM of all members' loanAmounts on
+  //      one side, SUM of all members' concludedValues / uwY1Nois on the
+  //      other. The aggregation is computed HERE at verify-time from
+  //      sibling records (via `loanLookup`); we never mutate any
+  //      ExtractedLoan record. {#57,#58} on this shelf.
+  //
+  //   3. neither — standalone: denom = own loanAmount, numerators = own
+  //      concludedValue / uwY1Noi. The vast majority of loans.
+  //
+  // Pari-passu and cross-collat are MUTUALLY EXCLUSIVE by parser-shape
+  // construction (their footnote sentences don't overlap). We assert it
+  // here as a runtime guard against a future parser bug.
+  if (loan.pariPassuCombination !== null && loan.crossCollatGroup !== null) {
+    throw new Error(
+      `INVARIANT: loan #${loan.controlNumber} is tagged BOTH pari-passu AND ` +
+      `cross-collat — these are mutually exclusive group constructs. Re-check ` +
+      `the parsers.`,
+    );
+  }
 
-  // LTV: derived = denom / concludedValue
-  if (denom !== null && loan.concludedValue !== null && loan.concludedLtv !== null && loan.concludedValue > 0) {
+  // Compute (denom, ltvNumerator, dyNumerator) under the precedence above.
+  // ltvNumerator = aggregated concludedValue for LTV's denominator side
+  //               (so the identity is denom / ltvNumerator).
+  // dyNumerator  = aggregated uwY1Noi for DY/DSCR's numerator side.
+  let denom: number | null;
+  let ltvDenom: number | null;     // value side of LTV
+  let dyNoi: number | null;        // NOI side of DY/DSCR
+  if (loan.pariPassuCombination !== null) {
+    denom    = loan.pariPassuCombination.combinedCutOffBalance;
+    ltvDenom = loan.concludedValue;   // property's own appraisal (whole-loan IS this single property)
+    dyNoi    = loan.uwY1Noi;          // property's own UW NOI
+  } else if (loan.crossCollatGroup !== null) {
+    // Sum from sibling records. If ANY member is missing a field, the
+    // aggregate is null (and the corresponding identity check skips —
+    // honest UNCHECKED rather than partial-foot misreport).
+    const members = loan.crossCollatGroup.memberIds.map(id => loanLookup.get(id)).filter((x): x is ExtractedLoan => x !== undefined);
+    const sumOrNull = (values: ReadonlyArray<number | null>): number | null =>
+      values.every(v => v !== null) ? values.reduce<number>((s, v) => s + (v as number), 0) : null;
+    denom    = sumOrNull(members.map(m => m.loanAmount));
+    ltvDenom = sumOrNull(members.map(m => m.concludedValue));
+    dyNoi    = sumOrNull(members.map(m => m.uwY1Noi));
+  } else {
+    denom    = loan.loanAmount;
+    ltvDenom = loan.concludedValue;
+    dyNoi    = loan.uwY1Noi;
+  }
+
+  // LTV: derived = denom / ltvDenom
+  if (denom !== null && ltvDenom !== null && loan.concludedLtv !== null && ltvDenom > 0) {
     ran.LTV = true;
-    const derived = denom / loan.concludedValue;
+    const derived = denom / ltvDenom;
     const delta = Math.abs(derived - loan.concludedLtv);
     if (delta > LTV_TOL) failures.push({ check: 'LTV', stated: loan.concludedLtv, derived, delta, tolerance: LTV_TOL });
   }
 
-  // DY: derived = uwY1Noi / denom
-  if (loan.uwY1Noi !== null && denom !== null && loan.uwDebtYield !== null && denom > 0) {
+  // DY: derived = dyNoi / denom
+  if (dyNoi !== null && denom !== null && loan.uwDebtYield !== null && denom > 0) {
     ran.DY = true;
-    const derived = loan.uwY1Noi / denom;
+    const derived = dyNoi / denom;
     const delta = Math.abs(derived - loan.uwDebtYield);
     if (delta > DY_TOL) failures.push({ check: 'DY', stated: loan.uwDebtYield, derived, delta, tolerance: DY_TOL });
   }
 
-  // DSCR: derived = uwY1Noi / computedDs(denom, coupon, amortMonths) — LOOSE
-  if (loan.uwY1Noi !== null && denom !== null && loan.coupon !== null && loan.amortMonths !== null && loan.uwDscr !== null && denom > 0) {
+  // DSCR: derived = dyNoi / computedDs(denom, coupon, amortMonths) — LOOSE
+  if (dyNoi !== null && denom !== null && loan.coupon !== null && loan.amortMonths !== null && loan.uwDscr !== null && denom > 0) {
     ran.DSCR = true;
     const ds = computeAnnualDs(denom, loan.coupon, loan.amortMonths);
     if (ds !== null && ds > 0) {
-      const derived = loan.uwY1Noi / ds;
+      const derived = dyNoi / ds;
       const delta = Math.abs(derived - loan.uwDscr);
       if (delta > DSCR_TOL) failures.push({ check: 'DSCR', stated: loan.uwDscr, derived, delta, tolerance: DSCR_TOL });
     }
@@ -674,9 +820,19 @@ function verify(loan: ExtractedLoan): Verdict {
     // both null, denom is null and ALL three load-bearing identities skip
     // regardless of the other inputs.
     const nullInputs: string[] = [];
-    if (denom === null) nullInputs.push(loan.pariPassuCombination === null ? 'loanAmount' : 'pariPassuDenom');
-    if (loan.concludedValue === null) nullInputs.push('concludedValue');
-    if (loan.uwY1Noi === null) nullInputs.push('uwY1Noi');
+    if (denom === null) {
+      nullInputs.push(
+        loan.pariPassuCombination !== null ? 'pariPassuDenom'
+        : loan.crossCollatGroup !== null    ? `crossCollatGroupLoanAmount(${loan.crossCollatGroup.groupId})`
+        : 'loanAmount',
+      );
+    }
+    if (ltvDenom === null) {
+      nullInputs.push(loan.crossCollatGroup !== null ? `crossCollatGroupConcludedValue(${loan.crossCollatGroup.groupId})` : 'concludedValue');
+    }
+    if (dyNoi === null) {
+      nullInputs.push(loan.crossCollatGroup !== null ? `crossCollatGroupUwY1Noi(${loan.crossCollatGroup.groupId})` : 'uwY1Noi');
+    }
     if (loan.concludedLtv === null) nullInputs.push('concludedLtv');
     if (loan.uwDebtYield === null) nullInputs.push('uwDebtYield');
     if (loan.uwDscr === null) nullInputs.push('uwDscr');
@@ -798,10 +954,12 @@ async function main(): Promise<void> {
   }
   console.log('');
 
-  // ★ Pari-passu footnote parse — runs once over the full Annex A region.
-  // Footnote-#4 text lives well past the stratification tables (~offset 213K
-  // in WFRBS 2013-C11), so it's outside any individual table chunk; we walk
-  // the whole annexA string.
+  // ★ Footnote parsers — both run once over the full Annex A region.
+  // Footnote prose lives well past the stratification tables (~offset 213K
+  // in WFRBS 2013-C11), outside any individual table chunk; we walk the
+  // whole annexA string. The two parsers use distinct sentence shapes and
+  // are mutually exclusive — verify() asserts that a loan never appears in
+  // both maps.
   const pariPassuMap = parsePariPassuFootnotes(annexA);
   console.log('Pari-passu loans (from footnote-#4 prose):');
   if (pariPassuMap.size === 0) {
@@ -813,12 +971,34 @@ async function main(): Promise<void> {
   }
   console.log('');
 
-  // Walk loans 1..100 attempting extraction. WFRBS 2013-C11 has 80 loans
-  // (per the 10-D filing); we'll find which control numbers are real and
-  // skip gaps.
+  const crossCollatMap = parseCrossCollatFootnotes(annexA);
+  console.log('Cross-collateralized groups (from footnote prose):');
+  if (crossCollatMap.size === 0) {
+    console.log('  (none detected)');
+  } else {
+    const seen = new Set<string>();
+    for (const [id, xc] of [...crossCollatMap.entries()].sort((a, b) => a[0] - b[0])) {
+      if (seen.has(xc.groupId)) continue;
+      seen.add(xc.groupId);
+      console.log(`  ${xc.groupId}  members: {${xc.memberIds.map(m => '#' + m).join(', ')}}`);
+    }
+  }
+  console.log('');
+
+  // Two-parser mutual-exclusivity check (defensive — would catch a parser
+  // bug that double-tagged a loan).
+  for (const id of pariPassuMap.keys()) {
+    if (crossCollatMap.has(id)) {
+      throw new Error(`Two-parser cross-match: loan #${id} appears in BOTH pari-passu and cross-collat maps`);
+    }
+  }
+
+  // ─── PASS 1 ─── Walk loans 1..100, extract each standalone. WFRBS 2013-C11
+  // has 72 loans on this shelf; we walk 1..100 to find real control numbers
+  // and skip gaps. Each loan is extracted independently — no sibling lookups.
   const loans: ExtractedLoan[] = [];
   for (let n = 1; n <= 100; n++) {
-    const loan = extractLoan(n, tablesRaw, pariPassuMap);
+    const loan = extractLoan(n, tablesRaw, pariPassuMap, crossCollatMap);
     // A loan exists if at least one of T2/T4 returned a positive loan amount or appraised value.
     if (loan.loanAmount !== null || loan.concludedValue !== null) {
       loans.push(loan);
@@ -827,8 +1007,12 @@ async function main(): Promise<void> {
   console.log(`Loans extracted: ${loans.length}`);
   console.log('');
 
-  // Run verification per loan
-  const verdicts = loans.map(loan => ({ loan, verdict: verify(loan) }));
+  // ─── PASS 2 ─── Build a controlNumber → loan lookup, then verify each
+  // loan with sibling access. Cross-collat aggregation happens inside
+  // verify() using the lookup; no loan record is mutated.
+  const loanLookup = new Map<number, ExtractedLoan>();
+  for (const l of loans) loanLookup.set(l.controlNumber, l);
+  const verdicts = loans.map(loan => ({ loan, verdict: verify(loan, loanLookup) }));
   const clean     = verdicts.filter(v => v.verdict.status === 'CLEAN');
   const flagged   = verdicts.filter(v => v.verdict.status === 'FLAGGED');
   const unchecked = verdicts.filter(v => v.verdict.status === 'UNCHECKED');
