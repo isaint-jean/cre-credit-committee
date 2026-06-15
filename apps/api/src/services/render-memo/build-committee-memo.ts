@@ -463,7 +463,7 @@ function renderSponsorBurden(profile: SponsorBurdenProfile, finalLoanAmount: num
           <span class="memo-burden-aggregate-value">${esc(fmtUsd(profile.cashAtRiskUsd))} &nbsp; · &nbsp; ${esc((profile.cashAtRiskPctOfFinalLoan * 100).toFixed(1))}% of L′ (${esc(fmtUsd(finalLoanAmount))})</span>
         </div>
         <div class="memo-burden-aggregate-note">
-          Threshold: ${esc((profile.flagThreshold * 100).toFixed(0))}% of L′ &nbsp; [ISABELLE-TO-CALIBRATE]
+          Threshold: ${esc((profile.flagThreshold * 100).toFixed(0))}% of L′
         </div>
       </div>
       ${flagBanner}

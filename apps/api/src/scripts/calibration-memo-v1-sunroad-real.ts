@@ -110,9 +110,22 @@ const OUT_HTML = path.resolve('/tmp/sunroad-memo-v1.html');
  *       qualitative claims). The version footer carries "v1.7" in 3
  *       deterministic locations — that string move alone shifts the sha;
  *       the redacted prose itself is unchanged in structure.
+ *   505b13f6ffe512678b06a823d22d0d621bb84e20957c389741633bdf80f7363d
+ *     — narrative engine v1.7 structural baseline. Retired 2026-06-15 on
+ *       removing the leaked dev annotation "[ISABELLE-TO-CALIBRATE]" from
+ *       2 customer-facing render paths (build-committee-memo.ts:466
+ *       Sponsor Burden aggregate-note + compose-mitigations.ts:855 burden
+ *       flag prose). The annotation is a legitimate dev marker on the
+ *       hand-set knob (SPONSOR_CASH_AT_RISK_FLAG_THRESHOLD = 0.45 in
+ *       produce-mitigations.ts:497) but had been copy-pasted into the
+ *       rendered memo template + the prose builder, surfacing as raw
+ *       bracket-text to credit committee readers. The knob's own source
+ *       annotation is preserved (it doesn't render); only the leaked
+ *       copies in the render paths are deleted. Both deletions sit in
+ *       the structural (non-redacted) region, so the sha moves.
  */
 const EXPECTED_STRUCTURAL_SHA =
-  '505b13f6ffe512678b06a823d22d0d621bb84e20957c389741633bdf80f7363d';
+  '9696933e9b52542e29cb064f53961eebd4d80f2e53ce1eed5f87354271c03dd8';
 
 function copyDb(): void {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB);

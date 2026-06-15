@@ -852,7 +852,7 @@ function computeSponsorBurdenProfile(
   const flagCopy = flagsBurden
     ? `Cumulative sponsor burden (cash-at-risk ${(cashAtRiskPctOfFinalLoan * 100).toFixed(1)}% of L') ` +
       `approaches the desk's acceptability line for a non-recourse execution — consider lightening a ` +
-      `lever, or whether this deal belongs with a recourse lender. Threshold: ${(flagThreshold * 100).toFixed(0)}% [ISABELLE-TO-CALIBRATE].`
+      `lever, or whether this deal belongs with a recourse lender. Threshold: ${(flagThreshold * 100).toFixed(0)}%.`
     : null;
 
   return {
