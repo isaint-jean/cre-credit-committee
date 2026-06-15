@@ -13,6 +13,7 @@ import { workflowRoutes } from './workflow.routes.js';
 import { registryRoutes } from './registry.routes.js';
 import { kicksRoutes } from './kicks.routes.js';
 import { sourceDocsRoutes } from './source-docs.routes.js';
+import { poolRoutes } from './pool.routes.js';
 import { requireAuth } from '../middleware/auth.js';
 import { observabilityMiddleware } from '../middleware/observability.middleware.js';
 
@@ -64,3 +65,9 @@ apiRouter.use(workflowRoutes);
 // paired with HistoricalUnderwriting records. Upload-and-organize ONLY;
 // not wired to extraction or ingest. See routes/source-docs.routes.ts.
 apiRouter.use('/source-docs', requireAuth, sourceDocsRoutes);
+
+// Pool layer (PR 4) — HTTP surface for the deal-as-collection-of-loans
+// stack (Pool / Tape / LoanInPool / Disposition). Composes the PR3
+// advance-tape orchestration + PR2 PoolStore. Auth-gated only; pool-specific
+// permissions deferred per PR4 E1a.
+apiRouter.use('/pools', requireAuth, poolRoutes);
