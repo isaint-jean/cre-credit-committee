@@ -358,6 +358,60 @@ export class SqliteStore {
     return this.rowToAnalysis(row);
   }
 
+  /**
+   * Funnel PR — lookup analyses by dealRef (the soft string id the pool layer
+   * stores on each LoanInPool/LoanMembership). Walks the canonical join chain:
+   *
+   *   extraction_results.deal_ref
+   *     → doctrine_evaluations.extraction_result_id   (FK + INDEX idx_doctrine_extraction)
+   *     → revision_lineage_envelopes.doctrine_evaluation_id
+   *     → revision_lineage_envelopes.lineage_root_id  (graph-spine analysis id; 64-hex)
+   *     → analyses.graph_revision_id                   (legacy-spine bridge — LEFT JOIN)
+   *
+   * Returns the most-recent extraction first. The route layer picks the head
+   * and reports `multipleFound` if `> 1` rows came back (re-extractions).
+   *
+   * Result shape:
+   *   - legacyId:        legacy uuid analyses.id if a legacy row exists; null for pure-graph
+   *   - graphId:         lineage_root_id (always present for any analysis with a graph spine,
+   *                      which is every analysis since post-6.8 unification)
+   *   - status:          legacy status if available (e.g. 'complete'); null for pure-graph
+   *
+   * The route layer prefers `legacyId` when present (more debuggable URL) and falls back
+   * to `graphId`. The existing GET /:id dispatcher handles either format.
+   */
+  lookupAnalysisByDealRef(dealRef: string): Array<{
+    legacyId: string | null;
+    graphId: string;
+    status: string | null;
+    createdAt: string;
+  }> {
+    const rows = this.db.prepare(`
+      SELECT
+        a.id            AS legacy_id,
+        rle.lineage_root_id AS graph_id,
+        a.status        AS legacy_status,
+        er.created_at   AS created_at
+      FROM extraction_results er
+      JOIN doctrine_evaluations de ON de.extraction_result_id = er.id
+      JOIN revision_lineage_envelopes rle ON rle.doctrine_evaluation_id = de.id
+      LEFT JOIN analyses a ON a.graph_revision_id = rle.revision_id
+      WHERE er.deal_ref = ?
+      ORDER BY er.created_at DESC
+    `).all(dealRef) as Array<{
+      legacy_id: string | null;
+      graph_id: string;
+      legacy_status: string | null;
+      created_at: string;
+    }>;
+    return rows.map((r) => ({
+      legacyId: r.legacy_id,
+      graphId: r.graph_id,
+      status: r.legacy_status,
+      createdAt: r.created_at,
+    }));
+  }
+
   listAnalyses(): AnalysisSummary[] {
     const rows = this.db.prepare(
       'SELECT id, name, asset_type, status, credit_score_overall, risk_tier, created_at, updated_at, data, parent_analysis_id, lineage_root_id, revision_ordinal FROM analyses ORDER BY created_at DESC'

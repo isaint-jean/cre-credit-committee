@@ -210,6 +210,56 @@ analysisRoutes.get('/', (_req: Request, res: Response) => {
   res.json({ analyses });
 });
 
+// GET /api/analyses/lookup?dealRef=X — Funnel PR. Answers "does an analysis exist for this
+// dealRef, and what's its status?" The pool rail's loan rows use this to branch between
+// "New analysis" and "Open underwriting" without attempting a full GET that would 400 on a
+// non-id-shaped string.
+//
+// MUST be declared BEFORE /:id (line 378) — Express resolves routes in declaration order.
+// Even though dispatchByIdFormat would 400 on the string 'lookup' (it matches neither
+// uuid-v4 nor 64-hex), letting /:id intercept first would still return 400 instead of
+// reaching this handler. Putting /lookup first is the safer guarantee.
+//
+// Response:
+//   { found: true, analysisId, status, workflowState, multipleFound?, count? }
+//   { found: false }
+//   400 POOL_BAD_REQUEST when ?dealRef is missing/empty
+//
+// Multiplicity: dealRef is not unique in `extraction_results` — a re-extraction of the same
+// underlying loan creates a second row. We return the MOST RECENT (ORDER BY created_at DESC
+// in the store), set `multipleFound: true` and `count` when > 1. Caller is the rail UI; its
+// link only needs one analysisId.
+//
+// Id preference: legacyId (uuid) if present; else graphId (lineage_root_id, 64-hex). The
+// existing GET /:id dispatcher accepts either format, so either link works.
+//
+// workflowState: null in this PR. The DealWorkflowState projection is keyed on doctrine
+// rootId; wiring it through is a small follow-up that doesn't change the response shape
+// (the field is already in the contract).
+analysisRoutes.get('/lookup', (req: Request, res: Response) => {
+  const dealRef = req.query['dealRef'];
+  if (typeof dealRef !== 'string' || dealRef.length === 0) {
+    res.status(400).json({
+      error: 'POOL_BAD_REQUEST',
+      message: 'dealRef query parameter required',
+    });
+    return;
+  }
+  const matches = store.lookupAnalysisByDealRef(dealRef);
+  if (matches.length === 0) {
+    res.json({ found: false });
+    return;
+  }
+  const head = matches[0]!;
+  res.json({
+    found: true,
+    analysisId: head.legacyId ?? head.graphId,
+    status: head.status,
+    workflowState: null,
+    ...(matches.length > 1 ? { multipleFound: true, count: matches.length } : {}),
+  });
+});
+
 // GET /api/analyses/compare — Compare two analysis versions (must be before /:id)
 analysisRoutes.get('/compare', (req: Request, res: Response) => {
   const baseId = req.query.base as string;
