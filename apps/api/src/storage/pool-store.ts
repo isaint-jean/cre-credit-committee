@@ -303,6 +303,29 @@ export class PoolStore {
     return { id: row.id, ...body } as WorkingTape;
   }
 
+  /** PR3: rewrite the working tape's body (status edits, resolution of pending
+   *  entries). UPDATE only — the WorkingTape is the one mutable record in this
+   *  layer. The id and pool_id are not changed; everything else can move.
+   *  Throws if the working tape doesn't exist. */
+  updateWorkingTape(wt: WorkingTape): void {
+    const { id, ...body } = wt;
+    const payload = JSON.stringify(body);
+    const result = this.db
+      .prepare(
+        `UPDATE working_tape
+         SET version = ?, tape_date = ?, received_at = ?, prior_tape_id = ?,
+             updated_at = ?, payload = ?
+         WHERE id = ?`,
+      )
+      .run(
+        wt.version, wt.tapeDate, wt.receivedAt, wt.priorTapeId,
+        new Date().toISOString(), payload, id,
+      );
+    if (result.changes === 0) {
+      throw new Error(`updateWorkingTape: working tape ${id} not found`);
+    }
+  }
+
   /**
    * Storage-only freeze. Reads the working tape, validates that NO pending entry
    * is still `'unmatched-needs-confirm'`, projects each `'bound'` /
@@ -477,6 +500,28 @@ export class PoolStore {
     this.db
       .prepare(`UPDATE loan_in_pool SET current_disposition_id = ? WHERE id = ?`)
       .run(dispositionId, loanInPoolId);
+  }
+
+  /** PR3: when a buyer resolves a re-key (incoming originatorRef differs from
+   *  the stored one), update the stored ref so the NEXT tape's exact-match
+   *  succeeds without re-triggering the unmatched-needs-confirm flow. The
+   *  per-tape history of incoming refs is preserved in each tape's bound-entry
+   *  `incomingOriginatorRef` field (the tape payload), so this UPDATE does not
+   *  destroy audit. */
+  updateOriginatorLoanRef(loanInPoolId: LoanInPoolId, newRef: string | null): void {
+    this.db
+      .prepare(`UPDATE loan_in_pool SET originator_loan_ref = ? WHERE id = ?`)
+      .run(newRef, loanInPoolId);
+    // Also rewrite the payload column so getLoanInPool reads the new value.
+    const row = this.db
+      .prepare(`SELECT payload FROM loan_in_pool WHERE id = ?`)
+      .get(loanInPoolId) as PayloadRow | undefined;
+    if (!row) return;
+    const body = JSON.parse(row.payload) as Record<string, unknown>;
+    body['originatorLoanRef'] = newRef;
+    this.db
+      .prepare(`UPDATE loan_in_pool SET payload = ? WHERE id = ?`)
+      .run(JSON.stringify(body), loanInPoolId);
   }
 
   /* ------------------------- Disposition ------------------------------- */

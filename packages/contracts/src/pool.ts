@@ -149,6 +149,10 @@ export type PendingMembershipEntry =
       /** Incoming originator id that didn't deterministically resolve. May be null
        *  if the originator's tape lacks a stable per-loan ref on this round. */
       readonly incomingOriginatorRef: string | null;
+      /** Engine-surface handle from the incoming originator row. Carried on the
+       *  pending entry so a later 'confirm-new' resolution can mint a LoanInPool
+       *  with this dealRef without re-passing the original IncomingTape input. */
+      readonly dealRef: string;
       /** Suggested existing LoanInPool candidates (fuzzy match hints). Empty array
        *  means no candidates — likely a new loan, but the operation must confirm. */
       readonly candidateLoanInPoolIds: readonly LoanInPoolId[];

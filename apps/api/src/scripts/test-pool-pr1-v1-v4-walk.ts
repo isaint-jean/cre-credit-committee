@@ -413,6 +413,7 @@ const workingTape: WorkingTape = {
       // ★ THE LOAD-BEARING ROW: originator re-keyed; nothing matches deterministically.
       kind: 'unmatched-needs-confirm',
       incomingOriginatorRef: 'BMARK-L004-RE',  // L4's old ref was 'BMARK-L004'
+      dealRef: 'deal-L4',                       // engine handle preserved across the re-key
       candidateLoanInPoolIds: [L4],            // fuzzy match hint
       tapePosition: 2,
     },

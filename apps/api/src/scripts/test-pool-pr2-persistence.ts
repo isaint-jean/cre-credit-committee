@@ -435,6 +435,7 @@ const wt1: WorkingTape = {
     {
       kind: 'unmatched-needs-confirm',
       incomingOriginatorRef: 'BMARK-L004-RE',
+      dealRef: 'deal-L4',
       candidateLoanInPoolIds: [L4],
       tapePosition: 2,
     },
