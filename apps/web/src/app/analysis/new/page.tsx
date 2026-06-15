@@ -19,7 +19,7 @@
 //     with JE_LOAN_AMOUNT_MISSING if absent)
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDropzone } from 'react-dropzone';
 import { api } from '@/lib/api-client';
 import { ASSET_TYPES, type AssetType } from '@cre/contracts';
@@ -77,15 +77,27 @@ function todayISODateOnly(): string {
 export default function NewAnalysisPage() {
   const router = useRouter();
 
+  // Funnel PR — pool rail launches into this page with the loan's context as
+  // URL params (read-once on mount via lazy useState initializer). The form
+  // still fully editable; analyst reviews + uploads + submits as before. If a
+  // param is absent, the field stays blank (today's behavior).
+  const searchParams = useSearchParams();
+  const initialDealRef = searchParams?.get('dealRef') ?? '';
+  const initialPropertyTypeRaw = searchParams?.get('propertyType') ?? '';
+  const initialPropertyType: AssetType | '' =
+    (ASSET_TYPES as readonly string[]).indexOf(initialPropertyTypeRaw) >= 0
+      ? (initialPropertyTypeRaw as AssetType)
+      : '';
+
   // Files
   const [asrFile, setAsrFile] = useState<File | null>(null);
   const [rentRollFile, setRentRollFile] = useState<File | null>(null);
   const [sellerCfFile, setSellerCfFile] = useState<File | null>(null);
 
   // Text + selector form fields
-  const [dealRef, setDealRef] = useState<string>('');
+  const [dealRef, setDealRef] = useState<string>(initialDealRef);
   const [analysisAsOfDate, setAnalysisAsOfDate] = useState<string>(todayISODateOnly());
-  const [propertyType, setPropertyType] = useState<AssetType | ''>('');
+  const [propertyType, setPropertyType] = useState<AssetType | ''>(initialPropertyType);
   const [librarySnapshotId, setLibrarySnapshotId] = useState<string>('');
   const [marketBenchmarksId, setMarketBenchmarksId] = useState<string>('');
   const [creditManifestoId, setCreditManifestoId] = useState<string>('');

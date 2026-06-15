@@ -152,6 +152,29 @@ export const api = {
   getAnalysisStatus: (id: string) => request<any>(`/analyses/${id}/status`),
   deleteAnalysis: (id: string) => request<any>(`/analyses/${id}`, { method: 'DELETE' }),
 
+  /**
+   * Funnel PR — GET /api/analyses/lookup?dealRef=X
+   * Resolves a pool-layer dealRef to an existing engine analysis (or signals
+   * "not analyzed yet"). The pool rail's loan rows use this to branch between
+   * "Open underwriting" (found) and "New analysis" (not found). Backend
+   * endpoint is content-addressed via the extraction_results.deal_ref column
+   * joined through the graph chain — see apps/api/src/routes/analysis.routes.ts.
+   *
+   * Response shape:
+   *   { found: true,  analysisId: string, status: string | null,
+   *                   workflowState: null, multipleFound?: boolean, count?: number }
+   *   { found: false }
+   *
+   * Errors:
+   *   - 400 POOL_BAD_REQUEST  if dealRef is missing/empty (the request wrapper throws).
+   */
+  lookupAnalysisByDealRef: (dealRef: string) =>
+    request<
+      | { found: true; analysisId: string; status: string | null;
+          workflowState: string | null; multipleFound?: boolean; count?: number }
+      | { found: false }
+    >(`/analyses/lookup?dealRef=${encodeURIComponent(dealRef)}`),
+
   // Populated Template
   getPopulatedTemplateInfo: (id: string) => request<any>(`/analyses/${id}/populated-template/info`),
   // Coverage report only (no mappedFields). Useful for quick UI dashboards.

@@ -1,14 +1,29 @@
 /**
  * MembershipTable — the filterable per-loan table for the current tape.
  *
- * Read-only this slice: rows are clickable to drill into the loan's pool-side
- * trajectory; the trajectory page delegates underwriting to the engine surface
- * via dealRef (the boundary, now in the UI).
+ * Read-only on its own data axis: rows drill into the loan's pool-side trajectory.
+ * Funnel PR — each row is now ANALYSIS-STATE-AWARE: it asks the engine
+ * "does an analysis exist for this dealRef?" via api.lookupAnalysisByDealRef
+ * and branches between "Open underwriting" (found → existing /analysis/[id]
+ * view; the dealRef delegation) and "New analysis" (not found → /analysis/new
+ * pre-filled with this dealRef).
+ *
+ * COST DECISION (the N+1 question, stated): lookups are LIFTED to the table
+ * level — ONE effect over the filtered membership fires N parallel
+ * lookupAnalysisByDealRef calls via Promise.all and stores results in a
+ * Map<dealRef, state>. Per row is just a Map.get(). This:
+ *   (a) degrades gracefully: a slow row never blocks the table; per-row state
+ *       resolves independently as Promise.all settles individually-rendered.
+ *   (b) makes it a ONE-LINE swap to a batched endpoint (POST /api/analyses/
+ *       lookup with body { dealRefs: string[] }) when active deals grow above
+ *       ~50 loans per tape — the recon noted this as a future option; do NOT
+ *       build it now (this PR is apps/web only).
  */
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { api } from '@/lib/api-client';
 import type { LoanMembership, OnTapeStatus, PoolId } from '@cre/contracts';
 import { DisabledAffordance } from './DisabledAffordance';
 
@@ -27,6 +42,53 @@ const STATUS_FILTERS: ReadonlyArray<{ label: string; value: OnTapeStatus | 'all'
   { label: 'Under review', value: 'under-review' },
 ];
 
+/**
+ * Per-dealRef lookup state. Exported alongside the table so the branch logic
+ * is testable in isolation (the fixture-shape check projects fixture responses
+ * through `branchForLookup` and verifies the link URLs).
+ */
+export type LookupState =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'error' }
+  | { readonly kind: 'found'; readonly analysisId: string; readonly status: string | null }
+  | { readonly kind: 'not-found' };
+
+export interface LoanRowBranch {
+  readonly variant: 'open-underwriting' | 'new-analysis' | 'loading' | 'error';
+  readonly href: string;
+  readonly label: string;
+  readonly statusHint: string | null;
+}
+
+/**
+ * Pure projection: given a dealRef's lookup state, produce the link URL + label
+ * the row should render. Exported for the fixture-shape test (verifies the
+ * funnel's UI branch logic against the wire shape without React).
+ */
+export function branchForLookup(dealRef: string, state: LookupState | undefined): LoanRowBranch {
+  if (state === undefined || state.kind === 'loading') {
+    return { variant: 'loading', href: '#', label: 'Checking…', statusHint: null };
+  }
+  if (state.kind === 'error') {
+    return { variant: 'error', href: '#', label: "Couldn't check", statusHint: null };
+  }
+  if (state.kind === 'found') {
+    return {
+      variant: 'open-underwriting',
+      href: `/analysis/${state.analysisId}`,
+      label: 'Open underwriting →',
+      statusHint: state.status,
+    };
+  }
+  // not-found
+  return {
+    variant: 'new-analysis',
+    href: `/analysis/new?dealRef=${encodeURIComponent(dealRef)}`,
+    label: 'New analysis →',
+    statusHint: null,
+  };
+}
+
 export function MembershipTable({
   poolId,
   membership,
@@ -36,6 +98,53 @@ export function MembershipTable({
 }) {
   const [statusFilter, setStatusFilter] = useState<OnTapeStatus | 'all'>('all');
   const [search, setSearch] = useState('');
+
+  // Per-dealRef lookup state. Initialized 'loading' for every unique dealRef
+  // on mount; resolves to 'found' | 'not-found' | 'error' as parallel lookups
+  // settle. Row reads via Map.get(dealRef); rest of the row renders immediately.
+  const [lookups, setLookups] = useState<Map<string, LookupState>>(() => new Map());
+
+  // Unique dealRefs from the full membership (not the filtered view — filtering
+  // is a UI-only concern; we don't want to re-fetch when the filter changes).
+  const dealRefs = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of membership) set.add(m.dealRef);
+    return Array.from(set);
+  }, [membership]);
+
+  useEffect(() => {
+    // Seed every dealRef as 'loading' on mount / when membership changes.
+    setLookups(new Map(dealRefs.map(d => [d, { kind: 'loading' } as LookupState])));
+    if (dealRefs.length === 0) return;
+    let cancelled = false;
+    // Fire all lookups in parallel. NOTE: when a batched endpoint becomes
+    // available (POST /api/analyses/lookup body { dealRefs }), swap this entire
+    // block for one api.batchLookupAnalysesByDealRef(dealRefs) call and
+    // populate the Map in one setLookups call. The per-row API doesn't change.
+    Promise.allSettled(dealRefs.map(d => api.lookupAnalysisByDealRef(d).then(r => [d, r] as const)))
+      .then(results => {
+        if (cancelled) return;
+        setLookups(prev => {
+          const next = new Map(prev);
+          for (const r of results) {
+            if (r.status === 'fulfilled') {
+              const [dealRef, resp] = r.value;
+              next.set(dealRef, resp.found
+                ? { kind: 'found', analysisId: resp.analysisId, status: resp.status }
+                : { kind: 'not-found' });
+            }
+            // For rejected (fetch error / 4xx), find the dealRef by elimination
+            // — we don't have it in the rejection reason. Mark remaining
+            // 'loading' entries as 'error'.
+          }
+          for (const d of dealRefs) {
+            if (next.get(d)?.kind === 'loading') next.set(d, { kind: 'error' });
+          }
+          return next;
+        });
+      });
+    return () => { cancelled = true; };
+  }, [dealRefs]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -95,45 +204,87 @@ export function MembershipTable({
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 font-medium">Conditions</th>
               <th className="px-3 py-2 font-medium">Notes</th>
+              <th className="px-3 py-2 font-medium">Analysis</th>
               <th className="px-3 py-2 font-medium"></th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-6 text-center text-text-muted text-sm">
+              <tr><td colSpan={8} className="px-3 py-6 text-center text-text-muted text-sm">
                 No loans match the filter.
               </td></tr>
-            ) : filtered.map(m => (
-              <tr key={m.loanInPoolId} className="border-t border-border-primary hover:bg-bg-tertiary/40 transition-colors">
-                <td className="px-3 py-2 text-text-muted font-mono text-xs">{m.tapePosition}</td>
-                <td className="px-3 py-2 text-text-primary font-mono">{m.dealRef}</td>
-                <td className="px-3 py-2 text-text-muted font-mono text-xs">{m.loanInPoolId.slice(0, 8)}…</td>
-                <td className="px-3 py-2">
-                  <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_TONE[m.status]}`}>
-                    {m.status}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-text-secondary text-xs">
-                  {m.conditions.length === 0 ? (
-                    <span className="text-text-muted">—</span>
-                  ) : (
-                    <span>{m.conditions.map(c => c.label).join(', ')}</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-text-secondary text-xs">{m.notes ?? <span className="text-text-muted">—</span>}</td>
-                <td className="px-3 py-2 text-right">
-                  <Link
-                    href={`/pools/${poolId}/loans/${m.loanInPoolId}`}
-                    className="text-accent hover:text-accent-hover text-xs"
-                  >
-                    Trajectory →
-                  </Link>
-                </td>
-              </tr>
-            ))}
+            ) : filtered.map(m => {
+              const branch = branchForLookup(m.dealRef, lookups.get(m.dealRef));
+              return (
+                <tr key={m.loanInPoolId} className="border-t border-border-primary hover:bg-bg-tertiary/40 transition-colors">
+                  <td className="px-3 py-2 text-text-muted font-mono text-xs">{m.tapePosition}</td>
+                  <td className="px-3 py-2 text-text-primary font-mono">{m.dealRef}</td>
+                  <td className="px-3 py-2 text-text-muted font-mono text-xs">{m.loanInPoolId.slice(0, 8)}…</td>
+                  <td className="px-3 py-2">
+                    <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_TONE[m.status]}`}>
+                      {m.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-text-secondary text-xs">
+                    {m.conditions.length === 0 ? (
+                      <span className="text-text-muted">—</span>
+                    ) : (
+                      <span>{m.conditions.map(c => c.label).join(', ')}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-text-secondary text-xs">{m.notes ?? <span className="text-text-muted">—</span>}</td>
+                  <td className="px-3 py-2 text-xs">
+                    <LoanFunnelCell branch={branch} />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Link
+                      href={`/pools/${poolId}/loans/${m.loanInPoolId}`}
+                      className="text-accent hover:text-accent-hover text-xs"
+                    >
+                      Trajectory →
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * Renders one cell from a LoanRowBranch — clickable Link for found/not-found,
+ * inert text for loading/error. The "couldn't check" error state deliberately
+ * does NOT show a fake button — a row whose analysis status is unknown stays
+ * navigable via the Trajectory link to its right but doesn't pretend it can
+ * resolve underwriting.
+ */
+function LoanFunnelCell({ branch }: { readonly branch: LoanRowBranch }) {
+  if (branch.variant === 'loading') {
+    return <span className="text-text-muted">Checking…</span>;
+  }
+  if (branch.variant === 'error') {
+    return <span className="text-risk-medium" title="Couldn't check analysis status — try refresh">Couldn't check</span>;
+  }
+  if (branch.variant === 'open-underwriting') {
+    return (
+      <Link href={branch.href} className="text-accent hover:text-accent-hover">
+        {branch.label}
+        {branch.statusHint !== null && (
+          <span className="text-text-muted ml-1">· {branch.statusHint}</span>
+        )}
+      </Link>
+    );
+  }
+  // new-analysis
+  return (
+    <Link
+      href={branch.href}
+      className="inline-flex items-center px-2 py-0.5 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
+    >
+      {branch.label}
+    </Link>
   );
 }
