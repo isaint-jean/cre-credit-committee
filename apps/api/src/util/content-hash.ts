@@ -20,6 +20,8 @@ import type {
   ContentHash,
   CreditManifestoId,
   CrossCheckResultId,
+  DispositionId,
+  DispositionIdHashInput,
   DoctrineEvaluationId,
   HandbookEvaluationId,
   NarrativeEvaluationId,
@@ -35,6 +37,8 @@ import type {
   RevisionId,
   RevisionIdHashInput,
   StressOutputsId,
+  TapeId,
+  TapeIdHashInput,
   ValuationConclusionId,
 } from '@cre/contracts';
 import { canonicalize } from './canonical-json.js';
@@ -110,3 +114,20 @@ export const computePropertyMetadataId    = (content: unknown): PropertyMetadata
  */
 export const computeRevisionId = (input: RevisionIdHashInput): RevisionId =>
   computeContentHash(input) as RevisionId;
+
+/**
+ * Pool layer (PR 2) — TapeId hash boundary EXCLUDES observability timestamps
+ * (`frozenAt`, `receivedAt`). The whole point: freezing byte-identical content
+ * at different wall-clock times yields the same `TapeId`. P7 invariant declared
+ * in `pool.ts`; the `TapeIdHashInput` type IS the boundary, just like
+ * `RevisionIdHashInput`.
+ */
+export const computeTapeId = (input: TapeIdHashInput): TapeId =>
+  computeContentHash(input) as TapeId;
+
+/**
+ * Pool layer (PR 2) — DispositionId hash boundary EXCLUDES `recordedAt`. Re-
+ * recording byte-identical decision content yields the same `DispositionId`.
+ */
+export const computeDispositionId = (input: DispositionIdHashInput): DispositionId =>
+  computeContentHash(input) as DispositionId;

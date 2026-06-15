@@ -334,6 +334,60 @@ export interface Pool {
 }
 
 /* -------------------------------------------------------------------------- */
+/* §8b. Content-hash boundaries — TapeIdHashInput, DispositionIdHashInput     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The exact, exhaustive set of fields that participate in `TapeId` computation.
+ * Mirrors the `RevisionIdHashInput` discipline (see `./revision-lineage.ts` §5):
+ * two independent implementations MUST produce byte-identical `TapeId` values when
+ * fed byte-identical `TapeIdHashInput`.
+ *
+ * **Excluded by P7** (must NEVER appear in a TapeId hash input):
+ *   - `frozenAt`     — buyer wall-clock at freeze; observability only.
+ *   - `receivedAt`   — buyer wall-clock at ingestion; observability only.
+ *
+ * **Included** (this interface): the set of fields that semantically define
+ * "what this tape IS." Two tapes with byte-identical hash inputs MUST produce
+ * the same `TapeId`, so freezing the same content twice at different wall-clock
+ * times is idempotent. This is the whole point of P7 — replay determinism.
+ */
+export interface TapeIdHashInput {
+  readonly poolId: PoolId;
+  readonly version: number;
+  readonly tapeDate: ISODateTime;
+  readonly priorTapeId: TapeId | null;
+  readonly membership: readonly LoanMembership[];
+  readonly originatorSummary: TapeOriginatorSummary | null;
+}
+
+/**
+ * The exact, exhaustive set of fields that participate in `DispositionId`
+ * computation. Same discipline as `TapeIdHashInput`.
+ *
+ * **Excluded by P7**:
+ *   - `recordedAt`   — buyer wall-clock when the disposition was entered.
+ *
+ * **Included**: every field that defines the disposition decision itself —
+ * which loan, which tapes, what labels, the override flag, reasons, who
+ * recorded it, and the supersede chain. Re-recording byte-identical decision
+ * content yields the same `DispositionId`.
+ */
+export interface DispositionIdHashInput {
+  readonly poolId: PoolId;
+  readonly loanInPoolId: LoanInPoolId;
+  readonly lastSeenOnTape: TapeId;
+  readonly leftOnTape: TapeId;
+  readonly originatorLabel: DispositionKind;
+  readonly buyerLabel: DispositionKind;
+  readonly authoritative: DispositionKind;
+  readonly override: boolean;
+  readonly reasons: readonly string[];
+  readonly recordedBy: ActorRef;
+  readonly supersedes: DispositionId | null;
+}
+
+/* -------------------------------------------------------------------------- */
 /* §9. Invariants — declarative form (mirrors LINEAGE_INVARIANTS)             */
 /* -------------------------------------------------------------------------- */
 
