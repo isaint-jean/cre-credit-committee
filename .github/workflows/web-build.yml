@@ -1,0 +1,49 @@
+# apps/web build + typecheck gate.
+#
+# CI was previously blind to apps/web — the engine-integrity and lint-boundaries
+# workflows gate apps/api + dep-cruise only. Web breaks passed CI through PR5,
+# PR6, and PR7 (the entire pool UI surface). This gate runs the same proofs the
+# pool PRs were validating LOCALLY so they're enforced automatically going
+# forward.
+#
+# Structure mirrors engine-integrity.yml + lint-boundaries.yml exactly:
+# Node 20, `npm ci`, actions/{checkout,setup-node}@v4, concurrency
+# cancel-in-progress, 10-minute timeout, push + PR triggers.
+#
+# ADDITIVE: this is a THIRD workflow. The two existing workflows are not
+# touched. A web flake stays isolated here — it does not destabilize either of
+# the proven-green workflows.
+name: web-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: web-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (apps/web)
+        run: npx tsc --noEmit -p apps/web
+
+      - name: Build (Next.js production)
+        run: npm --workspace=apps/web run build
