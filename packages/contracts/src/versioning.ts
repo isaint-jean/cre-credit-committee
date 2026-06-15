@@ -25,7 +25,7 @@ export const RENDER_CONTRACT_VERSION = '1.0' as const;
  *   1.8 — 2026-06-14 — Ancillary-row categorization landed: the rent-roll
  *         contract gains `isResidential: boolean` on UnitRentRollLine /
  *         ResidentialUnit. Downstream income consumers
- *         (`buildGrossPotentialRent`, `computeTop1IncomeShare`) and the
+ *         (`buildGrossRentalIncome`, `computeTop1IncomeShare`) and the
  *         summary projector filter `isResidential === false` OUT. Fixes a
  *         real double-count: the AI extractor was emitting parking and
  *         storage lines as units, contributing their rent to GPR while
@@ -34,10 +34,25 @@ export const RENDER_CONTRACT_VERSION = '1.0' as const;
  *         legacy data persisted at EE-1.7 (no `isResidential` field) is
  *         treated as residential for back-compat (Sunroad / Pre-1.8 mf
  *         data continue to count). The AI extractor's PROMPT is bumped
- *         separately (see PR B); this 1.8 entry tracks the structural
- *         contract change only.
+ *         separately (see 1.9 below); this 1.8 entry tracks the
+ *         structural contract change only.
+ *
+ *   1.9 — 2026-06-15 — AI extractor prompt now sets isResidential per line.
+ *         The 1.8 contract field landed but the AI normalizer defaulted to
+ *         `true` when the model omitted the field — necessary back-compat
+ *         until the prompt itself was updated. 1.9 updates the prompt:
+ *         the unit-variant JSON spec now lists isResidential as REQUIRED,
+ *         and the Rules block tells the model to set it true for dwelling
+ *         units (Studio/1BR/2BR/townhome) and false for ancillary lines
+ *         (parking P-NN, storage S-NN, employee/leasing-office, amenity).
+ *         Proven by RUNNING — live Sonnet diagnostic on the same
+ *         adversarial document that surfaced the original bug; model now
+ *         tags parking/storage/employee lines false, residential units
+ *         true. Same constant covers both contract field (1.8) and prompt
+ *         (1.9) because EE has a single version constant; the bump is the
+ *         only provenance gate.
  */
-export const EXTRACTION_ENGINE_VERSION = '1.8' as const;
+export const EXTRACTION_ENGINE_VERSION = '1.9' as const;
 export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
 /**
  * Handbook-engine semantic version. Stamped onto every HandbookEvaluation record
