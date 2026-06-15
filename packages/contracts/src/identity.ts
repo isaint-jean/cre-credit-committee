@@ -71,6 +71,17 @@ export type CommitteeSnapshotId    = RecordId<'CommitteeSnapshot'>;   // content
 // and previous-action pointer (temporal artifacts; chain ordering canonical).
 export type CommitteeActionId      = RecordId<'CommitteeAction'>;
 
+// Pool layer (PR 1, post-recon) - the deal-as-collection-of-loans surface that wraps
+// the existing single-deal engine. Identity discipline mirrors the Overlay pattern:
+// mutable workspace containers carry uuid-v4 brands; immutable child records carry
+// content-hash RecordIds. Pool layer OWNS membership / disposition; DELEGATES per-loan
+// underwriting to the engine via `LoanInPool.dealRef`. No engine record is modified.
+export type PoolId                 = string & { readonly __pool:        'PoolId' };          // uuid v4 (workspace container; outlives tapes)
+export type LoanInPoolId           = string & { readonly __loanInPool:  'LoanInPoolId' };    // uuid v4 (identity carries across tapes)
+export type WorkingTapeId          = string & { readonly __workingTape: 'WorkingTapeId' };   // uuid v4 (mutable during ingest/review; resolves to TapeId on freeze)
+export type TapeId                 = RecordId<'Tape'>;                                       // content-hash (immutable once frozen)
+export type DispositionId          = RecordId<'Disposition'>;                                // content-hash (append-only event; corrections via supersedes chain)
+
 /**
  * Canonical content-hash function. Implementation lives in the api/util layer; producers compile
  * against this signature.

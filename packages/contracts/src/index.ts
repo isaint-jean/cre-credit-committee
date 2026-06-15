@@ -123,5 +123,11 @@ export * from './mitigation-engine-manifest.js';
 // Gates section order / headings / null sentinel drift.
 export * from './committee-memo-manifest.js';
 
+// Pool layer (PR 1, post-recon) — deal-as-collection-of-loans surface that wraps
+// the existing single-deal engine. Owns pool / tape / membership / disposition;
+// delegates per-loan underwriting to the engine via `LoanInPool.dealRef`. No
+// engine record is read or written by this layer; pool types are additive.
+export * from './pool.js';
+
 // Typed error payloads
 export * from './errors.js';
