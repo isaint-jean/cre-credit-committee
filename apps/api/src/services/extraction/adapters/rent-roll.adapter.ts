@@ -129,6 +129,7 @@ export function projectToRentRollExtraction(rentRoll: RentRoll): RentRollExtract
     return {
       kind: 'unit',
       unitId: line.unitId,
+      isResidential: line.isResidential,             // preserve through the projection
       bedrooms: line.bedrooms,
       bathrooms: line.bathrooms,
       unitType: line.unitType,
@@ -142,17 +143,29 @@ export function projectToRentRollExtraction(rentRoll: RentRoll): RentRollExtract
     };
   });
 
+  // Summary block counts RESIDENTIAL lines only — a vacant storage locker
+  // must not drag down a multifamily building's economic occupancy, and a
+  // parking spot must not inflate the unit count for $/unit metrics.
+  // Filter convention `=== false`-to-exclude (batch-1 back-compat): untyped
+  // legacy unit lines (no isResidential field) are treated as residential.
+  // Tenant lines are always counted (they don't have isResidential — it's
+  // a unit-roll concept).
+  const isExcluded = (l: typeof lines[number]): boolean =>
+    l.kind === 'unit' && l.isResidential === false;
+  const countedLines = lines.filter(l => !isExcluded(l));
   let occupiedCount = 0;
-  for (const line of lines) {
+  for (const line of countedLines) {
     if (line.status === 'OCCUPIED') occupiedCount++;
   }
 
   return {
     units,
     summary: {
-      totalUnits: lines.length,
+      totalUnits: countedLines.length,
       occupiedUnits: occupiedCount,
-      economicOccupancy: null,
+      economicOccupancy: countedLines.length > 0
+        ? occupiedCount / countedLines.length
+        : null,
     },
   };
 }

@@ -411,6 +411,20 @@ function parseUnitRow(ws: ExcelJS.Worksheet, row: number, map: ColumnMap): RentR
   return {
     kind: 'unit',
     unitId,
+    // EXPLICIT ASSUMPTION (documented): xlsx multifamily rent rolls
+    // typically list only residential units. Parking spots and storage
+    // lockers, when present, appear on the operating statement's
+    // 'other income' line, NOT as rent-roll rows. The xlsx parser
+    // therefore defaults `isResidential: true` for every unit it parses.
+    //
+    // The AI extractor path (extract-rent-roll-from-document.ts) is
+    // where ancillary-vs-residential categorization actually happens —
+    // residential vs ancillary rows mix more freely in PDF rent rolls.
+    // If a future xlsx fixture DOES list parking/storage as separate
+    // rows, this default would silently include them in GPR — flag it
+    // here, then add a column-header heuristic (e.g. detect 'P-NN' /
+    // 'S-NN' unitId patterns) or thread an operator-supplied override.
+    isResidential: true,
     status,
     squareFeet:         num(map.squareFeet),
     bedrooms:           num(map.bedrooms),

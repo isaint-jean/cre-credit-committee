@@ -90,6 +90,7 @@ function unitLine(unitId: string, inPlaceRentMonthly: number): UnitRentRollLine 
   return {
     kind: 'unit',
     unitId,
+    isResidential: true,
     status: 'OCCUPIED',
     squareFeet: 850,
     bedrooms: 1, bathrooms: 1, unitType: '1BR/1BA',

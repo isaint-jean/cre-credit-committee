@@ -103,6 +103,30 @@ export interface TenantRentRollLine {
 export interface UnitRentRollLine {
   readonly kind: 'unit';
   readonly unitId: string;                          // required — multifamily unit identity
+  /**
+   * Categorization: is this row a RESIDENTIAL DWELLING UNIT (true) or an
+   * ANCILLARY rent-roll line (false: parking spot, storage locker, employee
+   * unit, leasing office, common amenity)?
+   *
+   * Both are kept on the rent roll for audit fidelity; downstream income
+   * computations (`buildGrossPotentialRent`, summary `totalUnits` /
+   * `occupiedUnits` / `economicOccupancy`) filter `isResidential === false`
+   * OUT. The filter convention is `=== false`-to-exclude — untyped legacy
+   * lines (records persisted before this field landed) default to INCLUDED
+   * (residential), preserving back-compat for Sunroad and pre-EE-1.8 data.
+   *
+   * Why a separate field instead of overloading `unitType`: `unitType` is
+   * descriptive ("Studio" / "1BR/1BA" / "Parking" / "Storage") and remains
+   * useful for prose. `isResidential` is the STRUCTURAL categorization that
+   * downstream filters on. Distinct fields refuse the field-means-two-things
+   * trap (the discipline the discriminated union itself was built around).
+   *
+   * Why NOT on tenant lines: a tenant lease is by definition the
+   * income-bearing thing; ancillary-vs-residential is a unit-roll concept
+   * (multifamily rent rolls list units, not signed leases — so a row may
+   * legitimately not represent a residential income unit).
+   */
+  readonly isResidential: boolean;
   readonly status: TenantStatus;                    // OCCUPIED / VACANT / PRELEASED / HOLDOVER / UNKNOWN
   readonly squareFeet: number | null;               // unit SF
   readonly bedrooms: number | null;                 // mix indicator; null for studios / unknown

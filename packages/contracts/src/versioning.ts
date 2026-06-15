@@ -16,7 +16,28 @@ export const JUDGMENT_ENGINE_VERSION = '1.11' as const;
 export const STRESS_ENGINE_VERSION = '1.0' as const;
 export const VALUATION_ENGINE_VERSION = '1.0' as const;
 export const RENDER_CONTRACT_VERSION = '1.0' as const;
-export const EXTRACTION_ENGINE_VERSION = '1.7' as const;
+/**
+ * EXTRACTION_ENGINE_VERSION history (no manifest hash-gate — version bump
+ * IS the only provenance record, per the workflow's "out of scope" list):
+ *
+ *   1.7 — initial value at session start.
+ *
+ *   1.8 — 2026-06-14 — Ancillary-row categorization landed: the rent-roll
+ *         contract gains `isResidential: boolean` on UnitRentRollLine /
+ *         ResidentialUnit. Downstream income consumers
+ *         (`buildGrossPotentialRent`, `computeTop1IncomeShare`) and the
+ *         summary projector filter `isResidential === false` OUT. Fixes a
+ *         real double-count: the AI extractor was emitting parking and
+ *         storage lines as units, contributing their rent to GPR while
+ *         the operating statement's `otherIncome` line ALREADY included
+ *         them. Filter convention is `=== false`-to-exclude — untyped
+ *         legacy data persisted at EE-1.7 (no `isResidential` field) is
+ *         treated as residential for back-compat (Sunroad / Pre-1.8 mf
+ *         data continue to count). The AI extractor's PROMPT is bumped
+ *         separately (see PR B); this 1.8 entry tracks the structural
+ *         contract change only.
+ */
+export const EXTRACTION_ENGINE_VERSION = '1.8' as const;
 export const MANIFESTO_CONTRACT_VERSION = '1.0' as const;
 /**
  * Handbook-engine semantic version. Stamped onto every HandbookEvaluation record

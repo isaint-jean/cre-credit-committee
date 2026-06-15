@@ -99,6 +99,14 @@ export interface TenantUnit {
 export interface ResidentialUnit {
   readonly kind: 'unit';
   readonly unitId: string;
+  /**
+   * Categorization: residential dwelling unit (true) vs ancillary rent-roll
+   * line (false: parking, storage, employee unit, leasing office, amenity).
+   * Filter convention `=== false`-to-exclude — untyped legacy data defaults
+   * to INCLUDED. See `packages/contracts/src/rent-roll.ts` UnitRentRollLine
+   * for the full rationale.
+   */
+  readonly isResidential: boolean;
   readonly bedrooms: number | null;
   readonly bathrooms: number | null;
   readonly unitType: string | null;              // "1BR/1BA", "Studio", "Townhome", etc.

@@ -176,9 +176,16 @@ function normalizeLine(raw: unknown): RentRollLine | null {
     const sf = asNumber(r.squareFeet);
     // Drop rows with no identifying info — AI hallucination signal.
     if (unitId === null && sf === null) return null;
+    // isResidential: AI extractor reads it when the model emits it (the
+    // PR-B prompt change). For untagged responses (older cache entries +
+    // back-compat for the current PR-A landing), default to TRUE — the
+    // safe default that preserves pre-categorization behavior. The
+    // structural filter is `=== false`-to-exclude downstream.
+    const isResidential = typeof r.isResidential === 'boolean' ? r.isResidential : true;
     return {
       kind: 'unit',
       unitId: unitId ?? 'unit-unknown',
+      isResidential,
       status:             asStatus(r.status),
       squareFeet:         sf,
       bedrooms:           asNumber(r.bedrooms),

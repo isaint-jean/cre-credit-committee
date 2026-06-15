@@ -46,6 +46,7 @@ console.log('\n(1) Multifamily synthetic fixture — UnitRentRollLine[]');
 const mfLines: UnitRentRollLine[] = Array.from({ length: 50 }, (_, i) => ({
   kind: 'unit',
   unitId: `unit-${i + 1}`,
+  isResidential: true,
   status: i < 45 ? 'OCCUPIED' : 'VACANT',
   squareFeet: 850,
   bedrooms: i % 3 === 0 ? 2 : 1,

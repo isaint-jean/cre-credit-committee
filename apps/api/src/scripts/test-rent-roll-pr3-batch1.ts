@@ -48,6 +48,7 @@ console.log('================================================================');
 const mfLines: UnitRentRollLine[] = Array.from({ length: 50 }, (_, i) => ({
   kind: 'unit',
   unitId: `${100 + i}`,
+  isResidential: true,
   status: i < 45 ? 'OCCUPIED' : 'VACANT',
   squareFeet: 850,
   bedrooms: i % 3 === 0 ? 2 : 1,

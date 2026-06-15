@@ -64,6 +64,7 @@ console.log('\n(1) Multifamily synthetic (50 unit-kind lines)');
 const mfUnits: ResidentialUnit[] = Array.from({ length: 50 }, (_, i) => ({
   kind: 'unit',
   unitId: `${100 + i}`,
+  isResidential: true,
   bedrooms: 1,
   bathrooms: 1,
   unitType: '1BR/1BA',

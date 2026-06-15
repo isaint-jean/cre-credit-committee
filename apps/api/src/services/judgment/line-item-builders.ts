@@ -231,8 +231,15 @@ export function buildGrossRentalIncome(args: {
     });
   }
   if (args.extraction.rentRoll !== null) {
-    // Sum of in-place rents × 12 (annualized)
+    // Sum of in-place rents × 12 (annualized). Filter ANCILLARY unit lines
+    // (parking, storage, employee/leasing-office, common amenity) — those
+    // appear on the operating statement's `otherIncome` line, so counting
+    // them here would DOUBLE COUNT against the EGI calculation downstream.
+    // Convention: `isResidential === false` to exclude; untyped legacy
+    // data (no field, persisted pre-EE-1.8) defaults to INCLUDED (the
+    // back-compat path).
     const sum = args.extraction.rentRoll.units.reduce<number>((acc, u) => {
+      if (u.kind === 'unit' && u.isResidential === false) return acc;
       if (u.inPlaceRentMonthly !== null) return acc + u.inPlaceRentMonthly;
       return acc;
     }, 0);

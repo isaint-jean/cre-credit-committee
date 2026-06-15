@@ -141,6 +141,7 @@ function buildMfRentRollExtraction(rentRoll: RentRoll): RentRollExtraction {
     return {
       kind: 'unit',
       unitId: line.unitId,
+      isResidential: line.isResidential,
       bedrooms: line.bedrooms,
       bathrooms: line.bathrooms,
       unitType: line.unitType,

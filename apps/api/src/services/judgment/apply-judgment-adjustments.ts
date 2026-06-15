@@ -147,9 +147,15 @@ function computeTop1IncomeShare(extraction: ExtractionResult, gri: number): numb
   // be computed reliably — a single missing-rent row on the largest tenant fully breaks this
   // metric. Skip-with-flag (orchestrator emits JE_RENT_ROLL_UNIT_INCOMPLETE separately) rather
   // than silently zeroing the missing row's contribution.
-  const hasIncompleteUnit = extraction.rentRoll.units.some(u => u.inPlaceRentMonthly === null);
+  // Filter ancillary unit lines from the top-tenant computation — parking
+  // and storage rents don't belong in a "tenant concentration" denominator.
+  // `=== false`-to-exclude convention (back-compat with untyped legacy).
+  const residentialUnits = extraction.rentRoll.units.filter(
+    u => !(u.kind === 'unit' && u.isResidential === false),
+  );
+  const hasIncompleteUnit = residentialUnits.some(u => u.inPlaceRentMonthly === null);
   if (hasIncompleteUnit) return null;
-  const annual = extraction.rentRoll.units.map(u => (u.inPlaceRentMonthly as number) * 12);
+  const annual = residentialUnits.map(u => (u.inPlaceRentMonthly as number) * 12);
   if (annual.length === 0) return null;
   const max = Math.max(...annual);
   return max > 0 ? max / gri : null;
