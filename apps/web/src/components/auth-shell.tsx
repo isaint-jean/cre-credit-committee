@@ -108,11 +108,36 @@ function AppContent({ children }: { children: React.ReactNode }) {
   return (
     <>
       <header className="border-b border-border-primary bg-bg-secondary px-6 py-3 flex items-center justify-between">
+        {/* Visual pass PR 1 — brand mark from the prototype: teal gradient square w/
+         *  tiny house SVG, Plex Serif name, "B-Piece Pool Rail" eyebrow in brand teal. */}
         <div className="flex items-center gap-3">
-          <div className="w-2 h-2 bg-accent rounded-full" />
-          <span className="text-sm font-semibold tracking-wide text-text-primary">
-            CRE CREDIT COMMITTEE
-          </span>
+          <div
+            className="w-[34px] h-[34px] rounded-[9px] grid place-items-center flex-none"
+            style={{
+              background: 'linear-gradient(150deg, #3FA7A0, #2C7570)',
+              boxShadow:
+                '0 0 0 1px rgba(63,167,160,0.35), 0 6px 18px -8px rgba(63,167,160,0.5)',
+            }}
+            aria-hidden
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="w-[19px] h-[19px]">
+              <path
+                d="M4 19h16M6 19V9l6-4 6 4v10M10 19v-5h4v5"
+                stroke="#06100f"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+          <div>
+            <div className="font-serif font-semibold text-base text-text-primary leading-none">
+              CRE Credit Committee
+            </div>
+            <div className="text-[10.5px] uppercase tracking-[0.16em] text-accent font-semibold mt-1">
+              B-Piece Pool Rail
+            </div>
+          </div>
         </div>
         <nav className="flex items-center gap-5 text-xs text-text-secondary">
           {PRIMARY_NAV.map((item) => {

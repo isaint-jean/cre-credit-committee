@@ -2,11 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Visual pass PR 1 — IBM Plex family (Sans body / Serif headers / Mono ids+numbers)
+ * per the prototype (~/Downloads/cre-pool-rail.html). Was Inter + JetBrains Mono. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 @layer base {
+  html, body { margin: 0; padding: 0; }
+
+  /* Atmospheric canvas — two radial gradients (teal top-right, lavender bottom-left)
+   * over the panel canvas color. From prototype's body background block. */
   body {
-    @apply bg-bg-primary text-text-primary font-sans;
+    @apply text-text-primary font-sans;
+    background:
+      radial-gradient(1200px 700px at 84% -10%, rgba(63, 167, 160, 0.07), transparent 60%),
+      radial-gradient(900px 600px at 2% 108%,  rgba(128, 147, 230, 0.05), transparent 55%),
+      #0C1118;
+    -webkit-font-smoothing: antialiased;
+    font-size: 15px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* Headers default to Plex Serif (override per-component with `font-sans` if needed). */
+  h1, h2, h3 {
+    @apply font-serif;
   }
 
   * {
@@ -26,8 +45,12 @@
 }
 
 @layer components {
+  /* Card defaults — bigger radius (panel = 11px), soft drop shadow per prototype.
+   * Existing `card` references inherit the new look automatically. */
   .card {
-    @apply bg-bg-secondary border border-border-primary rounded p-4;
+    @apply bg-bg-secondary border border-border-primary p-4;
+    border-radius: 11px;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 10px 30px -14px rgba(0, 0, 0, 0.65);
   }
 
   .btn-primary {
@@ -78,7 +101,10 @@
     @apply table-cell font-medium text-text-secondary bg-bg-tertiary;
   }
 
+  /* Mono numerals — tabular-nums so column digits line up
+   * (prototype convention; was just right-aligned monospace). */
   .mono {
     @apply font-mono text-right;
+    font-variant-numeric: tabular-nums;
   }
 }
