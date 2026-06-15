@@ -6,13 +6,23 @@ import type {
   CommitteeTimeline,
   CreditManifesto,
   DealWorkflowState,
+  Disposition,
   DoctrineEvaluationId,
   LibrarySnapshot,
+  LoanInPool,
+  LoanInPoolId,
+  LoanMembership,
   MarketBenchmarks,
   OverlayId,
   HandbookEvaluation,
+  Pool,
+  PoolId,
   RenderedAnalysis,
   RenderedAnalysisId,
+  Tape,
+  TapeId,
+  WorkingTape,
+  WorkingTapeId,
 } from '@cre/contracts';
 import { isRenderedAnalysis } from './rendered-analysis-guard';
 
@@ -807,4 +817,34 @@ export const api = {
     ),
 
   listSourceDocSlots: () => request<any>('/source-docs/slots'),
+
+  /* ------------------------------------------------------------------ */
+  /* Pool layer (PR 5 UI slice 1 — READ-ONLY).                          */
+  /* All mutations (advance-tape Phase A / Phase B) are intentionally   */
+  /* absent this slice. The backend write endpoints exist but the UI    */
+  /* surfaces them only as disabled affordances until the next slice.   */
+  /* ------------------------------------------------------------------ */
+  listPools: (filter?: { vintage?: number; seller?: string }) => {
+    const q: string[] = [];
+    if (filter?.vintage !== undefined) q.push(`vintage=${filter.vintage}`);
+    if (filter?.seller) q.push(`seller=${encodeURIComponent(filter.seller)}`);
+    const qs = q.length > 0 ? `?${q.join('&')}` : '';
+    return request<{ pools: Pool[] }>(`/pools${qs}`);
+  },
+  getPoolDetail: (poolId: PoolId | string) =>
+    request<{ pool: Pool; currentWorkingTapeId: WorkingTapeId | null }>(`/pools/${poolId}`),
+  getCurrentWorkingTape: (poolId: PoolId | string) =>
+    request<{ workingTape: WorkingTape }>(`/pools/${poolId}/working-tape`),
+  getTape: (poolId: PoolId | string, tapeId: TapeId | string) =>
+    request<{ tape: Tape }>(`/pools/${poolId}/tapes/${tapeId}`),
+  getMembership: (poolId: PoolId | string, tapeId: TapeId | string) =>
+    request<{ membership: LoanMembership[] }>(`/pools/${poolId}/tapes/${tapeId}/membership`),
+  getLoanInPool: (poolId: PoolId | string, loanInPoolId: LoanInPoolId | string) =>
+    request<{ loan: LoanInPool }>(`/pools/${poolId}/loans/${loanInPoolId}`),
+  getLoanHistory: (poolId: PoolId | string, loanInPoolId: LoanInPoolId | string) =>
+    request<{ history: LoanMembership[] }>(`/pools/${poolId}/loans/${loanInPoolId}/history`),
+  getDispositions: (poolId: PoolId | string) =>
+    request<{ dispositions: Disposition[] }>(`/pools/${poolId}/dispositions`),
+  getOverrides: (poolId: PoolId | string) =>
+    request<{ overrides: Disposition[] }>(`/pools/${poolId}/overrides`),
 };
