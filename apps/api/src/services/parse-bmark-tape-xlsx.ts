@@ -74,6 +74,27 @@ export function normalizePropertyName(raw: string | null | undefined): string | 
   return TAPE_NAME_ALIASES[s] ?? s;
 }
 
+/**
+ * Engine-side property-name normalizer used by the funnel-lookup fallback.
+ * The engine's `analyses.name` carries the human-readable property name with a
+ * trailing parenthetical suffix (e.g. "Sunroad Centrum (real-deal validation)").
+ * Strip any trailing parenthetical(s) and route through the same pool-side
+ * normalizer so engine names join the pool's `originator_loan_ref` keyspace.
+ *
+ * Used by sqlite-store.lookupAnalysisByDealRef Pass 2.
+ */
+const TRAILING_PAREN_RE = /\s*\([^()]*\)\s*$/;
+export function normalizeAnalysisNameForMatch(name: string | null | undefined): string | null {
+  if (name === null || name === undefined) return null;
+  let s = String(name);
+  let prev: string;
+  do {
+    prev = s;
+    s = s.replace(TRAILING_PAREN_RE, '');
+  } while (s !== prev);
+  return normalizePropertyName(s);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Column index map (0-indexed, exceljs uses 1-indexed but rows.values[]      */
 /* makes the first cell index 1; we index by name via the header row).        */

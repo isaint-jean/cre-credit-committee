@@ -207,6 +207,16 @@ memDb.exec(`
     lineage_root_id TEXT,
     revision_ordinal INTEGER NOT NULL DEFAULT 0
   );
+  -- DEAL END-TO-END Slice 1 — the pool-mediated fallback path consults this
+  -- table to resolve pool dealRefs (e.g. bmark2024v8-sunroad-centrum) to
+  -- engine analyses whose analyses.name normalizes to the same property
+  -- name as loan_in_pool.originator_loan_ref.
+  CREATE TABLE loan_in_pool (
+    id TEXT PRIMARY KEY,
+    pool_id TEXT NOT NULL,
+    deal_ref TEXT NOT NULL,
+    originator_loan_ref TEXT
+  );
 `);
 
 function seedAnalysis(opts: {
@@ -374,9 +384,95 @@ assert(graphOnly.body.analysisId === 'c'.repeat(64),
 assert(graphOnly.body.status === null,
   'status === null for pure-graph (no legacy column to read from)');
 
+/* -------------------------------------------------------------------------- */
+/* §I — DEAL END-TO-END Slice 1: pool-mediated normalized-name fallback       */
+/*                                                                            */
+/* The pool and the engine carry DIFFERENT dealRef strings for the same real  */
+/* loan. Pool: 'bmark2024v8-sunroad-centrum' (reseed convention). Engine:     */
+/* 'SUNROAD-CENTRUM-REAL' (calibration convention). The fallback bridges them */
+/* via the pool's normalized `originator_loan_ref` ↔ engine's `analyses.name` */
+/* normalized (parenthetical-stripped + reused property-name normalizer).      */
+/* -------------------------------------------------------------------------- */
+console.log('\n--- I. ★ pool-mediated normalized-name fallback ---');
+
+// Seed a pool loan whose deal_ref matches NOTHING in extraction_results,
+// but whose normalized originator_loan_ref matches SUNROAD's analyses.name.
+memDb.prepare('INSERT INTO loan_in_pool (id, pool_id, deal_ref, originator_loan_ref) VALUES (?, ?, ?, ?)')
+  .run('lip-sunroad-uuid', 'pool-bmark-2024-v8-uuid', 'bmark2024v8-sunroad-centrum', 'sunroad centrum');
+
+// Sanity: confirm Pass 1 (exact deal_ref) does NOT match — only Pass 2 should.
+const passOnlyAtExact = memDb.prepare(
+  "SELECT COUNT(*) AS n FROM extraction_results WHERE deal_ref = 'bmark2024v8-sunroad-centrum'"
+).get() as { n: number };
+assert(passOnlyAtExact.n === 0,
+  '★ Pass 1 (exact deal_ref) returns 0 for the bmark ref — fallback is the only path that can resolve');
+
+const fallbackHit = call('GET', '/lookup?dealRef=bmark2024v8-sunroad-centrum');
+assert(fallbackHit.status === 200, '★ pool-ref lookup → 200 via fallback');
+assert(fallbackHit.body.found === true, '★ found === true (fallback resolved the identity gap)');
+assert(fallbackHit.body.analysisId === 'e8778e74-8ac8-4777-9e09-6671c2ec3ed1',
+  '★★ pool ref "bmark2024v8-sunroad-centrum" resolves to the real Sunroad analysisId (the engine\'s SUNROAD-CENTRUM-REAL row)');
+assert(fallbackHit.body.status === 'complete',
+  '★ status carried through from the matched analysis');
+assert(fallbackHit.body.multipleFound === undefined,
+  'single fallback match — no multipleFound flag');
+
+/* -------------------------------------------------------------------------- */
+/* §J — fallback honesty (no false positives, no over-match)                  */
+/* -------------------------------------------------------------------------- */
+console.log('\n--- J. fallback honest negatives + multiplicity ---');
+
+// (J1) A pool loan whose originator_loan_ref matches NO analysis name → still
+// found:false. The fallback must not silently best-guess.
+memDb.prepare('INSERT INTO loan_in_pool (id, pool_id, deal_ref, originator_loan_ref) VALUES (?, ?, ?, ?)')
+  .run('lip-other-uuid', 'pool-bmark-2024-v8-uuid', 'bmark2024v8-some-other-loan', 'some other property');
+const noMatch = call('GET', '/lookup?dealRef=bmark2024v8-some-other-loan');
+assert(noMatch.status === 200 && noMatch.body.found === false,
+  '★ pool loan with no name-matching analysis → found:false (fallback does NOT false-positive)');
+
+// (J2) A dealRef that exists in NEITHER extraction_results NOR loan_in_pool
+// → still found:false. The fallback can't be triggered by an arbitrary string.
+const stranger = call('GET', '/lookup?dealRef=totally-unknown-ref');
+assert(stranger.status === 200 && stranger.body.found === false,
+  '★ unknown dealRef (not in extraction_results AND not in any pool) → found:false');
+
+// (J3) Multiplicity surfaced via fallback: seed a SECOND analysis whose
+// stripped name also normalizes to "sunroad centrum". Expect multipleFound +
+// count=2.
+seedAnalysis({
+  dealRef: 'SUNROAD-REVALIDATION-2',
+  extractionId: '7'.repeat(64),
+  doctrineId: '8'.repeat(64),
+  revisionId: '9'.repeat(64),
+  legacyAnalysisId: 'cccccccc-cccc-4ccc-cccc-cccccccccccc',
+  legacyStatus: 'complete',
+  legacyName: 'Sunroad Centrum (re-extracted v2)',
+  extractionCreatedAt: '2026-06-11T00:00:00Z',
+});
+memDb.prepare('INSERT INTO loan_in_pool (id, pool_id, deal_ref, originator_loan_ref) VALUES (?, ?, ?, ?)')
+  .run('lip-sunroad-multi-uuid', 'pool-bmark-2024-v8-uuid', 'bmark2024v8-sunroad-centrum-multi', 'sunroad centrum');
+const multiFallback = call('GET', '/lookup?dealRef=bmark2024v8-sunroad-centrum-multi');
+assert(multiFallback.status === 200 && multiFallback.body.found === true,
+  'fallback with >1 name-matching analyses → found:true');
+assert(multiFallback.body.multipleFound === true,
+  '★ multipleFound surfaces via fallback (route layer adds the flag when count > 1)');
+assert(multiFallback.body.count === 2,
+  '★ count === 2 — both Sunroad analyses surfaced');
+
+// (J4) THE PRESERVATION ASSERTION: re-call §A's exact path. Must STILL hit
+// Pass 1 (not be intercepted by Pass 2) and return the canonical single hit.
+console.log('\n--- J4. ★ Pass 1 behavior UNCHANGED for exact matches ---');
+const reA = call('GET', '/lookup?dealRef=SUNROAD-CENTRUM-REAL');
+assert(reA.status === 200 && reA.body.found === true,
+  '★ Pass 1 (exact deal_ref) still wins — found:true');
+assert(reA.body.analysisId === 'e8778e74-8ac8-4777-9e09-6671c2ec3ed1',
+  '★ exact match returns the same single analysisId as before — no fallback intermixing');
+assert(reA.body.multipleFound === undefined,
+  '★ exact path: no multipleFound (Pass 2 has 2 candidates, but Pass 1 exits before Pass 2 runs)');
+
 console.log('\n================================================================');
 if (failures === 0) {
-  console.log('Funnel PR — lookup route: PASS — found / not-found / precedence / multiplicity all hold.');
+  console.log('Funnel PR — lookup route: PASS — exact + fallback + precedence + multiplicity all hold.');
   process.exit(0);
 } else {
   console.log(`Funnel PR — lookup route: FAIL (${failures} assertion${failures === 1 ? '' : 's'} failed)`);

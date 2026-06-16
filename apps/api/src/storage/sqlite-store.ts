@@ -9,6 +9,7 @@ import { CriteriaRuleSet } from '@cre/shared';
 import type { TemplateMetadata, TemplateType, UnderwritingTemplate, TemplateVersion, CreditManifesto, CreditManifestoDetail } from '@cre/shared';
 import { getDefaultCriteria } from '../services/default-criteria.js';
 import { getTemplateMetadata } from '../services/template-registry.js';
+import { normalizePropertyName, normalizeAnalysisNameForMatch } from '../services/parse-bmark-tape-xlsx.js';
 
 export interface User {
   id: string;
@@ -386,7 +387,8 @@ export class SqliteStore {
     status: string | null;
     createdAt: string;
   }> {
-    const rows = this.db.prepare(`
+    // PASS 1 — exact match on extraction_results.deal_ref. Fast path; unchanged.
+    const exact = this.db.prepare(`
       SELECT
         a.id            AS legacy_id,
         rle.lineage_root_id AS graph_id,
@@ -404,7 +406,75 @@ export class SqliteStore {
       legacy_status: string | null;
       created_at: string;
     }>;
-    return rows.map((r) => ({
+    if (exact.length > 0) {
+      return exact.map((r) => ({
+        legacyId: r.legacy_id,
+        graphId: r.graph_id,
+        status: r.legacy_status,
+        createdAt: r.created_at,
+      }));
+    }
+
+    // PASS 2 — pool-mediated normalized-property-name fallback (DEAL END-TO-END
+    // Slice 1). Bridges the pool/engine identity gap: a pool LoanInPool's
+    // dealRef (e.g. 'bmark2024v8-sunroad-centrum') is keyed differently from
+    // the engine analysis's extraction-side deal_ref (e.g. 'SUNROAD-CENTRUM-REAL')
+    // even when they describe the same loan. The pool's
+    // `loan_in_pool.originator_loan_ref` is already normalized to the property
+    // name (set by the reseed parser via normalizePropertyName). The engine's
+    // `analyses.name` carries the human-readable name with a trailing
+    // parenthetical suffix; normalizeAnalysisNameForMatch strips that and
+    // routes through the same normalizer. Match on the equality of those two
+    // normalized strings.
+    //
+    // Honesty constraints:
+    //   - Only consulted when Pass 1 returned zero — Pass 1 behavior is untouched.
+    //   - Pool table must have a row for the incoming dealRef; else found:false.
+    //     (We do not normalize arbitrary inputs as property names — that would
+    //     turn dealRefs unrelated to any pool loan into false-positive matches.)
+    //   - Engine-side analyses are filtered by normalized-name equality;
+    //     if 0 matches → return [] (genuine not-found, NOT silent best-guess).
+    //   - If >1 matches → return them all (route layer surfaces multipleFound).
+    const poolRow = this.db.prepare(`
+      SELECT originator_loan_ref
+      FROM loan_in_pool
+      WHERE deal_ref = ?
+      LIMIT 1
+    `).get(dealRef) as { originator_loan_ref: string | null } | undefined;
+    if (!poolRow || !poolRow.originator_loan_ref) return [];
+
+    const targetKey = normalizePropertyName(poolRow.originator_loan_ref);
+    if (targetKey === null) return [];
+
+    // Walk every analysis that's linked to a graph revision. N is small in
+    // practice (one analysis per loan ever underwritten); pulling candidates
+    // and filtering by normalized-name equality in JS keeps the SQL portable
+    // (no SQL UDF required).
+    const candidates = this.db.prepare(`
+      SELECT
+        a.id            AS legacy_id,
+        a.name          AS legacy_name,
+        a.status        AS legacy_status,
+        rle.lineage_root_id AS graph_id,
+        er.created_at   AS created_at
+      FROM analyses a
+      JOIN revision_lineage_envelopes rle ON rle.revision_id = a.graph_revision_id
+      JOIN doctrine_evaluations de ON de.id = rle.doctrine_evaluation_id
+      JOIN extraction_results er ON er.id = de.extraction_result_id
+      WHERE a.graph_revision_id IS NOT NULL
+      ORDER BY er.created_at DESC
+    `).all() as Array<{
+      legacy_id: string;
+      legacy_name: string;
+      legacy_status: string | null;
+      graph_id: string;
+      created_at: string;
+    }>;
+
+    const matches = candidates.filter((c) =>
+      normalizeAnalysisNameForMatch(c.legacy_name) === targetKey
+    );
+    return matches.map((r) => ({
       legacyId: r.legacy_id,
       graphId: r.graph_id,
       status: r.legacy_status,
