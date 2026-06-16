@@ -41,6 +41,12 @@ export default function AnalysisDashboard() {
   const [commentTarget, setCommentTarget] = useState<string>('');
   const [stressResults, setStressResults] = useState<StressScenario[]>([]);
   const [populatedTemplateInfo, setPopulatedTemplateInfo] = useState<{ available: boolean; fileName?: string; mappedFields?: any[]; unmappedFields?: string[]; tabsPopulated?: string[] } | null>(null);
+  // BP Spire / Bank Underwriter download buttons require an active uw_templates
+  // row (both profiles share templateType='single_loan'). The server-side
+  // /export route 409s with TEMPLATE_NOT_FOUND when no template is registered,
+  // so the buttons should hide when there's nothing to export rather than
+  // promise an affordance that errors. Probe on mount; null = still loading.
+  const [hasActiveTemplate, setHasActiveTemplate] = useState<boolean | null>(null);
 
   // Poll for status while processing
   useEffect(() => {
@@ -88,6 +94,12 @@ export default function AnalysisDashboard() {
             const templateInfo = await api.getPopulatedTemplateInfo(id);
             setPopulatedTemplateInfo(templateInfo);
           } catch { setPopulatedTemplateInfo({ available: false }); }
+          // Active-template probe — both Bank and BP Spire profiles use
+          // templateType='single_loan'. 404 = no active template → buttons hide.
+          try {
+            await api.getActiveTemplate('single_loan');
+            setHasActiveTemplate(true);
+          } catch { setHasActiveTemplate(false); }
         }
       } catch {
         setLoading(false);
@@ -251,8 +263,10 @@ export default function AnalysisDashboard() {
               Promoted-from-graph records have analysis.uwModel===null in the
               stored row; the export's compose runs projectLegacyAnalysisFromGraph
               server-side to synthesize one. Surface the buttons when EITHER
-              uwModel is present OR graphRevisionId is set. */}
-          {analysis.status === 'complete' && (analysis.uwModel || analysis.graphRevisionId) && (
+              uwModel is present OR graphRevisionId is set — AND an active
+              uw_templates row exists (else the export would 409 with
+              TEMPLATE_NOT_FOUND). */}
+          {analysis.status === 'complete' && (analysis.uwModel || analysis.graphRevisionId) && hasActiveTemplate === true && (
             <>
               <button
                 onClick={() =>
