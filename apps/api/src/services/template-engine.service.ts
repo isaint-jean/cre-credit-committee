@@ -1865,6 +1865,26 @@ function writeCellValue(
   state: CellState,
   comment: CellComment | null,
 ): void {
+  // Formula guard. The legacy populator (populateTemplate, line 547) already
+  // skips formula cells; the v8 payload-driven applyRenderPayloadToTemplate
+  // path did not, so a schema entry that landed on a formula address would
+  // wipe the formula on write. We preserve the formula and still attach the
+  // comment so a deliberate "caveat this formula" schema entry (e.g. OPF
+  // J35/J48/J50, where the formula correctly computes the STABILIZED basis
+  // and the caveat surfaces the going-in figures) functions as intended.
+  if (cell.formula) {
+    if (comment !== null && state !== 'concluded') {
+      try {
+        (cell as any).note = {
+          texts: [{ text: comment.text }],
+          margins: { insetmode: 'auto' },
+        };
+      } catch {
+        /* commenting failure must not block the (non-)write */
+      }
+    }
+    return;
+  }
   cell.value = value === null ? null : (value as any);
   if (state === 'hitl') {
     applyFill(cell, HITL_FILL_ARGB);

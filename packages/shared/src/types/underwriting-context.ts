@@ -166,6 +166,13 @@ export interface UnderwritingPropertyAtoms {
   occupancy:          number | null;
   /** e.g. "Fee Simple" / "Leasehold" (propertyMetadata-only). */
   ownershipInterest:  string | null;
+  /** Sprint-0 additions — propertyMetadata-only fields surfaced for the
+   *  Property & Loan Summary / Property Detail / Site Inspection workbook
+   *  cells. All null when PM is absent. */
+  msa:                string | null;
+  yearRenovated:      number | null;
+  buildingClass:      string | null;
+  numberOfBuildings:  number | null;
 }
 
 /**
@@ -228,6 +235,10 @@ export interface UnderwritingContext {
   parties?:                UnderwritingPartyAtoms;
   /** Flat list of comp / CMBS deal references found in source documents. */
   comparablesLinkageRefs?: string[];
+  /** Appraisal-sourced atoms (Sunroad appraisal-ingest). Populated from
+   *  `analysis.appraisalExtraction` when present; absent otherwise. Schema
+   *  selectors read this via `ResolvedUnderwritingContext.appraisal`. */
+  appraisal?: Readonly<Record<string, number | string | null>>;
 }
 
 /**
@@ -319,6 +330,12 @@ export interface ResolvedUnderwritingContext {
     units:             ResolvedCellValue;
     occupancy:         ResolvedCellValue;
     ownershipInterest: ResolvedCellValue;
+    // Sprint-0 additions — propertyMetadata-only sources surfaced for the
+    // P&L Summary / Property Detail / Site Inspection workbook cells.
+    msa:               ResolvedCellValue;
+    yearRenovated:     ResolvedCellValue;
+    buildingClass:     ResolvedCellValue;
+    numberOfBuildings: ResolvedCellValue;
   };
   loan: {
     termMonths:         ResolvedCellValue;
@@ -330,4 +347,41 @@ export interface ResolvedUnderwritingContext {
     sponsorName:  ResolvedCellValue;
   };
   comparablesLinkageRefs: ResolvedCellValue;
+  /**
+   * Appraisal-sourced atoms (Sunroad appraisal-ingest ticket). Populated from
+   * `analysis.appraisalExtraction` when present, all null otherwise. Schema
+   * entries on the Operating tab column J (Appraisal) and the Conclusions tab
+   * (As-Is / As-Stabilized values + cap rate) read from this block.
+   */
+  appraisal: {
+    // Column J — pro forma inputs (STABILIZED basis)
+    pgr:                            ResolvedCellValue;  // J9
+    economicOccupancy:              ResolvedCellValue;  // J6 (derived: 1 - vacancyPct)
+    physicalOccupancy:              ResolvedCellValue;  // J7
+    badDebt:                        ResolvedCellValue;  // J11 (= negative creditLoss)
+    otherIncomeGross:               ResolvedCellValue;  // J14
+    netEffectiveReimbursements:     ResolvedCellValue;  // J15
+    expensesGeneralAdmin:           ResolvedCellValue;  // J22 (= General Operating)
+    expensesRepairsMaintenance:     ResolvedCellValue;  // J24
+    expensesUtilities:              ResolvedCellValue;  // J25
+    expensesOtherVariable:          ResolvedCellValue;  // J26 (Janitorial + Nonreimbursable Landlord)
+    expensesManagement:             ResolvedCellValue;  // J30
+    expensesTaxes:                  ResolvedCellValue;  // J31
+    expensesInsurance:              ResolvedCellValue;  // J32
+    capex:                          ResolvedCellValue;  // J38 (replacement reserves)
+    // Conclusions
+    asIsValue:                      ResolvedCellValue;
+    asStabilizedValue:              ResolvedCellValue;
+    landValue:                      ResolvedCellValue;
+    overallCapRate:                 ResolvedCellValue;
+    terminalCapRate:                ResolvedCellValue;
+    discountRate:                   ResolvedCellValue;
+    stabilizedNOI:                  ResolvedCellValue;
+    currentNOI:                     ResolvedCellValue;
+    stabilizationMonths:            ResolvedCellValue;
+    // Identity backfills surfaced through hydrate but actually consumed via PropertyMetadata merge
+    grossBuildingArea:              ResolvedCellValue;  // B3 on Property Detail (Sprint-0 honest-blank → now filled)
+    numberOfStories:                ResolvedCellValue;  // not currently mapped; available for future schema entry
+    perAppraisalCapex:              ResolvedCellValue;  // Conclusions & Escrows D49 (appraiser's reserve recommendation; distinct from stabilized pro forma's $0 row)
+  };
 }

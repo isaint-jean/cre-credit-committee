@@ -271,6 +271,101 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     { address: 'Hotel Op History and Pro Forma!P40',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P40.' },
     { address: 'Hotel Op History and Pro Forma!P15',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P15.' },
     { address: 'Hotel Op History and Pro Forma!P49',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P49.' },
+    // ---- Sprint-0 NEW: property-identity cells (CONCLUDED, sourced from --
+    // ---- propertyMetadata via resolvedContext.property.* atoms) ----------
+    // P&L Summary additions — named ranges that exist in the template but had
+    // no V9 entry. New at v9-sprint-0 with FULL_MODERN state (resolvedContext-only).
+    { address: 'Property & Loan Summary!MSA',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.msa; sourced from propertyMetadata.msa.' },
+    { address: 'Property & Loan Summary!Year_Renovated',        group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.yearRenovated; sourced from propertyMetadata.yearRenovated.' },
+    // Property Detail tab — slot 'Property_Detail' translates to one of
+    // three sheet names (Property Detail - Comm for office/retail/
+    // industrial/mixed_use; -MF SS MHP for multifamily / self-storage /
+    // manufactured-housing; -Hotel for hotel). Each schema entry needs a
+    // declaration per resolved sheet name.
+    { address: 'Property Detail - Comm!B3',                     group: 'property', state: 'FULL_MODERN', notes: 'Appraisal-ingest. resolvedContext.appraisal.grossBuildingArea (Sunroad CBRE p.12 285,085 SF).' },
+    { address: 'Property Detail - Comm!B4',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.totalSquareFeet (commercial assets).' },
+    { address: 'Property Detail - Comm!F3',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.type.' },
+    { address: 'Property Detail - Comm!F4',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.yearBuilt.' },
+    { address: 'Property Detail - Comm!F5',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.yearRenovated.' },
+    { address: 'Property Detail - Comm!B9',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.totalSquareFeet (Total NRA summary row).' },
+    { address: 'Property Detail - Comm!B11',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.numberOfBuildings.' },
+    { address: 'Property Detail - Comm!F11',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.ownershipInterest.' },
+    { address: 'Property Detail - Comm!B15',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.buildingClass.' },
+    // Property Detail - MF SS MHP variant (multifamily / self-storage / MHP).
+    // Layout matches the Comm tab at these row positions; schema entries
+    // resolve to these addresses via the asset-class slot translation.
+    { address: 'Property Detail - MF SS MHP!B3',                group: 'property', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Multifamily-asset variant of Property Detail B3.' },
+    { address: 'Property Detail - MF SS MHP!B4',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B4.' },
+    { address: 'Property Detail - MF SS MHP!F3',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F3.' },
+    { address: 'Property Detail - MF SS MHP!F4',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F4.' },
+    { address: 'Property Detail - MF SS MHP!F5',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F5.' },
+    { address: 'Property Detail - MF SS MHP!B9',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B9.' },
+    { address: 'Property Detail - MF SS MHP!B11',               group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B11.' },
+    { address: 'Property Detail - MF SS MHP!F11',               group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F11.' },
+    { address: 'Property Detail - MF SS MHP!B15',               group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B15.' },
+    // Property Detail - Hotel variant.
+    { address: 'Property Detail - Hotel!B3',                    group: 'property', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Hotel-asset variant of Property Detail B3.' },
+    { address: 'Property Detail - Hotel!B4',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B4.' },
+    { address: 'Property Detail - Hotel!F3',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F3.' },
+    { address: 'Property Detail - Hotel!F4',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F4.' },
+    { address: 'Property Detail - Hotel!F5',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F5.' },
+    { address: 'Property Detail - Hotel!B9',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B9.' },
+    { address: 'Property Detail - Hotel!B11',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B11.' },
+    { address: 'Property Detail - Hotel!F11',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F11.' },
+    { address: 'Property Detail - Hotel!B15',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B15.' },
+    // Site Inspection — only C6 is a true input cell; the other Property-
+    // identity cells (C4/C5/E4/E5) are template formulas that auto-cascade
+    // from P&L Summary named ranges, so they get no schema entry.
+    { address: 'Site Inspection!C6',                            group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.numberOfBuildings.' },
+    // ---- Appraisal-ingest: Operating ProForma column J (Appraisal) -----
+    // STABILIZED basis; sourced from analysis.appraisalExtraction via the
+    // resolvedContext.appraisal.* atoms. 14 input rows; FORMULA subtotals
+    // (J10/J12/J17/J27/J33/J35/J42/J44/J46-J50) are NEVER declared (they
+    // compute via template SUMs).
+    { address: 'Operating History and Pro Forma!J9',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. resolvedContext.appraisal.pgr (stabilized PRI).' },
+    { address: 'Operating History and Pro Forma!J6',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. resolvedContext.appraisal.economicOccupancy.' },
+    { address: 'Operating History and Pro Forma!J7',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. resolvedContext.appraisal.physicalOccupancy.' },
+    { address: 'Operating History and Pro Forma!J11',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. resolvedContext.appraisal.badDebt (negative).' },
+    { address: 'Operating History and Pro Forma!J14',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. resolvedContext.appraisal.otherIncomeGross.' },
+    { address: 'Operating History and Pro Forma!J15',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. resolvedContext.appraisal.netEffectiveReimbursements.' },
+    { address: 'Operating History and Pro Forma!J22',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. expensesGeneralAdmin (=General Operating).' },
+    { address: 'Operating History and Pro Forma!J24',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. expensesRepairsMaintenance.' },
+    { address: 'Operating History and Pro Forma!J25',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. expensesUtilities.' },
+    { address: 'Operating History and Pro Forma!J26',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. expensesOtherVariable (Janitorial + Nonreimbursable Landlord).' },
+    { address: 'Operating History and Pro Forma!J30',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. expensesManagement (3% of EGI).' },
+    { address: 'Operating History and Pro Forma!J31',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. expensesTaxes (stabilized).' },
+    { address: 'Operating History and Pro Forma!J32',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. expensesInsurance.' },
+    { address: 'Operating History and Pro Forma!J38',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. capex (replacementReserves).' },
+    { address: 'Hotel Op History and Pro Forma!J9',             group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J9.' },
+    { address: 'Hotel Op History and Pro Forma!J6',             group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J6.' },
+    { address: 'Hotel Op History and Pro Forma!J7',             group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J7.' },
+    { address: 'Hotel Op History and Pro Forma!J11',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J11.' },
+    { address: 'Hotel Op History and Pro Forma!J14',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J14.' },
+    { address: 'Hotel Op History and Pro Forma!J15',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J15.' },
+    { address: 'Hotel Op History and Pro Forma!J22',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J22.' },
+    { address: 'Hotel Op History and Pro Forma!J24',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J24.' },
+    { address: 'Hotel Op History and Pro Forma!J25',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J25.' },
+    { address: 'Hotel Op History and Pro Forma!J26',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J26.' },
+    { address: 'Hotel Op History and Pro Forma!J30',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J30.' },
+    { address: 'Hotel Op History and Pro Forma!J31',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J31.' },
+    { address: 'Hotel Op History and Pro Forma!J32',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J32.' },
+    { address: 'Hotel Op History and Pro Forma!J38',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal. Hotel variant of OPF J38.' },
+    // ---- Appraisal-ingest: Conclusions & Escrows ----------------------------
+    // I11 is the named range `Appraised_Value` (see openpyxl-confirmed
+    // defined name 'Conclusions & Escrows'!$I$11). Feeds I13/I14 LTV+Cap
+    // formulas. D47/D48/D49 are the Per-Appraisal escrow columns (taxes,
+    // insurance, replacement reserves).
+    { address: 'Operating History and Pro Forma!J35',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. CAVEAT-ONLY (formula preserved): cell note surfaces going-in NOI vs stabilized basis.' },
+    { address: 'Operating History and Pro Forma!J48',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. CAVEAT-ONLY: DSCR shown is stabilized; going-in negative.' },
+    { address: 'Operating History and Pro Forma!J50',           group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. CAVEAT-ONLY: DY shown is stabilized; going-in negative.' },
+    { address: 'Hotel Op History and Pro Forma!J35',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Hotel variant CAVEAT-ONLY J35.' },
+    { address: 'Hotel Op History and Pro Forma!J48',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Hotel variant CAVEAT-ONLY J48.' },
+    { address: 'Hotel Op History and Pro Forma!J50',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Hotel variant CAVEAT-ONLY J50.' },
+    { address: 'Conclusions & Escrows!Appraised_Value',         group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. resolvedContext.appraisal.asIsValue (Sunroad CBRE p.3 $122M). Drives I13 headline LTV.' },
+    { address: 'Conclusions & Escrows!D47',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Per-Appraisal RE Taxes (stabilized).' },
+    { address: 'Conclusions & Escrows!D48',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Per-Appraisal Insurance (stabilized).' },
+    { address: 'Conclusions & Escrows!D49',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Per-Appraisal Replacement Reserves (capex).' },
+    { address: 'Conclusions & Escrows!I14',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. CAVEAT-ONLY: shown cap rate (= stab NOI / as-is) is template artifact; appraiser OAR (6.25%) carried in cell note.' },
   ],
 };
 

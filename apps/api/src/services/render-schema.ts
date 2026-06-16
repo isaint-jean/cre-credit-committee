@@ -683,6 +683,12 @@ const vacancyPctSelector: Selector = tagSelector((input) => {
  *  it satisfies the LEGACY state required-source policy. */
 const nullSelector: Selector = tagSelector(() => null, ['adjustedInputs']);
 
+/** Same as nullSelector but tagged 'resolvedContext' so it satisfies the
+ *  FULL_MODERN required-source policy. Used for cells whose value is
+ *  intentionally not written (formula-guarded caveats) but whose data
+ *  semantics live in the resolved context (e.g. appraisal caveats). */
+const nullSelectorResolvedContext: Selector = tagSelector(() => null, ['resolvedContext']);
+
 /** Selector that returns adjustedInputs.metrics.ltv if present, else null —
  *  for the LTV_Appraisal AWAITING_INPUT cell. Surfaces the actual computed
  *  LTV when a future appraisal-ingest slot lands; today returns null
@@ -707,6 +713,10 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => c.property.yearBuilt),           cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Occupancy',         selector: ctx((c) => c.property.occupancy),           cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => c.property.ownershipInterest),   cellState: 'concluded' },
+  // Sprint-0 additions — named ranges that exist in the template but had no
+  // V9 entry. propertyMetadata-only sources.
+  { slot: 'Property_Loan_Summary', range: 'MSA',               selector: ctx((c) => c.property.msa),                 cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Year_Renovated',    selector: ctx((c) => c.property.yearRenovated),       cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Current_Balance',     selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Original_Balance',    selector: num((a) => a.loan.loanAmount),            cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Coupon',              selector: num((a) => a.loan.interestRate),          cellState: 'concluded' },
@@ -716,6 +726,58 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   { slot: 'Property_Loan_Summary', range: 'Interest_Only_Period',selector: ctx((c) => c.loan.ioMonths),              cellState: 'concluded' },
   { slot: 'Borrower',              range: 'Borrower',            selector: ctx((c) => c.parties.borrowerName),       cellState: 'concluded' },
   { slot: 'Borrower',              range: 'Sponsor',             selector: ctx((c) => c.parties.sponsorName),        cellState: 'concluded' },
+
+  // ----- Sprint-0: Property Detail tab (Property Detail - Comm for office) -
+  // 8 cells fed by propertyMetadata. A1 addresses verified by openpyxl scan
+  // of Blank_UW_Template_v2.xlsm. Per Sprint-0 corrections, B3 (Gross
+  // Building Area; GBA ≠ NRA, no PM source) and F10 (Property Rights;
+  // appraisal-derived, no appraisal for Sunroad) are NOT mapped — they stay
+  // honest-blank.
+  // Appraisal-ingest: B3 (Gross Building Area) now has a source via
+  // resolvedContext.appraisal.grossBuildingArea (CBRE Sunroad p.12: 285,085 SF).
+  // Sprint-0 left this honest-blank (GBA ≠ NRA; no PM source).
+  { slot: 'Property_Detail',       range: 'B3',                  selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.grossBuildingArea),  cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'B4',                  selector: ctx((c) => c.property.totalSquareFeet),    cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'F3',                  selector: ctx((c) => c.property.type),               cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'F4',                  selector: ctx((c) => c.property.yearBuilt),          cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'F5',                  selector: ctx((c) => c.property.yearRenovated),      cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'B9',                  selector: ctx((c) => c.property.totalSquareFeet),    cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'B11',                 selector: ctx((c) => c.property.numberOfBuildings),  cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'F11',                 selector: ctx((c) => c.property.ownershipInterest),  cellState: 'concluded' },
+  { slot: 'Property_Detail',       range: 'B15',                 selector: ctx((c) => c.property.buildingClass),      cellState: 'concluded' },
+
+  // ----- Sprint-0: Site Inspection tab ------------------------------------
+  // Only C6 is a true input cell. The other property-identity cells on this
+  // tab (C4 NRA / C5 Year Built / E4 Occupancy / E5 Year Renovated) are
+  // FORMULAS that auto-cascade from the Property & Loan Summary named ranges
+  // when those are filled — writing to them would break the formula.
+  { slot: 'Site_Inspection',       range: 'C6',                  selector: ctx((c) => c.property.numberOfBuildings),  cellState: 'concluded' },
+
+  // ----- Appraisal-ingest: Operating ProForma column J (Appraisal) ---------
+  // STABILIZED basis. Sourced from analysis.appraisalExtraction via the
+  // `c.appraisal.*` atoms. 17 input rows on the canonical 18-input/13-formula
+  // template structure; J11 Bad Debt has dedicated row so we plant it. The
+  // FORMULA subtotals (J10/J12/J17/J27/J33/J35/J42/J44/J46-J50) are NEVER
+  // written — they cascade from inputs.
+  //
+  // ★ Checksum gate (verified at extractor test time):
+  //   J33 (template SUM of expense inputs) = stabilized totalOperatingExpenses ($3,932,767)
+  //   J17 (Net Rental Rev + OtherInc + NetEffReimb) ≈ stabilizedEGI ($12,536,598, off $1 rounding)
+  //   J35 (= J17 - J33) ≈ stabilized NOI ($8,603,831 → computed $8,603,832, off $1)
+  { slot: 'Operating_ProForma',    range: 'J9',                  selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.pgr),                           cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J6',                  selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.economicOccupancy),             cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J7',                  selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.physicalOccupancy),             cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J11',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.badDebt),                       cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J14',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.otherIncomeGross),              cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J15',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.netEffectiveReimbursements),    cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J22',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesGeneralAdmin),          cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J24',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesRepairsMaintenance),    cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J25',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesUtilities),             cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J26',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesOtherVariable),         cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J30',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesManagement),            cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J31',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesTaxes),                 cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J32',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesInsurance),             cellState: 'concluded' },
+  { slot: 'Operating_ProForma',    range: 'J38',                 selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.capex),                         cellState: 'concluded' },
 
   // ----- v9 NEW: Operating ProForma — CONCLUDED -----------------------------
   // "Eightfold Concluded" column = column P on Operating History and Pro Forma.
@@ -939,7 +1001,156 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
       'Operator-supplied valuation (Sunroad: BOV $126.20M, basis anchored ' +
       'to Q1 ratings actions on comparable Office CBD towers). Matches the ' +
       'memo\'s "concluded value of $126.20M; valuation basis: ' +
-      'operator-supplied" disclosure.',
+      'operator-supplied" disclosure. PENDING LEASE-UP CORRECTION — engine ' +
+      'inPlace EGI ($13.6M) tracks stabilized ($12.5M), not current ($1.9M); ' +
+      'value figure should be reread against the appraisal As-Is ($122M) ' +
+      'until the lease-up timing is wired into the income projection.',
+  },
+
+  // ----- Appraisal-ingest: Appraisal Value / LTV / escrows -----------------
+  // Sunroad CBRE p.3 As-Is conclusion = $122M; the named range
+  // `Appraised_Value` resolves to 'Conclusions & Escrows'!$I$11 and feeds the
+  // downstream formulas at I13 (LTV) and I14 (Appraisal Cap Rate). Wiring
+  // this cell makes the HARD CONSTRAINT "headline LTV = loan / asIsValue
+  // ($75M/$122M = 61.5%)" compute natively in the workbook.
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'Appraised_Value',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.asIsValue),
+    cellState: 'concluded',
+    comment: (input) => {
+      // Read the figures from the resolved context so the comment can't drift
+      // away from what the extractor actually surfaced. The CBRE appraisal
+      // value table sits on page 3; that page citation is the only literal.
+      const a = (input.resolvedContext as unknown as { appraisal?: Record<string, unknown> }).appraisal ?? {};
+      const asIs = typeof a.asIsValue === 'number' ? a.asIsValue : null;
+      const asStab = typeof a.asStabilizedValue === 'number' ? a.asStabilizedValue : null;
+      const months = typeof a.stabilizationMonths === 'number' ? a.stabilizationMonths : null;
+      const fmt = (n: number | null): string => (n === null ? 'n/a' : '$' + n.toLocaleString());
+      return (
+        `Appraisal As-Is value (CBRE p.3: ${fmt(asIs)}). Drives headline LTV ` +
+        `via Appraisal LTV (I13 = Current_Balance / Appraised_Value) and ` +
+        `Appraisal Cap Rate via I14. As-Stabilized reference (CBRE p.3): ` +
+        `${fmt(asStab)}; stabilization in ${months ?? 'n/a'} months. Going-in ` +
+        `NOI is negative; appraisal DSCR/DY at I13/I14 are computed on the ` +
+        `STABILIZED NOI (Operating ProForma!J35) per template wiring — the ` +
+        `template has no separate column for the going-in basis, so OPF J35/` +
+        `J48/J50 carry cell notes that surface the going-in NOI alongside ` +
+        `the stabilized formula values.`
+      );
+    },
+  },
+  // Per-Appraisal escrows: column D on rows 47-49 of Conclusions & Escrows.
+  // Sourced from the CBRE Stabilized Pro Forma per-line expenses (D47/D48)
+  // and the appraiser's reserve estimate (D49). D50/D51/D52/D54/D55 stay
+  // honest-blank — not in the appraisal's scope (Immediate Repairs is from
+  // PCA; TI/LC, environmental, FF&E, PIP are operator/PCA inputs).
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'D47',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesTaxes),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'D48',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.expensesInsurance),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'D49',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.perAppraisalCapex),
+    cellState: 'concluded',
+  },
+  // I14 caveat. The template formula reads `=+I12/Appraised_Value`, i.e.
+  // (stabilized NOI from OPF!J35) / (As-Is value). That arithmetic is
+  // valid given the inputs, but it contradicts the appraiser's CONCLUDED
+  // overall cap rate (CBRE p.12 OAR = 6.25%). Surface the discrepancy as
+  // a cell note so a reader who sees "7.05%" doesn't conclude the
+  // appraiser's OAR was 7.05%.
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'I14',
+    selector: nullSelectorResolvedContext,
+    cellState: 'awaiting_input',
+    comment: (input) => {
+      const a = (input.resolvedContext as unknown as { appraisal?: Record<string, unknown> }).appraisal ?? {};
+      const oar = typeof a.overallCapRate === 'number' ? a.overallCapRate : null;
+      const oarText = oar === null ? 'n/a' : (oar * 100).toFixed(2) + '%';
+      return (
+        `Appraiser's concluded Overall Cap Rate is ${oarText} (CBRE p.12). ` +
+        `The figure shown here is the template artifact (stabilized NOI ÷ ` +
+        `As-Is value), NOT the appraiser's concluded OAR. As-Is is used in ` +
+        `Appraised_Value to anchor the conservative LTV; it should not be ` +
+        `paired with stabilized NOI to imply a market cap rate.`
+      );
+    },
+  },
+
+  // ----- Appraisal-ingest: going-in caveats on the stabilized appraisal -----
+  // Operating ProForma column J wires the appraisal STABILIZED basis. The
+  // template has no second column for the appraisal CURRENT (going-in) basis
+  // — N/In-Place cascades from rent roll, L is Issuer UW, P is Concluded UW,
+  // R-Q are blank but writing formulas into them via the renderer would
+  // violate the renderer-is-not-template-authoring boundary. So we caveat
+  // the stabilized J35 NOI and J48/J50 DSCR/DY cells with cell notes that
+  // surface the going-in NOI and label these outputs as stabilized-only.
+  // The formula-guard in writeCellValue preserves the J35/J48/J50 formulas
+  // while attaching the note. Same for Conclusions & Escrows I13/I14 LTV &
+  // cap rate (computed off J35).
+  {
+    slot: 'Operating_ProForma',
+    range: 'J35',
+    selector: nullSelectorResolvedContext,
+    cellState: 'awaiting_input',
+    comment: (input) => {
+      const a = (input.resolvedContext as unknown as { appraisal?: Record<string, unknown> }).appraisal ?? {};
+      const currNOI = typeof a.currentNOI === 'number' ? a.currentNOI : null;
+      const stabNOI = typeof a.stabilizedNOI === 'number' ? a.stabilizedNOI : null;
+      const fmt = (n: number | null): string => (n === null ? 'n/a' : '$' + n.toLocaleString());
+      return (
+        `Appraisal NOI shown is STABILIZED ($8,603,831 expected; J35 displays ${fmt(stabNOI)}). ` +
+        `Going-in NOI = ${fmt(currNOI)} (negative; 2022 actuals column from the ` +
+        `appraisal Operating History table, CBRE p.88). Template has no second ` +
+        `column for appraisal going-in; coverage cells J48 (DSCR) and J50 (DY) ` +
+        `are computed on stabilized NOI only.`
+      );
+    },
+  },
+  {
+    slot: 'Operating_ProForma',
+    range: 'J48',
+    selector: nullSelectorResolvedContext,
+    cellState: 'awaiting_input',
+    comment: (input) => {
+      const a = (input.resolvedContext as unknown as { appraisal?: Record<string, unknown> }).appraisal ?? {};
+      const currNOI = typeof a.currentNOI === 'number' ? a.currentNOI : null;
+      const fmt = (n: number | null): string => (n === null ? 'n/a' : '$' + n.toLocaleString());
+      return (
+        `DSCR shown is STABILIZED basis (J35 / Annual_Debt_Service). Going-in ` +
+        `DSCR is NEGATIVE: appraisal 2022-actuals NOI ${fmt(currNOI)} / ` +
+        `Annual_Debt_Service ≈ sub-zero coverage. Awaiting going-in-basis column ` +
+        `wiring (not yet available in template).`
+      );
+    },
+  },
+  {
+    slot: 'Operating_ProForma',
+    range: 'J50',
+    selector: nullSelectorResolvedContext,
+    cellState: 'awaiting_input',
+    comment: (input) => {
+      const a = (input.resolvedContext as unknown as { appraisal?: Record<string, unknown> }).appraisal ?? {};
+      const currNOI = typeof a.currentNOI === 'number' ? a.currentNOI : null;
+      const fmt = (n: number | null): string => (n === null ? 'n/a' : '$' + n.toLocaleString());
+      return (
+        `Debt Yield shown is STABILIZED basis (J35 / Current_Balance). Going-in ` +
+        `DY is NEGATIVE: appraisal 2022-actuals NOI ${fmt(currNOI)} / loan ` +
+        `balance. Awaiting going-in-basis column wiring (not yet available in ` +
+        `template).`
+      );
+    },
   },
 
   // ----- v9 NEW: Extraction / data gaps — AWAITING_INPUT --------------------

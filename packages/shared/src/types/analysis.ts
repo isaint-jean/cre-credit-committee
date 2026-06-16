@@ -317,6 +317,14 @@ export interface Analysis {
   // all-null fields (no property facts found). Used by Property & Loan Summary
   // header + Property Detail tabs.
   propertyMetadata?: import('@cre/contracts').PropertyMetadata | null;
+  // Appraisal-ingest (Sunroad ticket) — standalone-appraisal extraction record.
+  // Optional; populated when the deal has an appraisal PDF AND the extractor
+  // has run (via apps/api/src/scripts/extract-sunroad-appraisal.ts). Consumed
+  // as a REFERENCE INPUT by the workbook populator (Operating tab column J,
+  // Conclusions & Escrows Per-Appraisal cells, LTV reference rows) and the
+  // committee memo. Does NOT re-trigger doctrine evaluation — doctrine stays
+  // frozen per the ticket's out-of-scope clause.
+  appraisalExtraction?: import('@cre/contracts').AppraisalExtraction | null;
   // Batch 0 traceability ledger. The merge layer pushes literal-string entries here
   // shaped 'merge-conflict[<field>] asr=... seller=... chosen=...'. Batch 1B extends
   // this with 'missing-support: <subject>' entries when an evidence-gated input is

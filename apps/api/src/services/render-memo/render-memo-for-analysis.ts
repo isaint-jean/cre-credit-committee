@@ -100,12 +100,31 @@ export function renderMemoForAnalysis(
     },
   });
 
+  // Appraisal disclosure (optional). Pulled from analysis.appraisalExtraction
+  // — when present, surfaces As-Is / As-Stabilized / OAR / going-in vs
+  // stabilized coverage inside the Stressed Credit Profile section. No-op
+  // when no appraisal has been ingested.
+  const apx = analysis.appraisalExtraction;
+  const appraisalDisclosure = apx
+    ? {
+        asIsValue:           apx.asIsValue ?? null,
+        asStabilizedValue:   apx.asStabilizedValue ?? null,
+        stabilizationMonths: apx.stabilizationMonths ?? null,
+        overallCapRate:      apx.overallCapRate ?? null,
+        stabilizedNOI:       apx.stabilizedProForma?.netOperatingIncome ?? null,
+        currentNOI:          apx.currentProForma?.netOperatingIncome ?? null,
+        loanAmount:          adjustedInputs.loan.loanAmount.adjusted,
+        annualDebtService:   adjustedInputs.loan.debtServiceAnnual.adjusted,
+      }
+    : undefined;
+
   const html = buildCommitteeMemo({
     dealName: analysis.name,
     memoDate: new Date().toISOString().slice(0, 10),
     narrative,
     dealResult,
     composedMitigationPackage,
+    appraisalDisclosure,
   });
   return { ok: true, html };
 }

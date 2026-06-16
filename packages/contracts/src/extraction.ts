@@ -278,10 +278,137 @@ export interface PCAExtraction {
 
 /* --------------------------------- appraisal -------------------------------- */
 
+/**
+ * Per-line stabilized operating-statement breakdown, matching the appraiser's
+ * direct-cap pro-forma table (CBRE format on Sunroad p.88 / p.101). Each field
+ * is broken out so the workbook's Operating-tab Appraisal column J reconciles
+ * end-to-end: SUM of per-line expenses = totalOperatingExpenses, and
+ * EGI - totalOperatingExpenses = stabilizedNOI. Same shape as
+ * OperatingStatementExtraction's expense block but appraiser-sourced.
+ *
+ * `netEffectiveReimbursements` is reimbursements gross MINUS the "Vacancy &
+ * Credit Loss on Other Income" line — the template has no dedicated row for
+ * the latter, so the appraiser's effective other-income subtotal is captured
+ * net. This keeps L17 / J17 (Total Revenues) tied to EGI exactly.
+ */
+export interface AppraisalStabilizedProForma {
+  readonly potentialRentalIncome: number | null;
+  readonly vacancyPct: number | null;              // 0..1 fraction
+  readonly vacancyLoss: number | null;             // negative dollars
+  readonly creditLossPct: number | null;           // 0..1 fraction
+  readonly creditLoss: number | null;              // negative dollars
+  readonly otherIncomeGross: number | null;        // pre-VCL
+  readonly otherIncomeVCL: number | null;          // negative; vacancy/credit loss on other income
+  readonly netEffectiveReimbursements: number | null;  // reimbursementsGross + otherIncomeVCL share (template-aware)
+  readonly effectiveGrossIncome: number | null;    // EGI
+
+  readonly realEstateTaxes: number | null;
+  readonly insurance: number | null;
+  readonly utilities: number | null;
+  readonly generalOperating: number | null;        // "General Operating" / G&A
+  readonly janitorial: number | null;
+  readonly repairsMaintenance: number | null;
+  readonly managementFee: number | null;
+  readonly nonreimbursableLandlord: number | null;
+  readonly replacementReserves: number | null;
+  readonly totalOperatingExpenses: number | null;
+
+  readonly netOperatingIncome: number | null;
+}
+
+/**
+ * Current-period operating snapshot at the as-of value date (Sunroad's 2022 actuals
+ * column on CBRE p.88 reconciliation table). Used for going-in DSCR/DY — the honest
+ * picture when a property is in lease-up.
+ */
+export interface AppraisalCurrentProForma {
+  readonly effectiveGrossIncome: number | null;    // current EGI (e.g. Sunroad 2022: $1.94M)
+  readonly totalOperatingExpenses: number | null;
+  readonly netOperatingIncome: number | null;      // can be negative during lease-up
+}
+
+/**
+ * Per-line escrow / reserve estimates surfaced by the appraisal for the
+ * Conclusions & Escrows tab's "Per Appraisal" column.
+ */
+export interface AppraisalReserveEstimates {
+  readonly realEstateTaxes: number | null;
+  readonly insurance: number | null;
+  readonly replacementReserves: number | null;
+  readonly tenantImprovements: number | null;
+  readonly leasingCommissions: number | null;
+  readonly environmental: number | null;
+}
+
+/**
+ * AppraisalExtraction — the source-agnostic appraisal contract.
+ *
+ * SUNROAD-APPRAISAL: this shape is filled by `extract-cbre-appraisal.ts` for
+ * the CBRE Sunroad PDF. Future appraisal-firm extractors (JLL, Cushman, etc.)
+ * fill the SAME shape so downstream consumers (workbook populator, memo,
+ * judgment) read symbolically. Page-level provenance via `pageReferences`.
+ *
+ * Identity fields (address / yearBuilt / ...) are BACKFILLS — the workbook
+ * populator and projector merge them into PropertyMetadata only where PM is
+ * null (per Sprint-0 honest-blank discipline; appraisal NEVER overwrites the
+ * ASR-AI extracted PM).
+ *
+ * SCOPE NOTE: this extraction is consumed as a REFERENCE INPUT for workbook +
+ * memo rendering. It does NOT re-trigger doctrine evaluation. Doctrine is
+ * frozen; lease-up handling lives entirely in the renderer / memo / workbook.
+ */
 export interface AppraisalExtraction {
-  readonly valueConclusion: number | null;        // dollars
-  readonly capRate: number | null;                // 0..1 fraction (NOT percent)
-  readonly methodology: string | null;            // free-form (Income / Sales Comparison / Cost)
+  readonly source?: 'cbre' | 'jll' | 'cushman' | 'colliers' | 'other';
+  readonly reportName?: string | null;             // "CB23US057102-1_Sunroad Centrum I…"
+
+  // ---- Identity (backfills for PropertyMetadata nulls) ----
+  readonly addressFull?: string | null;            // "8620 Spectrum Center Blvd"
+  readonly city?: string | null;
+  readonly state?: string | null;
+  readonly zip?: string | null;
+  readonly county?: string | null;
+  readonly yearBuilt?: number | null;
+  readonly grossBuildingArea?: number | null;      // GBA (distinct from NRA)
+  readonly netRentableArea?: number | null;        // NRA (cross-check)
+  readonly numberOfStories?: number | null;
+  readonly numberOfBuildings?: number | null;
+
+  // ---- Interest + value dates ----
+  readonly interestAppraised?: string | null;      // 'Leased Fee Interest' | 'Fee Simple Estate'
+  readonly asIsValueDate?: ISODateTime | null;
+  readonly asStabilizedValueDate?: ISODateTime | null;
+
+  // ---- Headline values ----
+  readonly asIsValue?: number | null;
+  readonly asStabilizedValue?: number | null;
+  readonly landValue?: number | null;
+  readonly insurableValue?: number | null;
+
+  // ---- Income-cap math ----
+  readonly overallCapRate?: number | null;         // 0..1 fraction
+  readonly terminalCapRate?: number | null;
+  readonly discountRate?: number | null;
+
+  // ---- Stabilized + current pro forma (load-bearing for column J reconcile) ----
+  readonly stabilizedProForma?: AppraisalStabilizedProForma;
+  readonly currentProForma?: AppraisalCurrentProForma;
+
+  // ---- Lease-up axis ----
+  readonly stabilizedOccupancy?: number | null;    // 0..1 fraction
+  readonly currentOccupancyPhysical?: number | null;
+  readonly currentLeasedPct?: number | null;
+  readonly stabilizationMonths?: number | null;
+
+  // ---- Per-appraisal reserves (Conclusions tab) ----
+  readonly perAppraisalReserves?: AppraisalReserveEstimates;
+
+  // ---- Provenance: field name → PDF page (1-indexed) ----
+  readonly pageReferences?: Readonly<Record<string, number>>;
+
+  // ---- Legacy 3-field interface, preserved for backwards compat ----
+  readonly valueConclusion: number | null;        // alias for asIsValue (legacy callers)
+  readonly capRate: number | null;                // alias for overallCapRate
+  readonly methodology: string | null;            // 'Income Capitalization Approach' etc.
 }
 
 /* ------------------------------- seller UW + ASR ---------------------------- */

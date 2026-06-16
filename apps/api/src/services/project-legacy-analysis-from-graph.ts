@@ -42,6 +42,7 @@ import {
   type CrossCheckResult,
   type DoctrineComponentScore,
   type DoctrineEvaluation,
+  type ExtractionResultId,
   type FiredFlag,
   type HandbookEvaluation,
   type NarrativeEvaluation,
@@ -161,6 +162,43 @@ export function projectLegacyAnalysisFromGraph(
     ? analysis.validationResult
     : (crossCheck !== null ? projectValidationResult(crossCheck) : undefined);
 
+  // Sprint-0: PropertyMetadata read-side projection. The ingest writes PM to
+  // the property_metadata table and links it to the ExtractionResult via the
+  // extraction_input_cache row; here we resolve it back so
+  // hydrateUnderwritingContext.buildPropertyAtoms reads `analysis.propertyMetadata`
+  // as PRIMARY (per the precedence at hydrate-underwriting-context.ts:147)
+  // and the V9_SHARED_ENTRIES `c.property.*` selectors populate. Only overlay
+  // when the legacy slot is empty — preserves analyst-edited PM. Resolution
+  // requires the doctrine to be present (we need the extractionResultId join).
+  let projectedPropertyMetadata = analysis.propertyMetadata;
+  if (
+    (projectedPropertyMetadata === null || projectedPropertyMetadata === undefined) &&
+    doctrine !== null
+  ) {
+    const pm = store.getPropertyMetadataByExtractionResultId(
+      doctrine.extractionResultId as ExtractionResultId,
+    );
+    if (pm !== null) projectedPropertyMetadata = pm;
+  }
+
+  // Sunroad appraisal-ingest: merge AppraisalExtraction identity fields into
+  // PropertyMetadata where PM is null (NEVER overwrite the ASR-AI source per
+  // Sprint-0 honest-blank discipline). Fills address/zip/county/yearBuilt
+  // when the appraisal supplies them. analysis.appraisalExtraction is
+  // populated via the run-once script (extract-sunroad-appraisal.ts) writing
+  // to analyses.data.appraisalExtraction — surfaced automatically through
+  // rowToAnalysis spread.
+  const appraisal = analysis.appraisalExtraction;
+  if (appraisal && projectedPropertyMetadata) {
+    projectedPropertyMetadata = {
+      ...projectedPropertyMetadata,
+      address:    projectedPropertyMetadata.address    ?? appraisal.addressFull ?? null,
+      zip:        projectedPropertyMetadata.zip        ?? appraisal.zip ?? null,
+      county:     projectedPropertyMetadata.county     ?? appraisal.county ?? null,
+      yearBuilt:  projectedPropertyMetadata.yearBuilt  ?? appraisal.yearBuilt ?? null,
+    };
+  }
+
   return {
     ...analysis,
     executiveSummary: projectedExecutiveSummary,
@@ -173,6 +211,7 @@ export function projectLegacyAnalysisFromGraph(
     manifestoVersion: projectedManifestoVersion,
     modelLogicVersion: projectedModelLogicVersion,
     validationResult: projectedValidationResult,
+    propertyMetadata: projectedPropertyMetadata,
   };
 }
 

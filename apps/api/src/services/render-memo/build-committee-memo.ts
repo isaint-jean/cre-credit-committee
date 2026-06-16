@@ -67,6 +67,25 @@ export interface BuildCommitteeMemoInput {
   readonly narrative: NarrativeEvaluation;
   readonly dealResult: EvaluateDealResult;
   readonly composedMitigationPackage: ComposedMitigationPackage;
+  /** Optional appraisal disclosure block. When present, the
+   *  Stressed Credit Profile section emits an additional table surfacing
+   *  the appraisal As-Is / As-Stabilized values, lease-up tenor, headline
+   *  LTV (as-is basis), appraiser OAR, and the going-in vs stabilized
+   *  NOI/DSCR/DY split. Added WITHIN the existing Stressed Credit
+   *  Profile section so MEMO_SECTION_ORDER is unchanged — the
+   *  committee-memo format hash stays valid. */
+  readonly appraisalDisclosure?: AppraisalMemoDisclosure;
+}
+
+export interface AppraisalMemoDisclosure {
+  readonly asIsValue: number | null;
+  readonly asStabilizedValue: number | null;
+  readonly stabilizationMonths: number | null;
+  readonly overallCapRate: number | null;
+  readonly stabilizedNOI: number | null;
+  readonly currentNOI: number | null;
+  readonly loanAmount: number | null;            // for headline LTV computation
+  readonly annualDebtService: number | null;     // for going-in DSCR
 }
 
 export function buildCommitteeMemo(input: BuildCommitteeMemoInput): string {
@@ -173,7 +192,75 @@ function renderExecutiveSummary(narrative: NarrativeEvaluation): string {
     </section>`;
 }
 
-function renderStressedCreditProfile(auth: AuthoritativeNumbers, funded: FundedExitProjection): string {
+function renderAppraisalDisclosure(d: AppraisalMemoDisclosure): string {
+  // Appraisal-ingest. Surfaces a third-party reference alongside the
+  // operator-supplied Concluded value. Includes the HARD-CONSTRAINT
+  // headline LTV (loan / As-Is), the appraiser's concluded OAR, and the
+  // BOTH going-in vs stabilized NOI/DSCR/DY split (lease-up gap explicit).
+  const headlineLtv =
+    d.asIsValue !== null && d.asIsValue > 0 && d.loanAmount !== null
+      ? d.loanAmount / d.asIsValue
+      : null;
+  const goingInDscr =
+    d.currentNOI !== null && d.annualDebtService !== null && d.annualDebtService > 0
+      ? d.currentNOI / d.annualDebtService
+      : null;
+  const stabDscr =
+    d.stabilizedNOI !== null && d.annualDebtService !== null && d.annualDebtService > 0
+      ? d.stabilizedNOI / d.annualDebtService
+      : null;
+  const goingInDy =
+    d.currentNOI !== null && d.loanAmount !== null && d.loanAmount > 0
+      ? d.currentNOI / d.loanAmount
+      : null;
+  const stabDy =
+    d.stabilizedNOI !== null && d.loanAmount !== null && d.loanAmount > 0
+      ? d.stabilizedNOI / d.loanAmount
+      : null;
+  const leaseUpNote =
+    d.stabilizationMonths !== null
+      ? `${d.stabilizationMonths}-month lease-up`
+      : 'lease-up tenor n/a';
+  const rows: Array<[string, string, string]> = [
+    ['Appraisal As-Is value',           'CBRE third-party',                       fmtUsd(d.asIsValue)],
+    ['Appraisal As-Stabilized value',   leaseUpNote,                              fmtUsd(d.asStabilizedValue)],
+    ['Headline LTV (loan / As-Is)',     'HARD-CONSTRAINT basis',                  fmtPct(headlineLtv)],
+    ['Appraiser OAR',                   'concluded overall cap rate',             fmtPct(d.overallCapRate)],
+    ['Going-in NOI (2022 actuals)',     'appraisal Operating History col. 1 (p.88)', fmtUsd(d.currentNOI)],
+    ['Stabilized NOI',                  'appraisal Pro Forma column (p.88)',      fmtUsd(d.stabilizedNOI)],
+    ['Going-in DSCR',                   '2022-actuals NOI / annual debt service', fmtDscr(goingInDscr)],
+    ['Stabilized DSCR',                 'stabilized NOI / annual debt service',   fmtDscr(stabDscr)],
+    ['Going-in Debt Yield',             '2022-actuals NOI / loan',                fmtPct(goingInDy)],
+    ['Stabilized Debt Yield',           'stabilized NOI / loan',                  fmtPct(stabDy)],
+  ];
+  return `
+    <h3 class="memo-section-subhead">Appraisal disclosure</h3>
+    <table class="memo-table memo-table-appraisal">
+      <thead><tr><th class="memo-th-label">Metric</th><th class="memo-th-note">Basis</th><th class="memo-th-num">Value</th></tr></thead>
+      <tbody>
+        ${rows.map(([label, note, val]) => `
+          <tr>
+            <td class="memo-td-label">${esc(label)}</td>
+            <td class="memo-td-note">${esc(note)}</td>
+            <td class="memo-td-num">${esc(val)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <p class="memo-disclosure">
+      Going-in coverage is sub-1.0× / negative because the property was in lease-up
+      at the appraisal date; the figures here are the appraisal's 2022-actuals
+      column (CBRE Operating History p.88), the earliest column in the appraiser's
+      four-column trajectory (2022 actuals / 2023 T-12 / May 2024 budget / Pro
+      Forma). Stabilization is projected at ${esc(leaseUpNote)} from the As-Is value
+      date. Headline LTV anchors to the As-Is value (more conservative than
+      As-Stabilized). The appraiser's concluded OAR is the third-party reference
+      cap rate; the template's Conclusions &amp; Escrows I14 cell shows stabilized
+      NOI ÷ As-Is value as an artifact (NOT the appraiser's OAR) — see the I14
+      cell note.
+    </p>`;
+}
+
+function renderStressedCreditProfile(auth: AuthoritativeNumbers, funded: FundedExitProjection, appraisal: AppraisalMemoDisclosure | undefined): string {
   // v1.5 — surface the funded exit DSCR alongside the raw exit so the
   // "held by structure" claim is backed by the number. Funded basis nets
   // operating reserves and caps accrual at the reserve target — identical
@@ -214,6 +301,7 @@ function renderStressedCreditProfile(auth: AuthoritativeNumbers, funded: FundedE
         </tbody>
       </table>
       ${confidenceLine}
+      ${appraisal ? renderAppraisalDisclosure(appraisal) : ''}
     </section>`;
 }
 
@@ -839,7 +927,7 @@ function renderHtml(
   const SECTION_RENDERERS: Readonly<Record<MemoSectionId, () => string>> = {
     header:                   () => renderHeader(input, auth),
     executive_summary:        () => renderExecutiveSummary(input.narrative),
-    stressed_credit_profile:  () => renderStressedCreditProfile(auth, funded),
+    stressed_credit_profile:  () => renderStressedCreditProfile(auth, funded, input.appraisalDisclosure),
     restructuring_package:    () => renderRestructuringPackage(auth, input.composedMitigationPackage, funded),
     sponsor_burden:           () => renderSponsorBurden(input.composedMitigationPackage.sponsorBurdenProfile, input.composedMitigationPackage.finalLoanAmount),
     risk_assessment:          () => renderRiskAssessment(input.narrative, findings),

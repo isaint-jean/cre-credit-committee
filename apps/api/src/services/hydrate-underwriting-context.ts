@@ -174,6 +174,11 @@ function buildPropertyAtoms(
     units:             stru?.units.value ?? null,
     occupancy:         pickFirstNumber([pm?.occupancyPhysical, stru?.occupancy.value]),
     ownershipInterest: pickFirstString([pm?.ownershipInterest]),
+    // Sprint-0 additions — propertyMetadata is the only source for these.
+    msa:               pickFirstString([pm?.msa]),
+    yearRenovated:     pickFirstNumber([pm?.yearRenovated]),
+    buildingClass:     pickFirstString([pm?.buildingClass]),
+    numberOfBuildings: pickFirstNumber([pm?.numberOfBuildings]),
   };
 }
 
@@ -313,6 +318,74 @@ export function hydrateUnderwritingContext(
     loan:                   buildLoanAtoms(s.analysis, s.adjustedInputs),
     parties:                buildPartyAtoms(s.analysis),
     comparablesLinkageRefs: buildComparablesLinkageRefs(s.analysis),
+
+    // Sunroad appraisal-ingest — appraisal atoms surfaced for column J +
+    // Conclusions. All-null when `analysis.appraisalExtraction` is absent.
+    appraisal: buildAppraisalAtoms(s.analysis),
+  };
+}
+
+/** Atom-builder for appraisal-sourced cells. Returns all-null when absent. */
+function buildAppraisalAtoms(analysis: Analysis): Record<string, number | string | null> {
+  const apx = analysis.appraisalExtraction;
+  if (!apx) {
+    return {
+      pgr: null, economicOccupancy: null, physicalOccupancy: null, badDebt: null,
+      otherIncomeGross: null, netEffectiveReimbursements: null,
+      expensesGeneralAdmin: null, expensesRepairsMaintenance: null,
+      expensesUtilities: null, expensesOtherVariable: null, expensesManagement: null,
+      expensesTaxes: null, expensesInsurance: null, capex: null,
+      asIsValue: null, asStabilizedValue: null, landValue: null,
+      overallCapRate: null, terminalCapRate: null, discountRate: null,
+      stabilizedNOI: null, currentNOI: null, stabilizationMonths: null,
+      grossBuildingArea: null, numberOfStories: null,
+      perAppraisalCapex: null,
+    };
+  }
+  const sp = apx.stabilizedProForma;
+  const cp = apx.currentProForma;
+  // Economic occupancy (J6) derives from vacancyPct so the template's J10 vacancy-loss formula
+  // (= -J9*(1-J6)) reproduces the appraiser's stated vacancyLoss exactly.
+  const economicOccupancy = sp?.vacancyPct !== null && sp?.vacancyPct !== undefined
+    ? 1 - sp.vacancyPct
+    : null;
+  // J11 Bad Debt = credit loss (negative)
+  const badDebt = sp?.creditLoss ?? null;
+  // J26 "Other (variable)" rolls Janitorial + Nonreimbursable Landlord so the
+  // expense subtotal ties to stated totalOperatingExpenses.
+  const expensesOtherVariable = (sp?.janitorial ?? 0) + (sp?.nonreimbursableLandlord ?? 0);
+  return {
+    pgr:                            sp?.potentialRentalIncome ?? null,
+    economicOccupancy,
+    physicalOccupancy:              apx.stabilizedOccupancy ?? null,
+    badDebt,
+    otherIncomeGross:               sp?.otherIncomeGross ?? null,
+    netEffectiveReimbursements:     sp?.netEffectiveReimbursements ?? null,
+    expensesGeneralAdmin:           sp?.generalOperating ?? null,
+    expensesRepairsMaintenance:     sp?.repairsMaintenance ?? null,
+    expensesUtilities:              sp?.utilities ?? null,
+    expensesOtherVariable:          expensesOtherVariable || null,
+    expensesManagement:             sp?.managementFee ?? null,
+    expensesTaxes:                  sp?.realEstateTaxes ?? null,
+    expensesInsurance:              sp?.insurance ?? null,
+    capex:                          sp?.replacementReserves ?? null,
+    asIsValue:                      apx.asIsValue ?? null,
+    asStabilizedValue:              apx.asStabilizedValue ?? null,
+    landValue:                      apx.landValue ?? null,
+    overallCapRate:                 apx.overallCapRate ?? null,
+    terminalCapRate:                apx.terminalCapRate ?? null,
+    discountRate:                   apx.discountRate ?? null,
+    stabilizedNOI:                  sp?.netOperatingIncome ?? null,
+    currentNOI:                     cp?.netOperatingIncome ?? null,
+    stabilizationMonths:            apx.stabilizationMonths ?? null,
+    grossBuildingArea:              apx.grossBuildingArea ?? null,
+    numberOfStories:                apx.numberOfStories ?? null,
+    // Per-Appraisal escrow recommendation (Conclusions & Escrows D49). CBRE
+    // does not break out replacement-reserves as a stabilized pro-forma line
+    // ($0 there); the appraiser's capex equivalent is the Nonreimbursable
+    // Landlord deduction, which we surface here separately so D49 reflects
+    // an escrow target rather than the literal $0 row.
+    perAppraisalCapex:              apx.perAppraisalReserves?.replacementReserves ?? null,
   };
 }
 
