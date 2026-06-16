@@ -29,7 +29,7 @@ const baseKey = {
   principleId: 'P-III-6',
   contextHash: 'a'.repeat(64),
   handbookEngineVersion: '1.1.0',
-  modelVersion: 'claude-sonnet-4-5-20250929',
+  modelVersion: 'cache-key-model-A',
 };
 
 const samplePayload = JSON.stringify({
@@ -64,7 +64,7 @@ console.log('\n3. idempotent re-insert');
 
 console.log('\n4. different modelVersion → distinct cache row');
 {
-  const newerModel = { ...baseKey, modelVersion: 'claude-opus-5-2026-12-01' };
+  const newerModel = { ...baseKey, modelVersion: 'cache-key-model-B' };
   assertEqual(store.getLlmPrincipleEval(newerModel), null, '4.1 different modelVersion misses');
   const altPayload = JSON.stringify({ fired: true, severity: 'critical', flag_message: 'newer model says', evidenceQuotes: [] });
   store.insertLlmPrincipleEval({ ...newerModel, resultPayload: altPayload });

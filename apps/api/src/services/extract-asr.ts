@@ -37,6 +37,7 @@
 import type { ASRExtraction } from '@cre/contracts';
 import type { ParsedDocument } from '@cre/shared';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
+import { CLAUDE_MODEL } from '../config/llm-model.js';
 
 const EXTRACT_ASR_SYSTEM = `You extract ASR headline UW numbers from CRE documents and return ONLY a JSON object matching the requested schema. Missing fields must be null. Never add prose, commentary, or markdown.`;
 
@@ -147,7 +148,7 @@ export async function extractASR(document: ParsedDocument): Promise<ASRExtractio
   let responseText: string;
   try {
     responseText = await callAIWithContinuation({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_MODEL,
       max_tokens: 2000,
       system: EXTRACT_ASR_SYSTEM,
       messages: [{ role: 'user', content: buildPrompt(text) }],

@@ -31,8 +31,9 @@
  * store's ON CONFLICT DO NOTHING handles idempotency.
  *
  * LLM dependency: `callAIWithContinuation` from the legacy ai-analysis.service
- * (the existing primitive — model 'claude-sonnet-4-20250514', auto-
- * continuation on max_tokens). Reuse rather than reinvent per SPEC §14.4
+ * (the existing primitive — model is configured via CLAUDE_MODEL from
+ * config/llm-model.ts; auto-continuation on max_tokens). Reuse rather than
+ * reinvent per SPEC §14.4
  * v23 Decision 3 (hybrid: new producer + existing LLM primitive). DI seam
  * `deps.llmCall?` lets tests inject a per-slot dispatching stub.
  */
@@ -49,6 +50,7 @@ import type {
 import { NARRATIVE_ENGINE_VERSION } from '@cre/contracts';
 import { computeNarrativeEvaluationId } from '../../util/content-hash.js';
 import { callAIWithContinuation } from '../ai-analysis.service.js';
+import { CLAUDE_MODEL } from '../../config/llm-model.js';
 import {
   formatFlagsForInjectionPoint,
   consumedPrincipleIdsForInjectionPoint,
@@ -77,7 +79,7 @@ import {
   DEFAULT_MITIGATION_DESK,
 } from '../mitigation/produce-mitigations.js';
 
-const NARRATIVE_LLM_MODEL = 'claude-sonnet-4-20250514';
+const NARRATIVE_LLM_MODEL = CLAUDE_MODEL;
 const EXECUTIVE_SUMMARY_MAX_TOKENS = 3000;
 const RED_FLAG_ASSESSMENT_MAX_TOKENS = 3000;
 const COMMITTEE_RECOMMENDATION_MAX_TOKENS = 3000;

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../config/env.js';
+import { CLAUDE_MODEL } from '../config/llm-model.js';
 import {
   AssetType,
   HistoricalUnderwriting,
@@ -418,7 +419,7 @@ async function extractUWDataFromText(
   const truncated = rawText.slice(0, 50000);
 
   const response = await ai.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 6000,
     system: `You are an expert CRE underwriting analyst. Extract structured data AND market-level commentary from underwriting files.
 Return ONLY valid JSON with no other text. Extract commentary EXACTLY as written — do NOT invent or paraphrase.
@@ -599,7 +600,7 @@ export async function ingestAutoClassified(
   const truncated = rawText.slice(0, 50000);
 
   const response = await ai.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 6000,
     system: `You are an expert CRE underwriting analyst. Extract ALL structured data AND market-level commentary from underwriting files.
 You must determine the asset class, deal name, outcome, and all financial data from the file content.
@@ -993,7 +994,7 @@ export async function reExtractAllNarratives(): Promise<{ total: number; updated
 
     try {
       const response = await ai.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: CLAUDE_MODEL,
         max_tokens: 4000,
         system: `You are an expert CRE underwriting analyst. Your job is to filter and rewrite broker narratives to contain ONLY market-level and sub-market-level intelligence.
 

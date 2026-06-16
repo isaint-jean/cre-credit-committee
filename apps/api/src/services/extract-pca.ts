@@ -56,6 +56,7 @@ import type { PCAExtraction } from '@cre/contracts';
 import type { ParsedDocument } from '@cre/shared';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
 import { extractCapexScheduleFromPdf } from './extract-pca-schedule.js';
+import { CLAUDE_MODEL } from '../config/llm-model.js';
 
 /* -------------------------------- prompts --------------------------------- */
 
@@ -346,7 +347,7 @@ export async function extractPca(
   if (text.length === 0) return null;
 
   const callAPromise = callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 3000,
     system: PCA_CALL_A_SYSTEM,
     messages: [{ role: 'user', content: buildCallAPrompt(text) }],

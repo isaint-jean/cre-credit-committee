@@ -3,6 +3,7 @@ import { store } from '../storage/sqlite-store.js';
 import { parseDocument } from './document-parser.service.js';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
 import { invalidateCacheForAssetType } from './consistency-engine.service.js';
+import { CLAUDE_MODEL } from '../config/llm-model.js';
 import type {
   AssetType, FindingCategory, Severity,
   ManifestoExtractedRule, ManifestoAmbiguity,
@@ -158,7 +159,7 @@ Return as JSON:
 }`;
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 16000,
     system: 'You are a credit policy analyst extracting machine-enforceable rules from a credit manifesto document. Be exhaustive and precise. Return valid JSON only.',
     messages: [{ role: 'user', content: prompt }],

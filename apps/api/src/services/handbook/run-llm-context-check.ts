@@ -47,8 +47,9 @@ import { createHash } from 'node:crypto';
 import { callAIWithContinuation } from '../ai-analysis.service.js';
 import type { RecordGraphStore } from '../../storage/record-graph-store.js';
 import type { RefiWindowRolloverFacts } from '../judgment/refi-window.js';
+import { CLAUDE_MODEL } from '../../config/llm-model.js';
 
-export const LLM_CONTEXT_MODEL = 'claude-sonnet-4-20250514';
+export const LLM_CONTEXT_MODEL = CLAUDE_MODEL;
 
 /**
  * Match the handbook-engine PrincipleEvaluationResult shape so the API-layer

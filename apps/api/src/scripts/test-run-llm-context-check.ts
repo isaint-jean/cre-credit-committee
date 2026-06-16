@@ -349,9 +349,9 @@ function twelveTenantRentRoll(): RentRoll {
   {
     const store = new RecordGraphStore(':memory:');
     const stub1 = makeStubLlm([JSON.stringify({ fired: true, severity: 'high', flag_message: 'A', evidenceQuotes: [] })]);
-    await runLlmContextCheck(args(), store, { llmCall: stub1.fn as never, modelVersion: 'claude-sonnet-4-20250514' });
+    await runLlmContextCheck(args(), store, { llmCall: stub1.fn as never, modelVersion: 'cache-key-model-A' });
     const stub2 = makeStubLlm([JSON.stringify({ fired: true, severity: 'critical', flag_message: 'B', evidenceQuotes: [] })]);
-    const r = await runLlmContextCheck(args(), store, { llmCall: stub2.fn as never, modelVersion: 'claude-opus-5-2026-12-01' });
+    const r = await runLlmContextCheck(args(), store, { llmCall: stub2.fn as never, modelVersion: 'cache-key-model-B' });
     assertEqual(stub2.calls(), 1, '7.1 different model_version → cache miss → LLM re-called');
     if (r.status === 'fired') assertEqual(r.flag.severity, 'critical', '7.2 new model produced new result');
   }

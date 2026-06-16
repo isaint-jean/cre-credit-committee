@@ -34,6 +34,7 @@ import {
 import type { ParsedDocument } from '@cre/shared';
 import { computeRentRollId } from '../util/content-hash.js';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
+import { CLAUDE_MODEL } from '../config/llm-model.js';
 
 const RENT_ROLL_SYSTEM = `You extract structured rent-roll data from CRE documents and return ONLY a JSON object matching the requested schema. Do not invent tenants. Do not infer values. Missing fields must be null. Never add prose, commentary, or markdown.`;
 
@@ -307,7 +308,7 @@ export async function extractRentRollFromDocument(
   let responseText: string;
   try {
     responseText = await callAIWithContinuation({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_MODEL,
       max_tokens: 8000,
       system: RENT_ROLL_SYSTEM,
       messages: [{ role: 'user', content: buildPrompt(text, options.propertyHint ?? null) }],

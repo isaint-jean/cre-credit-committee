@@ -100,7 +100,7 @@ function buildContext(principleId: string, graph: any, deterministicFiredFlags: 
       narrativeFacts: curateNarrativeFacts(graph.nf),
     },
     handbookEngineVersion: '1.1.0',
-    modelVersion: 'claude-sonnet-4-5-20250929',
+    modelVersion: 'cache-key-model-A',
     deterministicFiredFlags,
   };
 }

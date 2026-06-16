@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../config/env.js';
+import { CLAUDE_MODEL } from '../config/llm-model.js';
 import {
   AssetType, Finding, FindingCategory, CreditScore, CriteriaEvaluation,
   DocumentSection, ParsedDocument,
@@ -321,7 +322,7 @@ export async function extractFindings(
   });
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -437,7 +438,7 @@ export async function extractUnderwriting(
   const UW_EXTRACTION_SYSTEM = 'You extract structured underwriting data from CRE documents and return it as a single valid JSON object matching the requested schema. Never add prose, commentary, or markdown.';
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 8000,
     system: UW_EXTRACTION_SYSTEM,
     messages: [{ role: 'user', content: prompt }],
@@ -579,7 +580,7 @@ export async function generateCreditScore(
   );
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 6000,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -800,7 +801,7 @@ export async function extractSellerMetrics(
   const EXTRACTION_SYSTEM = 'You are a deterministic financial-data extraction engine. Return ONLY valid JSON matching the requested schema. No prose, no commentary, no markdown.';
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 4000,
     system: EXTRACTION_SYSTEM,
     messages: [{ role: 'user', content: prompt }],
@@ -859,7 +860,7 @@ export async function extractResearchEntities(
   const prompt = buildEntityExtractionPrompt(document.sections);
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 500,
     messages: [{ role: 'user', content: prompt }],
     maxContinuations: 0,
@@ -888,7 +889,7 @@ export async function generateMitigations(
   const prompt = buildMitigationPrompt(assetType, findings, uwModel, crossCheckFindings);
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 10000,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -973,7 +974,7 @@ export async function generateExecutiveSummary(
   );
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 3000,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -1035,7 +1036,7 @@ export async function generateBPieceDecision(
   );
 
   const text = await callAIWithContinuation({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_MODEL,
     max_tokens: 5000,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],

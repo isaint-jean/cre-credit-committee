@@ -22,6 +22,7 @@ import type { PropertyMetadata, PropertyMetadataSource } from '@cre/contracts';
 import type { ParsedDocument } from '@cre/shared';
 import { computePropertyMetadataId } from '../util/content-hash.js';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
+import { CLAUDE_MODEL } from '../config/llm-model.js';
 
 const PROPERTY_METADATA_SYSTEM = `You extract structured property metadata from CRE documents and return ONLY a JSON object matching the requested schema. Missing fields must be null. Never add prose, commentary, or markdown.`;
 
@@ -169,7 +170,7 @@ export async function extractPropertyMetadata(
   let responseText: string;
   try {
     responseText = await callAIWithContinuation({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_MODEL,
       max_tokens: 2000,
       system: PROPERTY_METADATA_SYSTEM,
       messages: [{ role: 'user', content: buildPrompt(text) }],
