@@ -544,6 +544,27 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
+  // Credit Committee Memorandum — server-rendered HTML from the persisted
+  // graph chain (no LLM re-spend). Returns the HTML and triggers a download.
+  downloadMemo: async (id: string, fileName?: string) => {
+    const res = await fetch(`${API_BASE}/analyses/${id}/memo`, {
+      headers: { ...getAuthHeader() },
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: 'Memo download failed' }));
+      throw new Error(error.error || 'Memo download failed');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName || 'Credit_Committee_Memo.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
   // Credit Manifesto
   uploadManifesto: async (file: File, uploadedBy?: string) => {
     const formData = new FormData();

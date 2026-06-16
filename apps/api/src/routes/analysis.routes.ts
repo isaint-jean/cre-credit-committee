@@ -27,6 +27,7 @@ import {
 } from '../services/doctrine/apply-credit-policy-bands.js';
 import { createRevision, type RevisionDelta } from '../services/revision-creator.service.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
+import { renderMemoForAnalysis } from '../services/render-memo/render-memo-for-analysis.js';
 import {
   applyRevisionDelta,
   InvalidDeltaError,
@@ -483,6 +484,33 @@ analysisRoutes.get('/:id', (req: Request, res: Response) => {
 // engine output (#31 Commit 3). Returns null when no evaluation exists.
 analysisRoutes.get('/:id/handbook-evaluation', (req: Request, res: Response) => {
   handleHandbookEvaluationRead(req, res, recordGraphStore);
+});
+
+// GET /api/analyses/:id/memo — Credit Committee Memorandum HTML.
+//
+// Reconstructs the deterministic dealResult + composedMitigationPackage from
+// the persisted graph chain (no LLM re-spend; the narrative is read from the
+// spine) and renders via buildCommitteeMemo. Returns the HTML as a downloadable
+// attachment.
+//
+// 404 when the analysis is missing or lacks a graph chain; 409 when the chain
+// is incomplete (e.g. narrative not yet produced).
+analysisRoutes.get('/:id/memo', (req: Request, res: Response) => {
+  const analysis = store.getAnalysis(req.params.id);
+  if (!analysis) {
+    res.status(404).json({ error: 'Analysis not found' });
+    return;
+  }
+  const result = renderMemoForAnalysis(analysis, recordGraphStore);
+  if (!result.ok) {
+    const httpStatus = result.code === 'NO_GRAPH_LINK' ? 409 : 409;
+    res.status(httpStatus).json({ error: result.reason, code: result.code });
+    return;
+  }
+  const safeName = analysis.name.replace(/[^a-zA-Z0-9_\- ]/g, '').substring(0, 60).trim() || 'CreditCommitteeMemo';
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName} — Credit Committee Memo.html"`);
+  res.send(result.html);
 });
 
 // GET /api/analyses/:id/status — Polling endpoint

@@ -114,7 +114,7 @@ export interface EvaluateAndNarrateResult {
  * If the post-cut debtService is non-positive (degenerate), DSCR/DY fall back
  * to the pre-cut values — composeMitigations' guard rails handle the rest.
  */
-function recomputeAiAtLoan(ai: AdjustedInputs, newLoan: number): AdjustedInputs {
+export function recomputeAiAtLoan(ai: AdjustedInputs, newLoan: number): AdjustedInputs {
   const ratePercent = ai.loan.interestRate.adjusted * 100;
   const amortMonths = ai.loan.amortizationMonths.adjusted;
   const ioMonths    = ai.loan.ioPeriodMonths.adjusted;

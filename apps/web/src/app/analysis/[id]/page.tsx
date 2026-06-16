@@ -266,35 +266,39 @@ export default function AnalysisDashboard() {
               uwModel is present OR graphRevisionId is set — AND an active
               uw_templates row exists (else the export would 409 with
               TEMPLATE_NOT_FOUND). */}
+          {/* Credit Committee Memorandum — gated on the analysis being complete
+              + having a graph chain (the memo reads from narratives + recomputes
+              dealResult + composedMitigationPackage deterministically). NOT
+              coupled to hasActiveTemplate — the memo doesn't need an Excel
+              template. */}
+          {analysis.status === 'complete' && analysis.graphRevisionId && (
+            <button
+              onClick={() =>
+                api.downloadMemo(
+                  analysis.id,
+                  `${analysis.name} — Credit Committee Memo.html`,
+                )
+              }
+              className="text-xs px-4 py-2 flex items-center gap-2 rounded border border-border-primary bg-bg-tertiary text-text-secondary hover:text-text-primary hover:border-text-muted transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              Download Credit Memo
+            </button>
+          )}
           {analysis.status === 'complete' && (analysis.uwModel || analysis.graphRevisionId) && hasActiveTemplate === true && (
-            <>
-              <button
-                onClick={() =>
-                  api.exportUnderwriting(
-                    analysis.id,
-                    { profile: 'bank', assetClass: analysis.assetType, underwritingMode: 'single_loan' },
-                    `Bank_UW_${analysis.name}.xlsx`,
-                  )
-                }
-                className="text-xs px-4 py-2 flex items-center gap-2 rounded border border-border-primary bg-bg-tertiary text-text-secondary hover:text-text-primary hover:border-text-muted transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Download Bank Underwriter
-              </button>
-              <button
-                onClick={() =>
-                  api.exportUnderwriting(
-                    analysis.id,
-                    { profile: 'bp_spire', assetClass: analysis.assetType, underwritingMode: 'single_loan' },
-                    `BPSpire_UW_${analysis.name}.xlsx`,
-                  )
-                }
-                className="btn-primary text-xs px-4 py-2 flex items-center gap-2"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Download BP Spire Underwriting
-              </button>
-            </>
+            <button
+              onClick={() =>
+                api.exportUnderwriting(
+                  analysis.id,
+                  { profile: 'bp_spire', assetClass: analysis.assetType, underwritingMode: 'single_loan' },
+                  `BPSpire_UW_${analysis.name}.xlsx`,
+                )
+              }
+              className="btn-primary text-xs px-4 py-2 flex items-center gap-2"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              Download BP Spire Underwriting
+            </button>
           )}
           {/* Populated Excel Template (tertiary option) */}
           {populatedTemplateInfo?.available && (
