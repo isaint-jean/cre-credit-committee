@@ -21,7 +21,7 @@
  */
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import type { LoanMembership, OnTapeStatus, PoolId } from '@cre/contracts';
@@ -151,7 +151,8 @@ export function MembershipTable({
     return membership.filter(m => {
       if (statusFilter !== 'all' && m.status !== statusFilter) return false;
       if (term.length > 0) {
-        const hay = `${m.dealRef} ${m.loanInPoolId} ${m.notes ?? ''}`.toLowerCase();
+        // Reseed PR B — search hits propertyName + city + dealRef + notes.
+        const hay = `${m.propertyName ?? ''} ${m.city ?? ''} ${m.state ?? ''} ${m.dealRef} ${m.loanInPoolId} ${m.notes ?? ''}`.toLowerCase();
         if (!hay.includes(term)) return false;
       }
       return true;
@@ -172,7 +173,7 @@ export function MembershipTable({
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Filter by deal ref, id, notes…"
+          placeholder="Filter by property, city, deal ref…"
           className="bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-text-primary text-sm
                      focus:outline-none focus:border-accent placeholder-text-muted flex-1 max-w-xs"
         />
@@ -199,11 +200,11 @@ export function MembershipTable({
           <thead className="bg-bg-tertiary">
             <tr className="text-left text-text-secondary text-xs uppercase tracking-wide">
               <th className="px-3 py-2 font-medium">#</th>
-              <th className="px-3 py-2 font-medium">Deal ref</th>
-              <th className="px-3 py-2 font-medium">Loan in pool</th>
+              <th className="px-3 py-2 font-medium">Property</th>
+              <th className="px-3 py-2 font-medium">Type</th>
+              <th className="px-3 py-2 font-medium text-right">Balance</th>
+              <th className="px-3 py-2 font-medium">Seller</th>
               <th className="px-3 py-2 font-medium">Status</th>
-              <th className="px-3 py-2 font-medium">Conditions</th>
-              <th className="px-3 py-2 font-medium">Notes</th>
               <th className="px-3 py-2 font-medium">Analysis</th>
               <th className="px-3 py-2 font-medium"></th>
             </tr>
@@ -215,28 +216,39 @@ export function MembershipTable({
               </td></tr>
             ) : filtered.map(m => {
               const branch = branchForLookup(m.dealRef, lookups.get(m.dealRef));
+              const identity = m.propertyName ?? m.dealRef; // backward-compat: synthetic pools fall back to dealRef
+              const sub = formatLocationSub(m.city ?? null, m.state ?? null);
               return (
                 <tr key={m.loanInPoolId} className="border-t border-border-primary hover:bg-bg-tertiary/40 transition-colors">
-                  <td className="px-3 py-2 text-text-muted font-mono text-xs">{m.tapePosition}</td>
-                  <td className="px-3 py-2 text-text-primary font-mono">{m.dealRef}</td>
-                  <td className="px-3 py-2 text-text-muted font-mono text-xs">{m.loanInPoolId.slice(0, 8)}…</td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 text-text-muted font-mono text-xs align-top">{m.tapePosition}</td>
+                  <td className="px-3 py-2 align-top">
+                    <div className="font-sans text-text-primary font-medium">{identity}</div>
+                    {sub !== null && (
+                      <div className="text-text-muted text-xs mt-0.5">{sub}</div>
+                    )}
+                    {/* dealRef de-emphasized audit handle (the funnel join key, not the identity). */}
+                    <div className="text-text-subtle text-[10px] font-mono mt-0.5 truncate" title={m.dealRef}>
+                      {m.dealRef}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-text-secondary text-xs align-top">
+                    {m.propertyType ?? <span className="text-text-muted">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-text-primary font-mono text-right tabular-nums align-top">
+                    {formatBalance(m.cutOffBalance ?? null)}
+                  </td>
+                  <td className="px-3 py-2 text-text-secondary text-xs font-mono align-top">
+                    {m.mortgageLoanSeller ?? <span className="text-text-muted">—</span>}
+                  </td>
+                  <td className="px-3 py-2 align-top">
                     <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_TONE[m.status]}`}>
                       {m.status}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-text-secondary text-xs">
-                    {m.conditions.length === 0 ? (
-                      <span className="text-text-muted">—</span>
-                    ) : (
-                      <span>{m.conditions.map(c => c.label).join(', ')}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-text-secondary text-xs">{m.notes ?? <span className="text-text-muted">—</span>}</td>
-                  <td className="px-3 py-2 text-xs">
+                  <td className="px-3 py-2 text-xs align-top">
                     <LoanFunnelCell branch={branch} />
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-right align-top">
                     <Link
                       href={`/pools/${poolId}/loans/${m.loanInPoolId}`}
                       className="text-accent hover:text-accent-hover text-xs"
@@ -252,6 +264,24 @@ export function MembershipTable({
       </div>
     </section>
   );
+}
+
+/** Dollar formatter for the balance column ($X.XB / $XXXmm / $XXXk). */
+function formatBalance(b: number | null | undefined): ReactNode {
+  if (b === null || b === undefined || !Number.isFinite(b)) {
+    return <span className="text-text-muted">—</span>;
+  }
+  if (b >= 1e9)  return `$${(b / 1e9).toFixed(2)}B`;
+  if (b >= 1e6)  return `$${Math.round(b / 1e6)}mm`;
+  if (b >= 1e3)  return `$${Math.round(b / 1e3)}k`;
+  return `$${Math.round(b)}`;
+}
+
+/** "San Diego, CA" — or null when neither is present. */
+function formatLocationSub(city: string | null, state: string | null): string | null {
+  if (city === null && state === null) return null;
+  if (city !== null && state !== null) return `${city}, ${state}`;
+  return city ?? state;
 }
 
 /**

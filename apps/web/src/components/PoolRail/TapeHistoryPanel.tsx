@@ -9,19 +9,22 @@
  * `./cohort-flow.ts`). This component is presentational: it consumes the
  * model and renders the SVG.
  *
- * BALANCE FOOTNOTE: pool contracts don't carry per-loan balance today, so the
- * ribbon scales by LOAN COUNT and the prototype's "$X.XB" labels are honestly
- * omitted (no fabricated values). See `cohort-flow.ts` for the contract
- * footnote.
+ * BALANCE (reseed PR B): when `model.hasBalanceData === true`, the ribbon
+ * scales by total cutOffBalance per tape, each node shows its `$X.XXB`
+ * total below the loan count, and every tributary carries a `$XXXmm` label
+ * alongside its `+N` / `-N` count. When balance data is absent (synthetic
+ * pools), the component falls back to count-scaling + count-only labels —
+ * the prior behavior, preserved without code branching beyond the scale.
  *
  * HONEST STATES:
- *   - 0 tapes  → existing empty state ("No frozen tapes yet — this pool was
- *                just created.")
+ *   - 0 tapes  → existing empty state.
  *   - 1 tape   → single node, NO flows drawn (not a fake transition).
  *   - 2+ tapes → full cohort-flow diagram.
+ *   - Mixed balance presence on a single tape → totalBalance is the sum of
+ *     what's present (sumBalance skips nulls); no fabricated total.
  */
 import type { Disposition, Tape } from '@cre/contracts';
-import { computeCohortFlow, type TapeNode } from './cohort-flow';
+import { computeCohortFlow, type TapeNode, type TransitionFlow } from './cohort-flow';
 
 const RIBBON_COLOR  = '#3FA7A0'; // accent (--brand)
 const ADDED_COLOR   = '#4FB17C'; // status.positive (--accept)
@@ -50,27 +53,47 @@ function nodeXs(n: number): number[] {
   return Array.from({ length: n }, (_, i) => PAD_L + (INNER_W * i) / (n - 1));
 }
 
-function buildRibbonPath(nodes: readonly TapeNode[], xs: readonly number[], scale: number): string {
-  const half = (count: number): number => (count * scale) / 2;
-  let band = `M ${xs[0]} ${MID_Y - half(nodes[0]!.loanCount)} `;
+/** Width-scale value per tape — dollars when balance is present, count when not. */
+function scaleSeed(node: TapeNode, useBalance: boolean): number {
+  if (useBalance && node.totalBalance !== null) return node.totalBalance;
+  return node.loanCount;
+}
+
+function buildRibbonPath(
+  nodes: readonly TapeNode[],
+  xs: readonly number[],
+  scale: number,
+  useBalance: boolean,
+): string {
+  const half = (n: TapeNode): number => (scaleSeed(n, useBalance) * scale) / 2;
+  let band = `M ${xs[0]} ${MID_Y - half(nodes[0]!)} `;
   for (let i = 1; i < nodes.length; i++) {
     const x0 = xs[i - 1]!;
     const x1 = xs[i]!;
-    const y0 = MID_Y - half(nodes[i - 1]!.loanCount);
-    const y1 = MID_Y - half(nodes[i]!.loanCount);
+    const y0 = MID_Y - half(nodes[i - 1]!);
+    const y1 = MID_Y - half(nodes[i]!);
     const cx = (x0 + x1) / 2;
     band += `C ${cx} ${y0} ${cx} ${y1} ${x1} ${y1} `;
   }
-  band += `L ${xs[xs.length - 1]} ${MID_Y + half(nodes[nodes.length - 1]!.loanCount)} `;
+  band += `L ${xs[xs.length - 1]} ${MID_Y + half(nodes[nodes.length - 1]!)} `;
   for (let i = nodes.length - 1; i > 0; i--) {
     const x0 = xs[i]!;
     const x1 = xs[i - 1]!;
-    const y0 = MID_Y + half(nodes[i]!.loanCount);
-    const y1 = MID_Y + half(nodes[i - 1]!.loanCount);
+    const y0 = MID_Y + half(nodes[i]!);
+    const y1 = MID_Y + half(nodes[i - 1]!);
     const cx = (x0 + x1) / 2;
     band += `C ${cx} ${y0} ${cx} ${y1} ${x1} ${y1} `;
   }
   return band + 'Z';
+}
+
+/** Format a dollar value for axis/flow labels. */
+function fmtDollars(b: number | null): string {
+  if (b === null || !Number.isFinite(b)) return '';
+  if (b >= 1e9)  return `$${(b / 1e9).toFixed(2)}B`;
+  if (b >= 1e6)  return `$${Math.round(b / 1e6)}mm`;
+  if (b >= 1e3)  return `$${Math.round(b / 1e3)}k`;
+  return `$${Math.round(b)}`;
 }
 
 export function TapeHistoryPanel({
@@ -102,7 +125,7 @@ export function TapeHistoryPanel({
             padding: '8px 8px 0',
           }}
         >
-          <CohortFlowSVG nodes={model.nodes} />
+          <CohortFlowSVG nodes={model.nodes} useBalance={model.hasBalanceData} />
           <FlowLegend />
         </div>
       )}
@@ -110,14 +133,27 @@ export function TapeHistoryPanel({
   );
 }
 
-function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
+function CohortFlowSVG({
+  nodes,
+  useBalance,
+}: {
+  readonly nodes: readonly TapeNode[];
+  readonly useBalance: boolean;
+}) {
   const xs = nodeXs(nodes.length);
-  // Scale ribbon by max loan count so the largest tape uses ~78% of the band.
-  const maxLoanCount = Math.max(1, ...nodes.map(n => n.loanCount));
-  const scale = ((H - PAD_T - PAD_B) * RIBBON_HEIGHT_PCT) / maxLoanCount;
-  const half = (count: number): number => (count * scale) / 2;
+  // Scale ribbon by the max seed (balance when present, count when not) so
+  // the largest tape uses ~78% of the band.
+  const maxSeed = Math.max(1, ...nodes.map(n => scaleSeed(n, useBalance)));
+  const scale = ((H - PAD_T - PAD_B) * RIBBON_HEIGHT_PCT) / maxSeed;
+  const halfNode = (n: TapeNode): number => (scaleSeed(n, useBalance) * scale) / 2;
+  // Tributary width helper: takes a count + a balance and computes the visual
+  // width using whichever axis the ribbon is scaled on.
+  function flowHalf(count: number, balance: number | null): number {
+    const seed = useBalance && balance !== null ? balance : count;
+    return (seed * scale) / 2;
+  }
 
-  const ribbonPath = nodes.length >= 2 ? buildRibbonPath(nodes, xs, scale) : null;
+  const ribbonPath = nodes.length >= 2 ? buildRibbonPath(nodes, xs, scale, useBalance) : null;
 
   return (
     <svg
@@ -146,7 +182,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
 
       {nodes.map((n, i) => {
         const x = xs[i]!;
-        const ribbonHalf = nodes.length >= 2 ? half(n.loanCount) : 16; // single-node fallback
+        const ribbonHalf = nodes.length >= 2 ? halfNode(n) : 16; // single-node fallback
         const topY = MID_Y - ribbonHalf;
         const botY = MID_Y + ribbonHalf;
         const t = n.transitionFromPrior;
@@ -190,7 +226,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
                   d={`M ${x - 46} ${topY - 34} C ${x - 26} ${topY - 34} ${x - 14} ${topY - 4} ${x} ${topY}`}
                   fill="none"
                   stroke={ADDED_COLOR}
-                  strokeWidth={Math.max(3, t.added * scale * 0.5)}
+                  strokeWidth={Math.max(3, flowHalf(t.added, t.addedBalance))}
                   strokeOpacity="0.5"
                   strokeLinecap="round"
                 />
@@ -204,6 +240,17 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
                 >
                   +{t.added}
                 </text>
+                {useBalance && t.addedBalance !== null && (
+                  <text
+                    x={x - 48}
+                    y={topY - 26}
+                    fill={MUTED}
+                    fontFamily="IBM Plex Mono"
+                    fontSize="10.5"
+                  >
+                    {fmtDollars(t.addedBalance)}
+                  </text>
+                )}
               </g>
             )}
 
@@ -214,7 +261,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
                   d={`M ${x} ${botY} C ${x + 14} ${botY + 4} ${x + 16} ${botY + 22} ${x + 30} ${botY + 26}`}
                   fill="none"
                   stroke={DROPPED_COLOR}
-                  strokeWidth={Math.max(2.5, t.dropped * scale * 0.5)}
+                  strokeWidth={Math.max(2.5, flowHalf(t.dropped, t.droppedBalance))}
                   strokeOpacity="0.7"
                   strokeLinecap="round"
                 />
@@ -225,7 +272,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
                   fontFamily="IBM Plex Mono"
                   fontSize="10.5"
                 >
-                  −{t.dropped} dropped
+                  −{t.dropped} dropped{useBalance && t.droppedBalance !== null ? ` · ${fmtDollars(t.droppedBalance)}` : ''}
                 </text>
               </g>
             )}
@@ -241,7 +288,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
                         d={`M ${x} ${botY} C ${x + 14} ${botY + 6} ${x + 16} ${botY + off - 4} ${x + 30} ${botY + off}`}
                         fill="none"
                         stroke={KICKED_COLOR}
-                        strokeWidth={Math.max(2.5, t.kicked * scale * 0.5)}
+                        strokeWidth={Math.max(2.5, flowHalf(t.kicked, t.kickedBalance))}
                         strokeOpacity="0.75"
                         strokeLinecap="round"
                       />
@@ -252,7 +299,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
                         fontFamily="IBM Plex Mono"
                         fontSize="10.5"
                       >
-                        −{t.kicked} kicked
+                        −{t.kicked} kicked{useBalance && t.kickedBalance !== null ? ` · ${fmtDollars(t.kickedBalance)}` : ''}
                       </text>
                     </>
                   );
@@ -274,8 +321,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
               {n.isCurrent ? '  ●' : ''}
             </text>
 
-            {/* Node label — loan count (bottom). Balance line omitted: pool
-                contracts don't carry balance — see cohort-flow.ts footnote. */}
+            {/* Node label — loan count (bottom). */}
             <text
               x={x}
               y={H - 26}
@@ -287,6 +333,8 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
             >
               {n.loanCount} {n.loanCount === 1 ? 'loan' : 'loans'}
             </text>
+            {/* Per-node total balance — shown when present (reseed PR B). When
+                absent (synthetic data), version label takes its place. */}
             <text
               x={x}
               y={H - 11}
@@ -295,7 +343,7 @@ function CohortFlowSVG({ nodes }: { readonly nodes: readonly TapeNode[] }) {
               fontSize="11"
               textAnchor="middle"
             >
-              v{n.version}
+              {useBalance && n.totalBalance !== null ? fmtDollars(n.totalBalance) : `v${n.version}`}
             </text>
           </g>
         );
