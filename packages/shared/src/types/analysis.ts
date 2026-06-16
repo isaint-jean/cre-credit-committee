@@ -169,7 +169,15 @@ export interface CreditScore {
   categories: CreditScoreCategory[];
   recommendation: Recommendation;
   narrative: string;
-  riskTier: 'strong' | 'acceptable' | 'watchlist' | 'high_risk';
+  /**
+   * `'insufficient_data'` signals the doctrine engine declined to rate the
+   * deal because its coverage gate fired (typically: missing appraisal /
+   * trailing actual NOI / PropertyMetadata → too many dimensions HITL'd).
+   * In that case `overall` is the gate-clamp 0 and is NOT a real score; the
+   * UI shows "InsufficientData" instead of the number. Existing tiers
+   * unchanged; new value is purely additive.
+   */
+  riskTier: 'strong' | 'acceptable' | 'watchlist' | 'high_risk' | 'insufficient_data';
   whyThisScore: string;
   howToImprove: string;
 }

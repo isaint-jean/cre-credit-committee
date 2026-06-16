@@ -265,12 +265,16 @@ function makeLegacyAnalysis(overrides: Partial<Analysis> = {}): Analysis {
       assertEqual(dst.category as unknown as string, src.componentId, `5.7.${i} category[${i}].category === componentScore[${i}].componentId`);
     }
 
-    const expectedRiskTier =
+    // SUNROAD-UI-FIX: when the doctrine coverage gate fired, projection overrides
+    // riskTier to 'insufficient_data' so the UI distinguishes gated (refuse-to-rate)
+    // from genuinely-scored. Otherwise the ratingBand → riskTier map applies.
+    const gated = doctrine!.flags.includes('INSUFFICIENT_COVERAGE_GATE');
+    const expectedRiskTier = gated ? 'insufficient_data' :
       doctrine!.ratingBand === 'Strong'     ? 'strong'     :
       doctrine!.ratingBand === 'Acceptable' ? 'acceptable' :
       doctrine!.ratingBand === 'Weak'       ? 'watchlist'  :
                                               'high_risk';
-    assertEqual(cs.riskTier, expectedRiskTier, '5.8 riskTier = ratingBandToRiskTier(ratingBand)');
+    assertEqual(cs.riskTier, expectedRiskTier, '5.8 riskTier = ratingBandToRiskTier(ratingBand) OR "insufficient_data" when gated');
 
     assertEqual(cs.recommendation, 'further_review', '5.9 recommendation = further_review (no DE source)');
     assertEqual(cs.narrative, '', '5.10 narrative = "" (no DE source)');

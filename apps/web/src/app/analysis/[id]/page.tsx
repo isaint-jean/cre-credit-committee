@@ -294,11 +294,20 @@ export default function AnalysisDashboard() {
           )}
           {score && (
             <>
-              {/* Color sourced from server-emitted score.riskTier — no client-side threshold. */}
-              <span className={`text-2xl font-mono font-bold text-score-${score.riskTier ?? 'high_risk'}`}>
-                {score.overall}
-              </span>
-              <span className="text-xs text-text-muted">/100</span>
+              {/* Color sourced from server-emitted score.riskTier — no client-side threshold.
+                  When the doctrine coverage gate fired, riskTier === 'insufficient_data' and
+                  score.overall is a sentinel 0 — render "InsufficientData" instead of "0/100"
+                  so the topbar doesn't communicate a number the engine refused to stand behind. */}
+              {score.riskTier === 'insufficient_data' ? (
+                <span className="text-base font-semibold text-text-muted">InsufficientData</span>
+              ) : (
+                <>
+                  <span className={`text-2xl font-mono font-bold text-score-${score.riskTier ?? 'high_risk'}`}>
+                    {score.overall}
+                  </span>
+                  <span className="text-xs text-text-muted">/100</span>
+                </>
+              )}
               <span className={`badge ${
                 score.riskTier === 'strong' ? 'badge-pass' :
                 score.riskTier === 'acceptable' ? 'badge-medium' :
@@ -392,8 +401,14 @@ export default function AnalysisDashboard() {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="card text-center py-3">
                       <div className="text-xs text-text-muted mb-1">Credit Score</div>
-                      {/* Color sourced from server-emitted score.riskTier — no client-side threshold. */}
-                      <div className={`text-2xl font-mono font-bold text-score-${score.riskTier ?? 'high_risk'}`}>{score.overall}</div>
+                      {/* Color sourced from server-emitted score.riskTier — no client-side threshold.
+                          Gated case (insufficient_data): render "InsufficientData" instead of the
+                          sentinel 0 — the engine refused to rate, not scored 0. */}
+                      {score.riskTier === 'insufficient_data' ? (
+                        <div className="text-sm font-semibold text-text-muted">InsufficientData</div>
+                      ) : (
+                        <div className={`text-2xl font-mono font-bold text-score-${score.riskTier ?? 'high_risk'}`}>{score.overall}</div>
+                      )}
                     </div>
                     <div className="card text-center py-3">
                       <div className="text-xs text-text-muted mb-1">Red Flags</div>
@@ -680,19 +695,33 @@ export default function AnalysisDashboard() {
               <div className="space-y-4">
                 {/* Score Summary */}
                 <div className="card text-center">
-                  {/* Color sourced from server-emitted score.riskTier — no client-side threshold. */}
-                  <div className={`text-5xl font-mono font-bold mb-2 text-score-${score.riskTier ?? 'high_risk'}`}>
-                    {score.overall}
-                  </div>
-                  <div className="text-xs text-text-muted mb-4">Credit Score</div>
+                  {/* Color sourced from server-emitted score.riskTier — no client-side threshold.
+                      Gated case: render the refuse-to-rate label + a small explanation; component
+                      breakdowns below still show the underlying detail so the user can see which
+                      dimensions DID score and which routed to HITL. */}
+                  {score.riskTier === 'insufficient_data' ? (
+                    <>
+                      <div className="text-2xl font-semibold text-text-muted mb-1">InsufficientData</div>
+                      <div className="text-xs text-text-muted mb-4">The doctrine engine declined to rate this deal — too many dimensions routed to HITL (typically: missing appraisal / NOI / property metadata). The component breakdown below shows which dimensions DID score.</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className={`text-5xl font-mono font-bold mb-2 text-score-${score.riskTier ?? 'high_risk'}`}>
+                        {score.overall}
+                      </div>
+                      <div className="text-xs text-text-muted mb-4">Credit Score</div>
+                    </>
+                  )}
 
-                  {/* Progress bar */}
-                  <div className="w-full bg-bg-tertiary rounded-full h-3 mb-4">
-                    <div
-                      className={`h-3 rounded-full transition-all bg-score-${score.riskTier ?? 'high_risk'}`}
-                      style={{ width: `${score.overall}%` }}
-                    />
-                  </div>
+                  {/* Progress bar — hidden when gated (the bar would be 0% which is misleading). */}
+                  {score.riskTier !== 'insufficient_data' && (
+                    <div className="w-full bg-bg-tertiary rounded-full h-3 mb-4">
+                      <div
+                        className={`h-3 rounded-full transition-all bg-score-${score.riskTier ?? 'high_risk'}`}
+                        style={{ width: `${score.overall}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Category Breakdown */}
