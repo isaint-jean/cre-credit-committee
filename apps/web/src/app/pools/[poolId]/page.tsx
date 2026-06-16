@@ -125,7 +125,7 @@ export default function PoolRailPage() {
         ) : (
           <>
             <PoolHealthSummary membership={data.currentMembership} dispositions={data.dispositions} />
-            <TapeHistoryPanel tapes={data.tapes} currentTapeId={data.pool.currentTapeId} />
+            <TapeHistoryPanel tapes={data.tapes} dispositions={data.dispositions} currentTapeId={data.pool.currentTapeId} />
             <MembershipTable poolId={data.pool.id as PoolId} membership={data.currentMembership} />
             <DispositionsLedger dispositions={data.dispositions} />
           </>
