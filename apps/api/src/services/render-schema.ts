@@ -1153,6 +1153,74 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
     },
   },
 
+  // ----- Sprint-2: Third Party Reports Summary — appraisal + PCA -----------
+  // Appraisal Summary section (rows 4-19) reuses c.appraisal.* atoms already
+  // shipped in the appraisal commit. Engineering/PCR section (rows 23-28)
+  // sources from the new c.pca.* atoms. Both sections write ONLY to input
+  // cells; the formula cells (E5/E15/E17) cascade and are never declared.
+  // Honest-blank rule: no PCA source → blank, never 0; same for appraisal.
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E4',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.asIsValueDate),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E6',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.asStabilizedValue),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E7',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.asStabilizedValueDate),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E8',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.insurableValue),
+    cellState: 'concluded',
+  },
+  // E18 terminalCapRate, E19 discountRate — both in resolver
+  // c.appraisal.terminalCapRate / .discountRate.
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E18',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.terminalCapRate),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E19',
+    selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.discountRate),
+    cellState: 'concluded',
+  },
+  // Engineering / PCR section. ★ The CBRE PCA carries inflated reserves
+  // ($0.11/SF/yr) and immediate repairs ($19,400). Both surface here; the
+  // immediate-repairs value ALSO surfaces on Conclusions & Escrows D50 as
+  // an escrow-basis context (TPR = "what the PCA said"; D50 = "what we'd
+  // escrow against it").
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E24',
+    selector: ctx((c) => (c as never as { pca: Record<string, CellValue> }).pca.replacementReservesPerSfPerYearInflated),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Third_Party_Reports',
+    range: 'E25',
+    selector: ctx((c) => (c as never as { pca: Record<string, CellValue> }).pca.immediateRepairs),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Conclusion_Escrows',
+    range: 'D50',
+    selector: ctx((c) => (c as never as { pca: Record<string, CellValue> }).pca.immediateRepairs),
+    cellState: 'concluded',
+  },
+
   // ----- v9 NEW: Extraction / data gaps — AWAITING_INPUT --------------------
   // K6 — LTV (Appraisal). Conclusions & Escrows / Property & Loan Summary
   // K-column area. No appraisal slot in current 4-file ingest model (CF +

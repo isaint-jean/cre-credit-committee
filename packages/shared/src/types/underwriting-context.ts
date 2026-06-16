@@ -239,6 +239,10 @@ export interface UnderwritingContext {
    *  `analysis.appraisalExtraction` when present; absent otherwise. Schema
    *  selectors read this via `ResolvedUnderwritingContext.appraisal`. */
   appraisal?: Readonly<Record<string, number | string | null>>;
+  /** PCA-sourced atoms (Sprint-2). Populated from
+   *  `analysis.extractionResult.pca` when present; absent otherwise. Schema
+   *  selectors read this via `ResolvedUnderwritingContext.pca`. */
+  pca?: Readonly<Record<string, number | string | null>>;
 }
 
 /**
@@ -383,5 +387,14 @@ export interface ResolvedUnderwritingContext {
     grossBuildingArea:              ResolvedCellValue;  // B3 on Property Detail (Sprint-0 honest-blank → now filled)
     numberOfStories:                ResolvedCellValue;  // not currently mapped; available for future schema entry
     perAppraisalCapex:              ResolvedCellValue;  // Conclusions & Escrows D49 (appraiser's reserve recommendation; distinct from stabilized pro forma's $0 row)
+    asIsValueDate:                  ResolvedCellValue;  // Third Party Reports Summary E4 (ISO date string)
+    asStabilizedValueDate:          ResolvedCellValue;  // Third Party Reports Summary E7 (ISO date string)
+    insurableValue:                 ResolvedCellValue;  // Third Party Reports Summary E8 ($)
+  };
+  // Sprint-2 PCA. Two values surfaced for Third Party Reports Summary
+  // (Engineering/PCR section) and Conclusions & Escrows D50.
+  readonly pca: {
+    replacementReservesPerSfPerYearInflated: ResolvedCellValue;  // Third Party Reports Summary E24 ($/SF/yr)
+    immediateRepairs:                        ResolvedCellValue;  // Third Party Reports Summary E25 + Conclusions & Escrows D50
   };
 }

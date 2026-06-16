@@ -199,6 +199,21 @@ export function projectLegacyAnalysisFromGraph(
     };
   }
 
+  // Sprint-2 PCA read-side projection. analysis.pcaExtraction is sourced
+  // from the graph store's ExtractionResult.pca; we surface only the PCA
+  // sub-record so the legacy ExtractionResult shape (different contract,
+  // pre-spine) is not entangled. Mirrors the appraisalExtraction overlay
+  // semantics: pure read-side, NULL-only fill, no overwrite of an
+  // analyst-edited value.
+  let projectedPcaExtraction = analysis.pcaExtraction;
+  if (
+    (projectedPcaExtraction === null || projectedPcaExtraction === undefined) &&
+    doctrine !== null
+  ) {
+    const er = store.getExtractionResult(doctrine.extractionResultId);
+    if (er?.pca) projectedPcaExtraction = er.pca;
+  }
+
   return {
     ...analysis,
     executiveSummary: projectedExecutiveSummary,
@@ -212,6 +227,7 @@ export function projectLegacyAnalysisFromGraph(
     modelLogicVersion: projectedModelLogicVersion,
     validationResult: projectedValidationResult,
     propertyMetadata: projectedPropertyMetadata,
+    pcaExtraction: projectedPcaExtraction,
   };
 }
 

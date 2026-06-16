@@ -322,6 +322,9 @@ export function hydrateUnderwritingContext(
     // Sunroad appraisal-ingest — appraisal atoms surfaced for column J +
     // Conclusions. All-null when `analysis.appraisalExtraction` is absent.
     appraisal: buildAppraisalAtoms(s.analysis),
+    // Sprint-2 PCA atoms — two values surfaced for Third Party Reports
+    // Summary E24/E25 and Conclusions & Escrows D50 escrow row.
+    pca: buildPcaAtoms(s.analysis),
   };
 }
 
@@ -386,6 +389,29 @@ function buildAppraisalAtoms(analysis: Analysis): Record<string, number | string
     // Landlord deduction, which we surface here separately so D49 reflects
     // an escrow target rather than the literal $0 row.
     perAppraisalCapex:              apx.perAppraisalReserves?.replacementReserves ?? null,
+    // Sprint-2: dates lifted for Third Party Reports Summary E4 / E7.
+    asIsValueDate:                  apx.asIsValueDate ?? null,
+    asStabilizedValueDate:          apx.asStabilizedValueDate ?? null,
+    insurableValue:                 apx.insurableValue ?? null,
+  };
+}
+
+// Sprint-2: PCA atoms. Surfaces the two PCA values consumed by the Third
+// Party Reports Summary tab + Conclusions & Escrows D50 escrow row. All-null
+// when extractionResult.pca is absent (no PCA ingested). Adding new PCA
+// surfaces beyond these two (firm/date/seismic/RECs) requires extending
+// extract-pca.ts first — those fields are not in the contract today.
+function buildPcaAtoms(analysis: Analysis): Record<string, number | string | null> {
+  const pca = analysis.pcaExtraction;
+  if (!pca) {
+    return {
+      replacementReservesPerSfPerYearInflated: null,
+      immediateRepairs:                        null,
+    };
+  }
+  return {
+    replacementReservesPerSfPerYearInflated: pca.replacementReservesPerSfPerYearInflated ?? null,
+    immediateRepairs:                        pca.immediateRepairs ?? null,
   };
 }
 

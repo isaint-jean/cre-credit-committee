@@ -396,6 +396,13 @@ export function resolveUnderwritingContext(
       grossBuildingArea:              ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.grossBuildingArea ?? null),
       numberOfStories:                ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.numberOfStories ?? null),
       perAppraisalCapex:              ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.perAppraisalCapex ?? null),
+      asIsValueDate:                  ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.asIsValueDate ?? null),
+      asStabilizedValueDate:          ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.asStabilizedValueDate ?? null),
+      insurableValue:                 ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.insurableValue ?? null),
+    },
+    pca: {
+      replacementReservesPerSfPerYearInflated: ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).pca?.replacementReservesPerSfPerYearInflated ?? null),
+      immediateRepairs:                        ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).pca?.immediateRepairs ?? null),
     },
     parties: {
       borrowerName: ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.parties?.borrowerName ?? null),

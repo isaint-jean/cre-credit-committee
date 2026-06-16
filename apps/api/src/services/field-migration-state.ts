@@ -366,6 +366,16 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     { address: 'Conclusions & Escrows!D48',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Per-Appraisal Insurance (stabilized).' },
     { address: 'Conclusions & Escrows!D49',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Per-Appraisal Replacement Reserves (capex).' },
     { address: 'Conclusions & Escrows!I14',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Appraisal-ingest. CAVEAT-ONLY: shown cap rate (= stab NOI / as-is) is template artifact; appraiser OAR (6.25%) carried in cell note.' },
+    // ---- Sprint-2: Third Party Reports Summary (appraisal + PCA) -----------
+    { address: 'Third Party Reports Summary!E4',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.appraisal.asIsValueDate.' },
+    { address: 'Third Party Reports Summary!E6',                group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.appraisal.asStabilizedValue.' },
+    { address: 'Third Party Reports Summary!E7',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.appraisal.asStabilizedValueDate.' },
+    { address: 'Third Party Reports Summary!E8',                group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.appraisal.insurableValue (CBRE p.13 $148.9M).' },
+    { address: 'Third Party Reports Summary!E18',               group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.appraisal.terminalCapRate.' },
+    { address: 'Third Party Reports Summary!E19',               group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.appraisal.discountRate.' },
+    { address: 'Third Party Reports Summary!E24',               group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.pca.replacementReservesPerSfPerYearInflated ($/SF/yr).' },
+    { address: 'Third Party Reports Summary!E25',               group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.pca.immediateRepairs ($).' },
+    { address: 'Conclusions & Escrows!D50',                     group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-2. resolvedContext.pca.immediateRepairs — escrow-basis Per-Appraisal column carries the PCA recommendation.' },
   ],
 };
 

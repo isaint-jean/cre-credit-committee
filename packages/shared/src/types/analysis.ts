@@ -325,6 +325,13 @@ export interface Analysis {
   // committee memo. Does NOT re-trigger doctrine evaluation — doctrine stays
   // frozen per the ticket's out-of-scope clause.
   appraisalExtraction?: import('@cre/contracts').AppraisalExtraction | null;
+  // Sprint-2 (PCA-on-TPR ticket) — standalone PCA extraction record. Optional;
+  // populated when the deal has a PCA PDF AND the extractor has produced
+  // output (via the @cre/contracts PcaExtraction shape). Consumed by the
+  // workbook populator (Third Party Reports Summary E24/E25, Conclusions &
+  // Escrows D50) via the c.pca.* atom block. Mirrors appraisalExtraction
+  // semantics: pure read-side reference; doctrine stays frozen.
+  pcaExtraction?: import('@cre/contracts').PCAExtraction | null;
   // Batch 0 traceability ledger. The merge layer pushes literal-string entries here
   // shaped 'merge-conflict[<field>] asr=... seller=... chosen=...'. Batch 1B extends
   // this with 'missing-support: <subject>' entries when an evidence-gated input is
