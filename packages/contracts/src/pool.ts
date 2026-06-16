@@ -105,6 +105,30 @@ export interface LoanMembership {
   readonly notes: string | null;
   /** Stable display order on this tape. Originator-supplied; observability only. */
   readonly tapePosition: number;
+
+  /* ── Reseed PR — denormalized per-tape display fields (ALL OPTIONAL) ──
+   *
+   * These fields ride alongside `LoanInPool`'s stable identity-time copy
+   * (set on first appearance) and capture the value AS OF THIS TAPE. Audit-
+   * faithful: a property's name or balance can drift across tapes (e.g. a
+   * restructure that paydown the balance, a portfolio renamed mid-lineage),
+   * and each tape's snapshot preserves what it actually said.
+   *
+   * Optional + nullable so existing synthetic fixtures and tests pass
+   * through unchanged; consumers fall back to `dealRef` when null.
+   *
+   *   propertyName:        denormalized copy of LoanInPool.propertyName as-of-tape
+   *   cutOffBalance:       per-tape securitization balance, dollars (can change)
+   *   propertyType:        raw type label (display); LoanInPool.assetType is the typed form
+   *   mortgageLoanSeller:  bank code, e.g. "GSMC", "CREFI", or co-seller "GSMC, BMO"
+   *   city / state:        location display
+   */
+  readonly propertyName?:       string | null;
+  readonly cutOffBalance?:      number | null;
+  readonly propertyType?:       string | null;
+  readonly mortgageLoanSeller?: string | null;
+  readonly city?:               string | null;
+  readonly state?:              string | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -157,6 +181,15 @@ export type PendingMembershipEntry =
        *  means no candidates — likely a new loan, but the operation must confirm. */
       readonly candidateLoanInPoolIds: readonly LoanInPoolId[];
       readonly tapePosition: number;
+      /* Reseed PR — denormalized per-tape display fields carried from the
+       * incoming row so a later confirm-new resolution lands the fields on
+       * the LoanMembership without re-passing IncomingTape. All optional. */
+      readonly propertyName?:       string | null;
+      readonly cutOffBalance?:      number | null;
+      readonly propertyType?:       string | null;
+      readonly mortgageLoanSeller?: string | null;
+      readonly city?:               string | null;
+      readonly state?:              string | null;
     }
   | {
       readonly kind: 'new-loan-confirmed';

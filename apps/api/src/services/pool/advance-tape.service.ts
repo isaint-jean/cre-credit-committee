@@ -84,6 +84,14 @@ export interface IncomingTapeRow {
   readonly propertyName: string | null;
   readonly assetType: AssetType | null;
   readonly tapePosition: number;
+
+  /* Reseed PR — denormalized per-tape display fields carried into
+   * LoanMembership at Phase B. All optional; consumers fall back gracefully. */
+  readonly cutOffBalance?:      number | null;
+  readonly propertyType?:       string | null;
+  readonly mortgageLoanSeller?: string | null;
+  readonly city?:               string | null;
+  readonly state?:              string | null;
 }
 
 export interface IncomingTape {
@@ -190,6 +198,13 @@ function classifyRow(
           conditions: [],
           notes: null,
           tapePosition: row.tapePosition,
+          // Reseed PR — denormalized per-tape display fields
+          propertyName:       row.propertyName,
+          cutOffBalance:      row.cutOffBalance ?? null,
+          propertyType:       row.propertyType ?? null,
+          mortgageLoanSeller: row.mortgageLoanSeller ?? null,
+          city:               row.city ?? null,
+          state:              row.state ?? null,
         },
         incomingOriginatorRef: row.originatorLoanRef,
       };
@@ -205,6 +220,14 @@ function classifyRow(
     dealRef: row.dealRef,   // carried so Phase B confirm-new mints with it
     candidateLoanInPoolIds: candidates,
     tapePosition: row.tapePosition,
+    // Reseed PR — carried so Phase B confirm-new lands the display fields
+    // on the LoanMembership without re-passing IncomingTape.
+    propertyName:       row.propertyName,
+    cutOffBalance:      row.cutOffBalance ?? null,
+    propertyType:       row.propertyType ?? null,
+    mortgageLoanSeller: row.mortgageLoanSeller ?? null,
+    city:               row.city ?? null,
+    state:              row.state ?? null,
   };
 }
 
@@ -409,6 +432,14 @@ export function advanceTapePhaseB(
           conditions: [],
           notes: null,
           tapePosition: entry.tapePosition,
+          // Per-tape display fields from THIS tape's row (audit-faithful —
+          // captures balance restructures, name drifts, etc. for the rebound loan).
+          propertyName:       entry.propertyName       ?? existing.propertyName,
+          cutOffBalance:      entry.cutOffBalance      ?? null,
+          propertyType:       entry.propertyType       ?? null,
+          mortgageLoanSeller: entry.mortgageLoanSeller ?? null,
+          city:               entry.city               ?? null,
+          state:              entry.state              ?? null,
         },
         incomingOriginatorRef: entry.incomingOriginatorRef,
       };
@@ -433,6 +464,12 @@ export function advanceTapePhaseB(
         conditions: [],
         notes: null,
         tapePosition: entry.tapePosition,
+        propertyName:       entry.propertyName       ?? null,
+        cutOffBalance:      entry.cutOffBalance      ?? null,
+        propertyType:       entry.propertyType       ?? null,
+        mortgageLoanSeller: entry.mortgageLoanSeller ?? null,
+        city:               entry.city               ?? null,
+        state:              entry.state              ?? null,
       },
       incomingOriginatorRef: entry.incomingOriginatorRef,
     };
