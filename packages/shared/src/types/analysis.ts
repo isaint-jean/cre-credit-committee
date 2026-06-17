@@ -338,6 +338,12 @@ export interface Analysis {
   // Optional; mirrors pcaExtraction / appraisalExtraction semantics: pure
   // read-side, doctrine stays frozen.
   issuerUwExtraction?: import('@cre/contracts').OperatingStatementExtraction | null;
+  // Sprint-2 (Borrower / Sponsor ticket) — counterparty identity standalone
+  // record. Optional; populated by a deterministic regex extractor over the
+  // ASR PDF. Mirrors appraisalExtraction / pcaExtraction / issuerUwExtraction
+  // semantics: pure read-side, doctrine stays frozen. Feeds the Borrower tab
+  // via the existing buildPartyAtoms → schema entries.
+  partiesExtraction?: import('@cre/contracts').PartiesExtraction | null;
   // Batch 0 traceability ledger. The merge layer pushes literal-string entries here
   // shaped 'merge-conflict[<field>] asr=... seller=... chosen=...'. Batch 1B extends
   // this with 'missing-support: <subject>' entries when an evidence-gated input is

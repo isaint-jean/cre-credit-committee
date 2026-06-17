@@ -424,6 +424,28 @@ export interface AppraisalExtraction {
   readonly methodology: string | null;            // 'Income Capitalization Approach' etc.
 }
 
+/* ----------------------------- Parties (Borrower / Sponsor) --------------- */
+
+/**
+ * Counterparty identity surfaced for the workbook's Borrower tab. Standalone
+ * field (not part of the spine ExtractionResult) so it can be lifted off the
+ * ASR via a deterministic regex without re-running the full extraction
+ * pipeline. Same pattern as the appraisal / PCA / issuer-UW standalone seams.
+ *
+ * Source convention on the ASR is: a "Borrower Summary" section near the
+ * front of the document with "Borrower Entity Name: <value>" and
+ * "Sponsor / Guarantor: <value>" lines, plus a loan-terms table that
+ * restates "Borrower: <value>" and "Sponsor: <value>" later on. Either
+ * surface satisfies the extraction; both are present on every CMBS-style
+ * ASR encountered to date.
+ */
+export interface PartiesExtraction {
+  readonly borrowerName: string | null;
+  readonly sponsorName:  string | null;
+  /** Optional provenance — page number(s) the names were lifted from. */
+  readonly pageReferences?: Readonly<Record<string, number>>;
+}
+
 /* ------------------------------- seller UW + ASR ---------------------------- */
 
 export interface SellerUWExtraction {

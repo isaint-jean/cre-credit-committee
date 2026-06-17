@@ -208,10 +208,15 @@ function buildLoanAtoms(
 }
 
 function buildPartyAtoms(analysis: Analysis): UnderwritingPartyAtoms {
+  // PRIMARY: the standalone partiesExtraction record (Sprint-2 parties seam,
+  // populated by extract-parties-from-asr.ts and stamped onto analyses.data
+  // via the run-once persist script). FALLBACK: the legacy data-extraction
+  // service's descriptors slot, present only on classic ingest paths.
+  const parties = analysis.partiesExtraction;
   const desc = analysis.extractionResult?.descriptors;
   return {
-    borrowerName: pickFirstString([desc?.borrowerName.value]),
-    sponsorName:  pickFirstString([desc?.sponsorName.value]),
+    borrowerName: pickFirstString([parties?.borrowerName, desc?.borrowerName.value]),
+    sponsorName:  pickFirstString([parties?.sponsorName,  desc?.sponsorName.value]),
   };
 }
 

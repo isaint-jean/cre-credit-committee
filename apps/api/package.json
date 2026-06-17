@@ -103,6 +103,7 @@
     "test:build-report-helpers": "tsx src/scripts/test-build-report-helpers.ts",
     "test:cf-adapter": "tsx src/scripts/test-cf-adapter.ts",
     "test:extract-asr": "tsx src/scripts/test-extract-asr.ts",
+    "test:extract-parties-from-asr": "tsx src/scripts/test-extract-parties-from-asr.ts",
     "test:extraction-input-cache": "tsx src/scripts/test-extraction-input-cache.ts",
     "test:pick-rent-roll": "tsx src/scripts/test-pick-rent-roll.ts",
     "test:registry-routes": "tsx src/scripts/test-registry-routes.ts",
