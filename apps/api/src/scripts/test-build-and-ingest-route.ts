@@ -141,6 +141,7 @@ function makeBuildReport(): BuildReport {
       rentRollXlsx: { status: 'absent' },
       asrPdf: { status: 'absent' },
       pcaPdf: { status: 'absent' },
+      appraisalPdf: { status: 'absent' },
     },
   };
 }
@@ -266,6 +267,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
             rentRollXlsx: { status: 'ok', durationMs: 3, adapterVersion: '0.1.0' },
             asrPdf: { status: 'ok', durationMs: 10, adapterVersion: '0.1.0' },
             pcaPdf: { status: 'ok', durationMs: 12, adapterVersion: '1.1' },
+            appraisalPdf: { status: 'absent' },
           },
         },
       },

@@ -603,6 +603,7 @@ function synthesizeBuildReport(args: {
       rentRollXlsx: args.slotPresent.rentRoll ? okSlot(rrVersion) : absent,
       asrPdf: args.slotPresent.asr ? okSlot(asrVersion) : absent,
       pcaPdf: args.slotPresent.pca ? okSlot(pcaVersion) : absent,
+      appraisalPdf: absent,
     },
   };
 }

@@ -65,6 +65,7 @@ const REPO = '/Users/isabellesaint-jean/Desktop/CRE Credit Comittee';
 const CF_PATH  = path.join(REPO, 'apps/api/fixtures/sunroad-centrum-cf.xlsx');
 const PCA_PATH = path.join(REPO, 'apps/api/fixtures/sunroad-centrum-pca.pdf');
 const ASR_PATH = '/Users/isabellesaint-jean/Code/cre-credit-committee/apps/api/.data/source-docs/3327fd55-e382-4286-8378-64d33a11e518/asr/645d573b6ad281d851c846bacc5441e495c154d33bdd8d029447f778c0c90514.pdf';
+const APPRAISAL_PATH = '/Users/isabellesaint-jean/Code/cre-credit-committee/apps/api/.data/source-docs/3327fd55-e382-4286-8378-64d33a11e518/appraisal/132b5d07f307ee1b8ce2fa0aba87a6f04d94bdd5d432a1c4307f1f83ad04ff1d.pdf';
 const AS_OF = '2026-05-31T00:00:00Z' as ISODateTime;
 const PROMOTE = process.argv.includes('--promote');
 
@@ -141,14 +142,17 @@ const LOAN_TERMS: LoanTermsExtraction = {
   const cfBuf = readFileSync(CF_PATH);
   const pcaBuf = readFileSync(PCA_PATH);
   const asrBuf = readFileSync(ASR_PATH);
-  console.log(`  CF bytes:  ${cfBuf.length}`);
-  console.log(`  PCA bytes: ${pcaBuf.length}`);
-  console.log(`  ASR bytes: ${asrBuf.length}`);
+  const apprBuf = readFileSync(APPRAISAL_PATH);
+  console.log(`  CF bytes:        ${cfBuf.length}`);
+  console.log(`  PCA bytes:       ${pcaBuf.length}`);
+  console.log(`  ASR bytes:       ${asrBuf.length}`);
+  console.log(`  Appraisal bytes: ${apprBuf.length}`);
   const composed = await buildExtractionResult({
     slots: {
-      sellerCfXlsx: { buffer: cfBuf, filename: 'sunroad-centrum-cf.xlsx' },
-      pcaPdf:       { buffer: pcaBuf, filename: 'sunroad-centrum-pca.pdf' },
-      asrPdf:       { buffer: asrBuf, filename: 'sunroad-centrum-asr.pdf' },
+      sellerCfXlsx:  { buffer: cfBuf,   filename: 'sunroad-centrum-cf.xlsx' },
+      pcaPdf:        { buffer: pcaBuf,  filename: 'sunroad-centrum-pca.pdf' },
+      asrPdf:        { buffer: asrBuf,  filename: 'sunroad-centrum-asr.pdf' },
+      appraisalPdf:  { buffer: apprBuf, filename: 'sunroad-centrum-appraisal.pdf' },
     },
     analysisAsOfDate: AS_OF,
     dealRef: 'SUNROAD-CENTRUM-REAL',

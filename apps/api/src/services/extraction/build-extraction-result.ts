@@ -83,6 +83,7 @@ import { runCfAdapter } from './adapters/cf.adapter.js';
 import { runRentRollAdapter } from './adapters/rent-roll.adapter.js';
 import { runAsrAdapter } from './adapters/asr.adapter.js';
 import { runPcaAdapter } from './adapters/pca.adapter.js';
+import { runAppraisalAdapter } from './adapters/appraisal.adapter.js';
 import type {
   ExtractorOutcome,
   ExtractionSlot,
@@ -147,6 +148,7 @@ export interface BuildExtractionResultDeps {
   readonly runRentRollAdapter: typeof runRentRollAdapter;
   readonly runAsrAdapter: typeof runAsrAdapter;
   readonly runPcaAdapter: typeof runPcaAdapter;
+  readonly runAppraisalAdapter: typeof runAppraisalAdapter;
 }
 
 export const DEFAULT_COMPOSER_DEPS: BuildExtractionResultDeps = {
@@ -154,6 +156,7 @@ export const DEFAULT_COMPOSER_DEPS: BuildExtractionResultDeps = {
   runRentRollAdapter,
   runAsrAdapter,
   runPcaAdapter,
+  runAppraisalAdapter,
 };
 
 /* ------------------------------- internal --------------------------------- */
@@ -294,13 +297,17 @@ export async function buildExtractionResult(
   const pcaP = args.slots.pcaPdf
     ? deps.runPcaAdapter(args.slots.pcaPdf)
     : Promise.resolve(null);
+  const apprP = args.slots.appraisalPdf
+    ? deps.runAppraisalAdapter(args.slots.appraisalPdf)
+    : Promise.resolve(null);
 
-  const [cfSettled, rrSettled, asrSettled, pcaSettled] = await Promise.allSettled([cfP, rrP, asrP, pcaP]);
+  const [cfSettled, rrSettled, asrSettled, pcaSettled, apprSettled] = await Promise.allSettled([cfP, rrP, asrP, pcaP, apprP]);
 
   const cfOutcome = unwrapAdapterSettled(cfSettled);
   const rrOutcome = unwrapAdapterSettled(rrSettled);
   const asrOutcome = unwrapAdapterSettled(asrSettled);
   const pcaOutcome = unwrapAdapterSettled(pcaSettled);
+  const apprOutcome = unwrapAdapterSettled(apprSettled);
 
   /* Per-slot reports for the BuildReport. */
   const slotReports: Record<ExtractionSlot, SlotReport> = {
@@ -308,6 +315,7 @@ export async function buildExtractionResult(
     rentRollXlsx: toSlotReport(rrOutcome),
     asrPdf: toSlotReport(asrOutcome),
     pcaPdf: toSlotReport(pcaOutcome),
+    appraisalPdf: toSlotReport(apprOutcome),
   };
 
   /* Project adapter outputs into ExtractionResult-shaped fields. Explicit
@@ -331,6 +339,12 @@ export async function buildExtractionResult(
      'failed' when extractPca threw, 'ok' with the value otherwise. */
   const pca = pcaOutcome !== null && pcaOutcome.status === 'ok' ? pcaOutcome.value : null;
 
+  /* Appraisal: single-value outcome (AppraisalExtraction | null). Adapter
+     returns 'empty' on the 3-anchor compound (asIsValue + NRA + yearBuilt
+     all null), 'failed' when extractCbreAppraisal threw, 'ok' with value
+     otherwise. */
+  const appraisal = apprOutcome !== null && apprOutcome.status === 'ok' ? apprOutcome.value : null;
+
   /* Rent-roll precedence: XLSX wins when ok-with-units; AI fallback fills
      in otherwise. Truth table in pick-rent-roll.ts. The returned `source`
      field tells the extractorVersions stamping below which adapter's version
@@ -350,6 +364,7 @@ export async function buildExtractionResult(
   if (rrOutcome !== null) sourceDocuments.push(...rrOutcome.sourceRefs);
   if (asrOutcome !== null) sourceDocuments.push(...asrOutcome.sourceRefs);
   if (pcaOutcome !== null) sourceDocuments.push(...pcaOutcome.sourceRefs);
+  if (apprOutcome !== null) sourceDocuments.push(...apprOutcome.sourceRefs);
 
   /* loanTerms projection — caller-provided via args (Ticket K #7). Treat
      undefined and null as "absent" (composer projects null). When present,
@@ -406,6 +421,9 @@ export async function buildExtractionResult(
   if (pcaOutcome !== null && pcaOutcome.status === 'ok' && pca !== null) {
     extractorVersions.pca = pcaOutcome.adapterVersion;
   }
+  if (apprOutcome !== null && apprOutcome.status === 'ok' && appraisal !== null) {
+    extractorVersions.appraisal = apprOutcome.adapterVersion;
+  }
 
   /* D.3 (extraction engine v1.2): back-fill sellerUw from
      sellerUwOperatingStatement. Returns null when the operating-statement
@@ -431,7 +449,7 @@ export async function buildExtractionResult(
     inPlace,
     t12Actual,
     pca,
-    appraisal: null,
+    appraisal,
     sellerUw,
     sellerUwOperatingStatement,
     asr,

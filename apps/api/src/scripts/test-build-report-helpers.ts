@@ -55,6 +55,7 @@ const allClean: BuildReport = {
     rentRollXlsx: emptySlot,
     asrPdf: okSlot,
     pcaPdf: okSlot,
+    appraisalPdf: okSlot,
   },
 };
 const cleanResult = incompleteSlots(allClean);
@@ -69,6 +70,7 @@ const mixed: BuildReport = {
     rentRollXlsx: failedSlot,
     asrPdf: absentSlot,
     pcaPdf: okSlot,
+    appraisalPdf: okSlot,
   },
 };
 const mixedSorted = [...incompleteSlots(mixed)].sort();
@@ -85,9 +87,10 @@ const allBad: BuildReport = {
     rentRollXlsx: absentSlot,
     asrPdf: failedSlot,
     pcaPdf: failedSlot,
+    appraisalPdf: failedSlot,
   },
 };
-assertEqual(incompleteSlots(allBad).length, 4, '9. all-bad → 4 slots incomplete');
+assertEqual(incompleteSlots(allBad).length, 5, '9. all-bad → 5 slots incomplete');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

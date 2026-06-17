@@ -248,6 +248,12 @@ function makeDeps(b: DepBehaviorMap = {}): BuildExtractionResultDeps {
       if (b.pca === undefined) throw new Error('PCA adapter called but no behavior set');
       return b.pca;
     },
+    // Appraisal adapter — tests that don't pass an appraisalPdf slot never
+    // invoke this; if they do without setting a behavior, throw loudly so
+    // the test is forced to declare its expectations.
+    runAppraisalAdapter: async (_slot: SlotInput) => {
+      throw new Error('Appraisal adapter called but no behavior set in this test');
+    },
   };
 }
 

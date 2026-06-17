@@ -181,14 +181,28 @@ export function projectLegacyAnalysisFromGraph(
     if (pm !== null) projectedPropertyMetadata = pm;
   }
 
+  // Appraisal read-side projection (mirrors PCA/issuerUw seam). Lifts
+  // er.appraisal off the graph store when the legacy slot is empty —
+  // NULL-only fill, never clobber an analyst-edited value. With the
+  // composer now populating er.appraisal via the appraisal.adapter,
+  // this overlay is what carries it through to analysis.appraisalExtraction
+  // and from there to every c.appraisal.* atom + render-schema selector.
+  let projectedAppraisalExtraction = analysis.appraisalExtraction;
+  if (
+    (projectedAppraisalExtraction === null || projectedAppraisalExtraction === undefined) &&
+    doctrine !== null
+  ) {
+    const er = store.getExtractionResult(doctrine.extractionResultId);
+    if (er?.appraisal) projectedAppraisalExtraction = er.appraisal;
+  }
+
   // Sunroad appraisal-ingest: merge AppraisalExtraction identity fields into
   // PropertyMetadata where PM is null (NEVER overwrite the ASR-AI source per
   // Sprint-0 honest-blank discipline). Fills address/zip/county/yearBuilt
-  // when the appraisal supplies them. analysis.appraisalExtraction is
-  // populated via the run-once script (extract-sunroad-appraisal.ts) writing
-  // to analyses.data.appraisalExtraction — surfaced automatically through
-  // rowToAnalysis spread.
-  const appraisal = analysis.appraisalExtraction;
+  // when the appraisal supplies them. Reads `projectedAppraisalExtraction`
+  // (preferred — picks up the composer-populated value) and falls back to
+  // `analysis.appraisalExtraction` for older persist-script-populated rows.
+  const appraisal = projectedAppraisalExtraction;
   if (appraisal && projectedPropertyMetadata) {
     projectedPropertyMetadata = {
       ...projectedPropertyMetadata,
@@ -236,6 +250,7 @@ export function projectLegacyAnalysisFromGraph(
     propertyMetadata: projectedPropertyMetadata,
     pcaExtraction: projectedPcaExtraction,
     issuerUwExtraction: projectedIssuerUwExtraction,
+    appraisalExtraction: projectedAppraisalExtraction,
   };
 }
 
