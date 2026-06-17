@@ -39,6 +39,7 @@ import { v4 as uuid } from 'uuid';
 import {
   ASSET_TYPES,
   MANIFESTO_CONTRACT_VERSION,
+  NARRATIVE_ENGINE_VERSION,
 } from '@cre/contracts';
 import type {
   AssetType,
@@ -63,6 +64,7 @@ import { ingestExtractionResult } from '../services/ingest-extraction-result.js'
 const REPO = '/Users/isabellesaint-jean/Desktop/CRE Credit Comittee';
 const CF_PATH  = path.join(REPO, 'apps/api/fixtures/sunroad-centrum-cf.xlsx');
 const PCA_PATH = path.join(REPO, 'apps/api/fixtures/sunroad-centrum-pca.pdf');
+const ASR_PATH = '/Users/isabellesaint-jean/Code/cre-credit-committee/apps/api/.data/source-docs/3327fd55-e382-4286-8378-64d33a11e518/asr/645d573b6ad281d851c846bacc5441e495c154d33bdd8d029447f778c0c90514.pdf';
 const AS_OF = '2026-05-31T00:00:00Z' as ISODateTime;
 const PROMOTE = process.argv.includes('--promote');
 
@@ -138,12 +140,15 @@ const LOAN_TERMS: LoanTermsExtraction = {
   const t0 = Date.now();
   const cfBuf = readFileSync(CF_PATH);
   const pcaBuf = readFileSync(PCA_PATH);
+  const asrBuf = readFileSync(ASR_PATH);
   console.log(`  CF bytes:  ${cfBuf.length}`);
   console.log(`  PCA bytes: ${pcaBuf.length}`);
+  console.log(`  ASR bytes: ${asrBuf.length}`);
   const composed = await buildExtractionResult({
     slots: {
       sellerCfXlsx: { buffer: cfBuf, filename: 'sunroad-centrum-cf.xlsx' },
       pcaPdf:       { buffer: pcaBuf, filename: 'sunroad-centrum-pca.pdf' },
+      asrPdf:       { buffer: asrBuf, filename: 'sunroad-centrum-asr.pdf' },
     },
     analysisAsOfDate: AS_OF,
     dealRef: 'SUNROAD-CENTRUM-REAL',
@@ -170,6 +175,7 @@ const LOAN_TERMS: LoanTermsExtraction = {
       creditManifesto: makeManifesto(),
       analysisAsOfDate: AS_OF,
       rentRoll: composed.rentRoll,
+      propertyMetadata: composed.propertyMetadata,  // Sprint-0: persist PM through ingest
     },
     recordGraphStore,
     /* no deps → real LLM */
@@ -186,7 +192,7 @@ const LOAN_TERMS: LoanTermsExtraction = {
   if (de === null) { console.error('FATAL: DE null'); process.exit(1); }
   const he = recordGraphStore.getLatestHandbookEvaluationForAdjustedInputs(envelope.adjustedInputsId);
   if (he === null) { console.error('FATAL: HE null'); process.exit(1); }
-  const ne = recordGraphStore.getLatestNarrativeForAdjustedInputs(envelope.adjustedInputsId, '1.3' as never);
+  const ne = recordGraphStore.getLatestNarrativeForAdjustedInputs(envelope.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
   if (ne === null) { console.error('FATAL: NE null'); process.exit(1); }
 
   // ====================================================================
