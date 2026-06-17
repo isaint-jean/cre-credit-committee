@@ -666,6 +666,13 @@ export interface ExtractionResult {
    */
   readonly sellerUwOperatingStatement: OperatingStatementExtraction | null;
   readonly asr: ASRExtraction | null;
+  /** Counterparty identity lifted off the ASR (borrower / sponsor / guarantor).
+   *  Sub-extractor of asr.adapter — populated when an asrPdf slot is passed
+   *  and the regex matches; null otherwise. Same Option-A pattern as
+   *  propertyMetadata: ASR-derived sub-record, surfaced sibling-style on
+   *  ExtractionResult so the projector + render path can consume it without
+   *  re-parsing the PDF. */
+  readonly parties: PartiesExtraction | null;
   readonly loanTerms: LoanTermsExtraction | null;
   /**
    * 424B5 prospectus Annex A — issuer-stated per-loan stratification. Always

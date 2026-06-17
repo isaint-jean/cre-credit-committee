@@ -169,6 +169,7 @@ function makePropertyMetadata(): PropertyMetadata {
       },
       extractPropertyMetadata: async () => mockPm,
       extractAsr: async () => null,
+      parseParties: async () => null,
     };
 
     const o = await runAsrAdapter({ buffer, filename: 'asr-minimal.pdf' }, deps);
@@ -218,6 +219,7 @@ function makePropertyMetadata(): PropertyMetadata {
       extractRentRoll: async () => makeRentRoll(),
       extractPropertyMetadata: async () => null,
       extractAsr: async () => null,
+      parseParties: async () => null,
     };
 
     const innerO = await runAsrAdapterOnDocument(doc, bufferHash, deps);

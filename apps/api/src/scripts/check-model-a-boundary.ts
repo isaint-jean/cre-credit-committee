@@ -128,6 +128,7 @@ function makeAnnexAOnlyExtraction(): ExtractionResult {
     sellerUw: null,
     sellerUwOperatingStatement: null,
     asr: null,
+    parties: null,
     loanTerms: null,
     annexA: LOAN_17_ANNEXA,
     sourceDocuments: [],

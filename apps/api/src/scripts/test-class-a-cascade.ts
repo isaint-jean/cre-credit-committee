@@ -90,7 +90,7 @@ function makeExtraction(opts: {
     pca: null, appraisal: null,
     sellerUw: null,
     sellerUwOperatingStatement: opts.sellerUwOperatingStatement ?? null,
-    asr: null, loanTerms: null,
+    asr: null, parties: null, loanTerms: null,
     annexA: null,
     sourceDocuments: [],
     extractorVersions: {},

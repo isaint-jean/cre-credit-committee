@@ -173,6 +173,10 @@ function makeDeps(o: DepsOverrides = {}): AsrAdapterDeps {
       if (a === 'throw') throw new Error('ASR call failed');
       return a;
     },
+    // parties is a 4th sub-extractor wired in [parties] commit. Default mock
+    // returns null (no names matched); tests that exercise it would pass a
+    // custom mock. The async wrapper mirrors the production seam.
+    parseParties: async () => null,
   };
 }
 

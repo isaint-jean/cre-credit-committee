@@ -196,6 +196,21 @@ export function projectLegacyAnalysisFromGraph(
     if (er?.appraisal) projectedAppraisalExtraction = er.appraisal;
   }
 
+  // Parties read-side projection (mirrors the appraisal seam). With
+  // asr.adapter now producing parties as a 4th sub-extractor and the
+  // composer threading it through er.parties, this overlay carries it
+  // to analysis.partiesExtraction. NULL-only fill — never overwrite
+  // an analyst-edited value. buildPartyAtoms reads
+  // analysis.partiesExtraction PRIMARY (legacy descriptors FALLBACK).
+  let projectedPartiesExtraction = analysis.partiesExtraction;
+  if (
+    (projectedPartiesExtraction === null || projectedPartiesExtraction === undefined) &&
+    doctrine !== null
+  ) {
+    const er = store.getExtractionResult(doctrine.extractionResultId);
+    if (er?.parties) projectedPartiesExtraction = er.parties;
+  }
+
   // Sunroad appraisal-ingest: merge AppraisalExtraction identity fields into
   // PropertyMetadata where PM is null (NEVER overwrite the ASR-AI source per
   // Sprint-0 honest-blank discipline). Fills address/zip/county/yearBuilt
@@ -251,6 +266,7 @@ export function projectLegacyAnalysisFromGraph(
     pcaExtraction: projectedPcaExtraction,
     issuerUwExtraction: projectedIssuerUwExtraction,
     appraisalExtraction: projectedAppraisalExtraction,
+    partiesExtraction: projectedPartiesExtraction,
   };
 }
 

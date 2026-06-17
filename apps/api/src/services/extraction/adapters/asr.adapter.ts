@@ -43,6 +43,7 @@
 
 import type {
   ASRExtraction,
+  PartiesExtraction,
   ContentHash,
   PropertyMetadata,
   PropertyMetadataSource,
@@ -57,6 +58,7 @@ import { parseDocument } from '../../document-parser.service.js';
 import { extractRentRollFromDocument } from '../../extract-rent-roll-from-document.js';
 import { extractPropertyMetadata } from '../../extract-property-metadata.js';
 import { extractASR } from '../../extract-asr.js';
+import { parsePartiesFromAsrText } from '../../extract-parties-from-asr.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 import { projectToRentRollExtraction } from './rent-roll.adapter.js';
 
@@ -92,6 +94,10 @@ export interface AsrAdapterValue {
   readonly propertyMetadata: PropertyMetadata | null;
   readonly rentRollFallback: RentRollExtraction | null;
   readonly rentRollFallbackTyped: RentRoll | null;
+  /** Counterparty identity (borrower / sponsor / guarantor) from the ASR.
+   *  Null when the regex matched neither name — same "absent" semantic as
+   *  propertyMetadata-null (sub-extractor returned no usable data). */
+  readonly parties: PartiesExtraction | null;
 }
 
 /**
@@ -111,12 +117,24 @@ export interface AsrAdapterDeps {
     (doc: ParsedDocument, source: PropertyMetadataSource) => Promise<PropertyMetadata | null>;
   readonly extractAsr:
     (doc: ParsedDocument) => Promise<ASRExtraction | null>;
+  /** parties parser. Wrapped async so it slots into the adapter's
+   *  Promise.allSettled fan-out with the same rejection-isolation safety net
+   *  as the other sub-extractors. The underlying pure parser is synchronous
+   *  regex work and won't throw under normal inputs — the async wrapper +
+   *  unwrapOrWarn give the defensive belt-and-suspenders the existing 3
+   *  sub-extractors already wear. Returns null when neither name matched. */
+  readonly parseParties:
+    (pages: readonly string[]) => Promise<PartiesExtraction | null>;
 }
 
 export const DEFAULT_ASR_DEPS: AsrAdapterDeps = {
   extractRentRoll: extractRentRollFromDocument,
   extractPropertyMetadata: extractPropertyMetadata,
   extractAsr: extractASR,
+  parseParties: async (pages) => {
+    const result = parsePartiesFromAsrText(pages);
+    return result.borrowerName === null && result.sponsorName === null ? null : result;
+  },
 };
 
 /**
@@ -221,17 +239,19 @@ export async function runAsrAdapterOnDocument(
   //                as of v0.2.0 / Ticket I (#6). Tests inject mocks here to
   //                avoid live AI calls.)
   const results = await Promise.allSettled<
-    [Promise<RentRoll | null>, Promise<PropertyMetadata | null>, Promise<ASRExtraction | null>]
+    [Promise<RentRoll | null>, Promise<PropertyMetadata | null>, Promise<ASRExtraction | null>, Promise<PartiesExtraction | null>]
   >([
     deps.extractRentRoll(doc, 'asr_table'),
     deps.extractPropertyMetadata(doc, 'asr_extraction'),
     deps.extractAsr(doc),
+    deps.parseParties([doc.rawText]),
   ]);
 
   // Unwrap by position. Throws collapse to null + console.warn.
   const rentRollLegacy = unwrapOrWarn(results[0]!, 'AI:RentRoll');
   const propertyMetadata = unwrapOrWarn(results[1]!, 'AI:PropertyMetadata');
   const asr = unwrapOrWarn(results[2]!, 'AI:ASR');
+  const parties = unwrapOrWarn(results[3]!, 'Parties');
 
   // Project rent-roll legacy → spine shape (reuses rent-roll.adapter.ts's
   // documented lossy projection — same field mapping, same caveats).
@@ -264,8 +284,9 @@ export async function runAsrAdapterOnDocument(
   const hasAsr = asr !== null;
   const hasPm = propertyMetadata !== null;
   const hasRrf = rentRollFallback !== null;
+  const hasParties = parties !== null;
 
-  if (!hasAsr && !hasPm && !hasRrf) {
+  if (!hasAsr && !hasPm && !hasRrf && !hasParties) {
     return {
       status: 'empty',
       sourceRefs: [],
@@ -283,6 +304,11 @@ export async function runAsrAdapterOnDocument(
   if (hasPm) refs.push({ kind: 'property_metadata', contentHash: bufferHash });
   if (hasRrf) refs.push({ kind: 'rent_roll', contentHash: bufferHash });
 
+  // parties does not emit a separate sourceRef — the parties data is derived
+  // from the same ASR text already covered by the 'asr' / 'property_metadata'
+  // refs above. Adding a 'parties' kind would widen SourceDocumentKind for
+  // no traceability gain. See contract extraction.ts SourceDocumentKind union.
+
   return {
     status: 'ok',
     value: {
@@ -292,6 +318,7 @@ export async function runAsrAdapterOnDocument(
       // Phase 1 (rent-roll-node): carry the typed RentRoll alongside the lossy
       // projection. Non-null whenever rentRollFallback is non-null (same source).
       rentRollFallbackTyped: rentRollLegacy,
+      parties,
     },
     sourceRefs: refs,
     adapterVersion: ASR_ADAPTER_VERSION,

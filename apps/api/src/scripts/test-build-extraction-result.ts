@@ -210,6 +210,7 @@ function asrOkOutcome(opts: {
       propertyMetadata: opts.pm === undefined ? null : opts.pm,
       rentRollFallback: fallback,
       rentRollFallbackTyped: fallbackTyped,
+      parties: null,
     },
     sourceRefs: refs,
     adapterVersion: '0.1.0',

@@ -100,5 +100,35 @@ console.log('\nRecourse Carveout Guarantor line does NOT capture borrowerName vi
   assertEqual(result.borrowerName, null, 'no "Borrower:" line → borrowerName stays null (Recourse Carveout Guarantor doesn\'t leak through)');
 }
 
+/* -- Merged-text (single-element pages array) — the [doc.rawText] shape ----- */
+/*    This is the shape asr.adapter passes from `[doc.rawText]` after the     */
+/*    Option-A wiring. The regex scans per-page, but a single merged-page     */
+/*    input must still capture both names (no per-line / per-page anchoring   */
+/*    in the regexes).                                                        */
+
+console.log('\nMerged-text (single-element pages array, asr.adapter "[doc.rawText]" shape):');
+{
+  // Real ASR rawText would concatenate every page's text — borrower on p.6,
+  // sponsor on p.6, plus arbitrary prose from other pages, all in one string.
+  const merged = [
+    'Transaction Overview: Goldman Sachs Bank USA to provide an $85.0 million loan…',
+    'The Property is a 274,758 SF office building located in San Diego, CA.',
+    'Ownership & Management',
+    'Borrower Summary',
+    'Borrower Entity Name: Sunroad Centrum Office One Partners, LP',
+    'Entity Type: LLC',
+    'Sponsor / Guarantor: Sunroad Holding Corporation Entity State: California',
+    'Sponsor Net Worth: $57,372,000 Non-Consolidation Opinion: Yes',
+    'Remaining Amort Term (mos): 0 Trade Payables Max Amount: 2.0%',
+    'Interest Only Term (mos): 60 Borrower: Sunroad Centrum Office One Partners, LP',
+    'Prepayment Type: Defeasance Recourse Carveout Guarantor(s): Sunroad Holding Corporation',
+  ].join('\n');
+  const result = parsePartiesFromAsrText([merged]);
+  assertEqual(result.borrowerName, SUNROAD_BORROWER, 'merged-text input captures borrower verbatim');
+  assertEqual(result.sponsorName,  SUNROAD_SPONSOR,  'merged-text input captures sponsor verbatim');
+  assertEqual(result.pageReferences?.borrowerName, 1, 'pageReferences.borrowerName = 1 (single merged page)');
+  assertEqual(result.pageReferences?.sponsorName,  1, 'pageReferences.sponsorName  = 1 (single merged page)');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

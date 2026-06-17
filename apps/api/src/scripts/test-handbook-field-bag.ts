@@ -265,7 +265,7 @@ const defaultExtractionResult: ExtractionResult = {
   dealRef: 'TEST',
   rentRoll: null, inPlace: null, t12Actual: null, pca: null, appraisal: null,
   sellerUw: null, sellerUwOperatingStatement: null,
-  asr: null, loanTerms: null,
+  asr: null, parties: null, loanTerms: null,
     annexA: null,
   sourceDocuments: [],
   extractorVersions: {},

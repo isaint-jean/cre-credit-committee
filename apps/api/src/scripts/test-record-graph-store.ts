@@ -124,6 +124,7 @@ function makeExtractionResult(dealRef = 'TEST-1'): ExtractionResult {
     pca: null,
     appraisal: null,
     sellerUw: null, sellerUwOperatingStatement: null, asr: null,
+    parties: null,
     loanTerms: null,
     annexA: null,
     sourceDocuments: [],

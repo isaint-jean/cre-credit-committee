@@ -333,6 +333,7 @@ export async function buildExtractionResult(
   const propertyMetadata = asrOk === null ? null : asrOk.propertyMetadata;
   const asrRentRollFallback = asrOk === null ? null : asrOk.rentRollFallback;
   const asrRentRollFallbackTyped = asrOk === null ? null : asrOk.rentRollFallbackTyped;
+  const parties = asrOk === null ? null : asrOk.parties;
 
   /* PCA: single-value outcome (PCAExtraction | null). Adapter returns
      'empty' when extractPca returns null (both AI calls produced no data),
@@ -453,6 +454,7 @@ export async function buildExtractionResult(
     sellerUw,
     sellerUwOperatingStatement,
     asr,
+    parties,
     loanTerms,
     // v1.6 — Annex A slot. Always null today via the production composer;
     // the adapter is exercised standalone (see Stage-1 validation harness
