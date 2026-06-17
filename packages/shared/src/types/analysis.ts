@@ -332,6 +332,12 @@ export interface Analysis {
   // Escrows D50) via the c.pca.* atom block. Mirrors appraisalExtraction
   // semantics: pure read-side reference; doctrine stays frozen.
   pcaExtraction?: import('@cre/contracts').PCAExtraction | null;
+  // Sprint-1 (Column L issuer-UW ticket) — the seller's GS U/W operating-
+  // statement column lifted off the graph-spine ExtractionResult so the
+  // render path can wire L9–L40 without crossing the legacy/graph boundary.
+  // Optional; mirrors pcaExtraction / appraisalExtraction semantics: pure
+  // read-side, doctrine stays frozen.
+  issuerUwExtraction?: import('@cre/contracts').OperatingStatementExtraction | null;
   // Batch 0 traceability ledger. The merge layer pushes literal-string entries here
   // shaped 'merge-conflict[<field>] asr=... seller=... chosen=...'. Batch 1B extends
   // this with 'missing-support: <subject>' entries when an evidence-gated input is

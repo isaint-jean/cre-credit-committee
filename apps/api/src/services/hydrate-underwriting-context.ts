@@ -325,6 +325,9 @@ export function hydrateUnderwritingContext(
     // Sprint-2 PCA atoms — two values surfaced for Third Party Reports
     // Summary E24/E25 and Conclusions & Escrows D50 escrow row.
     pca: buildPcaAtoms(s.analysis),
+    // Sprint-1 Column L issuer-UW atoms — seller GS U/W column for
+    // Operating ProForma L9–L40.
+    issuerUw: buildIssuerUwAtoms(s.analysis),
   };
 }
 
@@ -401,6 +404,49 @@ function buildAppraisalAtoms(analysis: Analysis): Record<string, number | string
 // when extractionResult.pca is absent (no PCA ingested). Adding new PCA
 // surfaces beyond these two (firm/date/seismic/RECs) requires extending
 // extract-pca.ts first — those fields are not in the contract today.
+// Sprint-1: Issuer-UW atoms. The seller's GS U/W column lifted off the
+// graph-spine ExtractionResult.sellerUwOperatingStatement. Feeds Operating
+// ProForma column L. economicOccupancy is derived from vacancyLoss / PGR so
+// the template's L10 vacancy formula reproduces the issuer's stated value.
+// expensesOtherVariable rolls janitorial into the "Other (variable)" row
+// (same convention as the appraisal J26 wiring).
+function buildIssuerUwAtoms(analysis: Analysis): Record<string, number | string | null> {
+  const uw = analysis.issuerUwExtraction;
+  if (!uw) {
+    return {
+      pgr: null, economicOccupancy: null, badDebt: null,
+      uwAdjustments: null, otherIncome: null, reimbursements: null,
+      expensesGeneralAdmin: null, expensesRepairsMaintenance: null,
+      expensesUtilities: null, expensesOtherVariable: null,
+      expensesManagement: null, expensesTaxes: null, expensesInsurance: null,
+      capex: null, tenantImprovements: null, leasingCommissions: null,
+    };
+  }
+  const pgr = uw.income.grossPotentialRent;
+  const economicOccupancy =
+    typeof pgr === 'number' && pgr > 0 && typeof uw.vacancyLoss === 'number'
+      ? 1 - (-uw.vacancyLoss / pgr)
+      : null;
+  return {
+    pgr,
+    economicOccupancy,
+    badDebt:                       null,
+    uwAdjustments:                 uw.income.uwAdjustments ?? null,
+    otherIncome:                   uw.income.otherIncome ?? null,
+    reimbursements:                uw.expenses.reimbursements ?? null,
+    expensesGeneralAdmin:          uw.expenses.generalAndAdmin ?? null,
+    expensesRepairsMaintenance:    uw.expenses.repairsMaintenance ?? null,
+    expensesUtilities:             uw.expenses.utilities ?? null,
+    expensesOtherVariable:         uw.expenses.janitorial ?? null,
+    expensesManagement:            uw.expenses.managementFees ?? null,
+    expensesTaxes:                 uw.expenses.taxes ?? null,
+    expensesInsurance:             uw.expenses.insurance ?? null,
+    capex:                         uw.belowNoiAdjustments.replacementReserves ?? null,
+    tenantImprovements:            uw.belowNoiAdjustments.tenantImprovements ?? null,
+    leasingCommissions:            uw.belowNoiAdjustments.leasingCommissions ?? null,
+  };
+}
+
 function buildPcaAtoms(analysis: Analysis): Record<string, number | string | null> {
   const pca = analysis.pcaExtraction;
   if (!pca) {

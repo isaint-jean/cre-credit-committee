@@ -1221,6 +1221,98 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
     cellState: 'concluded',
   },
 
+  // ----- Sprint-1: Operating ProForma column L (Issuer UW) -----------------
+  // GS U/W column from the seller cash-flow extraction; sits beside J
+  // (appraisal stabilized) and P (engine concluded). Inputs only — formula
+  // subtotals (L10/L12/L17/L27/L33/L35/L42/L44/L46–L50) are NEVER declared.
+  // L13 carries the new uwAdjustments bucket (Sunroad: $297,545 credit-tenant
+  // rent steps PV) with a cell note explaining the source. economicOccupancy
+  // is derived so L10 = -L9*(1-L6) reproduces the issuer's vacancyLoss.
+  {
+    slot: 'Operating_ProForma', range: 'L9',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.pgr),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L6',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.economicOccupancy),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L11',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.badDebt),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L13',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.uwAdjustments),
+    cellState: 'concluded',
+    comment: () =>
+      'Issuer UW adjustment $297,545 = PV of contractual rent steps for ' +
+      'IG tenants (CMBS CF footnote 3); forward-looking, excluded from ' +
+      'engine concluded NOI.',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L14',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.otherIncome),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L15',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.reimbursements),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L22',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.expensesGeneralAdmin),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L24',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.expensesRepairsMaintenance),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L25',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.expensesUtilities),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L26',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.expensesOtherVariable),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L30',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.expensesManagement),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L31',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.expensesTaxes),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L32',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.expensesInsurance),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L38',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.capex),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L39',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.tenantImprovements),
+    cellState: 'concluded',
+  },
+  {
+    slot: 'Operating_ProForma', range: 'L40',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.leasingCommissions),
+    cellState: 'concluded',
+  },
+
   // ----- v9 NEW: Extraction / data gaps — AWAITING_INPUT --------------------
   // K6 — LTV (Appraisal). Conclusions & Escrows / Property & Loan Summary
   // K-column area. No appraisal slot in current 4-file ingest model (CF +

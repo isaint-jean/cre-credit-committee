@@ -106,6 +106,7 @@ type LineItemKey =
   | 'totalOperatingExpenses'
   | 'noi'
   | 'vacancyLoss'
+  | 'uwAdjustments'
   | 'replacementReserves'
   | 'tenantImprovements'
   | 'leasingCommissions';
@@ -117,6 +118,13 @@ const LINE_PATTERNS: { readonly key: LineItemKey; readonly regex: RegExp }[] = [
   { key: 'totalOperatingExpenses', regex: /^total\s*(?:operating\s*)?expenses\b/i },
   { key: 'totalIncome',            regex: /^(?:effective\s*gross\s*(?:revenue|income)|effective\s*gross|egr|egi)\b/i },
   { key: 'vacancyLoss',            regex: /^total\s*(?:commercial\s*)?vacancy(?:\s*[&+\s]*\s*credit)?(?:\s*loss)?\b/i },
+  // UW Adjustments (CMBS-style "Total UW Adjustments" section total).
+  // Captures the bucket that sits above vacancy on the issuer's underwritten
+  // build-up — Sunroad fills it solely with Credit Tenant Rent Steps (footnote
+  // 3 = present-value of contractual rent-step increments for investment-grade
+  // tenants). Required "total" prefix so it picks the section TOTAL, not the
+  // per-line entries (e.g. "Credit Tenant Rent Steps" itself).
+  { key: 'uwAdjustments',          regex: /^total\s+(?:uw|underwrit\w+)\s+adjustments?\b/i },
   // Gross potential — distinct from "Total Other Revenue" / EGR.
   { key: 'grossPotentialRent',     regex: /^gross\s*potential\s*(?:commercial\s*)?(?:rental\s*revenue|rent\b)/i },
   // Other income (total).
@@ -342,6 +350,7 @@ function buildStatement(
       effectiveRent:      null,  // not separately reported in CMBS-style CF; left null per discipline
       otherIncome:        at('otherIncome'),
       totalIncome:        at('totalIncome'),
+      uwAdjustments:      at('uwAdjustments'),
     },
     expenses: {
       taxes:                  at('taxes'),

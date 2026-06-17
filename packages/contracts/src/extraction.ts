@@ -139,6 +139,19 @@ export interface OperatingStatementExtraction {
     readonly effectiveRent: number | null;
     readonly otherIncome: number | null;
     readonly totalIncome: number | null;
+    /**
+     * CMBS-style "Total UW Adjustments" bucket — the section that sits above
+     * vacancy on the issuer's underwritten cash flow build-up. Populated for
+     * deals whose seller-UW carries forward-looking income adjustments that
+     * the issuer adds to the rent build above vacancy: e.g. present-value
+     * rent steps for investment-grade tenants, contractual escalations, or
+     * other documented one-time additions. Null when the seller UW does not
+     * carry such a line, or when the deal's UW model does not use the
+     * adjustment-bucket pattern (T-12 actuals never carry this; in-place
+     * rarely does; seller-UW often does on CMBS-style sheets). Optional —
+     * additive contract widening; existing consumers ignore.
+     */
+    readonly uwAdjustments?: number | null;
   };
   readonly expenses: {
     readonly taxes: number | null;

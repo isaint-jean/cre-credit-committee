@@ -206,12 +206,19 @@ export function projectLegacyAnalysisFromGraph(
   // semantics: pure read-side, NULL-only fill, no overwrite of an
   // analyst-edited value.
   let projectedPcaExtraction = analysis.pcaExtraction;
+  let projectedIssuerUwExtraction = analysis.issuerUwExtraction;
   if (
-    (projectedPcaExtraction === null || projectedPcaExtraction === undefined) &&
+    (projectedPcaExtraction === null || projectedPcaExtraction === undefined ||
+     projectedIssuerUwExtraction === null || projectedIssuerUwExtraction === undefined) &&
     doctrine !== null
   ) {
     const er = store.getExtractionResult(doctrine.extractionResultId);
-    if (er?.pca) projectedPcaExtraction = er.pca;
+    if (er?.pca && (projectedPcaExtraction === null || projectedPcaExtraction === undefined)) {
+      projectedPcaExtraction = er.pca;
+    }
+    if (er?.sellerUwOperatingStatement && (projectedIssuerUwExtraction === null || projectedIssuerUwExtraction === undefined)) {
+      projectedIssuerUwExtraction = er.sellerUwOperatingStatement;
+    }
   }
 
   return {
@@ -228,6 +235,7 @@ export function projectLegacyAnalysisFromGraph(
     validationResult: projectedValidationResult,
     propertyMetadata: projectedPropertyMetadata,
     pcaExtraction: projectedPcaExtraction,
+    issuerUwExtraction: projectedIssuerUwExtraction,
   };
 }
 

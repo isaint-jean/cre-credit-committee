@@ -243,6 +243,10 @@ export interface UnderwritingContext {
    *  `analysis.extractionResult.pca` when present; absent otherwise. Schema
    *  selectors read this via `ResolvedUnderwritingContext.pca`. */
   pca?: Readonly<Record<string, number | string | null>>;
+  /** Issuer-UW (GS U/W column) atoms (Sprint-1). Populated from
+   *  `analysis.issuerUwExtraction` when present; absent otherwise. Schema
+   *  selectors read this via `ResolvedUnderwritingContext.issuerUw`. */
+  issuerUw?: Readonly<Record<string, number | string | null>>;
 }
 
 /**
@@ -396,5 +400,28 @@ export interface ResolvedUnderwritingContext {
   readonly pca: {
     replacementReservesPerSfPerYearInflated: ResolvedCellValue;  // Third Party Reports Summary E24 ($/SF/yr)
     immediateRepairs:                        ResolvedCellValue;  // Third Party Reports Summary E25 + Conclusions & Escrows D50
+  };
+  // Sprint-1 Issuer-UW (GS U/W column from seller cash-flow extraction).
+  // Wires Operating ProForma column L for the issuer-underwriting view —
+  // sits alongside J (appraisal stabilized) and P (engine concluded). Atoms
+  // mirror the appraisal block shape so the schema selectors are uniform
+  // across columns.
+  readonly issuerUw: {
+    pgr:                            ResolvedCellValue;  // L9
+    economicOccupancy:              ResolvedCellValue;  // L6 — derived: 1 - (-vacancyLoss/PGR)
+    badDebt:                        ResolvedCellValue;  // L11
+    uwAdjustments:                  ResolvedCellValue;  // L13 — Total UW Adjustments bucket (rent steps PV on Sunroad)
+    otherIncome:                    ResolvedCellValue;  // L14
+    reimbursements:                 ResolvedCellValue;  // L15
+    expensesGeneralAdmin:           ResolvedCellValue;  // L22
+    expensesRepairsMaintenance:     ResolvedCellValue;  // L24
+    expensesUtilities:              ResolvedCellValue;  // L25
+    expensesOtherVariable:          ResolvedCellValue;  // L26 (Janitorial, per appraisal-column convention)
+    expensesManagement:             ResolvedCellValue;  // L30
+    expensesTaxes:                  ResolvedCellValue;  // L31
+    expensesInsurance:              ResolvedCellValue;  // L32
+    capex:                          ResolvedCellValue;  // L38 — belowNoiAdjustments.replacementReserves
+    tenantImprovements:             ResolvedCellValue;  // L39
+    leasingCommissions:             ResolvedCellValue;  // L40
   };
 }
