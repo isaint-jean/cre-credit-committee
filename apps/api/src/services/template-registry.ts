@@ -98,6 +98,22 @@ const REGISTRY: TemplateMetadata[] = [
     supportedUnderwritingModes: ['single_loan'],
   },
   {
+    // single_loan v6 — P-column subtotal fix applied to the v2 artifact.
+    // Same compatibility envelope as v1/v2 (workbook-content fix, not a schema
+    // bump). The artifact is produced by apps/api/src/scripts/patch-template-p-column.ts
+    // (detaches 7 shared-formula references in column P, rewrites them as
+    // standalone formulas with correct P-column refs). Versions 3/4/5 are
+    // skipped — they were silent re-uploads of v2 with no registry entry and
+    // were removed as part of the v6 remediation
+    // (apps/api/src/scripts/remediate-template-registry-v6.ts).
+    templateType: 'single_loan',
+    templateVersion: 6,
+    compatibleContractVersion: RENDER_CONTRACT_VERSION,
+    supportedAssetClasses: ALL_ASSET_CLASSES,
+    supportedVariants: allRegisteredVariants(RENDER_CONTRACT_VERSION),
+    supportedUnderwritingModes: ['single_loan'],
+  },
+  {
     templateType: 'roll_up',
     templateVersion: 1,
     compatibleContractVersion: RENDER_CONTRACT_VERSION,
