@@ -187,22 +187,29 @@ function buildLoanAtoms(
   adjustedInputs: AdjustedInputs,
 ): UnderwritingLoanAtoms {
   const stru = analysis.extractionResult?.structural;
-  // Per the v7 field-authority migration policy:
-  //   termMonths         — extraction PRIMARY, AdjustedInputs FALLBACK ALLOWED
-  //   amortizationMonths — extraction ONLY, NO fallback
-  //   ioMonths           — extraction ONLY, NO fallback
-  // The schema layer reads these single-source values without any fallback
-  // logic of its own — the precedence chain (or its absence) lives here.
+  // Per the v7 field-authority migration policy, extraction.structural is the
+  // PRIMARY source. On graph-spine analyses that slot is not populated (the
+  // new composer doesn't write extraction.structural — a known two-sided drop).
+  // analysis.uwModel.loanDetails is the read-back of LoanTermsExtraction values
+  // threaded through the synthesizer (see synthesize-uw-model-from-graph.ts);
+  // when extraction.structural is empty, lift these values so the workbook's
+  // Amortization_Term / Interest_Only_Period named ranges render and dependent
+  // EDATE formulas don't error. Precedence stays single-source-per-value
+  // (no double counting); the fallback only fires when the primary is null.
+  const ld = analysis.uwModel?.loanDetails;
   return {
     termMonths: pickFirstFiniteNumber([
       stru?.loanTermMonths.value,        // resolvedContext-derived primary
+      ld?.termMonths,                    // graph-spine fallback
       adjustedInputs.loan.termMonths,    // explicit fallback (term only)
     ]),
     amortizationMonths: pickFirstFiniteNumber([
-      stru?.amortizationMonths.value,    // extraction-only, no fallback
+      stru?.amortizationMonths.value,    // primary
+      ld?.amortizationMonths,            // graph-spine fallback (load-bearing for workbook EDATE chain)
     ]),
     ioMonths: pickFirstFiniteNumber([
-      stru?.ioMonths.value,              // extraction-only, no fallback
+      stru?.ioMonths.value,              // primary
+      ld?.ioMonths,                      // graph-spine fallback
     ]),
   };
 }

@@ -1733,6 +1733,49 @@ function redactProvenanceInWorkbookProperties(workbook: ExcelJS.Workbook): numbe
  * Best-effort: any error returns the original buffer unchanged. Never
  * throws — observability/logging only.
  */
+/**
+ * ★ OOXML-validity sweep at the byte level. Walks every xl/worksheets/*.xml
+ * inside the .xlsx zip and strips any `<v>NaN</v>` / `<v>Infinity</v>` /
+ * `<v>-Infinity</v>` elements — i.e., cached values from formula cells whose
+ * ExcelJS-computed result was non-finite. Removing the `<v>` element entirely
+ * (we keep the `<f>` formula) tells Excel "no cached value; recompute on
+ * open" — the cell then displays the formula's real Excel error (#VALUE!,
+ * #N/A, etc.), valid OOXML.
+ *
+ * This is the load-bearing invariant: no exported workbook may contain a
+ * `<v>NaN</v>` / `<v>Infinity</v>` cached value, regardless of upstream
+ * formula-evaluation behavior. The writeCellValue NaN guard catches the
+ * values we explicitly write; this catches the ones ExcelJS internally
+ * computes-and-caches during load/serialize.
+ */
+async function sanitizeNonFiniteCachedValues(buffer: Buffer): Promise<Buffer> {
+  try {
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(buffer as any);
+    // Matches <v>NaN</v>, <v>Infinity</v>, <v>-Infinity</v> (anywhere in
+    // the cell element). Cell shape: <c ...><f>...</f><v>NaN</v></c> — we
+    // strip just the <v> element, the <f> formula stays.
+    const RE = /<v>(?:NaN|Infinity|-Infinity)<\/v>/gi;
+    let touched = 0;
+    for (const path of Object.keys(zip.files)) {
+      if (!/^xl\/worksheets\/sheet[^/]*\.xml$/i.test(path)) continue;
+      const file = zip.file(path);
+      if (!file) continue;
+      const xml = await file.async('text');
+      if (!RE.test(xml)) continue;
+      RE.lastIndex = 0;
+      const cleaned = xml.replace(RE, '');
+      zip.file(path, cleaned);
+      touched++;
+    }
+    if (touched === 0) return buffer;
+    const out = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    return Buffer.from(out as Buffer);
+  } catch {
+    return buffer;
+  }
+}
+
 async function redactProvenanceFromXlsxBuffer(buffer: Buffer): Promise<Buffer> {
   try {
     const JSZip = (await import('jszip')).default;
@@ -1885,7 +1928,19 @@ function writeCellValue(
     }
     return;
   }
-  cell.value = value === null ? null : (value as any);
+  // OOXML-validity guard. A numeric value that's NaN / +Infinity / -Infinity
+  // cannot be serialized into <v> without producing literal "NaN" / "Infinity"
+  // tokens — both reject when Excel's parser opens the file (the OOXML spec
+  // demands a finite numeric or an error sentinel, never NaN/Inf). LOAD-BEARING
+  // INVARIANT: no code path below this function may ever produce an OOXML-
+  // invalid file. We treat non-finite numeric values as null — the cell stays
+  // empty, and any dependent formula that references it evaluates to a valid
+  // Excel error (#VALUE! / #DIV/0!) at open-time rather than corrupting parse.
+  // Coverage: NaN, +Infinity, -Infinity. Booleans / strings / null / Date
+  // pass through unchanged.
+  const sanitized: CellValue =
+    typeof value === 'number' && !Number.isFinite(value) ? null : value;
+  cell.value = sanitized === null ? null : (sanitized as any);
   if (state === 'hitl') {
     applyFill(cell, HITL_FILL_ARGB);
   } else if (state === 'awaiting_input') {
@@ -2027,6 +2082,24 @@ export async function applyRenderPayloadToTemplate(
   // stamping locations for usernames and source paths.
   redactProvenanceInWorkbookProperties(workbook);
 
+  // ★ OOXML-validity sweep: ExcelJS internally evaluates some formulas
+  // during load/serialize and caches the result onto cell.result. When the
+  // formula's input is missing/null (e.g. EDATE(blank, 0)), the cached
+  // result becomes JS NaN — which ExcelJS then serializes as the literal
+  // `<v>NaN</v>` token, an OOXML-invalid construct that Excel and openpyxl
+  // both reject on open. The writeCellValue NaN guard catches NaN values
+  // we explicitly write; this sweep catches NaN cached on formula cells we
+  // did NOT write to (which the formula guard preserves intact). For each
+  // formula cell whose cached result is non-finite, we null the result so
+  // Excel recomputes on open (and shows a valid #VALUE! / #N/A error if
+  // the inputs really are missing). LOAD-BEARING INVARIANT: no formula
+  // cell's cached value may serialize as NaN/Infinity.
+  // (in-memory ExcelJS cell-walk attempts didn't reach the cached <v>
+  // element for these specific formula cells; ExcelJS's serializer
+  // re-emits the cached NaN regardless of cell.value / cell.model edits.
+  // We rely on the byte-level sweep below at sanitizeNonFiniteCachedValues,
+  // which runs against the serialized XML after writeBuffer.)
+
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
   // Post-write deep sweep: ExcelJS does not expose drawing alt text,
@@ -2037,6 +2110,12 @@ export async function applyRenderPayloadToTemplate(
   // matching strings in-place, and re-emit. Best-effort: failure here
   // does not block the export.
   populatedBuffer = await redactProvenanceFromXlsxBuffer(populatedBuffer);
+
+  // ★ Final OOXML-validity gate. Strip any <v>NaN</v> / <v>Infinity</v>
+  // cached values that survived the in-memory writeCellValue guard. This
+  // happens at the byte level so it's robust against ExcelJS internal
+  // re-evaluation behavior on writeBuffer.
+  populatedBuffer = await sanitizeNonFiniteCachedValues(populatedBuffer);
 
   return {
     populatedBuffer,

@@ -105,6 +105,7 @@
     "test:extract-asr": "tsx src/scripts/test-extract-asr.ts",
     "test:extract-parties-from-asr": "tsx src/scripts/test-extract-parties-from-asr.ts",
     "test:appraisal-adapter": "tsx src/scripts/test-appraisal-adapter.ts",
+    "test:write-cell-value-nan-guard": "tsx src/scripts/test-write-cell-value-nan-guard.ts",
     "test:extraction-input-cache": "tsx src/scripts/test-extraction-input-cache.ts",
     "test:pick-rent-roll": "tsx src/scripts/test-pick-rent-roll.ts",
     "test:registry-routes": "tsx src/scripts/test-registry-routes.ts",
