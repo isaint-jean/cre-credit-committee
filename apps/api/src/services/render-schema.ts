@@ -307,6 +307,21 @@ interface SchemaEntry {
   selector: Selector;
   cellState?: CellState;
   comment?: (input: ProjectionInput) => string | null | undefined;
+  /**
+   * Engine-concluded direct-display flag. When `true`, the populator's
+   * writeCellValue overwrites the existing formula with the selector's
+   * literal value instead of preserving the formula. Used to display
+   * engine-concluded figures into template cells that are formulas by
+   * default (rent-roll-coupled or column-cascade formulas) — the J/L
+   * "fill leaves, let subtotals compute" pattern, but for column P
+   * where the template's leaf cells are FORMULAS rather than inputs.
+   *
+   * NEVER set on cells whose formula correctly produces the desired
+   * value (subtotals like P17/P33/P35 — those stay as formulas and
+   * compute from the leaves we wrote). Set ONLY on the 16 P-column
+   * leaf cells that need to display engine-concluded line items.
+   */
+  forceOverwrite?: boolean;
 }
 
 /**
@@ -785,52 +800,76 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   // we use explicit A1 addresses below. Row numbers verified by inspection
   // of `Blank UW Template.xlsm` at the canonical layout.
 
-  // P9 — Potential Gross Rental Income.
-  // Engine $13.38M vs answer key $12.997M (+3.0%, within band).
+  // ----- Column P direct-display: engine-concluded operating set ------------
+  // P column shows the engine's CONCLUDED figures (the J/L "fill leaves, let
+  // subtotals compute" pattern, but for cells the template made FORMULA by
+  // default — rent-roll-coupled or L-column-cascade). Each leaf uses
+  // forceOverwrite: true so the populator replaces the template formula with
+  // the engine literal. Subtotal cells P12/P17/P27/P33/P35/P42/P44 stay as
+  // formulas and recompute from the new leaves. Vacancy P10 = -(1-P6)*P9 is
+  // intentionally left as a formula (mirrors J column) — it derives from
+  // the P6 + P9 leaves we write.
+
+  // P9 — Potential Gross Rental Income (engine $13,383,468).
   {
     slot: 'Operating_ProForma',
     range: 'P9',
     selector: adj((a) => a.income.grossPotentialRent),
     cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P6 — Vacancy %  (derived from vacancyLoss / GPR). On Sunroad this equals
-  // the library median 0.10 (raised via JE_VACANCY_RAISED_TO_LIBRARY_MEDIAN);
-  // the conservatismStatus.floorBindings surfaces the floor as a disclosure.
+  // P6 — Avg Economic Occupancy. The template's P10 formula
+  // `=-((1-P6)*P9)` expects an OCCUPANCY ratio, not a vacancy ratio. We
+  // therefore write `1 - vacancyPct` (engine concluded ≈ 0.89898 on Sunroad).
+  // P10 then derives -$1,352,147 from our P6 + P9 leaves.
   {
     slot: 'Operating_ProForma',
     range: 'P6',
-    selector: vacancyPctSelector,
+    selector: num((a) => {
+      const v = a.income.vacancyLoss?.adjusted;
+      const g = a.income.grossPotentialRent?.adjusted;
+      if (typeof v !== 'number' || typeof g !== 'number' || g <= 0) return null;
+      // vacancyLoss is stored negative; pct = -v/g; occupancy = 1 - pct.
+      return 1 - (-v / g);
+    }),
     cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P10 — Vacancy Loss (negative). Derived: -grossPotentialRent × vacancyPct.
-  // Same floor binding as P6 (downstream).
+  // P10 — Vacancy Loss. KEEP AS FORMULA (P10 = -(1-P6)*P9). The template's
+  // existing formula computes the right value from our P6 + P9 leaves.
+  // No forceOverwrite — formula guard preserves it; schema entry's selector
+  // value is for the governance gate (every schema address has an entry).
   {
     slot: 'Operating_ProForma',
     range: 'P10',
     selector: adj((a) => a.income.vacancyLoss),
     cellState: 'concluded',
   },
-  // P14 — Other Income. Engine $138K = answer key $138K (exact).
+  // P14 — Other Income (engine $138K). Issue rewriting as literal even though
+  // L14's existing pass-through formula =+L14 already produces this — keeps
+  // column P self-contained (independent of column L's value).
   {
     slot: 'Operating_ProForma',
     range: 'P14',
     selector: adj((a) => a.income.otherIncome),
     cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P31 — Property Taxes. Engine $960,500 vs answer $931,798 (+3.1% conservative).
+  // P31 — Property Taxes (engine $960,500).
   {
     slot: 'Operating_ProForma',
     range: 'P31',
     selector: adj((a) => a.expenses.realEstateTaxes),
     cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P30 — Management Fee. Engine $408,842 vs answer $374,558 (+9.2% conservative;
-  // same 3% rule, different denominators).
+  // P30 — Management Fee (engine $408,842).
   {
     slot: 'Operating_ProForma',
     range: 'P30',
     selector: adj((a) => a.expenses.management),
     cellState: 'concluded',
+    forceOverwrite: true,
   },
   // P38 — Capital Expenditures / Replacement Reserves. Engine $54,952 (= answer
   // key $54,952 EXACT). Source: `AdjustedInputs.capitalReserves.monthlyReplacementReserves`
@@ -844,6 +883,7 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
     range: 'P38',
     selector: num((a) => a.capitalReserves.monthlyReplacementReserves.adjusted * 12),
     cellState: 'concluded',
+    forceOverwrite: true,
   },
 
   // ----- v9 NEW: Conclusions & Escrows — CONCLUDED metrics ------------------
@@ -880,77 +920,143 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   // judgment typically restates these upward. Awaiting the expense-markup
   // value-add rule (cleanup ticket #5).
 
-  // P25 — Utilities. Engine reads issuer CF $276,580. Analyst concluded
-  // $582,591 (2.1× source) on Sunroad.
+  // P11 — Bad Debt Expense. Engine has no separate bad-debt surface
+  // (folded into the vacancy haircut at the income side). Display 0.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P11',
+    selector: num(() => 0),
+    cellState: 'concluded',
+    forceOverwrite: true,
+  },
+  // P21 — Salaries and Benefits. Engine reads payroll = 0 from
+  // AdjustedInputs.expenses (CMBS-style cash flows fold salaries into G&A
+  // or treat them as null). Display 0.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P21',
+    selector: adj((a) => a.expenses.payroll),
+    cellState: 'concluded',
+    forceOverwrite: true,
+  },
+  // P23 — Advertising and Marketing. Engine has no separate advertising
+  // surface on AdjustedInputs.expenses. Display 0.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P23',
+    selector: num(() => 0),
+    cellState: 'concluded',
+    forceOverwrite: true,
+  },
+  // P24 — Repairs and Maintenance (engine $817,537).
+  {
+    slot: 'Operating_ProForma',
+    range: 'P24',
+    selector: adj((a) => a.expenses.repairsAndMaintenance),
+    cellState: 'concluded',
+    forceOverwrite: true,
+  },
+  // P26 — Other (variable). ★ Carries the EXPENSE-FLOOR top-up. The engine
+  // raises totalExpenses to max(library median, bank ratio) × EGI per
+  // judgment/line-item-builders.ts:buildTotalOperatingExpenses (rule
+  // JE_EXPENSE_RAISED_TO_LIBRARY_MEDIAN). The residual (= totalExpenses −
+  // sum of broken-out lines) lands here, with a labeled cell note so the
+  // analyst sees the floor mechanism explicitly. P33 SUM(...P26 + P30:P32)
+  // then ties to engine totalExpenses exactly.
+  {
+    slot: 'Operating_ProForma',
+    range: 'P26',
+    selector: num((a) => {
+      const e = a.expenses;
+      const sum =
+        (e.realEstateTaxes?.adjusted ?? 0) +
+        (e.insurance?.adjusted ?? 0) +
+        (e.utilities?.adjusted ?? 0) +
+        (e.repairsAndMaintenance?.adjusted ?? 0) +
+        (e.management?.adjusted ?? 0) +
+        (e.generalAndAdmin?.adjusted ?? 0) +
+        (e.payroll?.adjusted ?? 0);
+      const total = e.totalExpenses?.adjusted ?? 0;
+      const residual = total - sum;
+      return residual > 0 ? residual : 0;
+    }),
+    cellState: 'concluded',
+    forceOverwrite: true,
+    comment: (input) => {
+      const e = input.adjustedInputs.expenses;
+      const sum =
+        (e.realEstateTaxes?.adjusted ?? 0) +
+        (e.insurance?.adjusted ?? 0) +
+        (e.utilities?.adjusted ?? 0) +
+        (e.repairsAndMaintenance?.adjusted ?? 0) +
+        (e.management?.adjusted ?? 0) +
+        (e.generalAndAdmin?.adjusted ?? 0) +
+        (e.payroll?.adjusted ?? 0);
+      const total = e.totalExpenses?.adjusted ?? 0;
+      const residual = total - sum;
+      const egi = input.adjustedInputs.income.effectiveGrossIncome?.adjusted ?? null;
+      const ratioPct = egi !== null && egi > 0 ? ((total / egi) * 100).toFixed(2) + '%' : 'n/a';
+      const fmt = (n: number) => '$' + Math.round(n).toLocaleString();
+      return (
+        `Expense floor: total opex floored to ${ratioPct} of EGI (max of library ` +
+        `median and bank ratio per judgment rule JE_EXPENSE_RAISED_TO_LIBRARY_MEDIAN). ` +
+        `Itemized ${fmt(sum)} floored up to ${fmt(total)} (+${fmt(residual)}).`
+      );
+    },
+  },
+
+  // P25 — Utilities (engine $276,580).
   {
     slot: 'Operating_ProForma',
     range: 'P25',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
-    comment: () =>
-      'Engine reads issuer CF column ($276,580). B-piece judgment typically restates ' +
-      'utilities upward (analyst concluded $582,591 on Sunroad — 2.1× source). ' +
-      'Awaiting expense-markup value-add rule.',
+    selector: adj((a) => a.expenses.utilities),
+    cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P22 — G&A.
+  // P22 — General and Administrative (engine $314,303).
   {
     slot: 'Operating_ProForma',
     range: 'P22',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
-    comment: () =>
-      'Engine reads issuer CF column ($314,303). B-piece judgment typically restates ' +
-      'G&A upward (analyst concluded $394,153 on Sunroad — 25% above source). ' +
-      'Awaiting expense-markup value-add rule.',
+    selector: adj((a) => a.expenses.generalAndAdmin),
+    cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P32 — Insurance.
+  // P32 — Insurance (engine $306,000).
   {
     slot: 'Operating_ProForma',
     range: 'P32',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
-    comment: () =>
-      'Engine reads issuer CF column ($306,000). Analyst restated upward ' +
-      '($353,346 on Sunroad — 15% above source). Awaiting expense-markup value-add rule.',
+    selector: adj((a) => a.expenses.insurance),
+    cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P39 — Tenant Improvements (annual).
+  // P39 — Tenant Improvements (annual). Engine has no separate TI/LC line
+  // on AdjustedInputs.expenses — carried below NOI via capex schedule. P39
+  // displays 0 for the concluded operating set; analyst overrides as needed.
   {
     slot: 'Operating_ProForma',
     range: 'P39',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
-    comment: () =>
-      'Engine derives from CF below-NOI line ($81,934/yr from $6,827.80/mo × 12). ' +
-      'Analyst concluded $97,436/yr (+18%). Awaiting expense-markup value-add rule ' +
-      'or tenant-improvement extraction widening.',
+    selector: num(() => 0),
+    cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P40 — Leasing Commissions (annual).
+  // P40 — Leasing Commissions (annual). Same rationale as P39.
   {
     slot: 'Operating_ProForma',
     range: 'P40',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
-    comment: () =>
-      'Engine derives from CF below-NOI line ($81,934/yr). Analyst concluded ' +
-      '$97,436/yr (+18%). Awaiting expense-markup value-add rule.',
+    selector: num(() => 0),
+    cellState: 'concluded',
+    forceOverwrite: true,
   },
-  // P15 — Expense Reimbursements. Structural difference vs answer key on
-  // Sunroad — answer folds into revenue side, engine carries as revenue-
-  // offset; same EGR reached. Held as awaiting_input pending reconciliation
-  // of the revenue-side projection. @cre/shared has no `reimbursements`
-  // field on AdjustedExpenses today, so the selector returns null until
-  // either (a) the contract gains the field or (b) a derived path is wired.
+  // P15 — Expense Reimbursements. Engine doesn't carry a reimbursements
+  // surface on AdjustedExpenses (it's folded into revenue / GPR upstream).
+  // Display 0 in the concluded view; reimbursements show up implicitly via
+  // EGI = P12 + P14 + P15 with P15 = 0.
   {
     slot: 'Operating_ProForma',
     range: 'P15',
-    selector: nullSelector,
-    cellState: 'awaiting_input',
-    comment: () =>
-      'Engine reads issuer CF expense reimbursements (~$264K). Structural ' +
-      'difference vs answer key: answer folds reimbursements into the revenue ' +
-      'side; engine carries as a revenue offset. Same EGR reached. Awaiting ' +
-      'reimbursements field on @cre/shared AdjustedExpenses or a derived ' +
-      'selector wiring.',
+    selector: num(() => 0),
+    cellState: 'concluded',
+    forceOverwrite: true,
   },
 
   // ----- v9: Conclusions & Escrows ----------------------------------------
@@ -1910,6 +2016,10 @@ export interface ProjectionResult {
   bindings: CellBindings;
   states: CellStateMap;
   comments: CellCommentMap;
+  /** Sparse map: addresses where the schema entry set forceOverwrite=true.
+   *  Populator uses this to overwrite an existing formula cell with the
+   *  literal value instead of preserving the formula. */
+  overwrites: Record<string, boolean>;
 }
 
 /**
@@ -1935,26 +2045,28 @@ export function projectCellBindings(
   const bindings: CellBindings = {};
   const states: CellStateMap = {};
   const comments: CellCommentMap = {};
+  const overwrites: Record<string, boolean> = {};
   for (const e of def.entries) {
     const sheetName = sheet(input.assetClass, e.slot);
     const address = `${sheetName}!${e.range}`;
     bindings[address] = e.selector(input);
     const state: CellState = e.cellState ?? 'concluded';
     states[address] = state;
-    // Comments are emitted ONLY for non-'concluded' states. 'concluded'
-    // cells are engine value-add — they render with template formatting
-    // and never carry a comment. A 'hitl' or 'awaiting_input' entry
-    // whose comment callback returns null/undefined still has its
-    // state recorded (driving the fill); the comment map simply does
-    // not gain an entry.
-    if (state !== 'concluded' && e.comment) {
+    if (e.forceOverwrite === true) {
+      overwrites[address] = true;
+    }
+    // Comments are emitted ONLY for non-'concluded' states OR when
+    // forceOverwrite is set (direct-display cells may carry an explanatory
+    // cell note even though they're concluded). 'concluded' cells without
+    // forceOverwrite never carry a comment.
+    if ((state !== 'concluded' || e.forceOverwrite === true) && e.comment) {
       const text = e.comment(input);
       if (text != null && text !== '') {
         comments[address] = { state, text };
       }
     }
   }
-  return { bindings, states, comments };
+  return { bindings, states, comments, overwrites };
 }
 
 /**

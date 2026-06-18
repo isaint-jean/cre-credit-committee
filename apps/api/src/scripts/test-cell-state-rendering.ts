@@ -315,7 +315,7 @@ function testProjectionWithExplicitCellStates(): void {
       'office' as any,
       'office_core' as any,
       'single_loan' as any,
-      { bindings, states, comments },
+      { bindings, states, comments, overwrites: {} },
       RENDER_CONTRACT_VERSION,
     );
   } catch (e) {
@@ -358,7 +358,7 @@ function testStatesMissingAKeyRejected(): void {
       'office' as any,
       'office_core' as any,
       'single_loan' as any,
-      { bindings: completeBindings, states: completeStates, comments: {} },
+      { bindings: completeBindings, states: completeStates, comments: {}, overwrites: {} },
       RENDER_CONTRACT_VERSION,
     );
   } catch (e) {

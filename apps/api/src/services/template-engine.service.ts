@@ -1907,6 +1907,7 @@ function writeCellValue(
   value: CellValue,
   state: CellState,
   comment: CellComment | null,
+  forceOverwrite: boolean = false,
 ): void {
   // Formula guard. The legacy populator (populateTemplate, line 547) already
   // skips formula cells; the v8 payload-driven applyRenderPayloadToTemplate
@@ -1915,7 +1916,15 @@ function writeCellValue(
   // comment so a deliberate "caveat this formula" schema entry (e.g. OPF
   // J35/J48/J50, where the formula correctly computes the STABILIZED basis
   // and the caveat surfaces the going-in figures) functions as intended.
-  if (cell.formula) {
+  //
+  // EXCEPTION: forceOverwrite=true bypasses the formula guard — the schema
+  // explicitly asks the populator to REPLACE an existing formula with the
+  // literal value. Used for engine direct-display into column P (engine
+  // concluded) where the template's leaf cells are rent-roll-coupled or
+  // L-column-cascade formulas. The cell becomes a value cell after this
+  // write; downstream subtotal formulas (P17/P33/P35) recompute correctly
+  // from the new leaves.
+  if (cell.formula && !forceOverwrite) {
     if (comment !== null && state !== 'concluded') {
       try {
         (cell as any).note = {
@@ -1948,7 +1957,10 @@ function writeCellValue(
   }
   // 'concluded': no fill.
 
-  if (comment !== null && state !== 'concluded') {
+  // Comments emit when state is non-concluded OR when forceOverwrite is set
+  // (a direct-display cell can legitimately carry an explanatory note even
+  // though its state is concluded — e.g. the expense-floor disclosure).
+  if (comment !== null && (state !== 'concluded' || forceOverwrite)) {
     try {
       (cell as any).note = {
         texts: [{ text: comment.text }],
@@ -2013,6 +2025,7 @@ export async function applyRenderPayloadToTemplate(
   // missing addresses simply emit no comment.
   const cellStates = payload.cellStates ?? {};
   const cellComments = payload.cellComments ?? {};
+  const cellOverwrites = payload.cellOverwrites ?? {};
 
   for (const [address, value] of Object.entries(payload.cellBindings)) {
     const parts = splitAddress(address);
@@ -2027,8 +2040,9 @@ export async function applyRenderPayloadToTemplate(
     }
     const state: CellState = cellStates[address] ?? 'concluded';
     const comment: CellComment | null = cellComments[address] ?? null;
+    const forceOverwrite: boolean = cellOverwrites[address] === true;
     if (A1_PATTERN.test(parts.ref)) {
-      writeCellValue(ws.getCell(parts.ref), value, state, comment);
+      writeCellValue(ws.getCell(parts.ref), value, state, comment, forceOverwrite);
       writtenAddresses.push(address);
       continue;
     }
@@ -2037,7 +2051,7 @@ export async function applyRenderPayloadToTemplate(
       unresolvedAddresses.push(address);
       continue;
     }
-    for (const c of cells) writeCellValue(c, value, state, comment);
+    for (const c of cells) writeCellValue(c, value, state, comment, forceOverwrite);
     writtenAddresses.push(address);
   }
 

@@ -116,7 +116,7 @@ export function buildRenderPayload(
   const projectionInput: ProjectionInput = { ...input, resolvedContext };
 
   const projection = projectCellBindings(projectionInput, contractVersion);
-  const { bindings: cellBindings, states: cellStates, comments: cellComments } = projection;
+  const { bindings: cellBindings, states: cellStates, comments: cellComments, overwrites: cellOverwrites } = projection;
   // Closed-system invariant — throws RenderSchemaError on any drift.
   // Verifies cellBindings + cellStates + cellComments form a consistent
   // address-keyed graph (states ⊇ bindings; comments ⊆ bindings).
@@ -138,6 +138,7 @@ export function buildRenderPayload(
     cellBindings,
     cellStates,
     cellComments,
+    cellOverwrites,
     schemaAddresses: getSchemaAddresses(assetClass, structuralVariantKey, underwritingMode, contractVersion),
     managedNamespace: getManagedNamespace(assetClass, structuralVariantKey, underwritingMode, contractVersion),
     tables: buildTables(input, contractVersion),

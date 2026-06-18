@@ -247,6 +247,11 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     { address: 'Operating History and Pro Forma!P39',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Reserve_TI_Annual — awaiting_input pending expense-markup rule.' },
     { address: 'Operating History and Pro Forma!P40',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Reserve_LC_Annual — awaiting_input pending expense-markup rule.' },
     { address: 'Operating History and Pro Forma!P15',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Income_Reimbursements — awaiting_input pending @cre/shared field or derived selector.' },
+    { address: 'Operating History and Pro Forma!P11',           group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. Bad_Debt_Expense — engine folds bad debt into vacancy; cell displays 0.' },
+    { address: 'Operating History and Pro Forma!P21',           group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. OpEx_Salaries_Benefits — adjustedInputs.expenses.payroll.' },
+    { address: 'Operating History and Pro Forma!P23',           group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. OpEx_Advertising_Marketing — engine has no surface; cell displays 0.' },
+    { address: 'Operating History and Pro Forma!P24',           group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. OpEx_Repairs_Maintenance — adjustedInputs.expenses.repairsAndMaintenance.' },
+    { address: 'Operating History and Pro Forma!P26',           group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. OpEx_Other — carries expense-floor residual (totalExpenses − sum of broken-out lines) with labeled cell note.' },
     { address: 'Property & Loan Summary!E41',                   group: 'financial_core', state: 'LEGACY', notes: 'New at v9. LTV_Appraisal — awaiting_input pending appraisal ingest slot.' },
     { address: 'Operating History and Pro Forma!P49',           group: 'financial_core', state: 'LEGACY', notes: 'New at v9. NCF_DSCR — awaiting_input pending NCF metric.' },
     { address: 'Property & Loan Summary!K5',                    group: 'property',       state: 'LEGACY', notes: 'New at v9. Net_Rentable_Area — awaiting_input pending resolvedContext extension. (LEGACY because nullSelector reads adjustedInputs.)' },
@@ -270,6 +275,11 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     { address: 'Hotel Op History and Pro Forma!P39',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P39.' },
     { address: 'Hotel Op History and Pro Forma!P40',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P40.' },
     { address: 'Hotel Op History and Pro Forma!P15',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P15.' },
+    { address: 'Hotel Op History and Pro Forma!P11',            group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. Hotel-asset variant of OPF P11.' },
+    { address: 'Hotel Op History and Pro Forma!P21',            group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. Hotel-asset variant of OPF P21.' },
+    { address: 'Hotel Op History and Pro Forma!P23',            group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. Hotel-asset variant of OPF P23.' },
+    { address: 'Hotel Op History and Pro Forma!P24',            group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. Hotel-asset variant of OPF P24.' },
+    { address: 'Hotel Op History and Pro Forma!P26',            group: 'financial_core', state: 'LEGACY', notes: 'Engine direct-display. Hotel-asset variant of OPF P26 (expense-floor residual).' },
     { address: 'Hotel Op History and Pro Forma!P49',            group: 'financial_core', state: 'LEGACY', notes: 'New at v9. Hotel-asset variant of OPF P49.' },
     // ---- Sprint-0 NEW: property-identity cells (CONCLUDED, sourced from --
     // ---- propertyMetadata via resolvedContext.property.* atoms) ----------

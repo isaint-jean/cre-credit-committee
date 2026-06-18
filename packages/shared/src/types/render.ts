@@ -119,7 +119,14 @@ export type CellStateMap = Record<string, CellState>;
  * The `text` field is the comment body written into the Excel cell note.
  */
 export interface CellComment {
-  readonly state: 'hitl' | 'awaiting_input';
+  /**
+   * Comments today emit for hitl/awaiting_input cells AND for 'concluded'
+   * cells that ride the forceOverwrite flag (engine direct-display with
+   * an analyst-facing explanatory note — e.g. column P expense-floor
+   * disclosure). The state widening accommodates that path; existing
+   * hitl/awaiting_input emission semantics are unchanged.
+   */
+  readonly state: CellState;
   readonly text: string;
 }
 
@@ -301,6 +308,15 @@ export interface RenderPayload {
    * agree with cellStates[address] for the same address.
    */
   cellComments: CellCommentMap;
+  /**
+   * Sparse map: addresses where the schema declared forceOverwrite=true.
+   * Populator REPLACES an existing formula at that address with the
+   * literal value instead of preserving the formula. Used for engine
+   * direct-display into template cells that are formulas by default
+   * (column P engine-concluded). Optional for forward compat with v6/v7
+   * payloads that pre-date the flag.
+   */
+  cellOverwrites?: Record<string, boolean>;
   /**
    * Canonical, sorted list of every address declared by the schema for this
    * asset class. Equal to `Object.keys(cellBindings)` after backend runtime
