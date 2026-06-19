@@ -21,8 +21,9 @@
  * Honesty constraints:
  *   - Returns `{ ok: false, reason }` on any missing substrate — the route
  *     translates to HTTP 404/409 so the UI never serves a broken memo.
- *   - PropertyMetadata is passed as null until the Slice-2 follow-on persists
- *     it. The renderer handles null gracefully (uses MEMO_NULL_SENTINEL).
+ *   - PropertyMetadata is resolved via getPropertyMetadataByExtractionResultId
+ *     (matches the producer path); null when no PM record exists. The renderer
+ *     handles null gracefully (uses MEMO_NULL_SENTINEL).
  *   - operatorSuppliedValue is intentionally undefined — analyses that needed
  *     one (Sunroad's appraised-value substitute) carry that decision in the
  *     in-DB analysis already; re-computing here without it would yield a
@@ -33,7 +34,9 @@ import { NARRATIVE_ENGINE_VERSION } from '@cre/contracts';
 import type { Analysis } from '@cre/shared';
 import type { RecordGraphStore } from '../../storage/record-graph-store.js';
 import { adaptExtractionToDealBag, evaluateDeal } from '../../doctrine-clean/index.js';
+import { detectLeaseUp } from '../../doctrine-clean/normalization/lease-up-detection.js';
 import { composeMitigations, type DealComputeState } from '../mitigation/compose-mitigations.js';
+import { computeContractedNoi } from '../contracted-basis.js';
 import { synthesizeUwModelFromInputs } from '../synthesize-uw-model-from-graph.js';
 import { recomputeAiAtLoan } from '../evaluate-and-narrate.js';
 import { buildCommitteeMemo } from './build-committee-memo.js';
@@ -80,20 +83,41 @@ export function renderMemoForAnalysis(
   }
 
   // Reconstruct the in-memory dealResult + composedMitigationPackage
-  // deterministically (no LLM). Same pattern as evaluate-and-narrate.ts:231-247.
-  const dealBag = adaptExtractionToDealBag(extraction, null, {
+  // deterministically (no LLM). Mirrors evaluate-and-narrate.ts:198-247 +
+  // the live-write / re-narrate path: lease-up detection routes the
+  // contracted-NOI override into adaptExtractionToDealBag so the memo's
+  // auth-block (rating label, stressedValue, stressedLtv, exitDscr) matches
+  // what the persisted doctrine-1.5 eval reflects. Without this, the renderer
+  // would fall through to pickIssuerNoi and produce auth numbers that contradict
+  // the persisted eval + the narrative prose (memo lead/body mismatch).
+  //
+  // Honest-blank: detectLeaseUp false → computeContractedNoi returns null →
+  // override is null → adapter uses existing pickIssuerNoi cascade.
+  // Stabilized deals are unchanged by construction.
+  const propertyMetadata = store.getPropertyMetadataByExtractionResultId(doctrine.extractionResultId) ?? null;
+  const rentRoll = doctrine.rentRollId ? store.getRentRoll(doctrine.rentRollId) : null;
+  const leaseUpTrace = detectLeaseUp({ extraction, assetProfile });
+  const contractedTrace = computeContractedNoi({
+    rentRoll,
+    adjustedInputs,
+    isLeaseUpDeal: leaseUpTrace.isLeaseUp,
+  });
+  const dealBag = adaptExtractionToDealBag(extraction, propertyMetadata, {
     explicitAssetType: assetProfile.propertyType,
+    uwY1NoiOverride: contractedTrace.contractedNoi,
   });
   const dealResult = evaluateDeal(dealBag);
-  const uwModel = synthesizeUwModelFromInputs(adjustedInputs, null);
+  const uwModel = synthesizeUwModelFromInputs(adjustedInputs, propertyMetadata);
   const composedMitigationPackage = composeMitigations({
     adjustedInputs,
     uwModel,
     dealResult,
     firedFlags: handbook.firedFlags,
+    // bagPrime inherits dealBag's uwY1Noi via spread — the override flows through
+    // the composition recompute path unchanged. Mirrors evaluate-and-narrate.ts:237-245.
     recomputeAtLoan: (newLoanAmount: number): DealComputeState => {
       const aiPrime = recomputeAiAtLoan(adjustedInputs, newLoanAmount);
-      const uwPrime = synthesizeUwModelFromInputs(aiPrime, null);
+      const uwPrime = synthesizeUwModelFromInputs(aiPrime, propertyMetadata);
       const bagPrime = { ...dealBag, loanAmount: newLoanAmount };
       const dealResultPrime = evaluateDeal(bagPrime);
       return { adjustedInputs: aiPrime, uwModel: uwPrime, dealResult: dealResultPrime };
