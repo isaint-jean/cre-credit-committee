@@ -73,28 +73,33 @@ function allRegisteredUnderwritingModes(contractVersion: number): UnderwritingMo
  * artifact (e.g. one that adds tabs for a new variant or bumps schema).
  */
 const REGISTRY: TemplateMetadata[] = [
+  // NOTE on contract-version pinning: registry entries are PINNED to the
+  // contract version they shipped against, not to the current
+  // RENDER_CONTRACT_VERSION constant. v1/v2/v6 were all registered when
+  // RENDER_CONTRACT_VERSION was 9; bumping the constant to 10 (Rent Roll
+  // render) MUST NOT retroactively rebind older templates to the new schema
+  // — that would silently change what historical templates render. v10 is
+  // the only entry that references the constant directly.
   {
     templateType: 'single_loan',
     templateVersion: 1,
-    compatibleContractVersion: RENDER_CONTRACT_VERSION,
+    compatibleContractVersion: 9,
     supportedAssetClasses: ALL_ASSET_CLASSES,
-    supportedVariants: allRegisteredVariants(RENDER_CONTRACT_VERSION),
+    supportedVariants: allRegisteredVariants(9),
     // The single_loan template artifact is a 10-tab workbook bound to the
     // single_loan underwriting mode. Roll-up exports use the roll_up
     // template artifact below.
     supportedUnderwritingModes: ['single_loan'],
   },
   {
-    // Matches the active uw_templates row currently in production:
-    //   template_type='single_loan', version=2, is_active=1.
     // Same compatibility envelope as v1 — the artifact change was a workbook
     // refresh, not a schema bump. Older v1 row remains for replayability of
     // any artifacts pinned against it.
     templateType: 'single_loan',
     templateVersion: 2,
-    compatibleContractVersion: RENDER_CONTRACT_VERSION,
+    compatibleContractVersion: 9,
     supportedAssetClasses: ALL_ASSET_CLASSES,
-    supportedVariants: allRegisteredVariants(RENDER_CONTRACT_VERSION),
+    supportedVariants: allRegisteredVariants(9),
     supportedUnderwritingModes: ['single_loan'],
   },
   {
@@ -106,19 +111,50 @@ const REGISTRY: TemplateMetadata[] = [
     // skipped — they were silent re-uploads of v2 with no registry entry and
     // were removed as part of the v6 remediation
     // (apps/api/src/scripts/remediate-template-registry-v6.ts).
+    //
+    // NOTE: v6 was registered at compatibleContractVersion=9 (the value of
+    // RENDER_CONTRACT_VERSION at the time v6 shipped). Today's
+    // RENDER_CONTRACT_VERSION is 10 — but historical registrations stay
+    // pinned to the version they were issued against. Reading the constant
+    // here would re-bind v6 to v10 retroactively, which would silently
+    // change what historical templates render. Pin to 9 explicitly.
     templateType: 'single_loan',
     templateVersion: 6,
+    compatibleContractVersion: 9,
+    supportedAssetClasses: ALL_ASSET_CLASSES,
+    supportedVariants: allRegisteredVariants(9),
+    supportedUnderwritingModes: ['single_loan'],
+  },
+  {
+    // single_loan v10 — Rent Roll render. Same xlsm artifact as v6 (no
+    // workbook-content change); the v-bump exists because the schema's
+    // structural surface widened: 'Rent Roll' came out of excludedSheets,
+    // 240 per-tenant cell-addresses were added under contract version 10,
+    // and the RRP toggle on Property & Loan Summary!AA3 became a managed
+    // cell. Versions 7/8/9 are intentionally skipped — there is no v7/v8/v9
+    // template artifact, and aligning template version with contract
+    // version makes the registry self-documenting. Uploaded into uw_templates
+    // as version=10 via apps/api/src/scripts/remediate-template-registry-v10.ts
+    // (direct INSERT bypassing uploadTemplate's MAX+1 — same idempotent
+    // pattern as the v6 remediation, but with an explicit version number
+    // rather than auto-increment).
+    templateType: 'single_loan',
+    templateVersion: 10,
     compatibleContractVersion: RENDER_CONTRACT_VERSION,
     supportedAssetClasses: ALL_ASSET_CLASSES,
     supportedVariants: allRegisteredVariants(RENDER_CONTRACT_VERSION),
     supportedUnderwritingModes: ['single_loan'],
   },
   {
+    // roll_up v1 — pinned to v9 (the schema state at the time of original
+    // registration). The roll_up template does not exercise the Rent Roll
+    // tab; v10's structural additions do not apply. Rebind to v10 only when
+    // a roll_up artifact is reshipped against the v10 schema.
     templateType: 'roll_up',
     templateVersion: 1,
-    compatibleContractVersion: RENDER_CONTRACT_VERSION,
+    compatibleContractVersion: 9,
     supportedAssetClasses: ALL_ASSET_CLASSES,
-    supportedVariants: allRegisteredVariants(RENDER_CONTRACT_VERSION),
+    supportedVariants: allRegisteredVariants(9),
     supportedUnderwritingModes: ['roll_up'],
   },
 ];
