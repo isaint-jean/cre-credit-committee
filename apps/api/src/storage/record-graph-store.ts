@@ -65,6 +65,7 @@ import type {
   RevisionLineageEnvelope,
   RevisionProvenance,
   DoctrineRenderSnapshot,
+  DoctrineRenderSnapshotId,
   StressOutputs,
   StressOutputsId,
   ValuationConclusion,
@@ -349,15 +350,23 @@ export class RecordGraphStore {
       -- NarrativeEvaluation row whose prose was embedded in this rendered
       -- analysis. NULL for renders produced before narrative was wired in
       -- (legacy rows) or for analyses where no narrative existed at materialize
-      -- time. The cache lookup uses (root_id, render_version, narrative_id) so
-      -- a refreshed narrative produces a cache miss → fresh render with the
-      -- new prose, instead of returning stale cached prose.
+      -- time. The cache lookup uses (root_id, render_version, narrative_id,
+      -- snapshot_id) so a refreshed narrative produces a cache miss → fresh
+      -- render with the new prose, instead of returning stale cached prose.
+      --
+      -- snapshot_id is NULLABLE (PR (ii) Part C): identifies the
+      -- DoctrineRenderSnapshot the memo + projection were keyed on. NULL when
+      -- the deal had no snapshot at render time (recompute-fallback path).
+      -- When a snapshot is later written for the eval, the cache key changes
+      -- → MISS → fresh render reads from the snapshot. The stale fallback
+      -- entry stays in the table (append-only) but is no longer hit.
       CREATE TABLE IF NOT EXISTS rendered_analyses (
         id TEXT PRIMARY KEY,
         root_id TEXT NOT NULL,
         render_version TEXT NOT NULL,
         analysis_as_of_date TEXT NOT NULL,
         narrative_id TEXT,
+        snapshot_id TEXT,
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (root_id) REFERENCES doctrine_evaluations(id)
@@ -536,15 +545,23 @@ export class RecordGraphStore {
       if (cols.length > 0 && !cols.find((c) => c.name === 'narrative_id')) {
         this.db.exec('ALTER TABLE rendered_analyses ADD COLUMN narrative_id TEXT');
       }
+      /* rendered_analyses.snapshot_id (PR (ii) Part C). Same NULLABLE pattern
+         as narrative_id — legacy rows carry snapshot_id NULL and are matched
+         by lookups with snapshotId=null. When a snapshot is later written for
+         the eval, the lookup key changes → MISS → fresh render. */
+      if (cols.length > 0 && !cols.find((c) => c.name === 'snapshot_id')) {
+        this.db.exec('ALTER TABLE rendered_analyses ADD COLUMN snapshot_id TEXT');
+      }
     } catch { /* table might not exist yet — migrate() will create it */ }
 
-    /* Index that references narrative_id — must run AFTER the ADD COLUMN
-       above on pre-Phase-1 databases. Idempotent on fresh databases too:
-       the column exists from CREATE TABLE so the index just installs. */
+    /* Index that references narrative_id + snapshot_id — must run AFTER the
+       ADD COLUMNs above on pre-Phase-1 / pre-PR-ii databases. Idempotent on
+       fresh databases too: the columns exist from CREATE TABLE so the index
+       just installs. */
     try {
       this.db.exec(
-        'CREATE INDEX IF NOT EXISTS idx_rendered_root_version_narr ' +
-          'ON rendered_analyses(root_id, render_version, narrative_id)',
+        'CREATE INDEX IF NOT EXISTS idx_rendered_root_version_narr_snap ' +
+          'ON rendered_analyses(root_id, render_version, narrative_id, snapshot_id)',
       );
     } catch { /* defensive */ }
 
@@ -1134,13 +1151,14 @@ export class RecordGraphStore {
   insertRenderedAnalysis(
     record: RenderedAnalysis,
     narrativeId: NarrativeEvaluationId | null = null,
+    snapshotId: DoctrineRenderSnapshotId | null = null,
   ): { inserted: boolean } {
     const { id, payload, body } = this.verifyAndSerialize(record, 'RenderedAnalysis');
     const result = this.db
       .prepare(
         `INSERT INTO rendered_analyses
-         (id, root_id, render_version, analysis_as_of_date, narrative_id, payload, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+         (id, root_id, render_version, analysis_as_of_date, narrative_id, snapshot_id, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING`,
       )
       .run(
@@ -1149,6 +1167,7 @@ export class RecordGraphStore {
         body.metadata.renderVersion,
         body.metadata.hashedAt,
         narrativeId,
+        snapshotId,
         payload,
         new Date().toISOString(),
       );
@@ -1163,9 +1182,9 @@ export class RecordGraphStore {
   }
 
   /**
-   * Cache lookup keyed by (root_id, render_version, narrative_id). Returns
-   * the rendered analysis for the given root + render version + narrative
-   * snapshot, or null if not yet materialized.
+   * Cache lookup keyed by (root_id, render_version, narrative_id, snapshot_id).
+   * Returns the rendered analysis for the given root + render version +
+   * narrative + render-snapshot, or null if not yet materialized.
    *
    * narrativeId discriminator (Piece A Phase 1 batch 2 / Q-R3 (p)): different
    * narratives at the same (root, render_version) live in distinct cache rows
@@ -1174,30 +1193,35 @@ export class RecordGraphStore {
    * matches; a refreshed narrative (different id) misses cache and produces
    * a fresh render.
    *
-   * Legacy rows (pre-Phase-1, narrative_id NULL) match queries where
-   * narrativeId is null. New renders supply narrativeId; new lookups supply
-   * narrativeId — consistent over time.
+   * snapshotId discriminator (PR (ii) Part C): different render-snapshots at
+   * the same (root, version, narrative) live in distinct rows because their
+   * authoritativeNumbers / dimOutputs / composedMitigationPackage differ →
+   * different RenderedAnalysisId. Lookups with snapshotId=null match the
+   * recompute-fallback cache entry; once a snapshot is written, the lookup
+   * carries the snapshot.id → MISS → fresh render reads from snapshot.
+   *
+   * Legacy rows (pre-Phase-1: narrative_id NULL; pre-PR-ii: snapshot_id NULL)
+   * are matched by NULL-supplied keys, so cache behavior degrades gracefully.
    */
   getRenderedAnalysisByRoot(
     rootId: DoctrineEvaluationId,
     renderVersion: RenderVersion,
     narrativeId: NarrativeEvaluationId | null = null,
+    snapshotId: DoctrineRenderSnapshotId | null = null,
   ): RenderedAnalysis | null {
-    const row = narrativeId === null
-      ? this.db
-          .prepare(
-            `SELECT id, payload FROM rendered_analyses
-             WHERE root_id = ? AND render_version = ? AND narrative_id IS NULL
-             LIMIT 1`,
-          )
-          .get(rootId, renderVersion) as RecordRow | undefined
-      : this.db
-          .prepare(
-            `SELECT id, payload FROM rendered_analyses
-             WHERE root_id = ? AND render_version = ? AND narrative_id = ?
-             LIMIT 1`,
-          )
-          .get(rootId, renderVersion, narrativeId) as RecordRow | undefined;
+    // Four discriminator branches because SQLite distinguishes `= NULL`
+    // (always false) from `IS NULL`. Build the right SQL for each combination.
+    const baseFields = 'SELECT id, payload FROM rendered_analyses';
+    const narrPredicate = narrativeId === null ? 'narrative_id IS NULL' : 'narrative_id = ?';
+    const snapPredicate = snapshotId === null ? 'snapshot_id IS NULL' : 'snapshot_id = ?';
+    const sql = `${baseFields}
+       WHERE root_id = ? AND render_version = ? AND ${narrPredicate} AND ${snapPredicate}
+       LIMIT 1`;
+    const stmt = this.db.prepare(sql);
+    const params: (string | RenderVersion)[] = [rootId, renderVersion];
+    if (narrativeId !== null) params.push(narrativeId);
+    if (snapshotId !== null) params.push(snapshotId);
+    const row = stmt.get(...params) as RecordRow | undefined;
     return row ? this.parseRow<RenderedAnalysis>(row) : null;
   }
 

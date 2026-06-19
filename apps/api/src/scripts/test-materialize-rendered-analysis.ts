@@ -415,36 +415,50 @@ console.log('\ngetRenderedAnalysis(id) round-trip:');
   store.close();
 }
 
-console.log('\ngetRenderedAnalysisByRoot(rootId, renderVersion, narrativeId) cache-key lookup:');
+console.log('\ngetRenderedAnalysisByRoot(rootId, renderVersion, narrativeId, snapshotId) cache-key lookup:');
 {
   const store = new RecordGraphStore(':memory:');
   const { rootId } = await ingestSeed(store);
 
-  // Lookup under the same narrativeId materialize will use. ingestSeed runs
-  // evaluateAndNarrate via stubLLM, so a NarrativeEvaluation exists; fetch its
-  // id from the bundle's AdjustedInputs.
+  // Lookup under the same narrativeId + snapshotId materialize will use.
+  // ingestSeed runs evaluateAndNarrate via stubLLM, so a NarrativeEvaluation
+  // AND a DoctrineRenderSnapshot exist (PR (i) producer wiring); fetch both
+  // ids to construct the correct cache key.
   const doctrine = store.getDoctrineEvaluation(rootId)!;
   const narrative = store.getLatestNarrativeForAdjustedInputs(doctrine.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
   const narrativeId = narrative?.id ?? null;
+  const renderSnapshot = store.getDoctrineRenderSnapshot(rootId);
+  const snapshotId = renderSnapshot?.id ?? null;
 
   // Before materialization, lookup returns null
-  const cold = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId);
+  const cold = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId, snapshotId);
   assertEqual(cold, null, 'lookup before materialization -> null');
 
   // After materialization, lookup returns the cached record
   materializeRenderedAnalysis(rootId, store);
-  const warm = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId);
+  const warm = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId, snapshotId);
   assert(warm !== null, 'lookup after materialization returns the cached record');
   assertEqual(warm?.rootId, rootId, 'cached record rootId matches');
 
   // Wrong version -> null (forward-compatibility for future render-version bumps)
-  const wrongVersion = store.getRenderedAnalysisByRoot(rootId, '99.99' as never, narrativeId);
+  const wrongVersion = store.getRenderedAnalysisByRoot(rootId, '99.99' as never, narrativeId, snapshotId);
   assertEqual(wrongVersion, null, 'lookup at non-existent render version -> null');
 
   // Wrong narrativeId -> null (cache-key discriminator works)
   const otherNarrative = 'a'.repeat(64) as never;
-  const wrongNarrative = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, otherNarrative);
+  const wrongNarrative = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, otherNarrative, snapshotId);
   assertEqual(wrongNarrative, null, 'lookup with different narrativeId -> null (cache-key staleness gate)');
+
+  // Wrong snapshotId -> null (PR (ii) Part C snapshot discriminator works)
+  const otherSnapshot = 'b'.repeat(64) as never;
+  const wrongSnapshot = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId, otherSnapshot);
+  assertEqual(wrongSnapshot, null, 'lookup with different snapshotId -> null (cache-key snapshot discriminator)');
+
+  // snapshotId=null lookup against snapshot-present cache row -> null
+  // (this is the stale-cache-closed invariant — a cached fallback render must
+  //  NOT be served once a snapshot is later written)
+  const nullSnapshotMiss = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId, null);
+  assertEqual(nullSnapshotMiss, null, 'lookup with snapshotId=null against snapshot-keyed row -> null (stale-cache gate)');
 
   store.close();
 }

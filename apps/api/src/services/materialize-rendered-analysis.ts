@@ -75,7 +75,17 @@ export function materializeRenderedAnalysisWithMeta(
   );
   const narrativeId = narrative?.id ?? null;
 
-  const cached = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId);
+  /* PR (ii) Part C — snapshot dimension on the cache key. When a render
+     snapshot exists for this eval, the cache row's snapshot_id matches it;
+     when no snapshot exists (recompute-fallback path), snapshot_id is NULL
+     and lookups with snapshotId=null match that sentinel row. The moment a
+     snapshot is later written, lookups carry the snapshot.id → MISS → fresh
+     render reads from the snapshot. The stale fallback row remains in the
+     append-only cache but is no longer hit. */
+  const renderSnapshot = store.getDoctrineRenderSnapshot(rootId);
+  const snapshotId = renderSnapshot?.id ?? null;
+
+  const cached = store.getRenderedAnalysisByRoot(rootId, RENDER_VERSION, narrativeId, snapshotId);
   if (cached !== null) {
     return { rendered: cached, cacheHit: true };
   }
@@ -95,6 +105,6 @@ export function materializeRenderedAnalysisWithMeta(
   // Cold path: project + render (passing narrative + mitigationSet through to renderUnderwritingContext).
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
   const rendered = renderUnderwritingContext(ctx, narrative, mitigationSet);
-  store.insertRenderedAnalysis(rendered, narrativeId);
+  store.insertRenderedAnalysis(rendered, narrativeId, snapshotId);
   return { rendered, cacheHit: false };
 }
