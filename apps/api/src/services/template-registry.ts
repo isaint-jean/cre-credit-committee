@@ -303,3 +303,45 @@ export function listRegisteredTemplates(): TemplateMetadata[] {
     supportedUnderwritingModes: [...e.supportedUnderwritingModes],
   }));
 }
+
+/** All registered template versions for a given templateType, ascending. */
+export function getRegisteredVersionsForType(templateType: TemplateType): number[] {
+  return REGISTRY
+    .filter((e) => e.templateType === templateType)
+    .map((e) => e.templateVersion)
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Storage-boundary gate (root-cause fix for the v3/v4/v5 / v6 / v10 pollution
+ * pattern). Thrown by `store.uploadTemplate` when the to-be-assigned version
+ * (MAX+1) has no entry in this code registry. Surfaces to the production
+ * admin route as a 409 with the structured body so the operator sees a clear
+ * "register first" message rather than a silent polluter row that breaks
+ * future exports.
+ */
+export class TemplateRegistryGateError extends Error {
+  readonly code: 'TEMPLATE_VERSION_NOT_REGISTERED';
+  readonly templateType: TemplateType;
+  readonly targetVersion: number;
+  readonly registeredVersions: number[];
+  constructor(args: {
+    templateType: TemplateType;
+    targetVersion: number;
+    registeredVersions: number[];
+  }) {
+    const message =
+      `Upload would create ${args.templateType} v${args.targetVersion}, ` +
+      `which is not registered in apps/api/src/services/template-registry.ts. ` +
+      `Add an entry for (${args.templateType}, v${args.targetVersion}) — the boot-time ` +
+      `invariant will verify schema coverage — then re-run. ` +
+      `Currently registered versions for ${args.templateType}: ` +
+      `[${args.registeredVersions.join(', ')}].`;
+    super(message);
+    this.name = 'TemplateRegistryGateError';
+    this.code = 'TEMPLATE_VERSION_NOT_REGISTERED';
+    this.templateType = args.templateType;
+    this.targetVersion = args.targetVersion;
+    this.registeredVersions = args.registeredVersions;
+  }
+}

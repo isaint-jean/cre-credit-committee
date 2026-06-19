@@ -8,7 +8,11 @@ import {
 import { CriteriaRuleSet } from '@cre/shared';
 import type { TemplateMetadata, TemplateType, UnderwritingTemplate, TemplateVersion, CreditManifesto, CreditManifestoDetail } from '@cre/shared';
 import { getDefaultCriteria } from '../services/default-criteria.js';
-import { getTemplateMetadata } from '../services/template-registry.js';
+import {
+  getRegisteredVersionsForType,
+  getTemplateMetadata,
+  TemplateRegistryGateError,
+} from '../services/template-registry.js';
 import { normalizePropertyName, normalizeAnalysisNameForMatch } from '../services/parse-bmark-tape-xlsx.js';
 
 export interface User {
@@ -785,6 +789,28 @@ export class SqliteStore {
       'SELECT MAX(version) as maxVersion FROM uw_templates WHERE template_type = ?'
     ).get(templateType) as any;
     const version = (latest?.maxVersion || 0) + 1;
+
+    // Storage-boundary registry gate (root-cause fix for the v3/v4/v5 / v6 /
+    // v10 pollution pattern). Refuses to write a uw_templates row whose
+    // (templateType, MAX+1) has no entry in apps/api/src/services/
+    // template-registry.ts. Operators must land a registry commit BEFORE
+    // uploading the artifact so getTemplateMetadata is non-null at read time
+    // and the export pipeline's compatibility check has something to validate.
+    //
+    // SCOPE: this gate covers the uploadTemplate path ONLY. Direct INSERTs
+    // (remediation scripts that need to land a specific version that doesn't
+    // match MAX+1) MUST self-gate by checking getTemplateMetadata(templateType,
+    // explicitVersion) before INSERT — the residual is NOT silent because the
+    // remediation scripts (remediate-template-registry-v6.ts /
+    // remediate-template-registry-v10.ts) each pre-flight against the registry
+    // by convention. Future remediation scripts MUST follow the same pattern.
+    if (getTemplateMetadata(templateType, version) === null) {
+      throw new TemplateRegistryGateError({
+        templateType,
+        targetVersion: version,
+        registeredVersions: getRegisteredVersionsForType(templateType),
+      });
+    }
 
     // Deactivate all previous templates of this type
     this.db.prepare(

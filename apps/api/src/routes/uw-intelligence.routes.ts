@@ -34,6 +34,7 @@ import {
 } from '../services/uw-intelligence.service.js';
 import { batchQueue, getBatchJob } from '../services/batch-queue.service.js';
 import { analyzeTemplateStructure } from '../services/template-engine.service.js';
+import { TemplateRegistryGateError } from '../services/template-registry.js';
 
 export const uwIntelligenceRoutes = Router();
 
@@ -524,6 +525,23 @@ uwIntelligenceRoutes.post('/templates', uploadSingle as any, async (req: Request
       message: 'Template successfully uploaded and saved.',
     });
   } catch (error: any) {
+    // Storage-boundary registry gate — surfaces the "not registered in code"
+    // case to the admin operator with the structured body the doctrine wants:
+    // the version we tried to write, the versions actually registered, and a
+    // pointer at the registry file they need to edit. 409 (not 500) because
+    // the upload artifact is fine; only the registry/code state is incomplete.
+    if (error instanceof TemplateRegistryGateError) {
+      res.status(409).json({
+        error: error.message,
+        code: error.code,
+        details: {
+          templateType: error.templateType,
+          targetVersion: error.targetVersion,
+          registeredVersions: error.registeredVersions,
+        },
+      });
+      return;
+    }
     console.error('Template upload error:', error);
     res.status(500).json({ error: 'Upload failed – file not saved correctly. Please retry.' });
   }
