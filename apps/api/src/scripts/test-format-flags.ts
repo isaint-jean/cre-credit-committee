@@ -32,7 +32,7 @@ import {
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = path.resolve(
   SCRIPT_DIR,
-  '../../fixtures/sunroad-centrum-handbook-evaluation.json',
+  '../../fixtures/narrative-engine-anchor-synthetic.json',
 );
 
 let passed = 0;

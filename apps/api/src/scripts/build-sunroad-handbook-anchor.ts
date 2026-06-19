@@ -21,14 +21,20 @@
  * shape; whether the flags came from a real engine run or synthetic
  * construction is invisible at the consuming surface.
  *
- * Synthesis-vs-name divergence (honest acknowledgment): the fixture is named
- * "sunroad-centrum" because it inherits the deal-anchor label, but
+ * NOT real Sunroad data — synthetic narrative-engine test fixture.
+ *
+ * Earlier the fixture was named "sunroad-centrum-handbook-evaluation.json",
+ * which caused a false alarm: the synthetic "Medical Office / Washington DC /
+ * Class B / cash-out" content was read as if it were Sunroad's actual flag set
+ * even though no production page render path consumes this file. Renamed to
+ * narrative-engine-anchor-synthetic.json to close that surface.
+ *
  * property_sub_type is set to "Medical Office" to make P-II-8 (specialty
- * assets) fire synthetically. Asset type stays Office. Sunroad-Centrum-CMBS
- * parity is NOT a fixture goal here — the fixture's purpose is exercising
- * Piece A's format-flags utility test surface, not accurately describing
- * Sunroad. Anyone reading this anchor for substantive Sunroad-deal claims
- * should look at the actual CF/PCA fixtures, not this synthetic HE.
+ * assets) fire synthetically. Asset type stays Office. CMBS parity is NOT a
+ * fixture goal here — the fixture's purpose is exercising Piece A's
+ * format-flags utility test surface, not accurately describing any deal.
+ * Anyone reading this anchor for substantive deal claims should look at the
+ * relevant deal's actual handbook_evaluations row, not this synthetic HE.
  *
  * 4 fired flags constructed:
  *   P-II-3       critical    cash_out_amount = 8500000           4 IPs (all)
@@ -65,7 +71,7 @@ import { handbook } from '@cre/handbook-data';
 import { computeHandbookEvaluationId } from '../util/content-hash.js';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const OUT_FIXTURE = path.resolve(SCRIPT_DIR, '../../fixtures/sunroad-centrum-handbook-evaluation.json');
+const OUT_FIXTURE = path.resolve(SCRIPT_DIR, '../../fixtures/narrative-engine-anchor-synthetic.json');
 
 // Fixed timestamp aligned with v20 ship date for fixture determinism — re-runs
 // of this script produce byte-identical output (same content-hash id) so long
