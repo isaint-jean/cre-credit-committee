@@ -235,6 +235,17 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
     { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
 
+  // 0. Render-snapshot sibling row (PR i — read-instead-of-recompute foundation):
+  // every NEW eval the pipeline produces MUST have a matching snapshot keyed on
+  // its DoctrineEvaluationId. Forward-only — historical evals carry no snapshot.
+  const snap0 = store.getDoctrineRenderSnapshot(ingest.evaluationId);
+  assert(snap0 !== null, 'render snapshot persisted for new eval');
+  assertEqual(snap0?.doctrineEvaluationId, ingest.evaluationId, 'snapshot.doctrineEvaluationId == new eval id');
+  assertEqual(snap0?.snapshotProducerVersion, '1.0', 'snapshot.snapshotProducerVersion stamped');
+  assert(snap0?.rating.recommendation !== undefined, 'snapshot.rating.recommendation populated');
+  assert(typeof snap0?.authoritativeNumbers.stressedValue === 'number' || snap0?.authoritativeNumbers.stressedValue === null, 'snapshot.authoritativeNumbers.stressedValue persisted');
+  assert(Object.keys(snap0?.dimOutputs ?? {}).length >= 1, 'snapshot.dimOutputs has at least one dim');
+
   // 1. HE row persisted
   const doctrine = store.getDoctrineEvaluation(ingest.evaluationId);
   assert(doctrine !== null, 'doctrine evaluation persisted');

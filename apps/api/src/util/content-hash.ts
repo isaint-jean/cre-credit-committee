@@ -23,6 +23,7 @@ import type {
   DispositionId,
   DispositionIdHashInput,
   DoctrineEvaluationId,
+  DoctrineRenderSnapshotId,
   HandbookEvaluationId,
   NarrativeEvaluationId,
   ExtractionResultId,
@@ -80,6 +81,7 @@ export const computeCrossCheckResultId    = (content: unknown): CrossCheckResult
 export const computeStressOutputsId       = (content: unknown): StressOutputsId       => computeContentHash(content) as StressOutputsId;
 export const computeValuationConclusionId = (content: unknown): ValuationConclusionId => computeContentHash(content) as ValuationConclusionId;
 export const computeDoctrineEvaluationId  = (content: unknown): DoctrineEvaluationId  => computeContentHash(content) as DoctrineEvaluationId;
+export const computeDoctrineRenderSnapshotId = (content: unknown): DoctrineRenderSnapshotId => computeContentHash(content) as DoctrineRenderSnapshotId;
 export const computeHandbookEvaluationId  = (content: unknown): HandbookEvaluationId  => computeContentHash(content) as HandbookEvaluationId;
 export const computeNarrativeEvaluationId = (content: unknown): NarrativeEvaluationId => computeContentHash(content) as NarrativeEvaluationId;
 export const computeExtractionResultId    = (content: unknown): ExtractionResultId    => computeContentHash(content) as ExtractionResultId;

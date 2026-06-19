@@ -8,5 +8,6 @@ export * from './reason-codes.js';
 export * from './components.js';
 export * from './adjustments.js';
 export * from './evaluation.js';
+export * from './render-snapshot.js';
 export * from './rules-by-component.js';
 export * from './manifest.js';

@@ -30,13 +30,21 @@ import type {
   AdjustedInputs,
   AdjustedLineItem,
   DoctrineEvaluation,
+  DoctrineRenderSnapshot,
+  DoctrineRenderSnapshotId,
   HandbookEvaluation,
   MitigationProposalSet,
   NarrativeEvaluation,
+  SnapshotDimOutput,
+  SnapshotRating,
 } from '@cre/contracts';
-import { MITIGATION_ENGINE_VERSION } from '@cre/contracts';
+import { MITIGATION_ENGINE_VERSION, SNAPSHOT_PRODUCER_VERSION } from '@cre/contracts';
 import { calculateAnnualDebtService } from '@cre/shared';
-import { buildNarrative, type LLMCallFn } from './narrative/build-narrative.js';
+import {
+  buildNarrative,
+  projectAuthoritativeNumbers,
+  type LLMCallFn,
+} from './narrative/build-narrative.js';
 import {
   evaluateFromAdjustedInputs,
   type EvaluateFromAdjustedInputsArgs,
@@ -51,7 +59,10 @@ import {
 import type { EvaluateDealResult } from '../doctrine-clean/scoring/evaluate-deal.js';
 import { evaluateDeal } from '../doctrine-clean/index.js';
 import { computeMaturityBalance } from '../doctrine-clean/dimensions/refinance-feasibility.js';
-import { computeMitigationProposalSetId } from '../util/content-hash.js';
+import {
+  computeDoctrineRenderSnapshotId,
+  computeMitigationProposalSetId,
+} from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 export interface EvaluateAndNarrateDeps {
@@ -246,6 +257,52 @@ export async function evaluateAndNarrate(
     },
   });
 
+  // Read-instead-of-recompute snapshot (PR i). Captured here — AFTER the
+  // doctrine eval is bridged + composed package exists, BEFORE buildNarrative
+  // runs (forward-only by design, the snapshot is independent of the
+  // narrative). Built from in-memory dealResult + composedMitigationPackage +
+  // the projected AUTHORITATIVE NUMBERS block — NO recompute, all data already
+  // in hand.
+  //
+  // Pin-faithful guarantee: every NEW eval henceforth gets a snapshot row
+  // keyed on its DoctrineEvaluationId. PR ii's reader uses this to render
+  // memos at the deal's pinned doctrine instead of HEAD's. Existing evals
+  // (pre-PR-i) carry no snapshot — the reader falls back + flags.
+  //
+  // ON CONFLICT(doctrine_evaluation_id) DO NOTHING on the storage side gives
+  // idempotent re-ingestion (same eval → first snapshot wins; re-runs no-op
+  // even with different wall-clock capturedAt values).
+  //
+  // Non-finite sanitization: the canonical-JSON serializer that hashes the
+  // body rejects Infinity / NaN. The composed mitigation package + dim
+  // derivedOutputs are produced by upstream engine code that can emit
+  // Infinity on division-by-zero (e.g., a 1 / 0 debtYield for degenerate
+  // inputs). We sanitize those non-finite values to null AT THE BOUNDARY of
+  // the snapshot — the in-memory consumers (renderer + LLM prompt) still see
+  // the upstream values unchanged; only the persisted blob is sanitized.
+  const snapshotBody = sanitizeForCanonicalJson({
+    doctrineEvaluationId: evaluation.id,
+    snapshotProducerVersion: SNAPSHOT_PRODUCER_VERSION,
+    capturedAt: new Date().toISOString(),
+    rating: projectSnapshotRating(dealResult),
+    dimOutputs: projectSnapshotDimOutputs(dealResult),
+    authoritativeNumbers: projectAuthoritativeNumbers(dealResult, composedMitigationPackage),
+    composedMitigationPackage: {
+      proposals:               composedMitigationPackage.proposals,
+      initialProposals:        composedMitigationPackage.initialProposals,
+      finalLoanAmount:         composedMitigationPackage.finalLoanAmount,
+      reconciliation:          composedMitigationPackage.reconciliation as unknown as Readonly<Record<string, unknown>>,
+      sponsorBurdenProfile:    composedMitigationPackage.sponsorBurdenProfile as unknown as Readonly<Record<string, unknown>>,
+      fundedExitProjection:    composedMitigationPackage.fundedExitProjection as unknown as Readonly<Record<string, unknown>>,
+      finalState:              composedMitigationPackage.finalState as unknown as Readonly<Record<string, unknown>>,
+    },
+  }) as Omit<DoctrineRenderSnapshot, 'id'>;
+  const renderSnapshot: DoctrineRenderSnapshot = {
+    id: computeDoctrineRenderSnapshotId(snapshotBody) as DoctrineRenderSnapshotId,
+    ...snapshotBody,
+  };
+  store.insertDoctrineRenderSnapshot(renderSnapshot);
+
   // Narrative engine v1.6 — composed-package wiring + handbook demotion.
   // Both `dealResult` and `composedMitigationPackage` are threaded; the
   // producer projects the deterministic AUTHORITATIVE NUMBERS block from
@@ -286,4 +343,75 @@ export async function evaluateAndNarrate(
     dealResult,
     composedMitigationPackage,
   };
+}
+
+/* --- snapshot projection helpers (PR i) — pure, no recompute ----------- */
+
+/**
+ * Project `EvaluateDealResult.rating` into the snapshot's rating shape.
+ * `recommendation`/`band`/`ratedRisk` are already on `dealResult.rating`; this
+ * just reshapes + types them. The producer-side union widths (Recommendation /
+ * RatingBand from doctrine-clean) match `SnapshotRecommendation` /
+ * `SnapshotRatingBand` (contract-side mirrors); a narrowing cast is safe.
+ */
+function projectSnapshotRating(dealResult: EvaluateDealResult): SnapshotRating {
+  const r = dealResult.rating as unknown as {
+    recommendation: SnapshotRating['recommendation'];
+    band: SnapshotRating['band'];
+    ratedRisk: number | null;
+  };
+  return {
+    recommendation: r.recommendation,
+    band:           r.band ?? null,
+    ratedRisk:      r.ratedRisk ?? null,
+  };
+}
+
+/**
+ * Per-dim snapshot map keyed by `dimensionId`. Carries tier + applicability +
+ * `derivedOutputs` verbatim. The reader knows which keys to read for which
+ * surface (e.g., dim 7 → stressedValue/stressedLtv; dim 4 → exitDscr).
+ */
+function projectSnapshotDimOutputs(
+  dealResult: EvaluateDealResult,
+): Readonly<Record<string, SnapshotDimOutput>> {
+  const out: Record<string, SnapshotDimOutput> = {};
+  for (const c of dealResult.allDimensions) {
+    out[c.dimensionId] = {
+      tier:           c.tier ?? 'unknown',
+      applicability:  c.applicability,
+      derivedOutputs: (c.derivedOutputs ?? {}) as Readonly<Record<string, number | string | null>>,
+    };
+  }
+  return out;
+}
+
+/**
+ * Walk a value, replacing non-finite numbers (Infinity, -Infinity, NaN) with
+ * `null`. The canonical-JSON serializer that hashes the snapshot rejects
+ * non-finite numbers — upstream engine code can legitimately emit Infinity on
+ * division-by-zero (e.g., debtYield = noi / 0 for degenerate inputs) and we
+ * mustn't crash the producer over that. `null` is the contract-honest
+ * placeholder for "value is structurally absent" — same semantics
+ * `derivedOutputs`'s `number | string | null` union already permits.
+ *
+ * Non-recursive boundary sanitizer (the in-memory consumers like the renderer
+ * + LLM prompt still see the original Infinity values; only the persisted
+ * snapshot body is sanitized).
+ */
+function sanitizeForCanonicalJson(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeForCanonicalJson);
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = sanitizeForCanonicalJson(v);
+    }
+    return out;
+  }
+  return value;
 }

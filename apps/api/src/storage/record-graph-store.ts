@@ -64,6 +64,7 @@ import type {
   RevisionId,
   RevisionLineageEnvelope,
   RevisionProvenance,
+  DoctrineRenderSnapshot,
   StressOutputs,
   StressOutputsId,
   ValuationConclusion,
@@ -468,6 +469,23 @@ export class RecordGraphStore {
         created_at         TEXT NOT NULL,
         FOREIGN KEY (revision_id) REFERENCES revision_lineage_envelopes(revision_id)
       );
+
+      -- Read-instead-of-recompute sibling. One snapshot per DoctrineEvaluation;
+      -- carries the projected view-layer outputs (rating, dim outputs,
+      -- AuthoritativeNumbers, ComposedMitigationPackage). NOT in the doctrine
+      -- eval's hash boundary — adding/refreshing a snapshot does not perturb
+      -- any other record's id. Same sibling pattern as revision_provenance.
+      CREATE TABLE IF NOT EXISTS doctrine_render_snapshots (
+        id                          TEXT PRIMARY KEY,
+        doctrine_evaluation_id      TEXT NOT NULL UNIQUE,
+        snapshot_producer_version   TEXT NOT NULL,
+        captured_at                 TEXT NOT NULL,
+        payload                     TEXT NOT NULL,
+        created_at                  TEXT NOT NULL,
+        FOREIGN KEY (doctrine_evaluation_id) REFERENCES doctrine_evaluations(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_render_snapshot_doctrine
+        ON doctrine_render_snapshots(doctrine_evaluation_id);
 
       CREATE INDEX IF NOT EXISTS idx_adjusted_inputs_lib       ON adjusted_inputs(library_snapshot_id);
       CREATE INDEX IF NOT EXISTS idx_cross_check_ai            ON cross_check_results(adjusted_inputs_id);
@@ -1483,6 +1501,49 @@ export class RecordGraphStore {
       )
       .get(revisionId) as RevisionProvenanceRow | undefined;
     return row ? parseProvenanceRow(row) : null;
+  }
+
+  /* ----------------------- doctrine_render_snapshots --------------------------- */
+
+  /**
+   * Sibling of DoctrineEvaluation. ON CONFLICT(doctrine_evaluation_id) DO
+   * NOTHING — keyed on the FK rather than the row id so idempotent re-
+   * ingestion of the same eval (e.g., retry on transient failure) does NOT
+   * try to write a second snapshot. The snapshot's row id includes wall-
+   * clock `capturedAt`, so a second attempt would carry a different id; the
+   * FK uniqueness anchors the one-per-eval invariant regardless of capture
+   * timing.
+   */
+  insertDoctrineRenderSnapshot(record: DoctrineRenderSnapshot): { inserted: boolean } {
+    const { id, payload, body } = this.verifyAndSerialize(record, 'DoctrineRenderSnapshot');
+    const result = this.db
+      .prepare(
+        `INSERT INTO doctrine_render_snapshots
+         (id, doctrine_evaluation_id, snapshot_producer_version, captured_at, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(doctrine_evaluation_id) DO NOTHING`,
+      )
+      .run(
+        id,
+        body.doctrineEvaluationId,
+        body.snapshotProducerVersion,
+        body.capturedAt,
+        payload,
+        new Date().toISOString(),
+      );
+    return { inserted: result.changes > 0 };
+  }
+
+  /** Look up snapshot by doctrine_evaluation_id (the FK keys the one-per-eval invariant). */
+  getDoctrineRenderSnapshot(
+    doctrineEvaluationId: DoctrineEvaluationId,
+  ): DoctrineRenderSnapshot | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, payload FROM doctrine_render_snapshots WHERE doctrine_evaluation_id = ?`,
+      )
+      .get(doctrineEvaluationId) as RecordRow | undefined;
+    return row ? this.parseRow<DoctrineRenderSnapshot>(row) : null;
   }
 
   /* --------------------------------- shutdown --------------------------------- */

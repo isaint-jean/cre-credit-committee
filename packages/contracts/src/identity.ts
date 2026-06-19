@@ -35,6 +35,12 @@ export type CrossCheckResultId     = RecordId<'CrossCheckResult'>;
 export type StressOutputsId        = RecordId<'StressOutputs'>;
 export type ValuationConclusionId  = RecordId<'ValuationConclusion'>;
 export type DoctrineEvaluationId   = RecordId<'DoctrineEvaluation'>;
+// PR (i) of the read-instead-of-recompute fix. Sibling-to-DoctrineEvaluation
+// record (one per eval) that carries the projected outputs the view layer
+// needs (rating, dim outputs, AuthoritativeNumbers, ComposedMitigationPackage).
+// Adding this record DOES NOT re-key DoctrineEvaluationId — the snapshot sits
+// outside the eval's hash boundary (sibling pattern, same as RevisionProvenance).
+export type DoctrineRenderSnapshotId = RecordId<'DoctrineRenderSnapshot'>;
 export type HandbookEvaluationId   = RecordId<'HandbookEvaluation'>;
 export type NarrativeEvaluationId  = RecordId<'NarrativeEvaluation'>;
 // Mitigations doctrine v1 (Commit 1) — sibling graph record produced between
