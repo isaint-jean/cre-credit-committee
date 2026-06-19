@@ -48,9 +48,11 @@ import {
   type NarrativeEvaluation,
   type RatingBand,
   type RevisionId,
+  type RiskType,
   type StressOutputs,
   type StressScenarioOutput,
 } from '@cre/contracts';
+import { handbook } from '@cre/handbook-data';
 import type {
   Analysis,
   CreditScore,
@@ -422,12 +424,20 @@ function ratingBandToRiskTier(band: RatingBand): CreditScore['riskTier'] {
  * (FiredFlag.severity and legacy Severity share the same 4-tier vocabulary
  * 'critical' | 'high' | 'medium' | 'low').
  *
- * Category derives from the principle-id prefix:
+ * Category derives from the principle-id prefix (legacy field, kept for
+ * downstream compatibility):
  *   P-I-*   → 'sponsor'        (sponsor / borrower)
  *   P-II-*  → 'cash_flow'      (income / NOI / data quality)
  *   P-III-* → 'loan_structure' (stress / leverage / refi)
  *   P-IV-*  → 'expense'        (reserves / capital)
  *   else    → 'market'         (fallback)
+ *
+ * riskType is the content-driven category for the UI's Red Flags card
+ * header. Source of truth is the principle definition in handbook.json
+ * (Principle.riskType). The projector reads it at read time from the
+ * loaded handbook catalog — no eval-time denormalization, no payload
+ * migration. Fallback 'risk_flag' if the principleId isn't in the
+ * catalog (impossible by design today; defensive only).
  *
  * Title is the first sentence of flag_message (or the whole message when
  * short); explanation is the full flag_message; pageReferences is empty
@@ -442,6 +452,7 @@ function projectFinding(flag: FiredFlag): Finding {
   return {
     id: flag.principleId,
     category: categoryForPrincipleId(flag.principleId),
+    riskType: riskTypeForPrincipleId(flag.principleId),
     severity: flag.severity as Severity,
     title,
     explanation: msg,
@@ -450,6 +461,14 @@ function projectFinding(flag: FiredFlag): Finding {
     appliedRuleId: flag.principleId,
     impact: { description: msg },
   };
+}
+
+const RISK_TYPE_BY_PRINCIPLE_ID: ReadonlyMap<string, RiskType> = new Map(
+  handbook.principles.map((p) => [p.id, p.riskType] as const),
+);
+
+function riskTypeForPrincipleId(principleId: string): RiskType | 'risk_flag' {
+  return RISK_TYPE_BY_PRINCIPLE_ID.get(principleId) ?? 'risk_flag';
 }
 
 function categoryForPrincipleId(principleId: string): FindingCategory {

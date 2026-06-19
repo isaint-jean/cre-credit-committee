@@ -343,9 +343,49 @@ export interface ReviewStepCrossReferences {
  * `severity` is the principle's own severity. Individual deterministic-check
  * bands can declare their own (potentially different) severity.
  */
+/**
+ * Risk-type taxonomy — content-driven categorization of what each principle
+ * checks. Source of truth for the committee-facing "Red Flags" card header on
+ * the analysis page (a finding's riskType is the principle's riskType, read
+ * at projection time — there is no eval-time stamping on FiredFlag, so old
+ * persisted handbook_evaluations carry through without re-eval).
+ *
+ * The 14 values are derived from clustering the 91 atomic principles by the
+ * subject of their title (the question the principle asks), not by handbook
+ * section. Adding a value: append to RISK_TYPES; stamp at least one principle
+ * with it. Removing a value: not safe — would orphan principles. Re-labeling
+ * a principle's riskType is fine and takes effect on the next page read (no
+ * stored payload migration).
+ *
+ * Reserved sentinel for the projector's defensive fallback when a principleId
+ * arrives that isn't in the loaded handbook (impossible by design today, but
+ * future-proof for handbook/engine version skew): the projector emits the
+ * string 'risk_flag' on Finding.riskType, which the UI Title-Cases as
+ * "Risk Flag". 'risk_flag' is NOT in RISK_TYPES — Principle.riskType cannot
+ * be assigned it.
+ */
+export const RISK_TYPES = [
+  'information_quality',
+  'cash_flow_underwriting',
+  'leverage_coverage',
+  'stress_testing',
+  'valuation_stress',
+  'loan_structure',
+  'term_maturity',
+  'sponsor_borrower',
+  'tenant_concentration',
+  'capital_reserves',
+  'property_condition',
+  'market_submarket',
+  'leasing_lease_up',
+  'asset_class_risk',
+] as const;
+export type RiskType = (typeof RISK_TYPES)[number];
+
 export interface Principle {
   id: string;
   cluster: string;
+  riskType: RiskType;
   title: string;
   principleText: string;
   sourceCitation: string;

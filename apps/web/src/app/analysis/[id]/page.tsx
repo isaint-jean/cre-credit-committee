@@ -1384,6 +1384,36 @@ function LoanTermInput({ label, value, onSave, step }: {
 
 // --- Sub-components ---
 
+const RISK_TYPE_LABELS: Readonly<Record<string, string>> = {
+  information_quality: 'Information Quality',
+  cash_flow_underwriting: 'Cash Flow Underwriting',
+  leverage_coverage: 'Leverage & Coverage',
+  stress_testing: 'Stress Testing',
+  valuation_stress: 'Valuation Stress',
+  loan_structure: 'Loan Structure',
+  term_maturity: 'Term & Maturity',
+  sponsor_borrower: 'Sponsor & Borrower',
+  tenant_concentration: 'Tenant Concentration',
+  capital_reserves: 'Capital Reserves',
+  property_condition: 'Property Condition',
+  market_submarket: 'Market & Submarket',
+  leasing_lease_up: 'Leasing & Lease-Up',
+  asset_class_risk: 'Asset-Class Risk',
+  risk_flag: 'Risk Flag',
+};
+
+function riskTypeLabel(value: string | undefined): string {
+  if (!value) return 'Risk Flag';
+  const known = RISK_TYPE_LABELS[value];
+  if (known) return known;
+  // Forward-compat: unknown value from a future handbook revision → Title-Case
+  // it so a label exists rather than the UI crashing.
+  return value
+    .split('_')
+    .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
 function FindingCard({ finding, mitigationCount, onComment }: { finding: Finding; mitigationCount?: number; onComment: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -1396,6 +1426,9 @@ function FindingCard({ finding, mitigationCount, onComment }: { finding: Finding
       <div className="flex items-start gap-2">
         <span className={`badge badge-${finding.severity} shrink-0 mt-0.5`}>{finding.severity}</span>
         <div className="flex-1 min-w-0">
+          <div className="text-[11px] uppercase tracking-wide text-text-muted font-semibold mb-0.5">
+            {riskTypeLabel(finding.riskType)}
+          </div>
           <h4 className="text-sm font-medium text-text-primary">{finding.title}</h4>
           <div className="flex items-center gap-2 mt-0.5">
             {finding.pageReferences?.[0] && (

@@ -23,6 +23,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-1',
     cluster: 'core_philosophy',
+    riskType: 'cash_flow_underwriting',
     title: 'Downside protection over upside capture',
     principleText:
       'Downside protection takes precedence over upside capture',
@@ -47,6 +48,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-2',
     cluster: 'core_philosophy',
+    riskType: 'cash_flow_underwriting',
     title: 'Size loans against historical, not peak',
     principleText:
       'Loan sizing must be supported by historical performance and cost basis, not peak underwriting',
@@ -87,6 +89,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-3',
     cluster: 'core_philosophy',
+    riskType: 'loan_structure',
     title: 'Cash-out refinances elevated scrutiny',
     principleText:
       'Cashout refinances materially increase risk and warrant heightened scrutiny',
@@ -132,6 +135,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-4',
     cluster: 'core_philosophy',
+    riskType: 'cash_flow_underwriting',
     title: 'Stable, durable cash flow preferred',
     principleText:
       'Stable, durable cash flow is preferred over recently ramped NOI or assets that face significant rollover over the term that could affect the NOI dramatically.',
@@ -173,6 +177,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-5',
     cluster: 'core_philosophy',
+    riskType: 'market_submarket',
     title: 'Fungible assets in liquid markets preferred',
     principleText:
       'Fungible assets in liquid, dynamic markets are preferred. The real estate should work for other tenants if there is future vacancy, and the building should be attractive to a buyer if something happens with our borrower. Illiquid assets in tertiary markets tend to cause high severity losses when things go wrong.',
@@ -223,6 +228,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-6',
     cluster: 'core_philosophy',
+    riskType: 'information_quality',
     title: 'Information gaps are credit negatives',
     principleText:
       'Lack of information or transparency is itself a credit negative',
@@ -247,6 +253,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-7',
     cluster: 'core_philosophy',
+    riskType: 'term_maturity',
     title: 'Early and severe losses kill B-piece',
     principleText:
       'Early losses and high severity losses will kill a B-piece investment',
@@ -267,6 +274,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-8',
     cluster: 'core_philosophy',
+    riskType: 'asset_class_risk',
     title: 'Specialized assets are higher risk',
     principleText:
       "Know what you don't know – specialized assets are inherently higher risk (data centers, cold-storage, student housing, etc.) and lead to high severity losses.",
@@ -326,6 +334,7 @@ const sectionII_principles: Principle[] = [
   {
     id: 'P-II-9',
     cluster: 'core_philosophy',
+    riskType: 'information_quality',
     title: 'Read deal data before asset-class priors',
     principleText:
       "Rules concerning rollover, re-leasing, refinancing exposure, and reserve adequacy MUST compute from actual deal data (per-tenant lease expirations, loan maturity and refinancing window, concluded reserve schedules, rent-roll footnote facts such as termination options) before firing. When that data is present, document fact takes precedence over any asset-class prior. When that data is absent, the rule returns needs_manual_input naming what is missing — it does NOT fall back to an assumed value or a stereotype. The refinancing window is a NAMED PARAMETER (a proxy for the take-out lender's window past maturity, today 12 months) — not a universal truth — and is supplied by the evaluator as part of the Authoritative Derived Facts block.",
@@ -357,6 +366,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-1',
     cluster: 'universal_framework',
+    riskType: 'cash_flow_underwriting',
     title: 'Reconcile historical NOI to UW NOI',
     principleText:
       'Reconcile historical NOI to underwritten NOI; explain any variance',
@@ -386,6 +396,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-2',
     cluster: 'universal_framework',
+    riskType: 'cash_flow_underwriting',
     title: 'Normalize UW to market with comps',
     principleText:
       'Normalize underwriting assumptions to market through rent, vacancy, concession, and expense comparables',
@@ -415,6 +426,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-3',
     cluster: 'universal_framework',
+    riskType: 'capital_reserves',
     title: 'Subtract recurring capex/TI/LC/FF&E/reserves from NOI',
     principleText:
       'Recurring capital expenditures, tenant improvements, leasing commissions, FF&E, and replacement reserves must be deducted from NOI to arrive at a realistic NCF',
@@ -444,6 +456,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-4',
     cluster: 'universal_framework',
+    riskType: 'loan_structure',
     title: 'Cash on hand reserves preferred over springing',
     principleText:
       'Cash on hand for capital needs is irreplaceable; springing structures are credit-negative',
@@ -473,6 +486,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-5',
     cluster: 'universal_framework',
+    riskType: 'loan_structure',
     title: 'Cost basis + borrower cash position on refinancings',
     principleText:
       'On refinancings, evaluate the sponsor cost basis as well as the borrower cash position outside the deal',
@@ -505,6 +519,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-6',
     cluster: 'universal_framework',
+    riskType: 'leverage_coverage',
     title: 'Evaluate leverage via DSCR + Debt Yield + LTV combination',
     principleText:
       'Evaluate leverage using DSCR, Debt Yield, and LTV in combination',
@@ -528,6 +543,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-7',
     cluster: 'universal_framework',
+    riskType: 'valuation_stress',
     title: 'Sales comps from submarket with comparability assessment',
     principleText:
       'Sales comparables should come from the property submarket and asset type, with explicit comparability assessment',
@@ -557,6 +573,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-8',
     cluster: 'universal_framework',
+    riskType: 'tenant_concentration',
     title: 'Stress DSCR per asset-level volatility',
     principleText:
       'Stress DSCR under scenarios consistent with asset-level volatility; for office, retail and industrial this means removing specific tenants from the NOI to see coverage if they vacate.',
@@ -580,6 +597,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-9',
     cluster: 'universal_framework',
+    riskType: 'valuation_stress',
     title: 'Value via stabilized and stressed cap rates',
     principleText:
       'Assess value using both stabilized and stressed cap rate assumptions',
@@ -603,6 +621,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-10',
     cluster: 'universal_framework',
+    riskType: 'term_maturity',
     title: 'Distinguish term risk from maturity risk',
     principleText: 'Explicitly distinguish term risk from maturity risk',
     sourceCitation: 'Handbook §III, bullet 10',
@@ -622,6 +641,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-11',
     cluster: 'universal_framework',
+    riskType: 'loan_structure',
     title: 'Present sources & uses with cash-in/cash-out designation',
     principleText:
       'Sources and uses must be presented with explicit cash-in/cash-out designation for proceeds',
@@ -654,6 +674,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-12',
     cluster: 'universal_framework',
+    riskType: 'sponsor_borrower',
     title:
       'Sponsor review (litigation, bankruptcies, foreclosures, press, portfolio correlation)',
     principleText:
@@ -700,6 +721,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-13',
     cluster: 'universal_framework',
+    riskType: 'sponsor_borrower',
     title: 'Eightfold Portfolio Exposure Study (cross-portfolio corpus query)',
     principleText:
       'Cross-reference the new deal against Eightfold\'s broader UW corpus for similar properties, markets, sponsors, and prior rejected deals',
@@ -743,6 +765,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-14',
     cluster: 'universal_framework',
+    riskType: 'cash_flow_underwriting',
     title: 'Management fee underwritten at 3% of EGI minimum',
     principleText:
       'Underwrite management fee at minimum 3% of EGI as a house default across asset types, regardless of in-place actual or self-managed cost. Below-floor management fees should be raised to the 3% floor.',
@@ -784,6 +807,7 @@ const sectionIII_principles: Principle[] = [
   {
     id: 'P-III-15',
     cluster: 'universal_framework',
+    riskType: 'cash_flow_underwriting',
     title: 'NOI reconciliation: underwriting uplift earns its way against trailing actuals',
     principleText:
       "The trailing actual NOI is the truth floor; underwriting NOI that exceeds trailing actual NOI must be reconciled against durable documented drivers (signed and executed leases + contractual rent steps) before it is accepted. The issuer's underwritten NOI is a cross-reference, not a floor. When trailing actual NOI is below underwriting NOI, the rule fires; resolution requires per-tenant lease execution status (signed vs LOI/projection) to test whether the excess is durably backed. Market-rate assumptions, projected lease-up without signed tenants, and assumed rent growth do NOT satisfy the resolution — they earn haircuts. When signed-lease execution status is not available in the deal data, the rule returns needs_manual_input naming the gap rather than accepting the uplift on asset-class priors or rejecting it on stereotype.",
@@ -814,6 +838,7 @@ const sectionIV_singleTenant_principles: Principle[] = [
   {
     id: 'P-IV-ST-1',
     cluster: 'single_tenant_risk',
+    riskType: 'tenant_concentration',
     title: 'Single-tenant deals require elevated skepticism',
     principleText:
       'All single-tenant loans should be underwritten with elevated skepticism, regardless of reported in-place cash flow strength.',
@@ -842,6 +867,7 @@ const sectionIV_singleTenant_principles: Principle[] = [
   {
     id: 'P-IV-ST-2',
     cluster: 'single_tenant_risk',
+    riskType: 'tenant_concentration',
     title: 'Credit-driven tenancy higher risk than market-driven',
     principleText:
       'Credit-driven tenant relationships (build-to-suit, sale-leaseback, bespoke deal economics) carry materially higher risk than market-driven tenancy, because backfill at the same rent is unlikely if tenant vacates',
@@ -875,6 +901,7 @@ const sectionIV_singleTenant_principles: Principle[] = [
   {
     id: 'P-IV-ST-3',
     cluster: 'single_tenant_risk',
+    riskType: 'valuation_stress',
     title: 'Appraiser dark value methodology overstates realizable value',
     principleText:
       "Appraisal dark value methodologies materially overstate realizable value in distress due to flawed assumptions around re-leasing velocity, achievable rents, downtime, and capital costs. Even if we agree on the re-stabilized value, the appraisers overestimate what that means for dark value today and how much an investor would need to get paid to take that execution risk.",
@@ -899,6 +926,7 @@ const sectionIV_singleTenant_principles: Principle[] = [
   {
     id: 'P-IV-ST-4',
     cluster: 'single_tenant_risk',
+    riskType: 'valuation_stress',
     title: 'Haircut appraised dark value by ~50%',
     principleText:
       'As a baseline heuristic, haircut appraised dark value by approximately 50% to arrive at a more realistic distress recovery scenario. This adjustment is not a substitute for asset-specific analysis.',
@@ -969,6 +997,7 @@ const sectionIV_industrial_principles: Principle[] = [
   {
     id: 'P-IV-IND-1',
     cluster: 'industrial',
+    riskType: 'property_condition',
     title: 'Older specialized industrial with manufacturing use elevated risk',
     principleText:
       'Older, specialized industrial assets configured for manufacturing carry elevated re-leasing risk because the building configuration limits the universe of potential replacement tenants',
@@ -1032,6 +1061,7 @@ const sectionIV_industrial_principles: Principle[] = [
   {
     id: 'P-IV-IND-2',
     cluster: 'industrial',
+    riskType: 'tenant_concentration',
     title: 'Sale-leasebacks with PE-owned non-credit tenants are negative',
     principleText:
       'Sale-leasebacks where the lessee is PE-owned and lacks investment-grade credit are credit-negative — the lease economics typically reflect the seller financing structure rather than market terms, and the tenant has limited durability if PE owner exits or restructures',
@@ -1068,6 +1098,7 @@ const sectionIV_industrial_principles: Principle[] = [
   {
     id: 'P-IV-IND-3',
     cluster: 'industrial',
+    riskType: 'tenant_concentration',
     title: 'Tenant credit quality critical when lease term is primary support',
     principleText:
       'When the lease term is the primary support for the loan (i.e., long lease, fixed escalators, single-tenant or anchor structure), tenant credit quality is critical. Weak tenant credit converts a "lease-supported" deal into a "real estate fundamentals" deal at the worst possible moment (when the tenant defaults).',
@@ -1104,6 +1135,7 @@ const sectionIV_industrial_principles: Principle[] = [
   {
     id: 'P-IV-IND-4',
     cluster: 'industrial',
+    riskType: 'property_condition',
     title: 'Fungible newer-build industrial with modern specs preferred',
     principleText:
       'Newer-vintage industrial buildings (≤15 years) with modern specs (32\'+ clear height, ample loading docks, ESFR sprinklers, adequate power, generous truck courts) are preferred for fungibility — they serve a wide replacement-tenant universe',
@@ -1140,6 +1172,7 @@ const sectionIV_industrial_principles: Principle[] = [
   {
     id: 'P-IV-IND-5',
     cluster: 'industrial',
+    riskType: 'market_submarket',
     title: 'Dynamic markets with diversified industrial demand preferred',
     principleText:
       'Industrial markets with diversified demand drivers (logistics, e-commerce, light manufacturing, distribution to multiple population centers) are preferred over markets concentrated in a single industry (e.g., one major employer, single-industry submarket)',
@@ -1186,6 +1219,7 @@ const sectionIV_selfStorage_principles: Principle[] = [
   {
     id: 'P-IV-SS-1',
     cluster: 'self_storage',
+    riskType: 'cash_flow_underwriting',
     title: 'Stable historical performance essential',
     principleText:
       'Self-storage assets require stable historical operating performance as a credit foundation; the asset class is management-intensive and performance volatility signals operational or market issues',
@@ -1226,6 +1260,7 @@ const sectionIV_selfStorage_principles: Principle[] = [
   {
     id: 'P-IV-SS-2',
     cluster: 'self_storage',
+    riskType: 'market_submarket',
     title: 'SF per capita supply check (~7 SF benchmark)',
     principleText:
       'Self-storage trade area should have approximately 7 SF per capita; materially higher supply warrants caution',
@@ -1292,6 +1327,7 @@ const sectionIV_selfStorage_principles: Principle[] = [
   {
     id: 'P-IV-SS-3',
     cluster: 'self_storage',
+    riskType: 'leverage_coverage',
     title: 'Debt yield floor 8% with market quality condition',
     principleText:
       'Self-storage debt yields should not fall below 8%; deals approaching the floor require good markets with operating history',
@@ -1349,6 +1385,7 @@ const sectionIV_selfStorage_principles: Principle[] = [
   {
     id: 'P-IV-SS-4',
     cluster: 'self_storage',
+    riskType: 'leverage_coverage',
     title: 'Minimum DSCR ~1.30x',
     principleText:
       'Self-storage minimum DSCR is approximately 1.30x',
@@ -1412,6 +1449,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-1',
     cluster: 'mhc',
+    riskType: 'property_condition',
     title: 'Property age and condition critical',
     principleText:
       'MHC park age and infrastructure condition are critical credit considerations; many parks are decades old with materially aged infrastructure',
@@ -1445,6 +1483,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-2',
     cluster: 'mhc',
+    riskType: 'property_condition',
     title: 'Understand utility structure (municipal vs private)',
     principleText:
       'Understanding the utility structure (municipal vs private infrastructure for water and sewer) is foundational for assessing MHC capex risk and environmental exposure',
@@ -1477,6 +1516,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-3',
     cluster: 'mhc',
+    riskType: 'capital_reserves',
     title: 'Private wastewater treatment / lift stations — significant capex risk',
     principleText:
       'Private wastewater treatment plants and lift stations represent significant capex exposure (replacement costs typically $500K-$2M+ per system; useful life 20-30 years)',
@@ -1533,6 +1573,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-4',
     cluster: 'mhc',
+    riskType: 'tenant_concentration',
     title: 'Park-owned home (POH) concentration is a risk factor',
     principleText:
       'Park-owned home (POH) concentration above ~25% materially elevates the risk profile — POH revenue is rent + home payment, requires active resident financing oversight, and concentrates landlord exposure to home depreciation and resident default',
@@ -1582,6 +1623,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-5',
     cluster: 'mhc',
+    riskType: 'asset_class_risk',
     title: 'Regulatory and eviction dynamics',
     principleText:
       'MHC operations are subject to significant state and local regulation — lot rent increase notice requirements, eviction procedures, park closure restrictions, and rent control where applicable — all of which affect operating economics and exit liquidity',
@@ -1611,6 +1653,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-6',
     cluster: 'mhc',
+    riskType: 'property_condition',
     title: 'Environmental risk from older plumbing/sewage',
     principleText:
       'Older plumbing and private sewage systems carry environmental contamination risk — failed septic or treatment systems can result in soil/groundwater contamination, EPA exposure, and substantial remediation costs that are typically not indemnified by sellers',
@@ -1668,6 +1711,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-7',
     cluster: 'mhc',
+    riskType: 'market_submarket',
     title: 'Exit liquidity and buyer universe under stress',
     principleText:
       'MHC exit liquidity is constrained by a narrow buyer universe — primarily institutional MHC operators (Sun Communities, ELS, Inspire/Yes!, etc.) and a smaller universe of independent operators. In distress scenarios, this concentration of demand can materially compress exit pricing.',
@@ -1704,6 +1748,7 @@ const sectionIV_mhc_principles: Principle[] = [
   {
     id: 'P-IV-MHC-8',
     cluster: 'mhc',
+    riskType: 'property_condition',
     title: 'Tenant reviews mandate (1-2 star focus)',
     principleText:
       'Always review tenant reviews from third-party websites and summarize the 1 and 2 star reviews. These provide important insight into operational issues, deferred maintenance, and resident satisfaction not visible in operating financials.',
@@ -1742,6 +1787,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-1',
     cluster: 'office',
+    riskType: 'property_condition',
     title: 'Flight-to-quality favors top-tier well-located modern buildings',
     principleText:
       'Flight-to-quality dynamics favor top-tier, well-located buildings with modern amenities',
@@ -1771,6 +1817,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-2',
     cluster: 'office',
+    riskType: 'property_condition',
     title: 'Class B/C office assets — leasing costs, liquidity, value deterioration risk',
     principleText:
       'Class B and C assets face materially higher leasing costs, face liquidity challenges, and are at high risk of suffering value deterioration',
@@ -1820,6 +1867,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-3',
     cluster: 'office',
+    riskType: 'capital_reserves',
     title: 'Capital reserves essential — appraisal TI estimates typically too low',
     principleText:
       "Capital is key – even the best performing office buildings will need to invest capital to defend occupancy and handle tenant rollover. Being properly reserved is crucial, and appraisal Tenant Improvement (TI) allowance estimates are almost always too low.",
@@ -1852,6 +1900,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-4',
     cluster: 'office',
+    riskType: 'leasing_lease_up',
     title: 'Assess actual utilization vs WFH and space contraction risk',
     principleText: 'Assess actual utilization to evaluate work-from-home and space contraction risk',
     sourceCitation: 'Handbook §IV, Office, bullet 4',
@@ -1883,6 +1932,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-5',
     cluster: 'office',
+    riskType: 'leasing_lease_up',
     title: 'Identify sublease offerings and shadow vacancy',
     principleText: 'Identify active sublease offerings and shadow vacancy',
     sourceCitation: 'Handbook §IV, Office, bullet 5',
@@ -1911,6 +1961,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-6',
     cluster: 'office',
+    riskType: 'tenant_concentration',
     title: 'Tenant-level DSCR stress with conditions on top 2-3 tenants',
     principleText:
       'Run tenant-level DSCR stresses removing the top two to three tenants, especially if those tenants lease expirations within the term or 1-2 years past maturity or if those tenants are of weak credit quality',
@@ -1960,6 +2011,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-7',
     cluster: 'office',
+    riskType: 'leasing_lease_up',
     title: 'Emphasize leasing velocity since 2023 as competitiveness indicator',
     principleText:
       'Emphasize leasing velocity since 2023 as an indicator of competitiveness',
@@ -1992,6 +2044,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-8',
     cluster: 'office',
+    riskType: 'market_submarket',
     title: 'Office liquidity challenged even for quality assets — rely on market-clearing sales comps',
     principleText:
       'Liquidity is challenged even for higher-quality assets; rely on market-clearing sales comps',
@@ -2021,6 +2074,7 @@ const sectionIV_office_principles: Principle[] = [
   {
     id: 'P-IV-OFF-9',
     cluster: 'office',
+    riskType: 'market_submarket',
     title: 'Evaluate broader submarket distress',
     principleText: 'Evaluate broader submarket distress (e.g., DC, Philadelphia)',
     sourceCitation: 'Handbook §IV, Office, bullet 9',
@@ -2080,6 +2134,38 @@ const sectionIV_office_principles: Principle[] = [
       'Distressed submarket list is curated based on handbook examples (DC, Philadelphia) + broadly-recognized post-COVID distressed office markets. List is non-exhaustive; the research action is required to catch markets not on the static list. Future ticket may make the submarket list an editable registry artifact (similar to P-II-8\'s specialty list).',
     ],
   },
+
+  {
+    // Promoted from handbook.json into the TS source of truth as part of the
+    // riskType taxonomy rollout (commit [red-flags-risk-type]). Was previously
+    // a JSON-only addition from the 2026-05-31 addendum; round-trip from TS now
+    // emits the same record byte-shape.
+    id: 'P-IV-OFF-10',
+    cluster: 'office',
+    riskType: 'cash_flow_underwriting',
+    title: 'Above-market in-place rent underwritten toward market',
+    principleText:
+      "Where in-place rent sits above market comps, underwrite the affected rent toward market. The relevant question is not what the tenant pays today but what NOI and DSCR become if the tenant is lost and the space must be re-leased at market. Weak-credit / market-driven / likely-to-vacate tenant: mark fully to market. Strong-credit, sticky tenant: may retain more weight on in-place, but still underwrite toward market — do not hold at full in-place. Analyst sets the blend; tenant credit sets how far. Scope: any above-market in-place rent regardless of roll timing — the loss event can occur at any point. EVALUATION REQUIRES: per-tenant market rent comp (PSF). Comps are MANUAL analyst inputs, not extracted from ASR or seller UW. If market rent comps are not available, raise this as a specific manual-input request listing the tenants for which comps are needed; do not silently skip and do not fabricate market PSF.",
+    sourceCitation: 'Handbook Addendum (2026-05-31), Gross Rental Income section',
+    trigger: { kind: 'field_equals', field: 'asset_type', value: 'Office' },
+    executionModes: ['LLM_CONTEXT'],
+    injectionPoints: [
+      'red_flag_assessment',
+      'mitigation_suggestions',
+      'committee_recommendation',
+    ],
+    severity: 'high',
+    researchActions: [],
+    crossReferences: {
+      relatedPrincipleIds: [],
+      relatedReviewStepIds: [],
+      upstreamDependencies: [],
+      overlapsWith: [],
+    },
+    notes: [
+      "Authored magnitude rule (directional) from the 2026-05-31 addendum. LLM_CONTEXT-only — needs market rent comps that arrive via the manual-input layer, not extraction. Engine has no 'needs_manual_input' skip reason today; the principle's instructions ask the LLM to surface the manual-input request inline.",
+    ],
+  },
 ];
 
 // =============================================================================
@@ -2090,6 +2176,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-1',
     cluster: 'retail',
+    riskType: 'tenant_concentration',
     title: 'Tenant sales and occupancy costs — health indicators',
     principleText:
       'Tenant sales and occupancy costs best indicator of the health of a center',
@@ -2123,6 +2210,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-2',
     cluster: 'retail',
+    riskType: 'asset_class_risk',
     title: 'Retail format bifurcation — necessity vs discretionary',
     principleText:
       'Retail format bifurcation: power centers and grocery-anchored neighborhood centers are inherently different from regional malls, lifestyle centers and outlet centers',
@@ -2152,6 +2240,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-3',
     cluster: 'retail',
+    riskType: 'asset_class_risk',
     title: 'B-quality malls difficult to finance absent dominant market positioning',
     principleText:
       'B-quality malls are difficult to finance absent dominant market positioning',
@@ -2214,6 +2303,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-4',
     cluster: 'retail',
+    riskType: 'tenant_concentration',
     title: 'Mall inline sales and occupancy cost benchmarks',
     principleText:
       'Inline sales above ~$500 PSF and occupancy costs in the low-teens are key benchmarks',
@@ -2287,6 +2377,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-5',
     cluster: 'retail',
+    riskType: 'leverage_coverage',
     title: 'Mall debt yield mid-teens minimum (fortress Class A exception)',
     principleText:
       'Mall debt yields should generally be in the mid-teens at minimum; fortress Class A malls may support ~10–11%',
@@ -2375,6 +2466,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-6',
     cluster: 'retail',
+    riskType: 'cash_flow_underwriting',
     title: 'Calculate cumulative owner cash flow after debt service over loan term',
     principleText:
       'Cumulative owner cash flow after debt service over the loan term should always be calculated',
@@ -2449,6 +2541,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-7',
     cluster: 'retail',
+    riskType: 'tenant_concentration',
     title: 'Tenant bankruptcy risk evaluation',
     principleText: 'Evaluate tenant bankruptcy risk (e.g., movie theaters)',
     sourceCitation: 'Handbook §IV, Retail, Tenant risk bullet 1',
@@ -2506,6 +2599,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-8',
     cluster: 'retail',
+    riskType: 'leasing_lease_up',
     title: 'Alternative tenancy with limited re-tenanting depth',
     principleText:
       'Be wary of alternative tenancy with limited re-tenanting depth (trampoline parks, etc.)',
@@ -2569,6 +2663,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-9',
     cluster: 'retail',
+    riskType: 'leasing_lease_up',
     title: 'Co-tenancy provisions and sales kick-out rights analysis',
     principleText:
       'Analyze co-tenancy provisions and sales kick-out rights in detail',
@@ -2601,6 +2696,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-10',
     cluster: 'retail',
+    riskType: 'leasing_lease_up',
     title: 'Shrinking prototype store sizes and big-box re-tenanting risk',
     principleText:
       'Understand shrinking prototype store sizes and big-box re-tenanting risk',
@@ -2630,6 +2726,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-11',
     cluster: 'retail',
+    riskType: 'market_submarket',
     title: 'Demographics and population growth foundational',
     principleText: 'Demographics and population growth are foundational',
     sourceCitation: 'Handbook §IV, Retail, Physical fundamentals bullet 2',
@@ -2658,6 +2755,7 @@ const sectionIV_retail_principles: Principle[] = [
   {
     id: 'P-IV-RET-12',
     cluster: 'retail',
+    riskType: 'sponsor_borrower',
     title: 'Sponsor quality and giveback history (particularly malls)',
     principleText:
       'Sponsor quality and historical behavior, including asset givebacks to lenders, are critical (particularly on malls)',
@@ -2693,6 +2791,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-1',
     cluster: 'multifamily',
+    riskType: 'property_condition',
     title: 'Assets 5+ years old should demonstrate ~3 years stable operations',
     principleText:
       'Assets five years or older should demonstrate approximately three years of stable operations',
@@ -2749,6 +2848,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-2',
     cluster: 'multifamily',
+    riskType: 'property_condition',
     title: 'Older vintage with renovation-driven NOI growth — skepticism warranted',
     principleText:
       'Older vintage properties are viewed skeptically where NOI growth is renovation-driven; incomplete renovation of units should be flagged as a first-order underwriting concern',
@@ -2787,6 +2887,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-3',
     cluster: 'multifamily',
+    riskType: 'property_condition',
     title: 'Class C → durable Class B upgrades difficult and often unsustainable',
     principleText:
       'Upgrading Class C assets into durable Class B properties is difficult and often unsustainable',
@@ -2820,6 +2921,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-4',
     cluster: 'multifamily',
+    riskType: 'capital_reserves',
     title: 'Scrutinize historical and forward-looking capex (roofs, major systems)',
     principleText:
       'Scrutinize historical and forward-looking capex, particularly roofs and major systems',
@@ -2853,6 +2955,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-5',
     cluster: 'multifamily',
+    riskType: 'market_submarket',
     title: 'Crime as first-order concern — independent crime search',
     principleText:
       'Crime is a first-order underwriting concern; do an independent crime search – this is often best done by searching the property name and finding news on the assets and also sometimes local Police Departments have GIS Mapping that can be a good source of data',
@@ -2889,6 +2992,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-6',
     cluster: 'multifamily',
+    riskType: 'property_condition',
     title: 'Tenant reviews mandate (1-2 star focus on crime, deferred maintenance, pests)',
     principleText:
       'Focus on substantive resident issues such as crime, deferred maintenance, and pests by reading third party websites for tenant reviews. Tenant reviews from third party websites provide great insight, ALWAYS review these and summarize what you see in the 1 and 2 star reviews.',
@@ -2925,6 +3029,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-7',
     cluster: 'multifamily',
+    riskType: 'sponsor_borrower',
     title: 'Avoid highly syndicated equity structures',
     principleText: 'Avoid highly syndicated equity structures',
     sourceCitation: 'Handbook §IV, Multifamily, bullet 7',
@@ -2957,6 +3062,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-8',
     cluster: 'multifamily',
+    riskType: 'sponsor_borrower',
     title: 'Evaluate sponsor portfolio concentration and correlated exposure',
     principleText:
       'Evaluate sponsor portfolio concentration and correlated exposure',
@@ -2990,6 +3096,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-9',
     cluster: 'multifamily',
+    riskType: 'leasing_lease_up',
     title: 'Analyze concessions, bad debt, collections where operating history limited',
     principleText:
       'Analyze concessions, bad debt, and collections where operating history is limited',
@@ -3031,6 +3138,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-10',
     cluster: 'multifamily',
+    riskType: 'leasing_lease_up',
     title: 'Verify rents supportable via competing assets and their concessions',
     principleText:
       'Verify rents supportable by checking competing assets and knowing their concession offerings',
@@ -3064,6 +3172,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-11',
     cluster: 'multifamily',
+    riskType: 'cash_flow_underwriting',
     title: 'Verify expense comparability — property tax reassessments',
     principleText:
       'Verify expense comparability, including property tax reassessments',
@@ -3097,6 +3206,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-12',
     cluster: 'multifamily',
+    riskType: 'property_condition',
     title: 'Confirm certificates of occupancy',
     principleText: 'Confirm certificates of occupancy',
     sourceCitation: 'Handbook §IV, Multifamily, Lease-up bullet 4',
@@ -3140,6 +3250,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-13',
     cluster: 'multifamily',
+    riskType: 'market_submarket',
     title: 'Always assess new supply',
     principleText: 'Always assess new supply',
     sourceCitation: 'Handbook §IV, Multifamily, Supply bullet 1',
@@ -3172,6 +3283,7 @@ const sectionIV_multifamily_principles: Principle[] = [
   {
     id: 'P-IV-MF-14',
     cluster: 'multifamily',
+    riskType: 'market_submarket',
     title: 'Evaluate exposure to rent control, stabilization, vouchers, and subsidies',
     principleText:
       'Evaluate exposure to rent control, stabilization, vouchers, and other subsidies',
@@ -3211,6 +3323,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-1',
     cluster: 'hotel',
+    riskType: 'market_submarket',
     title: 'New supply as primary risk — evaluate in detail',
     principleText:
       'New supply is a primary risk and must be evaluated in detail',
@@ -3240,6 +3353,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-2',
     cluster: 'hotel',
+    riskType: 'property_condition',
     title: 'Guest reviews mandate (1-2 star focus, TripAdvisor primary)',
     principleText:
       'Read reviews from TripAdvisor always. Guest reviews from third party websites provide great insight, ALWAYS review these and summarize what you see in the 1 and 2 star reviews.',
@@ -3272,6 +3386,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-3',
     cluster: 'hotel',
+    riskType: 'asset_class_risk',
     title: 'Franchise / flag expiration dates — required diligence',
     principleText:
       'Franchise or flag expiration dates are required diligence items',
@@ -3318,6 +3433,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-4',
     cluster: 'hotel',
+    riskType: 'property_condition',
     title: '7-year renovation cycle — calculate time since last renovation',
     principleText:
       'Most brands require renovations on roughly seven-year cycles; always calculate time since last renovation',
@@ -3377,6 +3493,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-5',
     cluster: 'hotel',
+    riskType: 'capital_reserves',
     title: 'PIP per-key cost benchmarks ($15K-$50K range)',
     principleText:
       'Typical PIPs range from ~$15k/key (low end) to ~$40–50k/key for full-service hotels',
@@ -3446,6 +3563,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-6',
     cluster: 'hotel',
+    riskType: 'property_condition',
     title: 'Older hotels — maintenance difficulty and franchise-exit risk',
     principleText:
       "Older hotels are more difficult to maintain and are at risk of being pushed out of franchise systems (think first gen Hampton Inns from the 1990's)",
@@ -3484,6 +3602,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-7',
     cluster: 'hotel',
+    riskType: 'asset_class_risk',
     title: 'Older full-service CBD hotels — post-COVID business travel decline',
     principleText:
       'Older full-service CBD hotels are particularly challenging in light of reduced business travel post COVID',
@@ -3541,6 +3660,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-8',
     cluster: 'hotel',
+    riskType: 'cash_flow_underwriting',
     title: 'Analyze seasonality and demand mix (T12 monthly)',
     principleText:
       'Analyze seasonality and demand mix; trailing 12 month monthly cash flows help with this understanding',
@@ -3570,6 +3690,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-9',
     cluster: 'hotel',
+    riskType: 'tenant_concentration',
     title: 'Group and contract business concentration',
     principleText: 'Evaluate group and contract business concentration',
     sourceCitation: 'Handbook §IV, Hotel, bullet 9',
@@ -3598,6 +3719,7 @@ const sectionIV_hotel_principles: Principle[] = [
   {
     id: 'P-IV-HOT-10',
     cluster: 'hotel',
+    riskType: 'leverage_coverage',
     title: 'Assess leverage via debt yield AND multiples of room revenue',
     principleText:
       'Assess leverage using both debt yield and multiples of room revenue',
@@ -3769,6 +3891,7 @@ const officeCluster: PrincipleCluster = {
     'P-IV-OFF-7',
     'P-IV-OFF-8',
     'P-IV-OFF-9',
+    'P-IV-OFF-10',
   ],
 };
 

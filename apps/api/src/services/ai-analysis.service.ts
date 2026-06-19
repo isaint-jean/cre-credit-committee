@@ -367,10 +367,16 @@ export async function extractFindings(
   }
   console.log('[AI:Findings] Found', rawFindings.length, 'findings');
 
-  // Map to Finding[] type
+  // Map to Finding[] type. This producer path is the legacy LLM-authored
+  // findings flow; it does not go through projectFinding (the handbook
+  // firedFlag → Finding projector that stamps riskType from the principle
+  // catalog). For LLM-authored findings there is no source-of-truth
+  // principle to look up, so riskType falls back to the generic 'risk_flag'
+  // — the UI Title-Cases that as "Risk Flag" (never blank).
   const findings: Finding[] = rawFindings.map((f: any) => ({
     id: uuid(),
     category: f.category || 'cash_flow',
+    riskType: 'risk_flag' as const,
     severity: f.severity || 'medium',
     title: f.title || f.name || 'Unnamed Finding',
     explanation: f.explanation || f.description || '',

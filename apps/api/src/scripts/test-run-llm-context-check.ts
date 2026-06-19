@@ -33,6 +33,7 @@ function assertEqual<T>(a: T, b: T, m: string): void {
 const samplePrinciple: Principle = {
   id: 'P-III-6',
   cluster: 'universal_framework',
+  riskType: 'leverage_coverage',
   title: 'Evaluate leverage via DSCR + Debt Yield + LTV combination',
   principleText: 'Evaluate leverage using DSCR, Debt Yield, and LTV in combination',
   sourceCitation: 'Handbook §III, bullet 6',

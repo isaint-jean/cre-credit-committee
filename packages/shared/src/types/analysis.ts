@@ -48,6 +48,15 @@ export interface PageReference {
 export interface Finding {
   id: string;
   category: FindingCategory;
+  /**
+   * Content-driven risk-type category, sourced from the principle's
+   * Principle.riskType. The projector at projectFinding stamps it from the
+   * handbook catalog at read time (no eval-time denormalization on FiredFlag,
+   * so old persisted handbook_evaluations carry through without re-eval).
+   * Sentinel 'risk_flag' is a defensive fallback when a principleId arrives
+   * outside the loaded handbook (impossible by design today).
+   */
+  riskType: import('@cre/contracts').RiskType | 'risk_flag';
   severity: Severity;
   title: string;
   explanation: string;
