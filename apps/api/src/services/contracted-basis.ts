@@ -40,6 +40,7 @@ export interface ContractedNoiTrace {
   readonly expenseRatio: number | null;
   readonly egi: number | null;
   readonly toe: number | null;
+  readonly otherIncome: number | null;
   readonly contractedNoi: number | null;
   readonly note: string;
 }
@@ -76,6 +77,7 @@ export function computeContractedNoi(
       expenseRatio: null,
       egi: null,
       toe: null,
+      otherIncome: null,
       contractedNoi: null,
       note: 'predicate=false; not a lease-up deal — leaving sustainableNoi to the existing pickIssuerNoi cascade',
     };
@@ -92,6 +94,7 @@ export function computeContractedNoi(
       expenseRatio: null,
       egi: null,
       toe: null,
+      otherIncome: null,
       contractedNoi: null,
       note: 'predicate=true but rent roll absent on extraction — falling back to sustainableNoi via existing cascade',
     };
@@ -119,6 +122,7 @@ export function computeContractedNoi(
       expenseRatio: null,
       egi: null,
       toe: null,
+      otherIncome: null,
       contractedNoi: null,
       note: `predicate=true but no qualifying tenants (OCCUPIED/PRELEASED with inPlaceRentAnnual non-null); excluded=${excludedTenants}. Falling back to sustainableNoi via existing cascade.`,
     };
@@ -139,6 +143,7 @@ export function computeContractedNoi(
       expenseRatio,
       egi: null,
       toe: null,
+      otherIncome: null,
       contractedNoi: null,
       note: `predicate=true and contractedRevenue computed ($${Math.round(contractedRevenue).toLocaleString()}), but vacancyPct (${vacancyPct}) or expenseRatio (${expenseRatio}) unavailable on AdjustedInputs. Falling back.`,
     };
@@ -146,7 +151,15 @@ export function computeContractedNoi(
 
   const egi = contractedRevenue * (1 - vacancyPct);
   const toe = egi * expenseRatio;
-  const contractedNoi = egi - toe;
+  // Other income is a deal-level pass-through that the engine credits net of
+  // expenses (matching the brief's $8.57M expectation = $8.43M base + $138K
+  // other income). Read from AdjustedInputs.income.otherIncome.adjusted; null/
+  // undefined → treat as 0 (most deals have no other income).
+  const otherIncomeRaw =
+    (input.adjustedInputs.income as { otherIncome?: { adjusted?: number | null } }).otherIncome?.adjusted;
+  const otherIncome =
+    typeof otherIncomeRaw === 'number' && Number.isFinite(otherIncomeRaw) ? otherIncomeRaw : 0;
+  const contractedNoi = egi - toe + otherIncome;
 
   return {
     contractedRevenue,
@@ -156,13 +169,15 @@ export function computeContractedNoi(
     expenseRatio,
     egi,
     toe,
+    otherIncome,
     contractedNoi,
     note:
       `contracted basis: ${qualifyingTenants} qualifying tenant(s), ` +
       `${excludedTenants} excluded; ` +
       `revenue $${Math.round(contractedRevenue).toLocaleString()} × ` +
       `(1 − ${(vacancyPct * 100).toFixed(2)}% vac) × ` +
-      `(1 − ${(expenseRatio * 100).toFixed(2)}% exp) = ` +
+      `(1 − ${(expenseRatio * 100).toFixed(2)}% exp)` +
+      `${otherIncome !== 0 ? ` + other income $${Math.round(otherIncome).toLocaleString()}` : ''} = ` +
       `NOI $${Math.round(contractedNoi).toLocaleString()}`,
   };
 }

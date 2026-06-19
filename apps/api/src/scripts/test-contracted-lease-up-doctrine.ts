@@ -56,14 +56,17 @@ function emptyExtraction(): never {
   } as unknown as never;
 }
 
-function emptyAdjustedInputs(): never {
+function emptyAdjustedInputs(otherIncome: number = 0): never {
   // Minimal AdjustedInputs shape that satisfies computeContractedNoi's reads.
   return {
     id: '0'.repeat(64),
     analysisAsOfDate: '2026-06-19T00:00:00Z',
     judgmentEngineVersion: '1.11',
     librarySnapshotId: 'lib',
-    income: { vacancyPct: { adjusted: 0.10, raw: 0.10, source: 'TEST', adjustments: [] } },
+    income: {
+      vacancyPct: { adjusted: 0.10, raw: 0.10, source: 'TEST', adjustments: [] },
+      otherIncome: { adjusted: otherIncome, raw: otherIncome, source: 'TEST', adjustments: [] },
+    },
     metrics: { expenseRatio: 0.30 },
   } as unknown as never;
 }
@@ -235,7 +238,7 @@ section('2. computeContractedNoi — Sunroad-shape (expect ≈ $8.57M)');
   };
   const trace = computeContractedNoi({
     rentRoll: ex.rentRoll as never,
-    adjustedInputs: emptyAdjustedInputs(),
+    adjustedInputs: emptyAdjustedInputs(138_000), // Sunroad's $138K other income
     isLeaseUpDeal: true,
   });
 
@@ -244,15 +247,17 @@ section('2. computeContractedNoi — Sunroad-shape (expect ≈ $8.57M)');
   assertEqual(trace.contractedRevenue, 13_383_468, 'contracted revenue = $13,383,468 (sum of all 10 signed leases)');
   assertNearly(trace.egi, 12_045_121, 0.001, 'EGI = revenue × (1 − 10% vacancy)');
   assertNearly(trace.toe, 3_613_536, 0.001, 'TOE = EGI × 30% expense ratio');
-  assertNearly(trace.contractedNoi, 8_431_585, 0.01, '★ contracted NOI ≈ $8.43M (within 1% of brief expectation $8.57M — Sunroad path takes "credited signed leases")');
+  assertEqual(trace.otherIncome, 138_000, 'other income = $138K (Sunroad)');
+  assertNearly(trace.contractedNoi, 8_569_585, 0.001, '★ contracted NOI ≈ $8.57M (≈$8.43M base + $138K other income)');
   assert(trace.note.includes('contracted basis'), 'trace note labels the basis as "contracted basis"');
+  assert(trace.note.includes('other income'), 'trace note surfaces other income contribution');
   assert(!trace.note.includes('not a lease-up'), 'trace note does NOT say "not a lease-up"');
 
-  // Brief gate — confirm divergence is NOT material vs $8.57M expectation
+  // Brief gate — confirm match with $8.57M expectation
   const expected = 8_569_585;
   const actual = trace.contractedNoi!;
   const driftPct = Math.abs(actual - expected) / expected;
-  assert(driftPct < 0.03, `★ within 3% of brief expectation $8.57M (drift = ${(driftPct * 100).toFixed(2)}%) — NOT a material divergence; safe to proceed`);
+  assert(driftPct < 0.001, `★ within 0.1% of brief expectation $8.57M (drift = ${(driftPct * 100).toFixed(3)}%) — exact match after other-income fix`);
 }
 
 /* ============================ Section 3 ================================== */
