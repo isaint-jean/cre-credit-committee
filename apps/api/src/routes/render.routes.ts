@@ -52,6 +52,7 @@ import {
   validateTemplateCompatibility,
 } from '../services/template-engine.service.js';
 import { RENDER_CONTRACT_VERSION } from '@cre/shared';
+import type { RevisionId } from '@cre/contracts';
 import type {
   AdjustedInputs,
   Analysis,
@@ -297,6 +298,22 @@ function composeRenderPayloadFromQuery(
     throw err;
   }
 
+  // v10 schema: per-tenant Rent Roll rows + the RRP toggle on Property & Loan
+  // Summary!AA3 read from RenderInput.rentRoll. Resolve via the same three-
+  // call chain bp-spire uses: revision envelope → doctrine evaluation →
+  // RentRoll. null when the deal has no rent roll (DoctrineEvaluation.rentRollId
+  // is null and HY3 surfaced null in the bundle) — honest-blank flows from
+  // the v10 selectors with no additional handling.
+  const envelopeForRR = analysis.graphRevisionId
+    ? recordGraphStore.getRevisionEnvelope(analysis.graphRevisionId as RevisionId)
+    : null;
+  const doctrineForRR = envelopeForRR
+    ? recordGraphStore.getDoctrineEvaluation(envelopeForRR.doctrineEvaluationId)
+    : null;
+  const rentRoll = doctrineForRR?.rentRollId
+    ? recordGraphStore.getRentRoll(doctrineForRR.rentRollId)
+    : null;
+
   const renderInput: RenderInput = {
     meta: {
       dealId: analysis.id,
@@ -315,6 +332,7 @@ function composeRenderPayloadFromQuery(
     drivers: analysis.crossCheckFindings ?? [],
     conservatismStatus: buildConservatismStatus(analysis, adjustedInputs),
     libraryBaselineMeta: buildLibraryBaselineMeta(analysis),
+    rentRoll,
   };
 
   let payload: RenderPayload;

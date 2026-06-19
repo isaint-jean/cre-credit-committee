@@ -617,6 +617,63 @@ const MIGRATIONS: RenderContractMigration[] = [
       'as AWAITING_INPUT until this wiring lands; Debt Yield is unaffected ' +
       'because it does not divide by debtServiceAnnual.',
   },
+  {
+    fromVersion: 9,
+    toVersion: 10,
+    description:
+      'Rent Roll render. The Rent Roll sheet comes OUT of excludedSheets ' +
+      '(the 3 formula-only derivatives — Presentation Rent Roll, Rent Roll ' +
+      'Summary, Rent Roll Footnotes — stay excluded; they compute off Rent ' +
+      'Roll and have no inputs to receive). v10 ADDS 240 per-tenant cell ' +
+      'addresses on the Rent Roll tab (rows 14–43, 30-tenant capacity, ' +
+      'columns B/C/D/E/F/G/I/N = suite, tenant name, square feet, status ' +
+      'code, lease start, lease end, in-place rent PSF, lease type). Plus ' +
+      'one RRP-toggle override at Property & Loan Summary!AA3 (literal ' +
+      '"TRUE") so the dependent IF($S$8, …) chains on the Pro Forma ' +
+      'resolve to a clean FALSE (since C8=525, not "Mark to Market") and ' +
+      'pick the in-place INDEX branch, which reads from Operating-History ' +
+      'column P (engine-populated, clean). NEW INPUT SURFACE: ' +
+      'RenderInput.rentRoll — bundle.rentRoll passthrough. NEW SourceSurface ' +
+      'tag \'rentRoll\' in ALLOWED_SOURCES_BY_VERSION[10]. NEW ' +
+      'FieldMigrationState RENT_ROLL_SOURCED (REQUIRED_SOURCE_BY_STATE = ' +
+      '\'rentRoll\'). Honest-blank preserved: any tenant field that\'s ' +
+      'null (squareFeet, leaseStart, etc.) writes blank, never 0; leaseType ' +
+      '"UNKNOWN" renders verbatim to surface the data gap. xlsm artifact ' +
+      'unchanged from v6 — the v-bump records a schema-surface widening, ' +
+      'not a workbook content change.',
+    autoApplicable: true,
+    addresses: (() => {
+      const out: Array<{ kind: 'address-added'; address: string }> = [];
+      const cols = ['B', 'C', 'D', 'E', 'F', 'G', 'I', 'N'];
+      for (let row = 14; row <= 43; row++) {
+        for (const col of cols) {
+          out.push({ kind: 'address-added', address: `Rent Roll!${col}${row}` });
+        }
+      }
+      out.push({ kind: 'address-added', address: 'Property & Loan Summary!AA3' });
+      return out;
+    })(),
+    tables: [],
+    managedNamespace: [
+      { kind: 'namespace-excluded-sheet-removed', sheet: 'Rent Roll', reason: 'v10 writes per-tenant rows into Rent Roll inputs B/C/D/E/F/G/I/N rows 14–43.' },
+    ],
+    visibility: [],
+    wire: [],
+    notes:
+      'v10 is additive on the schema surface (new addresses + one sheet ' +
+      'unexcluded). v9-pinned templates keep rendering identically; v10 ' +
+      'becomes the default for new exports. Cleanup tickets carried ' +
+      'forward + extended:\n' +
+      '  1-8: as in v9.\n' +
+      '  9. NEW: AI rent-roll extractor returns leaseType=\'UNKNOWN\' and ' +
+      'suite=null for every Sunroad tenant — data-quality gap, not render ' +
+      'gap. v10 surfaces the UNKNOWN visibly in column N rather than ' +
+      'silently defaulting (honest gap disclosure).\n' +
+      '  10. NEW: bp-spire / operator-facing uploadTemplate callers still ' +
+      'create new template versions without registry enforcement. Captured ' +
+      'in remediate-template-registry-v10.ts; gating uploadTemplate on a ' +
+      'registry lookup is the durable fix.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------
