@@ -58,6 +58,7 @@
  */
 import { createHash } from 'node:crypto';
 import { RENDER_CONTRACT_VERSION } from '@cre/shared';
+import type { RentRoll, TenantRentRollLine } from '@cre/contracts';
 import type {
   AdjustedInputs,
   AdjustedLineItem,
@@ -125,7 +126,8 @@ type SheetSlot =
   | 'Site_Inspection'
   | 'Comparables_Lease'
   | 'Comparables_Sales'
-  | 'Comparables_CMBS';
+  | 'Comparables_CMBS'
+  | 'Rent_Roll';
 
 const SHEET_SLOTS: ReadonlyArray<SheetSlot> = [
   'Property_Loan_Summary',
@@ -140,6 +142,7 @@ const SHEET_SLOTS: ReadonlyArray<SheetSlot> = [
   'Comparables_Lease',
   'Comparables_Sales',
   'Comparables_CMBS',
+  'Rent_Roll',
 ];
 
 /**
@@ -187,6 +190,7 @@ function sheet(assetClass: AssetType, slot: SheetSlot): string {
     case 'Comparables_Lease':     return 'Lease Comps';
     case 'Comparables_Sales':     return 'Sales Comps';
     case 'Comparables_CMBS':      return 'CMBS Comps';
+    case 'Rent_Roll':             return 'Rent Roll';
   }
 }
 
@@ -227,7 +231,8 @@ export type SourceSurface =
   | 'resolvedContext'
   | 'meta'
   | 'conservatismStatus'
-  | 'libraryBaselineMeta';
+  | 'libraryBaselineMeta'
+  | 'rentRoll';
 
 interface TaggedSelector {
   (input: ProjectionInput): CellValue;
@@ -1539,6 +1544,192 @@ const SCHEMA_V9: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v9DefsFor('manufactured_housing') },
 };
 
+// --- v10 SCHEMA ENTRIES -----------------------------------------------------
+// v10 takes the Rent Roll sheet OUT of excludedSheets and writes per-tenant
+// rows into the template's input columns (rows 14..43 — 30-tenant capacity).
+// Also writes "TRUE" to Property & Loan Summary!AA3 (the RRP toggle) so the
+// derivative tabs' IF($S$8, …) formulas resolve to a clean boolean rather
+// than propagating #N/A. Source surface: a new 'rentRoll' tag on
+// SchemaEntry selectors, declared in ALLOWED_SOURCES_BY_VERSION[10].
+
+const RENT_ROLL_TENANT_CAPACITY = 30 as const;
+const RENT_ROLL_FIRST_ROW = 14 as const;
+
+function tenantLines(rr: RentRoll | null | undefined): readonly TenantRentRollLine[] {
+  if (!rr) return [];
+  const out: TenantRentRollLine[] = [];
+  for (const l of rr.lines) {
+    if (l.kind === 'tenant') out.push(l);
+  }
+  return out;
+}
+
+function rrField(
+  rowIdx: number,
+  pick: (line: TenantRentRollLine) => CellValue,
+): Selector {
+  return tagSelector((input) => {
+    const lines = tenantLines(input.rentRoll);
+    if (rowIdx >= lines.length) return null; // honest-blank for unused rows
+    const v = pick(lines[rowIdx]!);
+    return v;
+  }, ['rentRoll']);
+}
+
+const V10_RENT_ROLL_ENTRIES: SchemaEntry[] = (() => {
+  const out: SchemaEntry[] = [];
+  for (let i = 0; i < RENT_ROLL_TENANT_CAPACITY; i++) {
+    const row = RENT_ROLL_FIRST_ROW + i;
+    // B<row>: Unit / suite — string | null (honest-blank when source is null)
+    out.push({
+      slot: 'Rent_Roll',
+      range: `B${row}`,
+      selector: rrField(i, (l) => l.suite),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+    // C<row>: Tenant Name — string | null
+    out.push({
+      slot: 'Rent_Roll',
+      range: `C${row}`,
+      selector: rrField(i, (l) => l.tenantName),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+    // D<row>: Square Feet — number | null (HONEST-BLANK never 0)
+    out.push({
+      slot: 'Rent_Roll',
+      range: `D${row}`,
+      selector: rrField(i, (l) => l.squareFeet),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+    // E<row>: Status code — template uses LEFT($E,1) for VLOOKUP, so we
+    // write the status enum verbatim (PRELEASED / OCCUPIED / VACANT /
+    // PRELEASED / HOLDOVER / UNKNOWN). First letter selects the lookup row.
+    out.push({
+      slot: 'Rent_Roll',
+      range: `E${row}`,
+      selector: rrField(i, (l) => l.status),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+    // F<row>: Lease Start — ISO date string | null (honest-blank)
+    out.push({
+      slot: 'Rent_Roll',
+      range: `F${row}`,
+      selector: rrField(i, (l) => l.leaseStart),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+    // G<row>: Lease End / Expiration — ISO date string | null
+    out.push({
+      slot: 'Rent_Roll',
+      range: `G${row}`,
+      selector: rrField(i, (l) => l.leaseEnd),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+    // I<row>: Contract Rent PSF — derived from inPlaceRentAnnual / squareFeet.
+    // Null when either input is missing — never fabricated as 0.
+    out.push({
+      slot: 'Rent_Roll',
+      range: `I${row}`,
+      selector: rrField(i, (l) => {
+        if (l.inPlaceRentAnnual == null || l.squareFeet == null || l.squareFeet === 0) {
+          return null;
+        }
+        return l.inPlaceRentAnnual / l.squareFeet;
+      }),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+    // N<row>: Lease Type — the LeaseType enum verbatim (UNKNOWN renders
+    // visibly per the rent-roll-render brief; never blanked).
+    out.push({
+      slot: 'Rent_Roll',
+      range: `N${row}`,
+      selector: rrField(i, (l) => l.leaseType),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+  }
+  return out;
+})();
+
+// RRP toggle override on Property & Loan Summary!AA3. The template formula
+// at AA3 is IF(VLOOKUP(Property_Type, Controls!$A$2:$E$17, 5, 0) = "RRP",
+// "TRUE") — fails to resolve cleanly on Sunroad and caches as #N/A, which
+// then propagates to S8 = AND(RRP="TRUE", $C$8="Mark to Market") on the
+// Pro Forma sheet and through every dependent IF($S$8, …) formula. We
+// hardcode "TRUE" here because rent-roll data exists; the downstream
+// IF($S$8, …, in_place_branch) then resolves to a clean boolean and picks
+// the in-place branch (since C8 defaults to a numeric, not "Mark to Market").
+const V10_RRP_OVERRIDE_ENTRY: SchemaEntry = {
+  slot: 'Property_Loan_Summary',
+  range: 'AA3',
+  selector: tagSelector(() => 'TRUE', ['rentRoll']),
+  cellState: 'concluded',
+  forceOverwrite: true,
+};
+
+const V10_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V9_SHARED_ENTRIES,
+  ...V10_RENT_ROLL_ENTRIES,
+  V10_RRP_OVERRIDE_ENTRY,
+];
+
+const V10_MANAGED_NAMESPACE: ManagedNamespacePolicy = {
+  prefixes: [],
+  literals: V8_SHARED_ENTRIES.map((e) => e.range),
+  // v10 takes 'Rent Roll' OUT of excludedSheets so the populator writes
+  // per-tenant cells there. 'Presentation Rent Roll' / 'Rent Roll Summary' /
+  // 'Rent Roll Footnotes' stay excluded — they're formula-only derivatives
+  // that compute off the Rent Roll tab and have no inputs to receive.
+  excludedSheets: SHARED_MANAGED_NAMESPACE.excludedSheets.filter(
+    (s) => s !== 'Rent Roll',
+  ),
+};
+
+function v10Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V10_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V10_MANAGED_NAMESPACE,
+  };
+}
+
+function v10DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v10Definition(assetClass)];
+}
+
+const SCHEMA_V10: ContractSchema = {
+  office: {
+    office_core:       v10DefsFor('office'),
+    office_trophy:     v10DefsFor('office'),
+    office_value_add:  v10DefsFor('office'),
+    office_distressed: v10DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v10DefsFor('multifamily'),
+    mf_large_scale: v10DefsFor('multifamily'),
+    mf_workforce:   v10DefsFor('multifamily'),
+    mf_value_add:   v10DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v10DefsFor('industrial'),
+    ind_logistics: v10DefsFor('industrial'),
+    ind_light:     v10DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v10DefsFor('retail') },
+  hotel:                { hotel_core:                v10DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v10DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v10DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v10DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -1580,6 +1771,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   7: SCHEMA_V7,
   8: SCHEMA_V8,
   9: SCHEMA_V9,
+  10: SCHEMA_V10,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -1822,6 +2014,12 @@ function assertSchemaWellFormed(): void {
     // line-items + metrics) or resolvedContext (carried-forward property /
     // party / loan-term atoms). Allowed-source set therefore equals v8.
     9: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta']),
+    // v10 ADDS the 'rentRoll' source surface — the per-tenant Rent Roll rows
+    // (and the RRP toggle on Property & Loan Summary!AA3) read from the
+    // hydrated bundle.rentRoll passthrough on RenderInput. Carry-forward
+    // entries from v9 continue to read from adjustedInputs / resolvedContext /
+    // meta unchanged.
+    10: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

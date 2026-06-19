@@ -12,6 +12,7 @@ import type { AssetType, CrossCheckFinding } from './analysis';
 import type { AdjustedInputs } from './adjusted-inputs';
 import type { UnderwritingContext, UnderwritingMode } from './underwriting-context';
 import type { MigrationManifest } from './render-migration';
+import type { RentRoll } from '@cre/contracts';
 
 /**
  * Bumped on any breaking change to RenderPayload or BINDING_SCHEMA.
@@ -34,8 +35,18 @@ import type { MigrationManifest } from './render-migration';
  * Property_Building_Class). NO payload-shape changes. NO upstream
  * contract changes (AdjustedInputs / HE / AnalysisId stable). Held cells
  * (NOI, NCF, EGI, Total OpEx) are intentionally NOT in the schema.
+ *
+ * v9 → v10 (Rent Roll render): the Rent Roll sheet stops being excluded —
+ * the renderer now writes per-tenant rows (suite, tenant name, square feet,
+ * status code, lease start/end, in-place rent PSF, lease type) into rows
+ * 14–43 (capacity 30). Also writes "TRUE" to Property & Loan Summary!AA3
+ * (the RRP toggle) so the dependent-sheet IF($S$8, …) formulas resolve to
+ * a clean boolean. NEW input surface: `rentRoll: RentRoll | null` on
+ * RenderInput (a hydrated bundle.rentRoll passthrough — no derivation, no
+ * mutation). New SourceSurface tag `'rentRoll'` declared in render-schema's
+ * ALLOWED_SOURCES_BY_VERSION for v10. v9 entries carry forward verbatim.
  */
-export const RENDER_CONTRACT_VERSION = 9;
+export const RENDER_CONTRACT_VERSION = 10;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,
@@ -214,6 +225,14 @@ export interface RenderInput {
   drivers: CrossCheckFinding[];
   conservatismStatus: RenderConservatismStatus;
   libraryBaselineMeta: RenderLibraryBaselineMeta;
+  /**
+   * Hydrated rent-roll bundle (v10+). Passthrough of bundle.rentRoll from
+   * hydrate-record-graph — the producer for the per-tenant Rent Roll sheet
+   * rows. null when the deal has no rent roll (DoctrineEvaluation.rentRollId
+   * is null and the hydrator surfaced null per HY3). v9 and earlier render
+   * paths ignore this field — it's additive-optional at the contract level.
+   */
+  rentRoll?: RentRoll | null;
 }
 
 /**

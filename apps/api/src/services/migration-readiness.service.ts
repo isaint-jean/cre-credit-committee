@@ -91,10 +91,13 @@ function variance(samples: number[]): number {
 
 function nextStateFor(s: FieldMigrationState): FieldMigrationState | null {
   switch (s) {
-    case 'LEGACY':        return 'DUAL_OBSERVED';
-    case 'DUAL_OBSERVED': return 'HYBRID';
-    case 'HYBRID':        return 'FULL_MODERN';
-    case 'FULL_MODERN':   return null;
+    case 'LEGACY':            return 'DUAL_OBSERVED';
+    case 'DUAL_OBSERVED':     return 'HYBRID';
+    case 'HYBRID':            return 'FULL_MODERN';
+    case 'FULL_MODERN':       return null;
+    // RENT_ROLL_SOURCED is a v10-only terminal state — bundle.rentRoll is
+    // already the source of truth, so there's no further migration target.
+    case 'RENT_ROLL_SOURCED': return null;
   }
 }
 

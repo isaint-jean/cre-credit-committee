@@ -39,17 +39,19 @@ import type { SourceSurface } from './render-schema.js';
 // --- States, groups, thresholds --------------------------------------------
 
 export type FieldMigrationState =
-  | 'LEGACY'         // adjustedInputs-only; resolvedContext ignored
-  | 'DUAL_OBSERVED'  // resolvedContext exists; adjustedInputs still primary
-  | 'HYBRID'         // resolvedContext primary; adjustedInputs fallback allowed (in hydrator)
-  | 'FULL_MODERN';   // resolvedContext sole authority; adjustedInputs forbidden
+  | 'LEGACY'             // adjustedInputs-only; resolvedContext ignored
+  | 'DUAL_OBSERVED'      // resolvedContext exists; adjustedInputs still primary
+  | 'HYBRID'             // resolvedContext primary; adjustedInputs fallback allowed (in hydrator)
+  | 'FULL_MODERN'        // resolvedContext sole authority; adjustedInputs forbidden
+  | 'RENT_ROLL_SOURCED'; // bundle.rentRoll passthrough (per-tenant rows + RRP toggle); new at v10
 
 export type FieldGroup =
   | 'property'
   | 'party'
   | 'loan'
   | 'comps'
-  | 'financial_core';
+  | 'financial_core'
+  | 'rent_roll';     // per-tenant Rent Roll rows + RRP toggle (new at v10)
 
 /**
  * The source surface a schema entry's selector MUST read from given the
@@ -58,10 +60,11 @@ export type FieldGroup =
  * adjustedInputs lives in the hydrator, not the selector.
  */
 export const REQUIRED_SOURCE_BY_STATE: Readonly<Record<FieldMigrationState, SourceSurface>> = {
-  LEGACY:        'adjustedInputs',
-  DUAL_OBSERVED: 'adjustedInputs',
-  HYBRID:        'resolvedContext',
-  FULL_MODERN:   'resolvedContext',
+  LEGACY:             'adjustedInputs',
+  DUAL_OBSERVED:      'adjustedInputs',
+  HYBRID:             'resolvedContext',
+  FULL_MODERN:        'resolvedContext',
+  RENT_ROLL_SOURCED:  'rentRoll',
 };
 
 /**
@@ -83,6 +86,7 @@ export const THRESHOLDS: Readonly<Record<FieldGroup, GroupThresholds>> = {
   loan:            { minCoverage: 0.85, minStability: 0.90, maxFallbackPressure: 0.05, minConsecutiveRuns: 100 },
   comps:           { minCoverage: 0.70, minStability: 0.85, maxFallbackPressure: 0.05, minConsecutiveRuns: 100 },
   financial_core:  { minCoverage: 0.99, minStability: 0.99, maxFallbackPressure: 0.01, minConsecutiveRuns: 100 },
+  rent_roll:       { minCoverage: 0.85, minStability: 0.90, maxFallbackPressure: 0.05, minConsecutiveRuns: 100 },
 };
 
 /**
@@ -420,6 +424,210 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     { address: 'Hotel Op History and Pro Forma!L39',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-1. Hotel variant of L39.' },
     { address: 'Hotel Op History and Pro Forma!L40',            group: 'financial_core', state: 'FULL_MODERN', notes: 'Sprint-1. Hotel variant of L40.' },
   ],
+  // v10: Rent Roll render. Carries v9 forward verbatim and adds the per-tenant
+  // Rent Roll rows (rows 14..43 × 8 input columns = 240 entries) plus the RRP
+  // toggle on Property & Loan Summary!AA3. New cells are RENT_ROLL_SOURCED —
+  // the selector reads from RenderInput.rentRoll (bundle.rentRoll passthrough).
+  10: (() => {
+    const carryForward: ReadonlyArray<FieldStateDeclaration> = [
+      // ---- carried forward from v9 unchanged ----
+      { address: 'Property & Loan Summary!Property_Name',         group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Address',               group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!City',                  group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!State',                 group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!ZIP',                   group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!County',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Property_Type',         group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Year_Built',            group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Occupancy',             group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Ownership_Interest',    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Borrower!Borrower',                             group: 'party',    state: 'FULL_MODERN' },
+      { address: 'Borrower!Sponsor',                              group: 'party',    state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Balloon_Term',          group: 'loan',     state: 'HYBRID' },
+      { address: 'Property & Loan Summary!Amortization_Term',     group: 'loan',     state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Interest_Only_Period',  group: 'loan',     state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Current_Balance',       group: 'financial_core', state: 'LEGACY' },
+      { address: 'Property & Loan Summary!Original_Balance',      group: 'financial_core', state: 'LEGACY' },
+      { address: 'Property & Loan Summary!Coupon',                group: 'financial_core', state: 'LEGACY' },
+      { address: 'Property & Loan Summary!Annual_Debt_Service',   group: 'financial_core', state: 'LEGACY' },
+      { address: 'Conclusions & Escrows!Concluded_Cap_Rate',      group: 'financial_core', state: 'LEGACY' },
+      { address: 'Conclusions & Escrows!Concluded_Value',         group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P9',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P6',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P10',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P14',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P31',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P30',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P38',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Conclusions & Escrows!I16',                     group: 'financial_core', state: 'LEGACY' },
+      { address: 'Conclusions & Escrows!J16',                     group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P25',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P22',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P32',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P39',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P40',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P15',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P11',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P21',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P23',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P24',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P26',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Property & Loan Summary!E41',                   group: 'financial_core', state: 'LEGACY' },
+      { address: 'Operating History and Pro Forma!P49',           group: 'financial_core', state: 'LEGACY' },
+      { address: 'Property & Loan Summary!K5',                    group: 'property',       state: 'LEGACY' },
+      { address: 'Property & Loan Summary!K6',                    group: 'property',       state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P9',             group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P6',             group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P10',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P14',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P31',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P30',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P38',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P25',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P22',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P32',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P39',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P40',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P15',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P11',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P21',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P23',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P24',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P26',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Hotel Op History and Pro Forma!P49',            group: 'financial_core', state: 'LEGACY' },
+      { address: 'Property & Loan Summary!MSA',                   group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property & Loan Summary!Year_Renovated',        group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!B3',                     group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!B4',                     group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!F3',                     group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!F4',                     group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!F5',                     group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!B9',                     group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!B11',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!F11',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Comm!B15',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!B3',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!B4',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!F3',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!F4',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!F5',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!B9',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!B11',               group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!F11',               group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - MF SS MHP!B15',               group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!B3',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!B4',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!F3',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!F4',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!F5',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!B9',                    group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!B11',                   group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!F11',                   group: 'property', state: 'FULL_MODERN' },
+      { address: 'Property Detail - Hotel!B15',                   group: 'property', state: 'FULL_MODERN' },
+      { address: 'Site Inspection!C6',                            group: 'property', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J9',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J6',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J7',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J11',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J14',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J15',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J22',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J24',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J25',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J26',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J30',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J31',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J32',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J38',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J9',             group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J6',             group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J7',             group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J11',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J14',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J15',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J22',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J24',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J25',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J26',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J30',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J31',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J32',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J38',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J35',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J48',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!J50',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J35',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J48',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!J50',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Conclusions & Escrows!Appraised_Value',         group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Conclusions & Escrows!D47',                     group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Conclusions & Escrows!D48',                     group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Conclusions & Escrows!D49',                     group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Conclusions & Escrows!I14',                     group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E4',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E6',                group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E7',                group: 'property', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E8',                group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E18',               group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E19',               group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E24',               group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Third Party Reports Summary!E25',               group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Conclusions & Escrows!D50',                     group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L9',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L6',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L11',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L13',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L14',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L15',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L22',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L24',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L25',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L26',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L30',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L31',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L32',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L38',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L39',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Operating History and Pro Forma!L40',           group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L9',             group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L6',             group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L11',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L13',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L14',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L15',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L22',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L24',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L25',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L26',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L30',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L31',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L32',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L38',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L39',            group: 'financial_core', state: 'FULL_MODERN' },
+      { address: 'Hotel Op History and Pro Forma!L40',            group: 'financial_core', state: 'FULL_MODERN' },
+    ];
+    // Per-tenant rent-roll rows: 30 rows × 8 input columns = 240 entries.
+    const rrEntries: FieldStateDeclaration[] = [];
+    const cols: string[] = ['B', 'C', 'D', 'E', 'F', 'G', 'I', 'N'];
+    for (let row = 14; row <= 43; row++) {
+      for (const col of cols) {
+        rrEntries.push({
+          address: `Rent Roll!${col}${row}`,
+          group: 'rent_roll',
+          state: 'RENT_ROLL_SOURCED',
+          notes: 'New at v10. Per-tenant rent-roll passthrough from bundle.rentRoll.lines[row-14].',
+        });
+      }
+    }
+    // RRP toggle override on Property & Loan Summary!AA3.
+    const rrpOverride: FieldStateDeclaration = {
+      address: 'Property & Loan Summary!AA3',
+      group: 'rent_roll',
+      state: 'RENT_ROLL_SOURCED',
+      notes: 'New at v10. Hardcoded "TRUE" — overrides template formula so dependent IF($S$8, …) chains resolve cleanly. RENT_ROLL_SOURCED because the override is gated on rent-roll presence.',
+    };
+    return [...carryForward, ...rrEntries, rrpOverride];
+  })(),
 };
 
 // --- Legal cross-version transitions ---------------------------------------
