@@ -30,16 +30,25 @@
  *     different dealResult than what the analyst validated, so we don't try.
  *     The memo reflects what the graph chain ACTUALLY produced.
  */
-import { NARRATIVE_ENGINE_VERSION } from '@cre/contracts';
+import {
+  DOCTRINE_VERSION,
+  NARRATIVE_ENGINE_VERSION,
+  SNAPSHOT_PRODUCER_VERSION,
+} from '@cre/contracts';
 import type { Analysis } from '@cre/shared';
 import type { RecordGraphStore } from '../../storage/record-graph-store.js';
 import { adaptExtractionToDealBag, evaluateDeal } from '../../doctrine-clean/index.js';
 import { detectLeaseUp } from '../../doctrine-clean/normalization/lease-up-detection.js';
-import { composeMitigations, type DealComputeState } from '../mitigation/compose-mitigations.js';
+import { composeMitigations, type ComposedMitigationPackage, type DealComputeState } from '../mitigation/compose-mitigations.js';
 import { computeContractedNoi } from '../contracted-basis.js';
 import { synthesizeUwModelFromInputs } from '../synthesize-uw-model-from-graph.js';
 import { recomputeAiAtLoan } from '../evaluate-and-narrate.js';
-import { buildCommitteeMemo } from './build-committee-memo.js';
+import { buildCommitteeMemo, type MemoRenderSource } from './build-committee-memo.js';
+import {
+  cleanDoctrineFindingsFromSnapshot,
+  composedFromSnapshot,
+  loadRenderSnapshot,
+} from './snapshot-readers.js';
 
 export type RenderMemoResult =
   | { readonly ok: true; readonly html: string }
@@ -82,6 +91,54 @@ export function renderMemoForAnalysis(
     return { ok: false, reason: 'AssetProfile not found in store.', code: 'ASSET_PROFILE_MISSING' };
   }
 
+  // Appraisal disclosure (optional). Pulled from analysis.appraisalExtraction
+  // — when present, surfaces As-Is / As-Stabilized / OAR / going-in vs
+  // stabilized coverage inside the Stressed Credit Profile section. No-op
+  // when no appraisal has been ingested.
+  const apx = analysis.appraisalExtraction;
+  const appraisalDisclosure = apx
+    ? {
+        asIsValue:           apx.asIsValue ?? null,
+        asStabilizedValue:   apx.asStabilizedValue ?? null,
+        stabilizationMonths: apx.stabilizationMonths ?? null,
+        overallCapRate:      apx.overallCapRate ?? null,
+        stabilizedNOI:       apx.stabilizedProForma?.netOperatingIncome ?? null,
+        currentNOI:          apx.currentProForma?.netOperatingIncome ?? null,
+        loanAmount:          adjustedInputs.loan.loanAmount.adjusted,
+        annualDebtService:   adjustedInputs.loan.debtServiceAnnual.adjusted,
+      }
+    : undefined;
+
+  // ── PR (ii) read-instead-of-recompute branch ─────────────────────────
+  // Prefer the persisted snapshot when present + supported-version (true
+  // pin-faithfulness: numbers were captured at eval-write time under THIS
+  // deal's pinned doctrine). Fall back to recompute when absent — produces
+  // a HEAD-doctrine memo and a visible "NOT pin-faithful" footer banner.
+  const snapshot = loadRenderSnapshot(envelope.doctrineEvaluationId, store);
+  if (snapshot !== null) {
+    const renderSource: MemoRenderSource = {
+      kind: 'snapshot',
+      capturedAt: snapshot.capturedAt,
+      snapshotProducerVersion: snapshot.snapshotProducerVersion,
+      pinnedDoctrineVersion: envelope.doctrineVersion,
+    };
+    const html = buildCommitteeMemo({
+      dealName: analysis.name,
+      memoDate: new Date().toISOString().slice(0, 10),
+      narrative,
+      // dealResult intentionally omitted — buildCommitteeMemo uses the
+      // supplied auth + findings instead of re-projecting.
+      composedMitigationPackage: composedFromSnapshot(snapshot),
+      auth: snapshot.authoritativeNumbers,
+      findings: cleanDoctrineFindingsFromSnapshot(snapshot),
+      renderSource,
+      appraisalDisclosure,
+    });
+    return { ok: true, html };
+  }
+
+  // ── recompute fallback ───────────────────────────────────────────────
+  // No snapshot (pre-PR-i evals, baselines, future producer-version drift).
   // Reconstruct the in-memory dealResult + composedMitigationPackage
   // deterministically (no LLM). Mirrors evaluate-and-narrate.ts:198-247 +
   // the live-write / re-narrate path: lease-up detection routes the
@@ -108,7 +165,7 @@ export function renderMemoForAnalysis(
   });
   const dealResult = evaluateDeal(dealBag);
   const uwModel = synthesizeUwModelFromInputs(adjustedInputs, propertyMetadata);
-  const composedMitigationPackage = composeMitigations({
+  const composedMitigationPackage: ComposedMitigationPackage = composeMitigations({
     adjustedInputs,
     uwModel,
     dealResult,
@@ -124,30 +181,18 @@ export function renderMemoForAnalysis(
     },
   });
 
-  // Appraisal disclosure (optional). Pulled from analysis.appraisalExtraction
-  // — when present, surfaces As-Is / As-Stabilized / OAR / going-in vs
-  // stabilized coverage inside the Stressed Credit Profile section. No-op
-  // when no appraisal has been ingested.
-  const apx = analysis.appraisalExtraction;
-  const appraisalDisclosure = apx
-    ? {
-        asIsValue:           apx.asIsValue ?? null,
-        asStabilizedValue:   apx.asStabilizedValue ?? null,
-        stabilizationMonths: apx.stabilizationMonths ?? null,
-        overallCapRate:      apx.overallCapRate ?? null,
-        stabilizedNOI:       apx.stabilizedProForma?.netOperatingIncome ?? null,
-        currentNOI:          apx.currentProForma?.netOperatingIncome ?? null,
-        loanAmount:          adjustedInputs.loan.loanAmount.adjusted,
-        annualDebtService:   adjustedInputs.loan.debtServiceAnnual.adjusted,
-      }
-    : undefined;
-
+  const renderSource: MemoRenderSource = {
+    kind: 'recompute',
+    pinnedDoctrineVersion: envelope.doctrineVersion,
+    headDoctrineVersion: DOCTRINE_VERSION,
+  };
   const html = buildCommitteeMemo({
     dealName: analysis.name,
     memoDate: new Date().toISOString().slice(0, 10),
     narrative,
     dealResult,
     composedMitigationPackage,
+    renderSource,
     appraisalDisclosure,
   });
   return { ok: true, html };

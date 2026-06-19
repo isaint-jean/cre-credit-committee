@@ -61,11 +61,36 @@ import {
 
 /* --------------------------- public surface ------------------------------ */
 
+/**
+ * Render-source descriptor — drives the memo footer's "where did these
+ * numbers come from?" banner. Snapshot path = pin-faithful; recompute path =
+ * HEAD doctrine, the deal's true pinned version may differ.
+ */
+export type MemoRenderSource =
+  | {
+      readonly kind: 'snapshot';
+      readonly capturedAt: string;                  // ISO timestamp
+      readonly snapshotProducerVersion: string;
+      readonly pinnedDoctrineVersion: string;
+    }
+  | {
+      readonly kind: 'recompute';
+      readonly pinnedDoctrineVersion: string;       // what the envelope says
+      readonly headDoctrineVersion: string;         // what HEAD code is at
+    };
+
 export interface BuildCommitteeMemoInput {
   readonly dealName: string;
   readonly memoDate: string;                 // ISO date, e.g. '2026-06-12'
   readonly narrative: NarrativeEvaluation;
-  readonly dealResult: EvaluateDealResult;
+  /**
+   * In-memory clean-doctrine result. Required for the recompute path (when
+   * `auth` and `findings` are NOT supplied). Optional in the snapshot-reader
+   * path (PR (ii)) — callers supplying both `auth` and `findings` may omit
+   * it. When both are absent and so is `dealResult`, buildCommitteeMemo
+   * throws (the caller violated the contract).
+   */
+  readonly dealResult?: EvaluateDealResult;
   readonly composedMitigationPackage: ComposedMitigationPackage;
   /** Optional appraisal disclosure block. When present, the
    *  Stressed Credit Profile section emits an additional table surfacing
@@ -75,6 +100,26 @@ export interface BuildCommitteeMemoInput {
    *  Profile section so MEMO_SECTION_ORDER is unchanged — the
    *  committee-memo format hash stays valid. */
   readonly appraisalDisclosure?: AppraisalMemoDisclosure;
+  /**
+   * PR (ii) — snapshot reader. When supplied, REPLACES the projected auth
+   * block + findings (the renderer reads these from the persisted snapshot
+   * instead of re-projecting from `dealResult`). `dealResult` and
+   * `composedMitigationPackage` are still passed for the non-auth-or-findings
+   * sections that consume them; in the snapshot path those are synthesized
+   * by the caller from the snapshot. Optional for backwards compat —
+   * existing callers that don't construct a snapshot continue to use the
+   * recompute path with no behavior change.
+   */
+  readonly auth?: AuthoritativeNumbers;
+  readonly findings?: readonly CleanDoctrineFinding[];
+  /**
+   * PR (ii) — footer "render source" banner. Stamps "snapshot vs HEAD
+   * recompute" on every memo so the reader knows whether the numbers are
+   * pin-faithful or HEAD-doctrine. Optional; absence → no banner (legacy
+   * behavior). New callers (render-memo-for-analysis.ts as of PR (ii))
+   * always pass this.
+   */
+  readonly renderSource?: MemoRenderSource;
 }
 
 export interface AppraisalMemoDisclosure {
@@ -89,8 +134,21 @@ export interface AppraisalMemoDisclosure {
 }
 
 export function buildCommitteeMemo(input: BuildCommitteeMemoInput): string {
-  const auth = projectAuthoritativeNumbers(input.dealResult, input.composedMitigationPackage);
-  const findings = extractCleanDoctrineFindings(input.dealResult);
+  // Snapshot-aware: when `input.auth` + `input.findings` are supplied
+  // (PR (ii) reader path), use them verbatim — pin-faithful. Otherwise fall
+  // back to projecting from the in-memory `dealResult` (HEAD-recompute path).
+  // If neither auth nor dealResult is supplied, the caller violated the
+  // contract; throw rather than render with sentinel-everywhere.
+  if (input.auth === undefined && input.dealResult === undefined) {
+    throw new Error(
+      'buildCommitteeMemo: either `auth` (snapshot path) or `dealResult` ' +
+      '(recompute path) must be supplied. Both are missing.',
+    );
+  }
+  const auth = input.auth
+    ?? projectAuthoritativeNumbers(input.dealResult!, input.composedMitigationPackage);
+  const findings = input.findings
+    ?? extractCleanDoctrineFindings(input.dealResult!);
   // v1.8 — funded-exit projection now lives on ComposedMitigationPackage
   // (single source of truth in compose-mitigations.ts). Renderer READS
   // instead of recomputing — no desk-knob imports, no engine helpers here.
@@ -600,12 +658,33 @@ function renderFooter(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers
         &nbsp;·&nbsp; Memo format v${esc(COMMITTEE_MEMO_VERSION)}
         &nbsp;·&nbsp; Valuation basis: ${esc(basisLabel)}
         &nbsp;·&nbsp; ${esc(input.memoDate)}</div>
+      ${renderRenderSourceBanner(input.renderSource)}
       <div class="memo-footer-fine">
         Figures sourced from the structured AuthoritativeNumbers projection
         + composed mitigation package. Doctrine-stressed LTV is the only
         leverage basis surfaced on this memo.
       </div>
     </footer>`;
+}
+
+/**
+ * Render-source banner. Stamps "snapshot" vs "HEAD recompute" on the footer.
+ * Visible distinguishability is the point — a recompute-fallback memo is NOT
+ * pin-faithful and the reader must know.
+ */
+function renderRenderSourceBanner(src: MemoRenderSource | undefined): string {
+  if (src === undefined) return '';
+  if (src.kind === 'snapshot') {
+    return `
+      <div class="memo-render-source memo-render-source-snapshot">
+        Render source: snapshot (captured ${esc(src.capturedAt)}, snapshot producer v${esc(src.snapshotProducerVersion)}, doctrine v${esc(src.pinnedDoctrineVersion)})
+      </div>`;
+  }
+  const pinDrift = src.pinnedDoctrineVersion !== src.headDoctrineVersion;
+  return `
+    <div class="memo-render-source memo-render-source-recompute">
+      Render source: HEAD recompute — pinned at doctrine v${esc(src.pinnedDoctrineVersion)}, rendered using HEAD doctrine v${esc(src.headDoctrineVersion)}${pinDrift ? ' — NOT pin-faithful' : ''}
+    </div>`;
 }
 
 /* --------------------------- inline CSS ---------------------------------- */

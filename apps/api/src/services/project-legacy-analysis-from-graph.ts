@@ -39,9 +39,11 @@
 
 import {
   NARRATIVE_ENGINE_VERSION,
+  SNAPSHOT_PRODUCER_VERSION,
   type CrossCheckResult,
   type DoctrineComponentScore,
   type DoctrineEvaluation,
+  type DoctrineRenderSnapshot,
   type ExtractionResultId,
   type FiredFlag,
   type HandbookEvaluation,
@@ -59,6 +61,7 @@ import type {
   CreditScoreCategory,
   Finding,
   FindingCategory,
+  Recommendation,
   Severity,
   StressScenario,
   ValidationCheck,
@@ -96,8 +99,14 @@ export function projectLegacyAnalysisFromGraph(
   const projectedExecutiveSummary = narrative !== null
     ? projectExecutiveSummary(narrative)
     : analysis.executiveSummary;
+  // PR (ii) — snapshot-aware projection. Pull the snapshot (if present) so
+  // projectCreditScore can read the new-doctrine recommendation from it
+  // instead of falling back to the legacy `'further_review'` constant.
+  const renderSnapshot = doctrine !== null
+    ? store.getDoctrineRenderSnapshot(envelope.doctrineEvaluationId)
+    : null;
   const projectedCreditScore = doctrine !== null
-    ? projectCreditScore(doctrine)
+    ? projectCreditScore(doctrine, renderSnapshot)
     : analysis.creditScore;
 
   // uwModel: synthesize ONLY when the legacy slot is null (promote-from-graph
@@ -360,7 +369,10 @@ function projectExecutiveSummary(narrative: NarrativeEvaluation): string {
  * re-runs `applyCreditPolicyBandsToAnalysis` after projection, which decorates
  * each category with the doctrine-owned `classifyCategoryTier(score)` band.
  */
-function projectCreditScore(doctrine: DoctrineEvaluation): CreditScore {
+function projectCreditScore(
+  doctrine: DoctrineEvaluation,
+  renderSnapshot: DoctrineRenderSnapshot | null,
+): CreditScore {
   // Sunroad-UI-fix Part B: thread the doctrine coverage-gate signal so the
   // UI can render "InsufficientData" instead of a misleading "0/100".
   //   When the engine's coverage gate fired, doctrine.flags includes
@@ -368,15 +380,42 @@ function projectCreditScore(doctrine: DoctrineEvaluation): CreditScore {
   //   a sentinel ("refuse to rate"), NOT a real score — surface that as a
   //   distinct riskTier value rather than rendering it as a number.
   const gated = doctrine.flags.includes('INSUFFICIENT_COVERAGE_GATE');
+  // PR (ii) — recommendation comes from the snapshot when present + supported
+  // (true new-doctrine verdict). Without a snapshot the rating card
+  // continues to show the legacy `'further_review'` sentinel — the safe
+  // non-actionable signal indicating the rating axis isn't decided here.
   return {
     overall: Math.round(doctrine.finalScore),
     categories: doctrine.componentScores.map(projectCategory),
-    recommendation: 'further_review',
+    recommendation: recommendationFromSnapshot(renderSnapshot),
     narrative: '',
     riskTier: gated ? 'insufficient_data' : ratingBandToRiskTier(doctrine.ratingBand),
     whyThisScore: '',
     howToImprove: '',
   };
+}
+
+/**
+ * Map the snapshot's new-doctrine recommendation to the legacy `Recommendation`
+ * union. Producer-side widths must match (see DoctrineRenderSnapshot contract);
+ * widening producer → reader is a coordinated SNAPSHOT_PRODUCER_VERSION bump.
+ *
+ *   Approve              → 'approve'
+ *   ApproveWithConditions → 'approve_with_conditions'
+ *   Decline              → 'decline'
+ *   InsufficientData     → 'further_review'   (legacy non-actionable)
+ */
+function recommendationFromSnapshot(
+  renderSnapshot: DoctrineRenderSnapshot | null,
+): Recommendation {
+  if (renderSnapshot === null) return 'further_review';
+  if (renderSnapshot.snapshotProducerVersion !== SNAPSHOT_PRODUCER_VERSION) return 'further_review';
+  switch (renderSnapshot.rating.recommendation) {
+    case 'Approve':                return 'approve';
+    case 'ApproveWithConditions':  return 'approve_with_conditions';
+    case 'Decline':                return 'decline';
+    case 'InsufficientData':       return 'further_review';
+  }
 }
 
 function projectCategory(c: DoctrineComponentScore): CreditScoreCategory {
