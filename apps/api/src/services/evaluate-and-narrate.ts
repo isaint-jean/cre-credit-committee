@@ -38,7 +38,11 @@ import type {
   SnapshotDimOutput,
   SnapshotRating,
 } from '@cre/contracts';
-import { MITIGATION_ENGINE_VERSION, SNAPSHOT_PRODUCER_VERSION } from '@cre/contracts';
+import {
+  MITIGATION_ENGINE_VERSION,
+  SNAPSHOT_PRODUCER_VERSION,
+  extractDoctrineRenderSnapshotHashInput,
+} from '@cre/contracts';
 import { calculateAnnualDebtService } from '@cre/shared';
 import {
   buildNarrative,
@@ -280,10 +284,14 @@ export async function evaluateAndNarrate(
   // inputs). We sanitize those non-finite values to null AT THE BOUNDARY of
   // the snapshot — the in-memory consumers (renderer + LLM prompt) still see
   // the upstream values unchanged; only the persisted blob is sanitized.
-  const snapshotBody = sanitizeForCanonicalJson({
+  // Build the body in two steps: sanitize → split into hash-input subset +
+  // stamped-only capturedAt. The id hashes ONLY the subset (true content-
+  // addressing); capturedAt is stamped on the row + record for audit but
+  // does NOT participate in the hash. Same render state → same id, even
+  // if re-captured later.
+  const sanitizedBody = sanitizeForCanonicalJson({
     doctrineEvaluationId: evaluation.id,
     snapshotProducerVersion: SNAPSHOT_PRODUCER_VERSION,
-    capturedAt: new Date().toISOString(),
     rating: projectSnapshotRating(dealResult),
     dimOutputs: projectSnapshotDimOutputs(dealResult),
     authoritativeNumbers: projectAuthoritativeNumbers(dealResult, composedMitigationPackage),
@@ -296,9 +304,19 @@ export async function evaluateAndNarrate(
       fundedExitProjection:    composedMitigationPackage.fundedExitProjection as unknown as Readonly<Record<string, unknown>>,
       finalState:              composedMitigationPackage.finalState as unknown as Readonly<Record<string, unknown>>,
     },
-  }) as Omit<DoctrineRenderSnapshot, 'id'>;
+  }) as Pick<DoctrineRenderSnapshot,
+    | 'doctrineEvaluationId'
+    | 'snapshotProducerVersion'
+    | 'rating'
+    | 'dimOutputs'
+    | 'authoritativeNumbers'
+    | 'composedMitigationPackage'>;
+  const snapshotBody: Omit<DoctrineRenderSnapshot, 'id'> = {
+    ...sanitizedBody,
+    capturedAt: new Date().toISOString(),
+  };
   const renderSnapshot: DoctrineRenderSnapshot = {
-    id: computeDoctrineRenderSnapshotId(snapshotBody) as DoctrineRenderSnapshotId,
+    id: computeDoctrineRenderSnapshotId(extractDoctrineRenderSnapshotHashInput(snapshotBody)) as DoctrineRenderSnapshotId,
     ...snapshotBody,
   };
   store.insertDoctrineRenderSnapshot(renderSnapshot);

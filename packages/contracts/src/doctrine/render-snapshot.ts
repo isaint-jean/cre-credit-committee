@@ -28,10 +28,16 @@
  *   "fall back to recompute + flag the memo as not pin-faithful" — the renderer
  *   degrades gracefully.
  *
- * Hash boundary:
- *   `id` = SHA-256(JCS(snapshot body — every field except `id`)). The snapshot's
- *   own hash. NOT referenced by any other record's hash boundary. Adding /
- *   updating / removing a snapshot does not perturb any other record's identity.
+ * Hash boundary (locked):
+ *   `id` = SHA-256(JCS(`DoctrineRenderSnapshotHashInput`)) — STRICT SUBSET of
+ *   the record's fields. `capturedAt` is STAMPED on the row but NOT in the
+ *   hash; same render state captured at two different wall-clock times is the
+ *   SAME logical snapshot with the SAME id (true content-addressing — mirrors
+ *   the RevisionLineageEnvelope §5 hash-boundary pattern). The snapshot's
+ *   identity is therefore a function of doctrine state, not capture timing.
+ *
+ *   NOT referenced by any other record's hash boundary — adding / updating /
+ *   removing a snapshot does not perturb any other record's identity.
  */
 
 import type {
@@ -181,8 +187,31 @@ export interface SnapshotComposedMitigationPackage {
 /* §2. The snapshot record                                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * `DoctrineRenderSnapshotHashInput` — the EXACT subset of `DoctrineRenderSnapshot`
+ * fields that participate in the id hash. PR (ii) hash-boundary lock.
+ *
+ * Excluded from the hash (stamped, not hashed):
+ *   - `id` (the hash itself)
+ *   - `capturedAt` (wall-clock; same render state captured at different times
+ *     must yield the same id — true content-addressing)
+ *
+ * Two independent implementations MUST produce byte-identical SHA-256 over the
+ * JCS canonicalization of this struct. Bumping `SNAPSHOT_PRODUCER_VERSION`
+ * widens the hash boundary if new fields are added — readers handle the
+ * version drift; never silently change the boundary at v1.0.
+ */
+export interface DoctrineRenderSnapshotHashInput {
+  readonly doctrineEvaluationId: DoctrineEvaluationId;
+  readonly snapshotProducerVersion: SnapshotProducerVersion;
+  readonly rating: SnapshotRating;
+  readonly dimOutputs: Readonly<Record<string, SnapshotDimOutput>>;
+  readonly authoritativeNumbers: SnapshotAuthoritativeNumbers;
+  readonly composedMitigationPackage: SnapshotComposedMitigationPackage;
+}
+
 export interface DoctrineRenderSnapshot {
-  /** Identity. SHA-256(JCS(body — every field except `id`)). */
+  /** Identity. SHA-256(JCS(`DoctrineRenderSnapshotHashInput`)). */
   readonly id: DoctrineRenderSnapshotId;
 
   /** FK to the doctrine eval this snapshot describes. One snapshot per eval. */
@@ -195,15 +224,16 @@ export interface DoctrineRenderSnapshot {
   readonly snapshotProducerVersion: SnapshotProducerVersion;
 
   /**
-   * Wall-clock timestamp at snapshot-write time. Recorded for audit / replay
-   * reasoning ("when did this memo's pinned outputs get captured?"). Part of
-   * the body, so changes to `capturedAt` change the snapshot id — this is
-   * intentional, since the same eval re-snapshotted at a different time is a
-   * distinguishable record. Producers should write only once per eval.
+   * Wall-clock timestamp at snapshot-write time. STAMPED ONLY — NOT in the
+   * hash boundary. Recorded for audit / replay reasoning ("when did this
+   * memo's pinned outputs get captured?"). Re-running the producer over the
+   * same render state at a later time would yield the same `id` and a new
+   * `capturedAt`; the `ON CONFLICT(doctrine_evaluation_id) DO NOTHING`
+   * constraint on the row makes the first write win.
    */
   readonly capturedAt: ISODateTime;
 
-  /* --- captured outputs --- */
+  /* --- captured outputs (mirror DoctrineRenderSnapshotHashInput) --- */
 
   readonly rating: SnapshotRating;
 
@@ -220,4 +250,28 @@ export interface DoctrineRenderSnapshot {
 
   /** Composed mitigation package — what the restructuring/sponsor-burden sections read. */
   readonly composedMitigationPackage: SnapshotComposedMitigationPackage;
+}
+
+/**
+ * Extract the hash-input subset from a full snapshot record. Single source of
+ * truth for the §HashBoundary subset — producers AND verifiers call this so
+ * the boundary can't drift between writer + reader.
+ */
+export function extractDoctrineRenderSnapshotHashInput(
+  s: Pick<DoctrineRenderSnapshot,
+    | 'doctrineEvaluationId'
+    | 'snapshotProducerVersion'
+    | 'rating'
+    | 'dimOutputs'
+    | 'authoritativeNumbers'
+    | 'composedMitigationPackage'>,
+): DoctrineRenderSnapshotHashInput {
+  return {
+    doctrineEvaluationId:    s.doctrineEvaluationId,
+    snapshotProducerVersion: s.snapshotProducerVersion,
+    rating:                  s.rating,
+    dimOutputs:              s.dimOutputs,
+    authoritativeNumbers:    s.authoritativeNumbers,
+    composedMitigationPackage: s.composedMitigationPackage,
+  };
 }

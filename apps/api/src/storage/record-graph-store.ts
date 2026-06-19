@@ -70,7 +70,12 @@ import type {
   ValuationConclusion,
   ValuationConclusionId,
 } from '@cre/contracts';
-import { computeRevisionId, serializeRecordBody } from '../util/content-hash.js';
+import { extractDoctrineRenderSnapshotHashInput } from '@cre/contracts';
+import {
+  computeDoctrineRenderSnapshotId,
+  computeRevisionId,
+  serializeRecordBody,
+} from '../util/content-hash.js';
 
 const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'cre.db');
 
@@ -1515,7 +1520,23 @@ export class RecordGraphStore {
    * timing.
    */
   insertDoctrineRenderSnapshot(record: DoctrineRenderSnapshot): { inserted: boolean } {
-    const { id, payload, body } = this.verifyAndSerialize(record, 'DoctrineRenderSnapshot');
+    // Verify the id against the LOCKED hash boundary: id =
+    // SHA-256(JCS(DoctrineRenderSnapshotHashInput)). `capturedAt` is stamped
+    // on the row but does NOT participate in the hash — same render state
+    // captured at two different wall-clock times yields the same id.
+    const computedId = computeDoctrineRenderSnapshotId(
+      extractDoctrineRenderSnapshotHashInput(record),
+    );
+    if (record.id !== computedId) {
+      throw new RecordIdMismatchError('DoctrineRenderSnapshot', record.id, computedId);
+    }
+    // Payload stores the full body (with capturedAt) for faithful rehydration
+    // via parseRow. Hashing the SUBSET while serializing the FULL body is the
+    // intentional asymmetry that makes capturedAt observable without being
+    // identity-bearing.
+    const { id: _drop, ...body } = record;
+    void _drop;
+    const payload = JSON.stringify(body);
     const result = this.db
       .prepare(
         `INSERT INTO doctrine_render_snapshots
@@ -1524,10 +1545,10 @@ export class RecordGraphStore {
          ON CONFLICT(doctrine_evaluation_id) DO NOTHING`,
       )
       .run(
-        id,
-        body.doctrineEvaluationId,
-        body.snapshotProducerVersion,
-        body.capturedAt,
+        record.id,
+        record.doctrineEvaluationId,
+        record.snapshotProducerVersion,
+        record.capturedAt,
         payload,
         new Date().toISOString(),
       );

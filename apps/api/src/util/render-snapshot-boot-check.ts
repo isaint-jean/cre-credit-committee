@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   SNAPSHOT_PRODUCER_VERSION,
+  extractDoctrineRenderSnapshotHashInput,
   type DoctrineRenderSnapshot,
   type DoctrineRenderSnapshotId,
   type DoctrineEvaluationId,
@@ -111,7 +112,11 @@ export function performRenderSnapshotBootCheck(): void {
     },
   };
   const synthetic: DoctrineRenderSnapshot = {
-    id: computeDoctrineRenderSnapshotId(body) as DoctrineRenderSnapshotId,
+    // Hash ONLY the locked subset (capturedAt is stamped-not-hashed). Same
+    // content → same id across runs — true content-addressing.
+    id: computeDoctrineRenderSnapshotId(
+      extractDoctrineRenderSnapshotHashInput(body),
+    ) as DoctrineRenderSnapshotId,
     ...body,
   };
 
@@ -150,6 +155,22 @@ export function performRenderSnapshotBootCheck(): void {
   if (fetched.authoritativeNumbers.stressedValue !== 100_000_000) {
     throw new RenderSnapshotBootCheckError(
       `round-trip authoritativeNumbers.stressedValue lost: got ${fetched.authoritativeNumbers.stressedValue}`,
+    );
+  }
+
+  // (3) Content-addressable id proof: the same body re-built with a DIFFERENT
+  // capturedAt must yield the SAME id. capturedAt is in the body but NOT in
+  // the hash boundary. This catches accidental boundary drift if a future
+  // edit moves capturedAt back into the hash.
+  const bodyLater = { ...body, capturedAt: '2099-12-31T23:59:59.999Z' as never };
+  const idLater = computeDoctrineRenderSnapshotId(
+    extractDoctrineRenderSnapshotHashInput(bodyLater),
+  );
+  if (idLater !== synthetic.id) {
+    throw new RenderSnapshotBootCheckError(
+      `content-addressable invariant broken: same render state with different ` +
+      `capturedAt produced different ids (${synthetic.id.slice(0, 16)}… vs ${idLater.slice(0, 16)}…). ` +
+      `capturedAt must NOT participate in the hash boundary.`,
     );
   }
 
