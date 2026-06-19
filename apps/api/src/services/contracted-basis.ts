@@ -30,7 +30,7 @@
  * (stabilized) unchanged — by construction, not by accident.
  */
 
-import type { AdjustedInputs, ExtractionResult } from '@cre/contracts';
+import type { AdjustedInputs, RentRoll } from '@cre/contracts';
 
 export interface ContractedNoiTrace {
   readonly contractedRevenue: number | null;
@@ -45,7 +45,17 @@ export interface ContractedNoiTrace {
 }
 
 export interface ComputeContractedNoiInput {
-  readonly extraction: ExtractionResult;
+  /**
+   * The RICH RentRoll graph node (TenantRentRollLine shape), NOT the
+   * leaner ExtractionResult.rentRoll (TenantUnit shape) — only the graph
+   * node carries `status` ∈ {OCCUPIED, PRELEASED, VACANT, …} and
+   * `inPlaceRentAnnual`. Producers should resolve the RentRoll via
+   * `DoctrineEvaluation.rentRollId` (or the equivalent bundle field) and
+   * pass it here. `null` when the deal has no rent roll — contractedNoi
+   * computation then returns null and the adapter falls back to
+   * pickIssuerNoi.
+   */
+  readonly rentRoll: RentRoll | null;
   readonly adjustedInputs: AdjustedInputs;
   readonly isLeaseUpDeal: boolean;
 }
@@ -72,8 +82,7 @@ export function computeContractedNoi(
   }
 
   // Deliberate guard #2: no rent roll → can't compute contracted revenue.
-  const rentRoll = (input.extraction as unknown as { rentRoll?: unknown }).rentRoll;
-  const lines = readRentRollLines(rentRoll);
+  const lines = readRentRollLines(input.rentRoll);
   if (lines === null) {
     return {
       contractedRevenue: null,

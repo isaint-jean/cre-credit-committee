@@ -262,7 +262,7 @@ export async function evaluateFromAdjustedInputs(
   // override, preserving the clean-room fence by construction.
   const leaseUpTrace = detectLeaseUp({ extraction, assetProfile });
   const contractedTrace = computeContractedNoi({
-    extraction,
+    rentRoll,
     adjustedInputs,
     isLeaseUpDeal: leaseUpTrace.isLeaseUp,
   });

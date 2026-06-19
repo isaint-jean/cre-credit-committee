@@ -234,7 +234,7 @@ section('2. computeContractedNoi — Sunroad-shape (expect ≈ $8.57M)');
     })),
   };
   const trace = computeContractedNoi({
-    extraction: ex as never,
+    rentRoll: ex.rentRoll as never,
     adjustedInputs: emptyAdjustedInputs(),
     isLeaseUpDeal: true,
   });
@@ -261,10 +261,8 @@ section('3. computeContractedNoi — stabilized fixture (expect null, path uncha
 {
   // predicate=false → return null. Stabilized deals stay on the existing
   // pickIssuerNoi cascade. This is the surgical-NOT-default guarantee.
-  const ex = emptyExtraction() as unknown as Record<string, unknown>;
-  ex.rentRoll = { lines: [{ kind: 'tenant', status: 'OCCUPIED', inPlaceRentAnnual: 100_000 }] };
   const trace = computeContractedNoi({
-    extraction: ex as never,
+    rentRoll: { lines: [{ kind: 'tenant', status: 'OCCUPIED', inPlaceRentAnnual: 100_000 }] } as never,
     adjustedInputs: emptyAdjustedInputs(),
     isLeaseUpDeal: false,
   });
@@ -276,7 +274,7 @@ section('3. computeContractedNoi — stabilized fixture (expect null, path uncha
 {
   // predicate=true but rent roll absent → return null
   const trace = computeContractedNoi({
-    extraction: emptyExtraction(),
+    rentRoll: null,
     adjustedInputs: emptyAdjustedInputs(),
     isLeaseUpDeal: true,
   });
@@ -313,7 +311,7 @@ section('4. computeContractedNoi — SPECULATIVE lease-up (generalization-bite p
     })),
   };
   const trace = computeContractedNoi({
-    extraction: ex as never,
+    rentRoll: ex.rentRoll as never,
     adjustedInputs: emptyAdjustedInputs(),
     isLeaseUpDeal: true,
   });
