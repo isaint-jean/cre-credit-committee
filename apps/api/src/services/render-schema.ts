@@ -1471,6 +1471,12 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   // a rent-roll-derived RRP formula; the rent-roll sum-of-squareFeet pathway
   // is not surfaced on resolvedContext today. Awaiting either resolvedContext
   // extension or a manual NRA input.
+  //
+  // PHASE A (v10) — K5 is overridden in V10_SHARED_ENTRIES with a rent-roll
+  // selector that sums tenant.squareFeet directly. v9 keeps the nullSelector
+  // because v9's source allowlist does NOT permit 'rentRoll' — the rent-roll
+  // bundle entered the picture at v10. Cells still under v9 (no v10 template
+  // override) render honest-blank as before.
   {
     slot: 'Property_Loan_Summary',
     range: 'K5',
@@ -1673,10 +1679,47 @@ const V10_RRP_OVERRIDE_ENTRY: SchemaEntry = {
   forceOverwrite: true,
 };
 
+/**
+ * Phase-A K5 override (v10) — Net Rentable Area sums tenant.squareFeet from
+ * the v10 rent-roll bundle that the selector already has in scope. v9's K5
+ * entry (nullSelector) is filtered out below; v10's selector takes its place
+ * with cellState='concluded'. Honest-blank when no rent-roll lines are
+ * present or no tenant carries a finite squareFeet — defensive sum: never
+ * fabricates 0, an absent line contributes nothing, and the result is null
+ * unless at least one finite-squareFeet line existed.
+ */
+const V10_NRA_OVERRIDE_ENTRY: SchemaEntry = {
+  slot: 'Property_Loan_Summary',
+  range: 'K5',
+  selector: tagSelector((input) => {
+    const rr = input.rentRoll;
+    if (!rr) return null;
+    let total = 0;
+    let any = false;
+    for (const l of rr.lines) {
+      if (l.kind !== 'tenant') continue;
+      const sf = (l as { squareFeet?: number | null }).squareFeet;
+      if (typeof sf === 'number' && Number.isFinite(sf) && sf > 0) {
+        total += sf;
+        any = true;
+      }
+    }
+    return any ? total : null;
+  }, ['rentRoll']),
+  cellState: 'concluded',
+  forceOverwrite: true,
+};
+
 const V10_SHARED_ENTRIES: SchemaEntry[] = [
-  ...V9_SHARED_ENTRIES,
+  // Carry V9 forward but drop the K5 entry — v10's NRA override below
+  // replaces it. Filter is keyed on slot+range to avoid mis-matching other
+  // Property & Loan Summary entries.
+  ...V9_SHARED_ENTRIES.filter(
+    (e) => !(e.slot === 'Property_Loan_Summary' && e.range === 'K5'),
+  ),
   ...V10_RENT_ROLL_ENTRIES,
   V10_RRP_OVERRIDE_ENTRY,
+  V10_NRA_OVERRIDE_ENTRY,
 ];
 
 const V10_MANAGED_NAMESPACE: ManagedNamespacePolicy = {

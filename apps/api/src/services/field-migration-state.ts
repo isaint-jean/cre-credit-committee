@@ -474,7 +474,13 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
       { address: 'Operating History and Pro Forma!P26',           group: 'financial_core', state: 'LEGACY' },
       { address: 'Property & Loan Summary!E41',                   group: 'financial_core', state: 'LEGACY' },
       { address: 'Operating History and Pro Forma!P49',           group: 'financial_core', state: 'LEGACY' },
-      { address: 'Property & Loan Summary!K5',                    group: 'property',       state: 'LEGACY' },
+      // Phase A — K5 transitions LEGACY → RENT_ROLL_SOURCED at v10.
+      // The K5 entry in V10_SHARED_ENTRIES now reads from
+      // RenderInput.rentRoll (sum of tenant.squareFeet), so the v10 field-
+      // state must declare RENT_ROLL_SOURCED to satisfy the source-mismatch
+      // check (REQUIRED_SOURCE_BY_STATE['RENT_ROLL_SOURCED'] = 'rentRoll').
+      // K6 stays LEGACY — building class still nullSelector.
+      { address: 'Property & Loan Summary!K5',                    group: 'property',       state: 'RENT_ROLL_SOURCED' },
       { address: 'Property & Loan Summary!K6',                    group: 'property',       state: 'LEGACY' },
       { address: 'Hotel Op History and Pro Forma!P9',             group: 'financial_core', state: 'LEGACY' },
       { address: 'Hotel Op History and Pro Forma!P6',             group: 'financial_core', state: 'LEGACY' },
@@ -641,6 +647,15 @@ export const LEGAL_TRANSITIONS: ReadonlyArray<readonly [FieldMigrationState, Fie
   ['LEGACY', 'DUAL_OBSERVED'],
   ['DUAL_OBSERVED', 'HYBRID'],
   ['HYBRID', 'FULL_MODERN'],
+  // Phase A (v10) — LEGACY → RENT_ROLL_SOURCED. The rent-roll bundle landed
+  // at v10 as a new source surface. Cells that had been LEGACY
+  // awaiting_input but whose data lives in the rent-roll (e.g., Property &
+  // Loan Summary!K5 / NRA = sum of tenant.squareFeet) can transition
+  // directly. NOT a skip past the staircase — the staircase is
+  // adjustedInputs/resolvedContext migration; rent-roll is an orthogonal
+  // source surface that becomes available at v10. Single-step transition
+  // because there's no intermediate state for rent-roll-sourcing.
+  ['LEGACY', 'RENT_ROLL_SOURCED'],
   // Permit forward + backward only along the staircase. State demotions
   // (e.g. FULL_MODERN → HYBRID) are allowed iff explicitly listed for
   // remediation purposes; not currently allowed, so omitted.
