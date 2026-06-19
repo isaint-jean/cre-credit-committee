@@ -123,6 +123,28 @@ export interface AdapterOptions {
    * engine. See OperatorSuppliedValue for confidence semantics.
    */
   readonly operatorSuppliedValue?: OperatorSuppliedValue;
+  /**
+   * Conservative-lease-up doctrine input (DOCTRINE_VERSION 1.5+). When
+   * non-null, the adapter SUBSTITUTES this value for `uwY1Noi` in place
+   * of the pickIssuerNoi cascade. The figure must already be the
+   * "contracted basis" NOI — revenue summed from rent-roll lines with
+   * status ∈ {OCCUPIED, PRELEASED} at contract rent, run through the
+   * engine's existing vacancy + expense discipline. Speculative/vacant
+   * space is excluded by the producer (`services/contracted-basis.ts`).
+   *
+   * FENCE NOTE: this override is the controlled way for the production
+   * caller to feed an AdjustedInputs-aware figure INTO the clean adapter
+   * without the adapter itself reading AdjustedInputs. The
+   * `contracted-basis.ts` producer reads AdjustedInputs; this adapter
+   * reads only the resulting scalar. Doctrine-clean's "no judgment-laden
+   * reads" discipline is preserved by construction: the override is
+   * always provided by an explicit caller decision (the lease-up
+   * predicate firing), never derived inside doctrine-clean itself.
+   *
+   * null/undefined → fall back to pickIssuerNoi (unchanged behavior on
+   * stabilized deals).
+   */
+  readonly uwY1NoiOverride?: number | null;
 }
 
 /* ---------------- raw-read pick helpers (pure data reduction) -------------- */
@@ -485,7 +507,14 @@ export function adaptExtractionToDealBag(
   const resolvedValue = resolveConcludedValue(extraction, options?.operatorSuppliedValue);
   const concludedValue = resolvedValue?.value ?? null;
   const concludedValueSource = resolvedValue?.source ?? null;
-  const uwY1Noi = pickIssuerNoi(extraction);
+  // uwY1Noi: when the caller supplies a contracted-basis override (doctrine
+  // 1.5 conservative-lease-up path), substitute it directly. Otherwise use
+  // the existing pickIssuerNoi cascade (stabilized deals; behavior unchanged).
+  const uwY1NoiOverride =
+    typeof options?.uwY1NoiOverride === 'number' && Number.isFinite(options.uwY1NoiOverride)
+      ? options.uwY1NoiOverride
+      : null;
+  const uwY1Noi = uwY1NoiOverride !== null ? uwY1NoiOverride : pickIssuerNoi(extraction);
   const t12Noi = extraction.t12Actual?.noi ?? null;
 
   // Occupancy.

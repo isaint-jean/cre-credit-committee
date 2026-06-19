@@ -56,6 +56,8 @@ import {
   evaluateDeal,
   bridgeToDoctrineEvaluation,
 } from '../doctrine-clean/index.js';
+import { detectLeaseUp } from '../doctrine-clean/normalization/lease-up-detection.js';
+import { computeContractedNoi } from './contracted-basis.js';
 import type {
   EvaluateDealResult,
   OperatorSuppliedValue,
@@ -250,9 +252,24 @@ export async function evaluateFromAdjustedInputs(
       `it before this stage. Tag: ${CLEAN_DOCTRINE_PATH_TAG}`,
     );
   }
+  // Conservative-lease-up doctrine (DOCTRINE_VERSION 1.5). The detection
+  // predicate routes lease-up deals to the contracted basis (rent-roll
+  // signed-lease filter + engine's existing vacancy/expense discipline);
+  // stabilized deals fall through unchanged. The producer lives outside
+  // doctrine-clean (in services/contracted-basis.ts) because it reuses
+  // AdjustedInputs.income.vacancyPct.adjusted + metrics.expenseRatio to
+  // avoid duplicating floor policy. The adapter receives only the scalar
+  // override, preserving the clean-room fence by construction.
+  const leaseUpTrace = detectLeaseUp({ extraction, assetProfile });
+  const contractedTrace = computeContractedNoi({
+    extraction,
+    adjustedInputs,
+    isLeaseUpDeal: leaseUpTrace.isLeaseUp,
+  });
   const dealBag = adaptExtractionToDealBag(extraction, propertyMetadata, {
     explicitAssetType: assetProfile.propertyType,
     operatorSuppliedValue: args.operatorSuppliedValue,
+    uwY1NoiOverride: contractedTrace.contractedNoi,
   });
   const dealResult = evaluateDeal(dealBag);
 
@@ -271,11 +288,20 @@ export async function evaluateFromAdjustedInputs(
     rentRollId: rentRoll?.id ?? null,
   };
   const bridgeVersions = {
-    doctrineVersion: '1.3' as const,                     // contract-union literal; clean path tagged via CLEAN_DOCTRINE_PATH_TAG
+    doctrineVersion: '1.5' as const,                     // conservative-lease-up doctrine; matches DOCTRINE_VERSION constant
     judgmentEngineVersion: '1.10' as const,              // judgment still runs above; existing version stamp
     stressEngineVersion: '1.0' as const,
     valuationEngineVersion: '1.0' as const,
   };
+  // leaseUpTrace + contractedTrace are not currently persisted; they're
+  // available locally for diagnostic logging if the caller wants to surface
+  // why a deal routed (or didn't route) to the contracted basis. The clean
+  // doctrine's normalization layer (sustainable-cashflow.ts) records its own
+  // haircut trace on the DoctrineEvaluation output; a separate Phase 6.5
+  // batch can promote leaseUpTrace + contractedTrace into the persisted
+  // record if lineage filtering needs them.
+  void leaseUpTrace;
+  void contractedTrace;
   const bridged = bridgeToDoctrineEvaluation(dealResult, bridgeIds, bridgeVersions, analysisAsOfDate);
 
   // Stamp the content-hash id over the bridged body (placeholder id is ignored

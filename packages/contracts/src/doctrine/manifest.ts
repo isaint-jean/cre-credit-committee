@@ -102,4 +102,30 @@ export const DOCTRINE_MANIFEST: DoctrineManifest = {
   // ASSET_FLOORS hashed as-is including the `source:` citation strings —
   // citation drift is provenance drift, in scope.
   '1.4': '577ce5772eaa1f28a58ecfa953428aa8951ef0c80272b4c820267ef3415b6c06' as ContentHash,
+  // v1.5 (2026-06-19) — Conservative-lease-up doctrine: contracted-basis NOI
+  // routing. ADDS a deliberate (not default) router that detects lease-up
+  // deals via a 5-signal OR (t12 ≤ 0 / appraisal currentProForma NOI < 0 /
+  // stabilizationMonths > 0 / occupancy gap > 10pp / assetProfile.businessPlan
+  // === 'LeaseUp_or_Transitional') and substitutes a contracted-revenue-
+  // derived uwY1Noi for the existing pickIssuerNoi cascade on lease-up deals.
+  // Contracted revenue = Σ rent-roll inPlaceRentAnnual for status ∈
+  // {OCCUPIED, PRELEASED}; speculative/vacant space excluded. EGI/TOE reuse
+  // AdjustedInputs vacancy + expense floors (no policy duplication).
+  // Stabilized deals fall through unchanged.
+  //
+  // DOCTRINE-SNAPSHOT HASH IS IDENTICAL TO v1.4. The hash didn't move because
+  // the snapshot covers {rules, flags, reasonCodes, weights, bands,
+  // rulesByComponent, spineConstants} — call-site behavior (which adapter
+  // option uwY1Noi reads from) is OUTSIDE that surface. The version bump
+  // records the policy decision; the boot check still passes because the
+  // doctrine snapshot is byte-identical pre/post. Future calibrations that
+  // touch the snapshot move the hash again.
+  //
+  // FENCE COMPLIANCE: the producer (services/contracted-basis.ts) reads
+  // AdjustedInputs — but it's OUTSIDE doctrine-clean. The doctrine-clean
+  // adapter only receives the resulting scalar via the explicit
+  // `uwY1NoiOverride` option, never the AdjustedInputs object. The clean-
+  // room invariant ("doctrine-clean reads only raw extraction + property
+  // metadata") is preserved by construction.
+  '1.5': '577ce5772eaa1f28a58ecfa953428aa8951ef0c80272b4c820267ef3415b6c06' as ContentHash,
 };
