@@ -189,7 +189,7 @@ export async function evaluateAndNarrate(
   store: RecordGraphStore,
   deps: EvaluateAndNarrateDeps = {},
 ): Promise<EvaluateAndNarrateResult> {
-  const { evaluation, handbookEvaluation, dealResult, dealBag } = await evaluateFromAdjustedInputs(
+  const { evaluation, handbookEvaluation, dealResult, dealBag, contractedNoi } = await evaluateFromAdjustedInputs(
     args,
     store,
     // Wire the LLM_CONTEXT evaluator into the handbook pass when the same
@@ -304,13 +304,23 @@ export async function evaluateAndNarrate(
       fundedExitProjection:    composedMitigationPackage.fundedExitProjection as unknown as Readonly<Record<string, unknown>>,
       finalState:              composedMitigationPackage.finalState as unknown as Readonly<Record<string, unknown>>,
     },
+    // v1.1 — noiBasis disclosure facts. Both sides of the NOI-basis split
+    // captured pin-faithfully so the memo + workbook callout can read from
+    // snapshot instead of re-running the lease-up + contracted-basis
+    // pipeline at render time.
+    noiBasis: {
+      judgmentNoi:        args.adjustedInputs.metrics.noi,
+      contractedNoi,           // null when predicate=false (stabilized)
+      divergenceReason:   NOI_BASIS_DIVERGENCE_REASON,
+    },
   }) as Pick<DoctrineRenderSnapshot,
     | 'doctrineEvaluationId'
     | 'snapshotProducerVersion'
     | 'rating'
     | 'dimOutputs'
     | 'authoritativeNumbers'
-    | 'composedMitigationPackage'>;
+    | 'composedMitigationPackage'
+    | 'noiBasis'>;
   const snapshotBody: Omit<DoctrineRenderSnapshot, 'id'> = {
     ...sanitizedBody,
     capturedAt: new Date().toISOString(),
@@ -362,6 +372,14 @@ export async function evaluateAndNarrate(
     composedMitigationPackage,
   };
 }
+
+/**
+ * Neutral disclosure reason — same wording for memo + workbook (Option C).
+ * Single export so both render layers consume the canonical sentence; future
+ * doctrine doctrine review can update this in one place.
+ */
+export const NOI_BASIS_DIVERGENCE_REASON =
+  'Other-income treatment differs: contracted NOI credits other income as a pass-through; workbook NOI scales it through vacancy + expense as part of the income line.';
 
 /* --- snapshot projection helpers (PR i) — pure, no recompute ----------- */
 

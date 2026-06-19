@@ -143,6 +143,15 @@ export interface EvaluateFromAdjustedInputsResult {
    * not persisted. Other callers may ignore.
    */
   readonly dealBag: DealBag;
+  /**
+   * v1.1 noiBasis additive (Option C). The contracted-basis NOI computed
+   * earlier in this function, surfaced for the snapshot producer so the
+   * disclosure callout reads pin-faithful numbers without re-running the
+   * lease-up + contracted-basis pipeline downstream. `null` when the
+   * lease-up predicate didn't fire (stabilized deals — no divergence to
+   * disclose).
+   */
+  readonly contractedNoi: number | null;
 }
 
 export interface EvaluateFromAdjustedInputsDeps {
@@ -301,7 +310,8 @@ export async function evaluateFromAdjustedInputs(
   // batch can promote leaseUpTrace + contractedTrace into the persisted
   // record if lineage filtering needs them.
   void leaseUpTrace;
-  void contractedTrace;
+  // contractedTrace is exposed below so the snapshot producer can carry
+  // contractedNoi as a stamped field (v1.1 noiBasis disclosure).
   const bridged = bridgeToDoctrineEvaluation(dealResult, bridgeIds, bridgeVersions, analysisAsOfDate);
 
   // Stamp the content-hash id over the bridged body (placeholder id is ignored
@@ -313,5 +323,15 @@ export async function evaluateFromAdjustedInputs(
   };
   store.insertDoctrineEvaluation(evaluation);
 
-  return { evaluation, handbookEvaluation, dealResult, dealBag };
+  return {
+    evaluation,
+    handbookEvaluation,
+    dealResult,
+    dealBag,
+    // v1.1 noiBasis additive: surface the contracted-NOI scalar (null when the
+    // lease-up predicate didn't fire — stabilized deals) so the snapshot
+    // producer can stamp it without re-running the lease-up + contracted-basis
+    // pipeline downstream.
+    contractedNoi: contractedTrace.contractedNoi,
+  };
 }

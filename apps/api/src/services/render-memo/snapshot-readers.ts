@@ -30,6 +30,13 @@ import type {
 import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
 
 /**
+ * Versions this reader recognizes. 1.0 + 1.1 — load both; 1.1's noiBasis is
+ * optional on 1.0 (callout falls back to deterministic recompute). Future
+ * versions extend this set in lockstep.
+ */
+const SUPPORTED_PRODUCER_VERSIONS: readonly string[] = ['1.0', '1.1'];
+
+/**
  * Load a snapshot keyed by doctrineEvaluationId. Returns null when the
  * snapshot is absent (forward-only deals; pre-PR-i evals) OR when the
  * snapshot's producer version is unknown to this reader (the writer's at a
@@ -43,10 +50,18 @@ export function loadRenderSnapshot(
 ): DoctrineRenderSnapshot | null {
   const snap = store.getDoctrineRenderSnapshot(doctrineEvaluationId);
   if (snap === null) return null;
-  // Reader rejects future / unknown producer versions and falls back.
-  if (snap.snapshotProducerVersion !== SNAPSHOT_PRODUCER_VERSION) return null;
+  // Reader accepts the known-version set; rejects unknown (future) versions
+  // and falls back. Different from PR (i)'s strict equality — we now carry
+  // historical version support per the v1.1 bump policy.
+  if (!SUPPORTED_PRODUCER_VERSIONS.includes(snap.snapshotProducerVersion)) return null;
   return snap;
 }
+
+// Reference SNAPSHOT_PRODUCER_VERSION so TS doesn't complain about the
+// unused import (the version constant is the single source of truth that
+// the producer + boot check pin against; keep the import to anchor the
+// "this file is the authoritative reader" relationship).
+void SNAPSHOT_PRODUCER_VERSION;
 
 /**
  * Reconstruct a `CleanDoctrineFinding[]` from snapshot.dimOutputs. Filters

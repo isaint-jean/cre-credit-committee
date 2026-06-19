@@ -61,8 +61,20 @@ import type { MitigationProposal } from '../mitigation.js';
  * The version is stamped on every snapshot row so a future reader can replay
  * historical snapshots correctly.
  */
-export const SNAPSHOT_PRODUCER_VERSION = '1.0' as const;
-export type SnapshotProducerVersion = typeof SNAPSHOT_PRODUCER_VERSION;
+export const SNAPSHOT_PRODUCER_VERSION = '1.1' as const;
+/**
+ * Snapshot producer version union — extend (don't replace) when bumping
+ * `SNAPSHOT_PRODUCER_VERSION` so readers can carry historical version
+ * support. Bump history:
+ *   1.0 — initial release (PR i): rating, dimOutputs, authoritativeNumbers,
+ *         composedMitigationPackage.
+ *   1.1 — adds optional `noiBasis` field (judgmentNoi + contractedNoi for
+ *         the NOI-basis disclosure callout). Reader treats a 1.0 snapshot
+ *         as "no noiBasis field" → callout falls back to deterministic
+ *         recompute. Forward-only: new evals stamp 1.1; existing 1.0
+ *         snapshots stay valid + readable for their original fields.
+ */
+export type SnapshotProducerVersion = '1.0' | '1.1';
 
 /* -------------------------------------------------------------------------- */
 /* §1. Sub-shapes                                                             */
@@ -158,6 +170,34 @@ export interface SnapshotAuthoritativeNumbers {
 }
 
 /**
+ * NOI-basis disclosure facts (v1.1+). Captured so the memo + workbook can
+ * surface a callout when the workbook NOI (judgment-engine basis) and the
+ * verdict NOI (contracted-basis on lease-up deals) diverge. Both values are
+ * load-bearing for the disclosure; `contractedNoi` is null when the
+ * lease-up predicate didn't fire (stabilized deals — no divergence, no
+ * callout).
+ *
+ * Wording reason — neutral, both bases defensible. The callout shouldn't
+ * editorialize which basis is "right"; the difference is documented as a
+ * methodological choice (other-income handling: contracted treats it as a
+ * pass-through net of vacancy/expense; judgment scales it through
+ * vacancy + expense as part of the income line).
+ *
+ * @stamp v1.1 (extended snapshot shape).
+ */
+export interface SnapshotNoiBasis {
+  /** Workbook NOI = `AdjustedInputs.metrics.noi` (judgment-engine basis). */
+  readonly judgmentNoi: number | null;
+  /** Verdict NOI = `contracted-basis` pipeline. Null when predicate=false (stabilized deals). */
+  readonly contractedNoi: number | null;
+  /**
+   * One-line neutral reason. Today always the same OI-handling sentence; the
+   * field is here so future bases can declare their own reason.
+   */
+  readonly divergenceReason: string;
+}
+
+/**
  * Composed mitigation package snapshot.
  *
  * `proposals` and `initialProposals` use the contract-owned `MitigationProposal`
@@ -208,6 +248,13 @@ export interface DoctrineRenderSnapshotHashInput {
   readonly dimOutputs: Readonly<Record<string, SnapshotDimOutput>>;
   readonly authoritativeNumbers: SnapshotAuthoritativeNumbers;
   readonly composedMitigationPackage: SnapshotComposedMitigationPackage;
+  /**
+   * v1.1+ — NOI-basis disclosure facts. Optional in the hash boundary so
+   * 1.0 snapshots' hash inputs don't include this field (preserves 1.0 id
+   * determinism). Producers writing at 1.1+ MUST emit this; the boot check
+   * and reader gate on `snapshotProducerVersion` accordingly.
+   */
+  readonly noiBasis?: SnapshotNoiBasis;
 }
 
 export interface DoctrineRenderSnapshot {
@@ -250,6 +297,12 @@ export interface DoctrineRenderSnapshot {
 
   /** Composed mitigation package — what the restructuring/sponsor-burden sections read. */
   readonly composedMitigationPackage: SnapshotComposedMitigationPackage;
+
+  /**
+   * NOI-basis disclosure facts (v1.1+). Absent on 1.0 snapshots. Reader
+   * checks `snapshotProducerVersion` before consuming.
+   */
+  readonly noiBasis?: SnapshotNoiBasis;
 }
 
 /**
@@ -264,9 +317,11 @@ export function extractDoctrineRenderSnapshotHashInput(
     | 'rating'
     | 'dimOutputs'
     | 'authoritativeNumbers'
-    | 'composedMitigationPackage'>,
+    | 'composedMitigationPackage'> & {
+    readonly noiBasis?: SnapshotNoiBasis;
+  },
 ): DoctrineRenderSnapshotHashInput {
-  return {
+  const hashInput: DoctrineRenderSnapshotHashInput = {
     doctrineEvaluationId:    s.doctrineEvaluationId,
     snapshotProducerVersion: s.snapshotProducerVersion,
     rating:                  s.rating,
@@ -274,4 +329,10 @@ export function extractDoctrineRenderSnapshotHashInput(
     authoritativeNumbers:    s.authoritativeNumbers,
     composedMitigationPackage: s.composedMitigationPackage,
   };
+  // v1.1+: include noiBasis when present. Producers at 1.1 must emit it;
+  // 1.0 inputs omit the field entirely so historical 1.0 ids stay stable.
+  if (s.noiBasis !== undefined) {
+    return { ...hashInput, noiBasis: s.noiBasis };
+  }
+  return hashInput;
 }

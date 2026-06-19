@@ -34,12 +34,12 @@ export class RenderSnapshotBootCheckError extends Error {
 }
 
 export function performRenderSnapshotBootCheck(): void {
-  // (1) Contract producer-version constant.
-  if (SNAPSHOT_PRODUCER_VERSION !== '1.0') {
+  // (1) Contract producer-version constant. v1.1 adds noiBasis (Option C).
+  if (SNAPSHOT_PRODUCER_VERSION !== '1.1') {
     throw new RenderSnapshotBootCheckError(
-      `SNAPSHOT_PRODUCER_VERSION = '${SNAPSHOT_PRODUCER_VERSION}', expected '1.0' (PR i ships at 1.0). ` +
-      `If you intend to bump the producer version, also extend the SnapshotProducerVersion type AND ` +
-      `update this boot check.`,
+      `SNAPSHOT_PRODUCER_VERSION = '${SNAPSHOT_PRODUCER_VERSION}', expected '1.1' (Option C ships at 1.1). ` +
+      `If you intend to bump the producer version again, extend SnapshotProducerVersion type, the ` +
+      `reader's accepted set, and update this boot check.`,
     );
   }
 
@@ -110,6 +110,11 @@ export function performRenderSnapshotBootCheck(): void {
       fundedExitProjection: {},
       finalState: {},
     },
+    noiBasis: {
+      judgmentNoi: 5_000_000,
+      contractedNoi: 5_050_000,
+      divergenceReason: 'other-income treatment',
+    },
   };
   const synthetic: DoctrineRenderSnapshot = {
     // Hash ONLY the locked subset (capturedAt is stamped-not-hashed). Same
@@ -155,6 +160,11 @@ export function performRenderSnapshotBootCheck(): void {
   if (fetched.authoritativeNumbers.stressedValue !== 100_000_000) {
     throw new RenderSnapshotBootCheckError(
       `round-trip authoritativeNumbers.stressedValue lost: got ${fetched.authoritativeNumbers.stressedValue}`,
+    );
+  }
+  if (fetched.noiBasis?.judgmentNoi !== 5_000_000 || fetched.noiBasis?.contractedNoi !== 5_050_000) {
+    throw new RenderSnapshotBootCheckError(
+      `round-trip noiBasis lost: got judgmentNoi=${fetched.noiBasis?.judgmentNoi}, contractedNoi=${fetched.noiBasis?.contractedNoi}`,
     );
   }
 
