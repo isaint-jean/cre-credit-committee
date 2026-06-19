@@ -43,7 +43,15 @@ export type FieldMigrationState =
   | 'DUAL_OBSERVED'      // resolvedContext exists; adjustedInputs still primary
   | 'HYBRID'             // resolvedContext primary; adjustedInputs fallback allowed (in hydrator)
   | 'FULL_MODERN'        // resolvedContext sole authority; adjustedInputs forbidden
-  | 'RENT_ROLL_SOURCED'; // bundle.rentRoll passthrough (per-tenant rows + RRP toggle); new at v10
+  | 'RENT_ROLL_SOURCED'  // bundle.rentRoll passthrough (per-tenant rows + RRP toggle); new at v10
+  | 'APPRAISAL_SOURCED'; // resolvedContext.appraisal atoms (CBRE / appraiser-concluded); new at v10
+                          // for cells whose source-of-truth is the appraisal extraction —
+                          // E41 (Appraised LTV = loan/appraisal.valueConclusion),
+                          // Concluded_Cap_Rate (appraisal.overallCapRate). Routed via
+                          // resolvedContext at the schema level (same surface as HYBRID/
+                          // FULL_MODERN), but state-named explicitly so the migration
+                          // ledger distinguishes "appraisal-derived" from "extraction-
+                          // descriptor-derived" cells in the readout.
 
 export type FieldGroup =
   | 'property'
@@ -65,6 +73,14 @@ export const REQUIRED_SOURCE_BY_STATE: Readonly<Record<FieldMigrationState, Sour
   HYBRID:             'resolvedContext',
   FULL_MODERN:        'resolvedContext',
   RENT_ROLL_SOURCED:  'rentRoll',
+  // Appraisal-sourced cells route via resolvedContext (buildAppraisalAtoms in
+  // hydrate-underwriting-context.ts surfaces the appraisal extraction onto
+  // resolvedContext.appraisal). A selector tagged with 'resolvedContext'
+  // satisfies this state. Multi-source selectors (e.g., E41 reading
+  // adjustedInputs.loan.loanAmount + resolvedContext.appraisal.asIsValue) pass
+  // because `has(required)` checks set membership — the appraisal tag is
+  // present alongside adjustedInputs.
+  APPRAISAL_SOURCED:  'resolvedContext',
 };
 
 /**
@@ -450,7 +466,11 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
       { address: 'Property & Loan Summary!Original_Balance',      group: 'financial_core', state: 'LEGACY' },
       { address: 'Property & Loan Summary!Coupon',                group: 'financial_core', state: 'LEGACY' },
       { address: 'Property & Loan Summary!Annual_Debt_Service',   group: 'financial_core', state: 'LEGACY' },
-      { address: 'Conclusions & Escrows!Concluded_Cap_Rate',      group: 'financial_core', state: 'LEGACY' },
+      // Phase A.5 — Concluded_Cap_Rate transitions LEGACY → APPRAISAL_SOURCED
+      // at v10. Selector now reads resolvedContext.appraisal.overallCapRate
+      // (6.25% for Sunroad, via CBRE). Concluded_Value stays LEGACY
+      // (operator-supplied $122M flows through adjustedInputs as before).
+      { address: 'Conclusions & Escrows!Concluded_Cap_Rate',      group: 'financial_core', state: 'APPRAISAL_SOURCED' },
       { address: 'Conclusions & Escrows!Concluded_Value',         group: 'financial_core', state: 'LEGACY' },
       { address: 'Operating History and Pro Forma!P9',            group: 'financial_core', state: 'LEGACY' },
       { address: 'Operating History and Pro Forma!P6',            group: 'financial_core', state: 'LEGACY' },
@@ -472,7 +492,13 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
       { address: 'Operating History and Pro Forma!P23',           group: 'financial_core', state: 'LEGACY' },
       { address: 'Operating History and Pro Forma!P24',           group: 'financial_core', state: 'LEGACY' },
       { address: 'Operating History and Pro Forma!P26',           group: 'financial_core', state: 'LEGACY' },
-      { address: 'Property & Loan Summary!E41',                   group: 'financial_core', state: 'LEGACY' },
+      // Phase A.5 — E41 transitions LEGACY → APPRAISAL_SOURCED at v10.
+      // Selector reads loanAmount (adjustedInputs) / appraisal.asIsValue
+      // (resolvedContext) → multi-source tag set ['adjustedInputs',
+      // 'resolvedContext']; the source-mismatch check passes via set
+      // membership on 'resolvedContext' (the APPRAISAL_SOURCED requirement).
+      // For Sunroad: $11M / $122M = 9.02%.
+      { address: 'Property & Loan Summary!E41',                   group: 'financial_core', state: 'APPRAISAL_SOURCED' },
       { address: 'Operating History and Pro Forma!P49',           group: 'financial_core', state: 'LEGACY' },
       // Phase A — K5 transitions LEGACY → RENT_ROLL_SOURCED at v10.
       // The K5 entry in V10_SHARED_ENTRIES now reads from
@@ -656,6 +682,15 @@ export const LEGAL_TRANSITIONS: ReadonlyArray<readonly [FieldMigrationState, Fie
   // source surface that becomes available at v10. Single-step transition
   // because there's no intermediate state for rent-roll-sourcing.
   ['LEGACY', 'RENT_ROLL_SOURCED'],
+  // Phase A.5 (v10) — LEGACY → APPRAISAL_SOURCED. The CBRE appraisal IS
+  // ingested for Sunroad (the prior nullSelector comment claimed "no
+  // appraisal slot in the 4-file ingest model"; that premise is now FALSE).
+  // Cells whose source-of-truth is the appraisal — E41 (Appraised LTV) and
+  // Concluded_Cap_Rate (appraiser's overall OAR) — transition directly.
+  // Same orthogonal-source pattern as LEGACY → RENT_ROLL_SOURCED above;
+  // single-step transition because there's no intermediate state for
+  // appraisal-sourcing.
+  ['LEGACY', 'APPRAISAL_SOURCED'],
   // Permit forward + backward only along the staircase. State demotions
   // (e.g. FULL_MODERN → HYBRID) are allowed iff explicitly listed for
   // remediation purposes; not currently allowed, so omitted.

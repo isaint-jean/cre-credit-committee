@@ -98,6 +98,10 @@ function nextStateFor(s: FieldMigrationState): FieldMigrationState | null {
     // RENT_ROLL_SOURCED is a v10-only terminal state — bundle.rentRoll is
     // already the source of truth, so there's no further migration target.
     case 'RENT_ROLL_SOURCED': return null;
+    // APPRAISAL_SOURCED is likewise terminal — appraisal extraction is the
+    // source of truth for cells reading appraisal.* atoms; no further
+    // migration step.
+    case 'APPRAISAL_SOURCED': return null;
   }
 }
 

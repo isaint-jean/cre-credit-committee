@@ -1710,16 +1710,84 @@ const V10_NRA_OVERRIDE_ENTRY: SchemaEntry = {
   forceOverwrite: true,
 };
 
+/**
+ * Phase A.5 E41 override (v10) — Appraised LTV = loanAmount / appraisal.asIsValue.
+ *
+ * The pre-existing v9 nullSelector comment rested on a premise that no longer
+ * holds: it claimed "No appraisal slot in current 4-file ingest model (CF +
+ * ASR + PCA + rent-roll)." Sunroad's CBRE appraisal IS ingested — the
+ * extraction has `appraisal.valueConclusion = $122M`, `asIsValue = $122M`,
+ * `overallCapRate = 6.25%`, etc., and the resolvedContext exposes these via
+ * `buildAppraisalAtoms`. The original concern about "wiring it bare without
+ * a basis qualifier" is also moot: the cell IS the explicit "Appraised LTV"
+ * row in the workbook's Property & Loan Summary section, so the label
+ * itself carries the basis.
+ *
+ * Selector reads BOTH adjustedInputs (loan amount) and resolvedContext
+ * (appraisal value), tagged with both sources. APPRAISAL_SOURCED state
+ * requires 'resolvedContext'; the multi-source tag satisfies via set
+ * membership. Sunroad result: $11M / $122M = 9.02%.
+ *
+ * Honest-blank: when the bundle lacks an appraisal record (no
+ * resolvedContext.appraisal.asIsValue) OR when loanAmount is missing, the
+ * selector returns null — the cell stays blank.
+ */
+const V10_E41_OVERRIDE_ENTRY: SchemaEntry = {
+  slot: 'Property_Loan_Summary',
+  range: 'E41',
+  // NOTE on the shared/contract AdjustedInputs split: the render layer reads
+  // packages/shared/src/types/adjusted-inputs.ts where loan.loanAmount is a
+  // plain `number`, NOT the contracts-side AdjustedLineItem. Existing num()
+  // selectors at lines 368/493/740 use `num((a) => a.loan.loanAmount)`
+  // identically — no `.adjusted` access on this side.
+  selector: tagSelector((input) => {
+    const loan = (input.adjustedInputs as unknown as { loan: { loanAmount: number | null } }).loan.loanAmount;
+    const apx = (input.resolvedContext as unknown as { appraisal?: { asIsValue?: number | null } }).appraisal;
+    const value = apx?.asIsValue ?? null;
+    if (typeof loan !== 'number' || !Number.isFinite(loan) || loan <= 0) return null;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+    return loan / value;
+  }, ['adjustedInputs', 'resolvedContext']),
+  cellState: 'concluded',
+  forceOverwrite: true,
+};
+
+/**
+ * Phase A.5 Concluded_Cap_Rate override (v10) — appraiser-concluded OAR.
+ *
+ * The v9 nullSelector comment said: "Operator-supplied valuation is a
+ * $-value, not a cap rate." True for the OPERATOR. But the CBRE appraisal
+ * states an Overall Capitalization Rate explicitly — 6.25% in the exec
+ * summary AND in the Direct Capitalization Summary. The workbook cell name
+ * "Concluded_Cap_Rate" reads naturally as the appraiser-concluded OAR on a
+ * deal that has an appraisal.
+ *
+ * Distinct from the doctrine-stressed cap rate (~8.50% for Sunroad) used in
+ * dim-7 valuation stress — that's a separate engine output for a separate
+ * cell. We are NOT crossing those.
+ */
+const V10_CONCLUDED_CAP_RATE_OVERRIDE_ENTRY: SchemaEntry = {
+  slot: 'Conclusion_Escrows',
+  range: 'Concluded_Cap_Rate',
+  selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.overallCapRate),
+  cellState: 'concluded',
+  forceOverwrite: true,
+};
+
 const V10_SHARED_ENTRIES: SchemaEntry[] = [
-  // Carry V9 forward but drop the K5 entry — v10's NRA override below
-  // replaces it. Filter is keyed on slot+range to avoid mis-matching other
-  // Property & Loan Summary entries.
+  // Carry V9 forward but drop entries we override at v10. Filter is keyed
+  // on slot+range to avoid mis-matching other entries in the same slot.
   ...V9_SHARED_ENTRIES.filter(
-    (e) => !(e.slot === 'Property_Loan_Summary' && e.range === 'K5'),
+    (e) =>
+      !(e.slot === 'Property_Loan_Summary' && e.range === 'K5') &&
+      !(e.slot === 'Property_Loan_Summary' && e.range === 'E41') &&
+      !(e.slot === 'Conclusion_Escrows'    && e.range === 'Concluded_Cap_Rate'),
   ),
   ...V10_RENT_ROLL_ENTRIES,
   V10_RRP_OVERRIDE_ENTRY,
   V10_NRA_OVERRIDE_ENTRY,
+  V10_E41_OVERRIDE_ENTRY,
+  V10_CONCLUDED_CAP_RATE_OVERRIDE_ENTRY,
 ];
 
 const V10_MANAGED_NAMESPACE: ManagedNamespacePolicy = {
