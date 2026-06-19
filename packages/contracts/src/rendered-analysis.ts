@@ -41,6 +41,23 @@ export interface RenderedAnalysisMetadata {
 // AdjustedInputs producer record. Bijective passthrough: ruleId + reason as strings,
 // delta as a sentinel-wrapped numeric cell. NO re-derivation; the producer has already
 // computed the signed delta against the raw value.
+/**
+ * Option C — workbook NOI-basis disclosure cell. The neutral callout text
+ * the workbook (and the analysis-page metrics card) displays near the NOI
+ * cell when judgment-basis NOI and contracted-basis NOI diverge on a
+ * lease-up deal. `null` when there's no divergence (stabilized deals,
+ * predicate didn't fire) so the UI omits the callout.
+ */
+export interface RenderedNoiBasisCallout {
+  readonly judgmentNoi: RenderCell<number>;
+  readonly contractedNoi: RenderCell<number>;
+  readonly divergence: RenderCell<number>;
+  /** Pre-formatted single-line callout text — what the workbook prints near column P. */
+  readonly calloutText: RenderCell<string>;
+  /** One-line neutral reason ("other-income treatment differs"). */
+  readonly divergenceReason: RenderCell<string>;
+}
+
 export interface RenderedAdjustment {
   readonly ruleId: string;                        // JudgmentEngineRuleId | CreditManifestoRuleId
   readonly delta: RenderCell<number>;             // signed effect on `adjusted` relative to `raw`
@@ -314,6 +331,14 @@ export interface RenderedAnalysis {
     readonly ltv: RenderCell<number>;
     readonly debtYield: RenderCell<number>;
     readonly noi: RenderCell<number>;
+    /**
+     * Option C — NOI-basis disclosure callout (workbook surface, near
+     * column P). Renders only when the lease-up predicate fired AND
+     * `judgmentNoi !== contractedNoi`. `null` for stabilized deals (no
+     * divergence). Optional in the contract — pre-Option-C renders carry
+     * the field absent; UI handles null/undefined as "no callout".
+     */
+    readonly noiBasisCallout?: RenderedNoiBasisCallout | null;
   };
 
   readonly valuation: {

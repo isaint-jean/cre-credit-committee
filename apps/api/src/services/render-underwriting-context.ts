@@ -51,6 +51,7 @@ import type {
   RenderedLineItem,
   RenderedLoanSection,
   RenderedMitigationProposal,
+  RenderedNoiBasisCallout,
   RenderedNarrativeSection,
   RenderedRecalcSnapshot,
   RenderedStressScenario,
@@ -177,10 +178,51 @@ function projectMitigations(
   return set.proposals.map(projectMitigationProposal);
 }
 
+/**
+ * Option C — project the NOI-basis disclosure into the RenderCell wrapper
+ * the workbook consumes. Null when `shouldRender === false` (stabilized
+ * deals) so the cell is absent in the rendered payload and the workbook
+ * displays NOTHING extra near column P — byte-identical to pre-Option-C.
+ */
+function projectNoiBasisCallout(
+  facts: NoiBasisFactsForRender | null,
+): RenderedNoiBasisCallout | null {
+  if (facts === null || !facts.shouldRender) return null;
+  const judgment = facts.judgmentNoi !== null ? `$${Math.round(facts.judgmentNoi).toLocaleString()}` : '—';
+  const contracted = facts.contractedNoi !== null ? `$${Math.round(facts.contractedNoi).toLocaleString()}` : '—';
+  const sign = (facts.divergence ?? 0) >= 0 ? '+' : '';
+  const delta = facts.divergence !== null ? `${sign}$${Math.round(facts.divergence).toLocaleString()}` : '—';
+  const calloutText = `NOI basis: workbook (judgment) ${judgment}; verdict (contracted) ${contracted}; Δ ${delta}. ${facts.divergenceReason}`;
+  return {
+    judgmentNoi:      { value: facts.judgmentNoi ?? 0, displayValue: judgment },
+    contractedNoi:    { value: facts.contractedNoi ?? 0, displayValue: contracted },
+    divergence:       { value: facts.divergence ?? 0, displayValue: delta },
+    calloutText:      { value: calloutText, displayValue: calloutText },
+    divergenceReason: { value: facts.divergenceReason, displayValue: facts.divergenceReason },
+  };
+}
+
+/**
+ * Render-pole RD1 carve-out: `NoiBasisFacts` is a STRUCTURAL value (numbers +
+ * strings, no behaviour) declared inline so the renderer can accept it without
+ * importing from services/. The shape mirrors `NoiBasisDisclosure` from
+ * services/noi-basis.ts but is contract-internal; the bridge runs OUTSIDE
+ * render (in materializeRenderedAnalysisWithMeta) and passes a resolved value
+ * in. Render only projects the cell — no resolution, no recompute.
+ */
+export interface NoiBasisFactsForRender {
+  readonly shouldRender: boolean;
+  readonly judgmentNoi: number | null;
+  readonly contractedNoi: number | null;
+  readonly divergence: number | null;
+  readonly divergenceReason: string;
+}
+
 export function renderUnderwritingContext(
   ctx: UnderwritingContext,
   narrative: NarrativeEvaluation | null = null,
   mitigationSet: MitigationProposalSet | null = null,
+  noiBasis: NoiBasisFactsForRender | null = null,
 ): RenderedAnalysis {
   const {
     rootId,
@@ -415,6 +457,10 @@ export function renderUnderwritingContext(
         value: adjustedInputs.metrics.noi,
         displayValue: applyNumericSentinel(adjustedInputs.metrics.noi),
       },
+      // Option C — workbook NOI-basis disclosure callout. Null when the
+      // resolver decided shouldRender=false (stabilized deals, no
+      // divergence) so the workbook renders byte-identical to pre-Option-C.
+      noiBasisCallout: projectNoiBasisCallout(noiBasis),
     },
 
     valuation: {

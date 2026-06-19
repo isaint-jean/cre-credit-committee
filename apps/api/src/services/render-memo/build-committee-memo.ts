@@ -113,6 +113,15 @@ export interface BuildCommitteeMemoInput {
   readonly auth?: AuthoritativeNumbers;
   readonly findings?: readonly CleanDoctrineFinding[];
   /**
+   * Option C — NOI-basis disclosure. When `shouldRender === true`, the
+   * Stressed Credit Profile section emits a small neutral callout showing
+   * workbook NOI (judgment) vs verdict NOI (contracted) + the divergence.
+   * When `shouldRender === false` (stabilized deal, no predicate fire), the
+   * callout is omitted and the memo renders byte-identical to pre-Option-C.
+   * Optional — legacy callers without this field get no callout.
+   */
+  readonly noiBasis?: NoiBasisDisclosureForMemo;
+  /**
    * PR (ii) — footer "render source" banner. Stamps "snapshot vs HEAD
    * recompute" on every memo so the reader knows whether the numbers are
    * pin-faithful or HEAD-doctrine. Optional; absence → no banner (legacy
@@ -120,6 +129,21 @@ export interface BuildCommitteeMemoInput {
    * always pass this.
    */
   readonly renderSource?: MemoRenderSource;
+}
+
+/**
+ * NOI-basis disclosure facts threaded into the memo. The renderer's view of
+ * `NoiBasisDisclosure` from services/noi-basis.ts (kept structurally aligned
+ * but redeclared here so build-committee-memo doesn't depend on that file's
+ * import surface — strict separation between the memo template and the
+ * disclosure resolver).
+ */
+export interface NoiBasisDisclosureForMemo {
+  readonly shouldRender: boolean;
+  readonly judgmentNoi: number | null;
+  readonly contractedNoi: number | null;
+  readonly divergence: number | null;
+  readonly divergenceReason: string;
 }
 
 export interface AppraisalMemoDisclosure {
@@ -318,7 +342,12 @@ function renderAppraisalDisclosure(d: AppraisalMemoDisclosure): string {
     </p>`;
 }
 
-function renderStressedCreditProfile(auth: AuthoritativeNumbers, funded: FundedExitProjection, appraisal: AppraisalMemoDisclosure | undefined): string {
+function renderStressedCreditProfile(
+  auth: AuthoritativeNumbers,
+  funded: FundedExitProjection,
+  appraisal: AppraisalMemoDisclosure | undefined,
+  noiBasis: NoiBasisDisclosureForMemo | undefined,
+): string {
   // v1.5 — surface the funded exit DSCR alongside the raw exit so the
   // "held by structure" claim is backed by the number. Funded basis nets
   // operating reserves and caps accrual at the reserve target — identical
@@ -359,8 +388,32 @@ function renderStressedCreditProfile(auth: AuthoritativeNumbers, funded: FundedE
         </tbody>
       </table>
       ${confidenceLine}
+      ${renderNoiBasisCallout(noiBasis)}
       ${appraisal ? renderAppraisalDisclosure(appraisal) : ''}
     </section>`;
+}
+
+/**
+ * Option C — NOI-basis disclosure callout. Renders only when the resolver
+ * decided `shouldRender === true` (lease-up deal with a real divergence
+ * between workbook and verdict NOI). Stabilized deals → undefined / false →
+ * empty string → memo is byte-identical to pre-Option-C output.
+ */
+function renderNoiBasisCallout(noiBasis: NoiBasisDisclosureForMemo | undefined): string {
+  if (noiBasis === undefined || !noiBasis.shouldRender) return '';
+  // Full-precision USD here (not the `fmtUsd` abbreviator) — the disclosure
+  // is a one-line sentence the reader should be able to verify by direct
+  // arithmetic, and the workbook callout uses the same precision. Keep them
+  // identical-in-substance across both surfaces.
+  const fmt = (n: number | null): string => n !== null ? `$${Math.round(n).toLocaleString()}` : MEMO_NULL_SENTINEL;
+  const sign = (noiBasis.divergence ?? 0) >= 0 ? '+' : '';
+  return `
+    <p class="memo-disclosure memo-noi-basis"><strong>NOI basis:</strong>
+      workbook (judgment) ${esc(fmt(noiBasis.judgmentNoi))};
+      verdict (contracted) ${esc(fmt(noiBasis.contractedNoi))};
+      Δ ${esc(noiBasis.divergence !== null ? sign + fmt(noiBasis.divergence) : MEMO_NULL_SENTINEL)}.
+      ${esc(noiBasis.divergenceReason)}
+    </p>`;
 }
 
 function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: ComposedMitigationPackage, funded: FundedExitProjection): string {
@@ -1006,7 +1059,7 @@ function renderHtml(
   const SECTION_RENDERERS: Readonly<Record<MemoSectionId, () => string>> = {
     header:                   () => renderHeader(input, auth),
     executive_summary:        () => renderExecutiveSummary(input.narrative),
-    stressed_credit_profile:  () => renderStressedCreditProfile(auth, funded, input.appraisalDisclosure),
+    stressed_credit_profile:  () => renderStressedCreditProfile(auth, funded, input.appraisalDisclosure, input.noiBasis),
     restructuring_package:    () => renderRestructuringPackage(auth, input.composedMitigationPackage, funded),
     sponsor_burden:           () => renderSponsorBurden(input.composedMitigationPackage.sponsorBurdenProfile, input.composedMitigationPackage.finalLoanAmount),
     risk_assessment:          () => renderRiskAssessment(input.narrative, findings),

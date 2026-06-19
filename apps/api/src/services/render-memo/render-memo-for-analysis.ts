@@ -49,6 +49,10 @@ import {
   composedFromSnapshot,
   loadRenderSnapshot,
 } from './snapshot-readers.js';
+import {
+  resolveNoiBasis,
+  shapeNoiBasisFromSnapshot,
+} from '../noi-basis.js';
 
 export type RenderMemoResult =
   | { readonly ok: true; readonly html: string }
@@ -122,6 +126,13 @@ export function renderMemoForAnalysis(
       snapshotProducerVersion: snapshot.snapshotProducerVersion,
       pinnedDoctrineVersion: envelope.doctrineVersion,
     };
+    // NOI-basis disclosure (Option C): prefer v1.1 snapshot's noiBasis;
+    // on absence (v1.0 snapshot) the helper falls through to a deterministic
+    // recompute below via resolveNoiBasis. Keep both paths consistent —
+    // snapshot is the pin-faithful source.
+    const noiBasis = snapshot.noiBasis !== undefined
+      ? shapeNoiBasisFromSnapshot(snapshot.noiBasis, adjustedInputs.metrics.noi)
+      : resolveNoiBasis(analysis, store);
     const html = buildCommitteeMemo({
       dealName: analysis.name,
       memoDate: new Date().toISOString().slice(0, 10),
@@ -133,6 +144,7 @@ export function renderMemoForAnalysis(
       findings: cleanDoctrineFindingsFromSnapshot(snapshot),
       renderSource,
       appraisalDisclosure,
+      noiBasis,
     });
     return { ok: true, html };
   }
@@ -186,6 +198,8 @@ export function renderMemoForAnalysis(
     pinnedDoctrineVersion: envelope.doctrineVersion,
     headDoctrineVersion: DOCTRINE_VERSION,
   };
+  // NOI-basis disclosure via deterministic recompute (no snapshot to read).
+  const noiBasis = resolveNoiBasis(analysis, store);
   const html = buildCommitteeMemo({
     dealName: analysis.name,
     memoDate: new Date().toISOString().slice(0, 10),
@@ -194,6 +208,7 @@ export function renderMemoForAnalysis(
     composedMitigationPackage,
     renderSource,
     appraisalDisclosure,
+    noiBasis,
   });
   return { ok: true, html };
 }

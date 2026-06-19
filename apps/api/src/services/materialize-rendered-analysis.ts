@@ -36,6 +36,7 @@ import {
 import { hydrateRecordGraph } from './hydrate-record-graph.js';
 import { buildUnderwritingContextProjection } from './build-underwriting-context-projection.js';
 import { renderUnderwritingContext } from './render-underwriting-context.js';
+import { resolveNoiBasisFromBundle } from './noi-basis.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 export interface MaterializationResult {
@@ -102,9 +103,31 @@ export function materializeRenderedAnalysisWithMeta(
     MITIGATION_ENGINE_VERSION,
   );
 
-  // Cold path: project + render (passing narrative + mitigationSet through to renderUnderwritingContext).
+  // Cold path: project + render (passing narrative + mitigationSet +
+  // noiBasis through to renderUnderwritingContext).
+  //
+  // Option C — resolve the NOI-basis disclosure from the bundle. Prefers
+  // the v1.1 render snapshot's noiBasis (pin-faithful) when present; falls
+  // back to deterministic recompute against the bundle's extraction +
+  // assetProfile + rentRoll + adjustedInputs. The renderer receives a
+  // structural facts object — no behaviour, no resolution; render-pole RD1
+  // intact.
+  const noiBasis = resolveNoiBasisFromBundle(
+    rootId,
+    bundle.adjustedInputs,
+    bundle.extractionResult,
+    bundle.assetProfile,
+    bundle.rentRoll ?? null,
+    store,
+  );
   const ctx = buildUnderwritingContextProjection({ rootId, graph: bundle });
-  const rendered = renderUnderwritingContext(ctx, narrative, mitigationSet);
+  const rendered = renderUnderwritingContext(ctx, narrative, mitigationSet, {
+    shouldRender:     noiBasis.shouldRender,
+    judgmentNoi:      noiBasis.judgmentNoi,
+    contractedNoi:    noiBasis.contractedNoi,
+    divergence:       noiBasis.divergence,
+    divergenceReason: noiBasis.divergenceReason,
+  });
   store.insertRenderedAnalysis(rendered, narrativeId, snapshotId);
   return { rendered, cacheHit: false };
 }
