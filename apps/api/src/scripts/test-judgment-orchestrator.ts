@@ -121,7 +121,7 @@ function makeFullExtraction(asOf: string = AS_OF): ExtractionResult {
     appraisal: { valueConclusion: 16_500_000, capRate: 0.06, methodology: 'Income' },
     sellerUw: { underwrittenNOI: 1_080_000, underwrittenRentGrowth: 0.03, underwrittenVacancy: 0.04 },
     sellerUwOperatingStatement: null,
-    asr: { impliedValue: 18_000_000, impliedCapRate: 0.06, underwrittenNOI: 1_080_000 },
+    asr: { impliedValue: 18_000_000, impliedCapRate: 0.06, underwrittenNOI: 1_080_000 , priorDebtPayoff: null},
     loanTerms: {
       loanAmount: 11_000_000, interestRate: 0.07, amortization: 360,
       interestOnlyPeriod: 0, maturityDate: '2031-05-08T00:00:00Z',

@@ -458,6 +458,20 @@ export interface ASRExtraction {
   readonly impliedValue: number | null;
   readonly impliedCapRate: number | null;          // 0..1 fraction
   readonly underwrittenNOI: number | null;
+  /**
+   * Dollar amount being refinanced — the existing-loan payoff line in the
+   * ASR's Sources & Uses table (e.g. "Loan Payoff $65,365,379" in the
+   * Sunroad ASR). null when the deal is not a refinance, when the line is
+   * not present, or when extraction cannot identify it.
+   *
+   * Used by the data-integrity gate's cross-consistency check:
+   *   refinance && loanAmount < priorDebtPayoff → HARD halt.
+   *
+   * Additive widening — older ASRExtraction records persist with this
+   * field absent at the JSON layer; readers must treat undefined and null
+   * identically (both = "not extracted").
+   */
+  readonly priorDebtPayoff: number | null;
 }
 
 /* -------------------------------- loan terms -------------------------------- */

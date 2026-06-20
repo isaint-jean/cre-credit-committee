@@ -76,7 +76,7 @@ function appraisal(value: number | null, cap: number | null): AppraisalExtractio
 }
 
 function asr(value: number | null, cap: number | null): ASRExtraction {
-  return { impliedValue: value, impliedCapRate: cap, underwrittenNOI: null };
+  return { impliedValue: value, impliedCapRate: cap, underwrittenNOI: null , priorDebtPayoff: null};
 }
 
 function makeExtraction(opts: Partial<{

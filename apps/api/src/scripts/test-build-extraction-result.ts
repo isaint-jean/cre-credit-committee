@@ -134,6 +134,7 @@ function makeAsrExtraction(): ASRExtraction {
     impliedValue: 10_000_000,
     impliedCapRate: 0.06,
     underwrittenNOI: 600_000,
+    priorDebtPayoff: null,
   };
 }
 

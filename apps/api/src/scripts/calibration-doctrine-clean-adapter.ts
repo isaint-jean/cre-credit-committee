@@ -139,9 +139,9 @@ function main(): void {
 
   // pickIssuerNoi — pick order
   const noiOrderTests = [
-    { ext: mkExtraction({ sellerUwOperatingStatement: { period: 'gs', income: {} as any, expenses: {} as any, noi: 1000, vacancyLoss: null, belowNoiAdjustments: {} as any }, sellerUw: { underwrittenNOI: 2000, underwrittenRentGrowth: null, underwrittenVacancy: null }, asr: { underwrittenNOI: 3000, impliedValue: null, impliedCapRate: null } }), want: 1000 },
-    { ext: mkExtraction({ sellerUw: { underwrittenNOI: 2000, underwrittenRentGrowth: null, underwrittenVacancy: null }, asr: { underwrittenNOI: 3000, impliedValue: null, impliedCapRate: null } }), want: 2000 },
-    { ext: mkExtraction({ asr: { underwrittenNOI: 3000, impliedValue: null, impliedCapRate: null } }), want: 3000 },
+    { ext: mkExtraction({ sellerUwOperatingStatement: { period: 'gs', income: {} as any, expenses: {} as any, noi: 1000, vacancyLoss: null, belowNoiAdjustments: {} as any }, sellerUw: { underwrittenNOI: 2000, underwrittenRentGrowth: null, underwrittenVacancy: null }, asr: { underwrittenNOI: 3000, priorDebtPayoff: null, impliedValue: null, impliedCapRate: null } }), want: 1000 },
+    { ext: mkExtraction({ sellerUw: { underwrittenNOI: 2000, underwrittenRentGrowth: null, underwrittenVacancy: null }, asr: { underwrittenNOI: 3000, priorDebtPayoff: null, impliedValue: null, impliedCapRate: null } }), want: 2000 },
+    { ext: mkExtraction({ asr: { underwrittenNOI: 3000, priorDebtPayoff: null, impliedValue: null, impliedCapRate: null } }), want: 3000 },
     { ext: mkExtraction({}), want: null },
   ];
   for (const t of noiOrderTests) {
@@ -150,8 +150,8 @@ function main(): void {
 
   // pickConcludedValue — pick order
   const valueOrderTests = [
-    { ext: mkExtraction({ appraisal: { valueConclusion: 50_000_000, capRate: null, methodology: null }, asr: { impliedValue: 60_000_000, impliedCapRate: null, underwrittenNOI: null } }), want: 50_000_000 },
-    { ext: mkExtraction({ asr: { impliedValue: 60_000_000, impliedCapRate: null, underwrittenNOI: null } }), want: 60_000_000 },
+    { ext: mkExtraction({ appraisal: { valueConclusion: 50_000_000, capRate: null, methodology: null }, asr: { impliedValue: 60_000_000, impliedCapRate: null, underwrittenNOI: null , priorDebtPayoff: null} }), want: 50_000_000 },
+    { ext: mkExtraction({ asr: { impliedValue: 60_000_000, impliedCapRate: null, underwrittenNOI: null , priorDebtPayoff: null} }), want: 60_000_000 },
     { ext: mkExtraction({}), want: null },
   ];
   for (const t of valueOrderTests) {

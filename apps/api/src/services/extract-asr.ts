@@ -47,7 +47,8 @@ function buildPrompt(text: string): string {
     '{',
     '  "impliedValue": <dollar amount or null>,',
     '  "impliedCapRate": <fraction 0-1 OR percent number, e.g. 0.065 or 6.5, or null>,',
-    '  "underwrittenNOI": <annual dollar amount or null>',
+    '  "underwrittenNOI": <annual dollar amount or null>,',
+    '  "priorDebtPayoff": <dollar amount of existing loan being refinanced, or null>',
     '}',
     '',
     'Rules:',
@@ -55,6 +56,7 @@ function buildPrompt(text: string): string {
     '- impliedValue is the broker pitched property value (dollars). May appear as "Implied Value", "Pricing Value", or similar.',
     '- impliedCapRate is the broker implied cap rate. May appear as decimal (0.065) or percent (6.5). Either form is acceptable; the parser normalizes.',
     '- underwrittenNOI is the broker stabilized/pro-forma NOI (annual dollars). May appear as "Year 1 NOI", "Stabilized NOI", "Underwritten NOI", or similar.',
+    '- priorDebtPayoff is the dollar amount of EXISTING debt being refinanced — the "Loan Payoff" / "Existing Loan Payoff" / "Refinance Existing Debt" / "Prior CMBS Payoff" line in the Sources & Uses table. Only populate on refinance deals where the source explicitly states the amount; null when the source is silent or the deal is an acquisition (not a refinance).',
     '- Numbers only (no strings with commas or $ signs in the JSON output). Use null when uncertain.',
     '',
     '--- DOCUMENT TEXT ---',
@@ -121,8 +123,9 @@ export function parseAsrAiResponse(responseText: string | unknown): ASRExtractio
   const impliedValue = asMoney(r.impliedValue);
   const impliedCapRate = asCapRate(r.impliedCapRate);
   const underwrittenNOI = asMoney(r.underwrittenNOI);
+  const priorDebtPayoff = asMoney(r.priorDebtPayoff);
 
-  if (impliedValue === null && impliedCapRate === null && underwrittenNOI === null) {
+  if (impliedValue === null && impliedCapRate === null && underwrittenNOI === null && priorDebtPayoff === null) {
     return null;
   }
 
@@ -130,6 +133,7 @@ export function parseAsrAiResponse(responseText: string | unknown): ASRExtractio
     impliedValue,
     impliedCapRate,
     underwrittenNOI,
+    priorDebtPayoff,
   };
 }
 

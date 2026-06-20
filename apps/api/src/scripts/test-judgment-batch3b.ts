@@ -219,7 +219,7 @@ console.log('\nSource cascade — capRateCascade:');
 {
   const ext = makeExtraction({
     appraisal: { valueConclusion: 100_000_000, capRate: 0.06, methodology: null },
-    asr: { impliedValue: 110_000_000, impliedCapRate: 0.055, underwrittenNOI: null },
+    asr: { impliedValue: 110_000_000, impliedCapRate: 0.055, underwrittenNOI: null , priorDebtPayoff: null},
   });
   const picked = pickFirstNonNull(capRateCascade(ext));
   assertEqual(picked.tier, 'APPRAISAL', 'appraisal preferred over ASR');

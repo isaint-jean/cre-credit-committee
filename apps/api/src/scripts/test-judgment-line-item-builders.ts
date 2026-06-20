@@ -269,7 +269,7 @@ console.log('\nbuildCapRate:');
   // ASR fallback when appraisal cap rate is null
   const ext = makeExtraction({
     appraisal: { valueConclusion: 100_000_000, capRate: null, methodology: null },
-    asr: { impliedValue: 110_000_000, impliedCapRate: 0.055, underwrittenNOI: null },
+    asr: { impliedValue: 110_000_000, impliedCapRate: 0.055, underwrittenNOI: null , priorDebtPayoff: null},
   });
   const result = buildCapRate({
     extraction: ext,

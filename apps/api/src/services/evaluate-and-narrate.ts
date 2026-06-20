@@ -104,6 +104,14 @@ export interface EvaluateAndNarrateResult {
    * Additive; existing callers may ignore.
    */
   readonly composedMitigationPackage: ComposedMitigationPackage;
+  /**
+   * Data-integrity gate report — WARN + SOFT findings carried forward
+   * from evaluateFromAdjustedInputs. HARD findings throw before this
+   * struct is built (DataIntegrityHardHaltError surfaces at the route
+   * boundary). Callers may surface SOFT + WARN as a data-quality
+   * treatment in the memo.
+   */
+  readonly dataIntegrityReport: import('./data-integrity/gate.js').DataIntegrityReport;
 }
 
 /* ----------- v1.6 wiring — recompute helper for composeMitigations -------- */
@@ -189,7 +197,7 @@ export async function evaluateAndNarrate(
   store: RecordGraphStore,
   deps: EvaluateAndNarrateDeps = {},
 ): Promise<EvaluateAndNarrateResult> {
-  const { evaluation, handbookEvaluation, dealResult, dealBag, contractedNoi } = await evaluateFromAdjustedInputs(
+  const { evaluation, handbookEvaluation, dealResult, dealBag, contractedNoi, dataIntegrityReport } = await evaluateFromAdjustedInputs(
     args,
     store,
     // Wire the LLM_CONTEXT evaluator into the handbook pass when the same
@@ -370,6 +378,7 @@ export async function evaluateAndNarrate(
     // (memo renderer; future consumers may layer on additively).
     dealResult,
     composedMitigationPackage,
+    dataIntegrityReport,
   };
 }
 

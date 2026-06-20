@@ -64,6 +64,27 @@ import type {
 } from '../doctrine-clean/index.js';
 import type { DealBag } from '../doctrine-clean/scoring/evaluate-deal.js';
 import type { DoctrineEvaluationId } from '@cre/contracts';
+import { runDataIntegrityGate, type DataIntegrityReport } from './data-integrity/gate.js';
+
+/**
+ * Thrown by `evaluateFromAdjustedInputs` when the data-integrity gate
+ * produces at least one HARD finding (plausibility outside physically-
+ * plausible bands, or a cross-consistency contradiction). The pipeline
+ * halts BEFORE the verdict is computed; the caller surfaces the report
+ * to the analyst (sets analysis.status='data_quality_failed', displays
+ * the legible diagnostic messages).
+ */
+export class DataIntegrityHardHaltError extends Error {
+  override readonly name = 'DataIntegrityHardHaltError';
+  constructor(public readonly report: DataIntegrityReport) {
+    const hardFindings = report.findings.filter((f) => f.severity === 'HARD');
+    const firstFew = hardFindings.slice(0, 3).map((f) => `[${f.check}] ${f.title}`).join('; ');
+    super(
+      `Data-integrity gate HARD halt — ${report.hardCount} finding(s): ${firstFew}` +
+        (hardFindings.length > 3 ? ` (+${hardFindings.length - 3} more)` : ''),
+    );
+  }
+}
 
 /**
  * Clean-doctrine version sentinel. Persisted DoctrineEvaluations produced by
@@ -152,6 +173,16 @@ export interface EvaluateFromAdjustedInputsResult {
    * disclose).
    */
   readonly contractedNoi: number | null;
+  /**
+   * Data-integrity gate report (provenance + plausibility + cross-
+   * consistency). The report is observational on the WARN/SOFT path
+   * (verdict still produced); HARD findings short-circuit the pipeline
+   * BEFORE this struct is returned (DataIntegrityHardHaltError throws).
+   * Callers that get this result may log / display the SOFT + WARN
+   * findings; they MUST NOT have to react to HARD because they never
+   * see it via this field.
+   */
+  readonly dataIntegrityReport: import('./data-integrity/gate.js').DataIntegrityReport;
 }
 
 export interface EvaluateFromAdjustedInputsDeps {
@@ -261,6 +292,31 @@ export async function evaluateFromAdjustedInputs(
       `it before this stage. Tag: ${CLEAN_DOCTRINE_PATH_TAG}`,
     );
   }
+
+  /* ★ DATA-INTEGRITY GATE — provenance + plausibility + cross-consistency.
+   *
+   * Runs at the single ingest chokepoint covering both production paths
+   * (ingestExtractionResult + applyRevisionDelta). HARD findings throw
+   * DataIntegrityHardHaltError, which short-circuits the verdict before
+   * any handbook / doctrine eval is produced. SOFT and WARN findings
+   * thread forward through the result so the narrative surface can
+   * display them. Calibrated against the 267-deal corpus: 1/267 HARD
+   * (true positive) and 72/267 SOFT (reasonable). Sunroad phantom
+   * ($11M < $65.4M payoff) trips refi-vs-prior-payoff HARD.
+   */
+  const netRentableArea = rentRoll === null
+    ? null
+    : sumTenantSquareFeet(rentRoll);
+  const dataIntegrityReport = runDataIntegrityGate({
+    adjustedInputs,
+    extraction,
+    propertyMetadata,
+    netRentableArea,
+  });
+  if (dataIntegrityReport.hardHalt) {
+    throw new DataIntegrityHardHaltError(dataIntegrityReport);
+  }
+
   // Conservative-lease-up doctrine (DOCTRINE_VERSION 1.5). The detection
   // predicate routes lease-up deals to the contracted basis (rent-roll
   // signed-lease filter + engine's existing vacancy/expense discipline);
@@ -333,5 +389,29 @@ export async function evaluateFromAdjustedInputs(
     // producer can stamp it without re-running the lease-up + contracted-basis
     // pipeline downstream.
     contractedNoi: contractedTrace.contractedNoi,
+    // Data-integrity gate report (WARN + SOFT findings only — HARD findings
+    // throw DataIntegrityHardHaltError above before this struct is built).
+    // Threaded forward so the narrative / memo layer can surface the SOFT +
+    // WARN findings in the Data-Quality treatment.
+    dataIntegrityReport,
   };
+}
+
+/**
+ * Sum the squareFeet across tenant rent-roll lines (mirrors V10_NRA_OVERRIDE_ENTRY's
+ * defensive aggregation in render-schema.ts). Returns null when no tenant carries a
+ * finite squareFeet — never fabricates 0.
+ */
+function sumTenantSquareFeet(rentRoll: import('@cre/contracts').RentRoll): number | null {
+  let total = 0;
+  let any = false;
+  for (const l of rentRoll.lines) {
+    if (l.kind !== 'tenant') continue;
+    const sf = (l as { squareFeet?: number | null }).squareFeet;
+    if (typeof sf === 'number' && Number.isFinite(sf) && sf > 0) {
+      total += sf;
+      any = true;
+    }
+  }
+  return any ? total : null;
 }
