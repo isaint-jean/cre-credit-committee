@@ -116,13 +116,64 @@ function makeManifesto(): CreditManifesto {
   return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
 }
 
-const LOAN_TERMS: LoanTermsExtraction = {
-  loanAmount: 11_000_000,
-  interestRate: 0.07,
-  amortization: 360,
-  interestOnlyPeriod: 0,
-  maturityDate: '2031-05-08T00:00:00Z' as ISODateTime,
+/**
+ * SUNROAD_LOAN_TERMS_ASR — the real Sunroad deal's loan terms, sourced
+ * VERBATIM from the ingested ASR (010. Sunroad Centrum - ASR PRELIM
+ * 2023-07-19), page 6 "Loan Terms" block:
+ *
+ *   Original Principal Balance   : $85,000,000
+ *   Cut-Off Balance              : $85,000,000
+ *   Note Date                    : 2023-08-24
+ *   Coupon                       : 7.16%
+ *   Original Term (mos)          : 60
+ *   Original Amort Term (mos)    : 0   (Interest-Only)
+ *   Interest Only Term (mos)     : 60  (full-term IO)
+ *   Maturity Date                : 2028-09-06
+ *   Annual Debt Service (IO)     : $6,174,754  (ASR-quoted; matches $85M × 7.16% ≈ $6,086K ± calendar-day-count)
+ *   Pari Passu                   : Yes  (trust-note slice not disclosed in the ASR)
+ *
+ * This block previously held a stub (loanAmount $11M / 7% / 360mo amort /
+ * IO 0 / maturity 2031-05-08) that bore no relation to the ASR. The stub
+ * propagated through every downstream record — extraction → adjusted
+ * inputs → doctrine eval → handbook → narrative — and drove a phantom
+ * 9% LTV / 9.7x DSCR / 77% debt yield underwriting that does not exist.
+ * The provenance audit (2026-06-20) is the full record.
+ *
+ * This constant is the REAL DEAL's loan terms. It is NOT a reusable
+ * placeholder — see STUB_LOAN_TERMS_TEST_ONLY below for the test fixture
+ * that callers should copy when they need a generic loan-terms shape.
+ */
+const SUNROAD_LOAN_TERMS_ASR: LoanTermsExtraction = {
+  loanAmount:        85_000_000,
+  interestRate:      0.0716,
+  amortization:      0,
+  interestOnlyPeriod: 60,
+  maturityDate:      '2028-09-06T00:00:00Z' as ISODateTime,
 };
+
+/**
+ * STUB_LOAN_TERMS_TEST_ONLY — generic loan-terms placeholder for unit
+ * tests / fixtures that need a syntactically-valid LoanTermsExtraction
+ * but don't model any real deal. The values are deliberately the
+ * historical $11M / 7% / 30yr-amort / 2031-05-08 placeholder shape
+ * (preserved so existing test signatures don't shift), but the name now
+ * shouts that this is a fabricated test value — NEVER seed a production
+ * deal with this block.
+ *
+ * 18 sibling test/calibration scripts currently inline this exact value
+ * block (see provenance audit). Centralizing them into this single
+ * export is a follow-up; for now the rename is the gate against new
+ * production callers ever copying this set again.
+ */
+export const STUB_LOAN_TERMS_TEST_ONLY: LoanTermsExtraction = {
+  loanAmount:        11_000_000,
+  interestRate:      0.07,
+  amortization:      360,
+  interestOnlyPeriod: 0,
+  maturityDate:      '2031-05-08T00:00:00Z' as ISODateTime,
+};
+
+const LOAN_TERMS: LoanTermsExtraction = SUNROAD_LOAN_TERMS_ASR;
 
 (async () => {
   console.log('============================================================');
