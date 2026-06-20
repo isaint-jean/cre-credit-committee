@@ -52,6 +52,22 @@ import { CLAUDE_MODEL } from '../../config/llm-model.js';
 export const LLM_CONTEXT_MODEL = CLAUDE_MODEL;
 
 /**
+ * Sampling temperature for the handbook LLM_CONTEXT principle evaluator.
+ *
+ * Set to 0 (greedy decoding) so repeat evaluations of the same context are
+ * as close to deterministic as the API allows. Before this, no temperature
+ * was passed and the API default (1.0) drove run-to-run flag-set drift and
+ * fully non-deterministic flag_message prose (determinism recon, 2026-06-20).
+ *
+ * Honest caveat: temp=0 is greedy-but-not-seed-guaranteed — the Anthropic API
+ * exposes no seed, so bit-identical output across runs is not contractually
+ * promised. It collapses the dominant sampling noise; it does not, by itself,
+ * remove prompt-brittleness (an irrelevant input changing the context still
+ * forces a fresh eval). Tunable here if a future calibration wants > 0.
+ */
+export const LLM_CONTEXT_TEMPERATURE = 0;
+
+/**
  * Match the handbook-engine PrincipleEvaluationResult shape so the API-layer
  * caller can fold these results into the existing engine output. We re-declare
  * a structurally-equivalent local type instead of importing the engine's
@@ -433,6 +449,7 @@ export async function runLlmContextCheck(
         max_tokens: 1500,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: prompt }],
+        temperature: LLM_CONTEXT_TEMPERATURE,
       });
       parsed = tryParseLlmOutput(llmRaw);
       if (parsed !== null) break;

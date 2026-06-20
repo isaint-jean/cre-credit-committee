@@ -47,6 +47,15 @@ export async function callAIWithContinuation(options: {
   system?: string;
   messages: Anthropic.MessageParam[];
   maxContinuations?: number;
+  /**
+   * Sampling temperature forwarded to anthropic.messages.create. When
+   * omitted the param is not sent and the API default (1.0) applies —
+   * preserving prior behavior for every existing caller. The handbook
+   * LLM_CONTEXT principle evaluator passes 0 (LLM_CONTEXT_TEMPERATURE)
+   * for greedy, replay-stable verdicts. Threaded into the single
+   * messages.create below so it also covers continuation attempts.
+   */
+  temperature?: number;
 }): Promise<string> {
   const anthropic = getClient();
   const maxRetries = options.maxContinuations ?? 2;
@@ -59,6 +68,7 @@ export async function callAIWithContinuation(options: {
       max_tokens: options.max_tokens,
       system: options.system,
       messages,
+      ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
     });
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
