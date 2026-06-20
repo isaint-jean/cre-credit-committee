@@ -134,7 +134,8 @@ export const INTENTIONALLY_UNDEFINED_FIELDS: ReadonlySet<string> = new Set([
   'cash_out_amount',
   'debt_service',             // per-period array; see ticket TBD
   'hotel_service_level',
-  'loan_purpose',
+  // NOTE: 'loan_purpose' was here until phase B Part 4 — now POPULATED from
+  // propertyMetadata?.loanPurpose (same K6 / building_class extraction path).
   'location_type',
   'mall_class',
   'noi_projection',           // per-period array; see ticket TBD
@@ -181,6 +182,7 @@ export const POPULATED_FIELDS: ReadonlySet<string> = new Set([
   'pip_reserve_per_key',
   'reserves',
   'stressed_dscr_top_3_removed',
+  'loan_purpose',
   // Derivations (B)
   'building_age',
   'years_since_last_renovation',
@@ -312,6 +314,7 @@ export function buildFieldBag(inputs: AssemblerInputs): FieldBag {
   // returns undefined.
   bag['msa'] = nullToUndefined(propertyMetadata?.msa);
   bag['building_class'] = nullToUndefined(propertyMetadata?.buildingClass);
+  bag['loan_purpose'] = nullToUndefined(propertyMetadata?.loanPurpose);
   bag['property_sub_type'] = nullToUndefined(propertyMetadata?.propertySubtype);
   bag['building_age'] = deriveBuildingAge(
     propertyMetadata?.yearBuilt ?? null,

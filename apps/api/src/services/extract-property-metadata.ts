@@ -49,7 +49,8 @@ function buildPrompt(text: string): string {
     '  "occupancyPhysical": <fraction 0-1 or null>,',
     '  "occupancyEconomic": <fraction 0-1 or null>,',
     '  "ownershipInterest": "<Fee Simple / Leasehold / etc or null>",',
-    '  "numberOfBuildings": <integer or null>',
+    '  "numberOfBuildings": <integer or null>,',
+    '  "loanPurpose": "<Refinance / Acquisition or null>"',
     '}',
     '',
     'Rules:',
@@ -67,6 +68,20 @@ function buildPrompt(text: string): string {
     '  "B" as "A"). When the source explicitly says "class A-plus" or',
     '  "A+", normalize to "A" (the schema doesn\'t carry the + variant today).',
     '  When the document is silent on class designation, null.',
+    '- loanPurpose: scan ASR / appraisal / loan-summary prose for explicit deal-',
+    '  type language. Map to exactly two values:',
+    '    "Refinance"   — any phrasing of "refinance", "refi", "refinancing",',
+    '                    "loan replaces existing debt", "payoff of prior loan",',
+    '                    "cash-out refinance", "rate-and-term refinance",',
+    '                    "term-loan refinance", or proceeds-table line items',
+    '                    like "Payoff Existing Loan".',
+    '    "Acquisition" — phrasing of "acquisition", "purchase", "purchase-money",',
+    '                    "to acquire the property", or proceeds tied to a',
+    '                    purchase price / closing-table use marked "Acquisition".',
+    '  When source is silent or genuinely ambiguous, null. Never guess from',
+    '  loan amount or LTV; the prose / proceeds-and-uses line item must be',
+    '  explicit. Normalize variant casing / synonyms to the two canonical',
+    '  strings — the handbook trigger does field_equals against "Refinance".',
     '',
     '--- DOCUMENT TEXT ---',
     text,
@@ -104,6 +119,14 @@ function asState(v: unknown): string | null {
   // Accept 2-letter codes directly; reject longer strings (caller can map
   // 'California' -> 'CA' in a future pass if needed).
   return /^[A-Za-z]{2}$/.test(s) ? s.toUpperCase() : null;
+}
+
+function asLoanPurpose(v: unknown): string | null {
+  const s = asString(v);
+  if (s === null) return null;
+  if (/refinance|refi/i.test(s)) return 'Refinance';
+  if (/acquisition|purchase/i.test(s)) return 'Acquisition';
+  return null;
 }
 
 function asOccupancy(v: unknown): number | null {
@@ -158,6 +181,7 @@ export function parsePropertyMetadataAiResponse(
     occupancyEconomic:  asOccupancy(r.occupancyEconomic),
     ownershipInterest:  asString(r.ownershipInterest),
     numberOfBuildings:  asInteger(r.numberOfBuildings),
+    loanPurpose:        asLoanPurpose(r.loanPurpose),
   };
 
   // If literally every field is null, return null — no fabricated record.

@@ -55,4 +55,11 @@ export interface PropertyMetadata {
   // Ownership / legal
   readonly ownershipInterest: string | null;         // 'Fee Simple', 'Leasehold', etc.
   readonly numberOfBuildings: number | null;
+
+  // Loan structural type. Normalized to two values (consistent with handbook
+  // P-II-3 / P-III-5 triggers field_equals 'Refinance'):
+  //   'Refinance'   — any debt-replacing transaction (rate-and-term or cash-out)
+  //   'Acquisition' — purchase-money or assumption
+  //   null          — silent in source / structurally undisclosed
+  readonly loanPurpose: string | null;
 }
