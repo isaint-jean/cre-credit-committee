@@ -54,6 +54,14 @@ export const MEMO_SECTION_ORDER = [
   // the open items list reads as a follow-on diligence punch list rather
   // than mixing with the committee's accept/condition language.
   'open_items',
+  // v1.2 — Data Quality (data-integrity gate SOFT + provenance WARN
+  // findings). DISTINCT from Open Items: open_items = "missing data the
+  // verdict couldn't evaluate"; data_quality = "data we DID evaluate but
+  // is suspect or unsourced". Appended after open_items so the diligence
+  // surfaces read as a sequence: verdict → what couldn't be evaluated →
+  // what was evaluated but is shaky. Suppressed entirely when the report
+  // has no findings (renderer returns '').
+  'data_quality',
   'footer',
 ] as const;
 export type MemoSectionId = (typeof MEMO_SECTION_ORDER)[number];
@@ -67,6 +75,7 @@ export const MEMO_SECTION_HEADINGS: Readonly<Record<Exclude<MemoSectionId, 'head
   risk_assessment:          'Risk Assessment',
   committee_recommendation: 'Committee Recommendation',
   open_items:               'Open Items / Data Required',
+  data_quality:             'Data Quality',
 } as const;
 
 /** Centerpiece section title — variant by whether the recommended package

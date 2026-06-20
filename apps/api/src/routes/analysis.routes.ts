@@ -39,6 +39,7 @@ import {
 import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger, type AssetType as ContractsAssetType } from '@cre/contracts';
 import { requirePermission } from '../middleware/require-permission.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
+import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
 import { v4 as uuid } from 'uuid';
 import {
   dispatchByIdFormat,
@@ -834,6 +835,29 @@ export async function handleGraphRevision(
     }
     if (e instanceof RecordIdMismatchError) {
       res.status(500).json({ error: 'RECORD_ID_MISMATCH', message: e.message });
+      return;
+    }
+    // Data-integrity gate HARD halt — surface legible per-finding messages
+    // and signal data_quality_failed. No verdict was persisted; the
+    // existing revision lineage stays intact.
+    if (e instanceof DataIntegrityHardHaltError) {
+      // eslint-disable-next-line no-console
+      console.warn('[analysis.routes /revisions] data-integrity HARD halt:', e.message);
+      res.status(422).json({
+        error: 'DATA_INTEGRITY_HARD_HALT',
+        message:
+          'Data-integrity gate blocked the verdict — one or more checks failed. ' +
+          'Resolve the issues below and resubmit.',
+        status: 'data_quality_failed',
+        findings: e.report.findings.map((f) => ({
+          severity: f.severity,
+          layer:    f.layer,
+          check:    f.check,
+          title:    f.title,
+          message:  f.message,
+          ...(f.values ? { values: f.values } : {}),
+        })),
+      });
       return;
     }
     throw e;

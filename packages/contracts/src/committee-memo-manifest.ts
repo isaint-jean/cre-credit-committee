@@ -55,4 +55,13 @@ export const COMMITTEE_MEMO_MANIFEST: CommitteeMemoManifest = {
   // memo-format constants land. The boot-check rejects mismatches so a
   // stale hash is caught at startup.
   '1.1': '49f582eae808b7e48ceab0e203653199f34cb25d253ffd6df3655b9b43a84d61' as ContentHash,
+  // v1.2 — Data Quality section (data-integrity gate SOFT + provenance
+  // WARN findings). Append-only widening: MEMO_SECTION_ORDER adds
+  // 'data_quality' between 'open_items' and 'footer'; MEMO_SECTION_HEADINGS
+  // adds the new h2 string. Suppressed entirely when the report has no
+  // findings — v1.1 pinned templates keep their original 8-section
+  // shape; only deals with WARN/SOFT findings render the new section.
+  //
+  // Hash placeholder pending `npm run committee-memo:print-hash`.
+  '1.2': '66e0d2b819da8187b05ae23c1cd1152229b88fbe2c2a544e753479c53fe06544' as ContentHash,
 };

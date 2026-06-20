@@ -44,6 +44,7 @@ import { computeContractedNoi } from '../contracted-basis.js';
 import { synthesizeUwModelFromInputs } from '../synthesize-uw-model-from-graph.js';
 import { recomputeAiAtLoan } from '../evaluate-and-narrate.js';
 import { buildCommitteeMemo, type MemoRenderSource } from './build-committee-memo.js';
+import { runDataIntegrityGate } from '../data-integrity/gate.js';
 import {
   cleanDoctrineFindingsFromSnapshot,
   composedFromSnapshot,
@@ -95,6 +96,34 @@ export function renderMemoForAnalysis(
     return { ok: false, reason: 'AssetProfile not found in store.', code: 'ASSET_PROFILE_MISSING' };
   }
 
+  // Data Quality section (v1.2) — re-run the data-integrity gate at render
+  // time against the persisted state. Inputs (AdjustedInputs source tags,
+  // metrics, extraction, PropertyMetadata, rentRoll NRA) are all available
+  // here; running fresh keeps the surface decoupled from any persisted
+  // contract change. HARD findings would have prevented persistence
+  // already; at render time we expect only SOFT + provenance WARNs. The
+  // section renderer suppresses itself if the report is empty, so legacy
+  // memos render byte-identical when there are no findings.
+  const renderTimeRentRoll = doctrine.rentRollId ? store.getRentRoll(doctrine.rentRollId) : null;
+  const renderTimePm = store.getPropertyMetadataByExtractionResultId(doctrine.extractionResultId);
+  let renderTimeNra: number | null = null;
+  if (renderTimeRentRoll !== null) {
+    let total = 0;
+    let any = false;
+    for (const l of renderTimeRentRoll.lines) {
+      if (l.kind !== 'tenant') continue;
+      const sf = (l as { squareFeet?: number | null }).squareFeet;
+      if (typeof sf === 'number' && Number.isFinite(sf) && sf > 0) { total += sf; any = true; }
+    }
+    if (any) renderTimeNra = total;
+  }
+  const dataIntegrityReport = runDataIntegrityGate({
+    adjustedInputs,
+    extraction,
+    propertyMetadata: renderTimePm,
+    netRentableArea: renderTimeNra,
+  });
+
   // Appraisal disclosure (optional). Pulled from analysis.appraisalExtraction
   // — when present, surfaces As-Is / As-Stabilized / OAR / going-in vs
   // stabilized coverage inside the Stressed Credit Profile section. No-op
@@ -145,6 +174,7 @@ export function renderMemoForAnalysis(
       renderSource,
       appraisalDisclosure,
       noiBasis,
+      dataIntegrityReport,
     });
     return { ok: true, html };
   }
@@ -209,6 +239,7 @@ export function renderMemoForAnalysis(
     renderSource,
     appraisalDisclosure,
     noiBasis,
+    dataIntegrityReport,
   });
   return { ok: true, html };
 }

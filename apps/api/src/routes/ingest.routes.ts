@@ -40,6 +40,7 @@ import {
   ingestExtractionResult,
   IngestionError,
 } from '../services/ingest-extraction-result.js';
+import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 
 export const ingestRoutes = Router();
@@ -136,6 +137,26 @@ ingestRoutes.post('/', async (req: Request, res: Response) => {
         error: e.code,
         message: e.message,
         ...e.context,
+      });
+    }
+    // Data-integrity gate HARD halt — surface legible per-finding messages.
+    if (e instanceof DataIntegrityHardHaltError) {
+      // eslint-disable-next-line no-console
+      console.warn('[ingest.routes] data-integrity HARD halt:', e.message);
+      return res.status(422).json({
+        error: 'DATA_INTEGRITY_HARD_HALT',
+        message:
+          'Data-integrity gate blocked the verdict — one or more checks failed. ' +
+          'Resolve the issues below and re-ingest.',
+        status: 'data_quality_failed',
+        findings: e.report.findings.map((f) => ({
+          severity: f.severity,
+          layer:    f.layer,
+          check:    f.check,
+          title:    f.title,
+          message:  f.message,
+          ...(f.values ? { values: f.values } : {}),
+        })),
       });
     }
     const err = e as Error;

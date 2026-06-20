@@ -129,6 +129,14 @@ export interface BuildCommitteeMemoInput {
    * always pass this.
    */
   readonly renderSource?: MemoRenderSource;
+  /**
+   * v1.2 — data-integrity gate report (SOFT + provenance WARN findings).
+   * Threaded from EvaluateAndNarrateResult so the Data Quality section
+   * can render the findings the analyst should review. Optional —
+   * legacy callers without this field get no Data Quality section
+   * (section suppressed entirely, same as the report-empty case).
+   */
+  readonly dataIntegrityReport?: import('../data-integrity/gate.js').DataIntegrityReport;
 }
 
 /**
@@ -722,6 +730,73 @@ function renderOpenItems(narrative: NarrativeEvaluation): string {
     </section>`;
 }
 
+/**
+ * v1.2 — Data Quality section. Renders data-integrity gate SOFT +
+ * provenance WARN findings as a clustered checklist of suspect /
+ * unsourced numbers the analyst should verify. DISTINCT from Open Items
+ * (missing-data-required): this section flags numbers we DID evaluate
+ * but where the source is caller-supplied, manual, or the value falls
+ * outside the normal CMBS range.
+ *
+ * Suppressed entirely when:
+ *   - dataIntegrityReport is absent (legacy callers), OR
+ *   - there are zero SOFT / WARN findings (HARD halts never reach this
+ *     renderer — they short-circuit at the route boundary).
+ * In both cases the memo renders byte-identical to the v1.1 shape.
+ */
+function renderDataQuality(
+  report: import('../data-integrity/gate.js').DataIntegrityReport | undefined,
+): string {
+  if (report === undefined) return '';
+  // HARD findings should never reach this renderer (they throw at the gate),
+  // but defensively filter just in case a caller passes an unfiltered report.
+  const provenanceWarns = report.findings.filter((f) => f.layer === 'provenance' && f.severity === 'WARN');
+  const plausibilitySoft = report.findings.filter((f) => f.layer === 'plausibility' && f.severity === 'SOFT');
+  const xcheckWarns = report.findings.filter((f) => f.layer === 'cross_consistency' && f.severity === 'WARN');
+  if (provenanceWarns.length === 0 && plausibilitySoft.length === 0 && xcheckWarns.length === 0) {
+    return '';
+  }
+  const sections: string[] = [];
+  if (plausibilitySoft.length > 0) {
+    sections.push(
+      `<h3>Out-of-range numbers</h3>` +
+      `<ul>` +
+      plausibilitySoft.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.message)}</li>`).join('') +
+      `</ul>`,
+    );
+  }
+  if (xcheckWarns.length > 0) {
+    sections.push(
+      `<h3>Cross-consistency observations</h3>` +
+      `<ul>` +
+      xcheckWarns.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.message)}</li>`).join('') +
+      `</ul>`,
+    );
+  }
+  if (provenanceWarns.length > 0) {
+    sections.push(
+      `<h3>Caller-supplied verdict-critical inputs</h3>` +
+      `<p>The following fields are caller-supplied rather than document-extracted. They were used in the underwriting but should be verified against the underlying ASR / CF / appraisal / rent roll before relying on the verdict:</p>` +
+      `<ul>` +
+      provenanceWarns.map((f) => `<li><strong>${esc(f.title)}</strong></li>`).join('') +
+      `</ul>`,
+    );
+  }
+  const intro =
+    `<p>This section flags numbers that WERE evaluated but are suspect (out-of-range) ` +
+    `or unsourced (caller-supplied rather than document-extracted). Distinct from ` +
+    `Open Items above, which lists data we COULD NOT evaluate. Both surfaces are ` +
+    `diligence asks; the difference is whether the number was used in the verdict.</p>`;
+  return `
+    <section class="memo-section">
+      <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS.data_quality}</h2>
+      <div class="memo-prose">
+        ${intro}
+        ${sections.join('\n        ')}
+      </div>
+    </section>`;
+}
+
 function renderFooter(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
   const basisLabel =
     auth.concludedValueSource === 'operator-supplied' ? 'operator-supplied'
@@ -1086,6 +1161,7 @@ function renderHtml(
     risk_assessment:          () => renderRiskAssessment(input.narrative, findings),
     committee_recommendation: () => renderCommitteeRecommendation(input.narrative),
     open_items:               () => renderOpenItems(input.narrative),
+    data_quality:             () => renderDataQuality(input.dataIntegrityReport),
     footer:                   () => renderFooter(input, auth),
   };
   const sections = MEMO_SECTION_ORDER.map(id => SECTION_RENDERERS[id]()).join('\n  ');

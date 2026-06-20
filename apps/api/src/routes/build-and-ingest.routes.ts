@@ -96,6 +96,7 @@ import {
   type IngestExtractionResultArgs,
   type IngestionResult,
 } from '../services/ingest-extraction-result.js';
+import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
 import { cityStateToMarketLiquidity } from '../services/metro-tier-lookup.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
@@ -469,6 +470,12 @@ export function makeBuildAndIngestHandler(
           // Phase 1 (rent-roll-node): typed RentRoll from the composer flows
           // straight into ingest; null when no rent roll was produced.
           rentRoll: composed.rentRoll,
+          // Sprint-0: typed PropertyMetadata from the composer flows INTO
+          // ingest so handbook/narrative/doctrine receive it during the engine
+          // pass AND the read-side projector can resolve it back. The
+          // best-effort PM persistence below is kept as a safety net but is
+          // now redundant on the happy path (ingest handles it).
+          propertyMetadata: composed.propertyMetadata,
         },
         deps.recordGraphStore,
       );
@@ -478,6 +485,32 @@ export function makeBuildAndIngestHandler(
           error: e.code,
           message: e.message,
           ...e.context,
+        });
+        return;
+      }
+      // Data-integrity gate HARD halt — verdict was blocked before any
+      // doctrine eval landed. Surface every legible per-finding message so
+      // the analyst sees "Loan $11M is less than the $65.4M being
+      // refinanced — verify…" instead of a stack trace. Status not
+      // transitioned to 'complete'; the analysis stays in its pre-ingest
+      // state at the route boundary.
+      if (e instanceof DataIntegrityHardHaltError) {
+        // eslint-disable-next-line no-console
+        console.warn('[build-and-ingest] data-integrity HARD halt:', e.message);
+        res.status(422).json({
+          error: 'DATA_INTEGRITY_HARD_HALT',
+          message:
+            'Data-integrity gate blocked the verdict — one or more checks failed. ' +
+            'Resolve the issues below and re-ingest.',
+          status: 'data_quality_failed',
+          findings: e.report.findings.map((f) => ({
+            severity: f.severity,
+            layer:    f.layer,
+            check:    f.check,
+            title:    f.title,
+            message:  f.message,
+            ...(f.values ? { values: f.values } : {}),
+          })),
         });
         return;
       }
