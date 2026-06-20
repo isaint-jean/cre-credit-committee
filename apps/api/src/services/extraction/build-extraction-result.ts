@@ -275,6 +275,66 @@ function deriveSellerUwTriplet(
   };
 }
 
+/* ----------------------- loan-terms provenance (ASR) ---------------------- */
+
+/**
+ * Verdict-critical loan-terms fields — the five the data-integrity gate checks
+ * for provenance, expressed in LoanTermsExtraction terms:
+ *   loanAmount         → loan.loanAmount
+ *   interestRate       → loan.interestRate
+ *   amortization       → loan.amortizationMonths
+ *   interestOnlyPeriod → loan.ioPeriodMonths
+ *   maturityDate       → loan.termMonths (derived from maturity − note date)
+ * Exact equality on ALL of these means the caller's override is the same value
+ * the ASR document produced — same number, just routed through the form-field
+ * path. Strict === (null === null is fine; no tolerance — provenance is a
+ * yes/no document-rootedness question, not a plausibility band).
+ */
+function loanTermsVerdictCriticalEqual(
+  a: LoanTermsExtraction,
+  b: LoanTermsExtraction,
+): boolean {
+  return (
+    a.loanAmount === b.loanAmount &&
+    a.interestRate === b.interestRate &&
+    a.amortization === b.amortization &&
+    a.interestOnlyPeriod === b.interestOnlyPeriod &&
+    a.maturityDate === b.maturityDate
+  );
+}
+
+/**
+ * loanTerms provenance resolution (ingest-asr-provenance-precedence).
+ *
+ * The VALUE precedence is unchanged (caller override still wins); only the
+ * SOURCE TAG is refined so it tells the honest truth:
+ *
+ *   caller absent              → ASR-extracted terms (source='ASR') or null   [unchanged]
+ *   caller present, no ASR      → caller terms, source absent → 'BANK' WARN (honest: undocumented)
+ *   caller present == ASR       → caller terms re-tagged source='ASR' (document-rooted; clears WARN)
+ *                                 (the bug: today this stays BANK and warns despite matching the doc)
+ *   caller present != ASR       → caller terms as-is → 'BANK' WARN (genuine override preserved)
+ *
+ * Only the source tag is ever changed; NO numeric value is altered, and only
+ * a freshly-composed ExtractionResult is affected (persisted deals untouched).
+ * We re-tag only when the caller did not already carry an explicit source, so
+ * an intentional caller-set provenance is never clobbered.
+ */
+export function resolveLoanTermsWithProvenance(
+  callerTerms: LoanTermsExtraction | null | undefined,
+  asrTerms: LoanTermsExtraction | null,
+): LoanTermsExtraction | null {
+  if (callerTerms === undefined || callerTerms === null) return asrTerms;
+  if (asrTerms === null) return callerTerms;
+  if (
+    callerTerms.source === undefined &&
+    loanTermsVerdictCriticalEqual(callerTerms, asrTerms)
+  ) {
+    return { ...callerTerms, source: 'ASR' };
+  }
+  return callerTerms;
+}
+
 /* ------------------------------ composer ---------------------------------- */
 
 export async function buildExtractionResult(
@@ -379,22 +439,25 @@ export async function buildExtractionResult(
   if (pcaOutcome !== null) sourceDocuments.push(...pcaOutcome.sourceRefs);
   if (apprOutcome !== null) sourceDocuments.push(...apprOutcome.sourceRefs);
 
-  /* loanTerms precedence — caller-supplied wins as an explicit override;
-     ASR-extracted is PRIMARY when the caller didn't supply.
+  /* loanTerms precedence — caller-supplied wins in VALUE as an explicit
+     override; ASR-extracted is PRIMARY when the caller didn't supply.
      (ASR adapter v0.3.0 — extractAsrLoanTerms.)
 
+     SOURCE TAG (ingest-asr-provenance-precedence): when the caller's override
+     equals the ASR-extracted terms on every verdict-critical field, the value
+     is document-rooted and is re-tagged source='ASR' so the provenance gate
+     correctly clears. A caller override that DIFFERS from the ASR (or an ASR
+     with no loan-terms block) keeps the caller/BANK tag so the WARN honestly
+     fires. See resolveLoanTermsWithProvenance for the full truth table.
+
      Truth table:
-       args.loanTerms present (non-null / non-undefined) → caller's value
-         (no source field; downstream builders default to 'BANK' →
-          provenance gate WARN as caller-supplied)
-       args.loanTerms absent + ASR block parsed → asrLoanTerms
-         (source='ASR' → provenance gate clears)
-       both absent → null
-         (downstream judgment throws JE_LOAN_AMOUNT_MISSING) */
+       caller present == ASR (all verdict-critical fields)  → caller value, source='ASR' (clears WARN)
+       caller present != ASR                                → caller value, source absent → 'BANK' WARN
+       caller present + no ASR block                        → caller value, source absent → 'BANK' WARN
+       caller absent + ASR block parsed                     → asrLoanTerms (source='ASR' → clears)
+       both absent                                          → null (judgment throws JE_LOAN_AMOUNT_MISSING) */
   const loanTerms: LoanTermsExtraction | null =
-    args.loanTerms !== undefined && args.loanTerms !== null
-      ? args.loanTerms
-      : asrLoanTerms;
+    resolveLoanTermsWithProvenance(args.loanTerms, asrLoanTerms);
 
   /* extractorVersions — Ticket D per-extractor version metadata.
    *
