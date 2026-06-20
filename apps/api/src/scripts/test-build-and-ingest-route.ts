@@ -128,7 +128,7 @@ function makePropertyMetadata(): PropertyMetadata {
     yearBuilt: null, yearRenovated: null, buildingClass: null,
     totalSquareFeet: null, totalUnits: null, totalRooms: null, totalPads: null,
     occupancyPhysical: null, occupancyEconomic: null,
-    ownershipInterest: null, numberOfBuildings: null,
+    ownershipInterest: null, numberOfBuildings: null, loanPurpose: null,
   };
 }
 
@@ -694,6 +694,7 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       totalSquareFeet: 50000, totalUnits: null, totalRooms: null, totalPads: null,
       occupancyPhysical: 0.92, occupancyEconomic: null,
       ownershipInterest: 'Fee Simple', numberOfBuildings: 1,
+    loanPurpose: null,
     };
     const pm: PropertyMetadata = { id: computePropertyMetadataId(pmBody), ...pmBody } as PropertyMetadata;
     realStore.insertPropertyMetadata(pm);

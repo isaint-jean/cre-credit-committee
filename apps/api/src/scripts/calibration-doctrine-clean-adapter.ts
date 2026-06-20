@@ -102,6 +102,7 @@ function mkPropertyMetadata(overrides: Partial<PropertyMetadata> = {}): Property
     occupancyEconomic: null,
     ownershipInterest: null,
     numberOfBuildings: null,
+    loanPurpose: null,
     ...overrides,
   };
 }

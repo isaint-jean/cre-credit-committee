@@ -160,7 +160,7 @@ function makeArgs(overrides: Partial<BuildHandbookEvaluationArgs> = {}): BuildHa
     buildingClass: 'B',
     totalSquareFeet: null, totalUnits: null, totalRooms: null, totalPads: null,
     occupancyPhysical: null, occupancyEconomic: null,
-    ownershipInterest: null, numberOfBuildings: null,
+    ownershipInterest: null, numberOfBuildings: null, loanPurpose: null,
   };
 
   return {

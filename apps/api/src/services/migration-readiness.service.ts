@@ -102,6 +102,10 @@ function nextStateFor(s: FieldMigrationState): FieldMigrationState | null {
     // source of truth for cells reading appraisal.* atoms; no further
     // migration step.
     case 'APPRAISAL_SOURCED': return null;
+    // META_SOURCED is terminal — meta.dealId / meta.dealName / meta.generatedAt
+    // are route-controlled identifiers, not extraction-derived, so there's no
+    // further migration step.
+    case 'META_SOURCED':      return null;
   }
 }
 

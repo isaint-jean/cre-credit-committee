@@ -124,6 +124,7 @@ function makePropertyMetadata(): PropertyMetadata {
     occupancyEconomic: null,
     ownershipInterest: null,
     numberOfBuildings: null,
+    loanPurpose: null,
   };
   return { id: computePropertyMetadataId(body), ...body };
 }

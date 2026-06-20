@@ -192,6 +192,7 @@ function makePropertyMetadata(propertyName: string | null = 'Test Property'): Pr
     occupancyEconomic: null,
     ownershipInterest: 'Fee Simple',
     numberOfBuildings: 1,
+    loanPurpose: null,
   };
   return { id: computePropertyMetadataId(body), ...body };
 }

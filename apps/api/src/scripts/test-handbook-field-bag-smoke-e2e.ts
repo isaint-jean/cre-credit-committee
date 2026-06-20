@@ -332,7 +332,7 @@ const defaultPropertyMetadata: PropertyMetadata = {
   buildingClass: null,
   totalSquareFeet: null, totalUnits: null, totalRooms: null, totalPads: null,
   occupancyPhysical: null, occupancyEconomic: null,
-  ownershipInterest: null, numberOfBuildings: null,
+  ownershipInterest: null, numberOfBuildings: null, loanPurpose: null,
 };
 
 function makeSmokeInputs(overrides: {

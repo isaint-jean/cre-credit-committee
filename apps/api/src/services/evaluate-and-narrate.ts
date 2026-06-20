@@ -390,7 +390,7 @@ export const NOI_BASIS_DIVERGENCE_REASON =
  * RatingBand from doctrine-clean) match `SnapshotRecommendation` /
  * `SnapshotRatingBand` (contract-side mirrors); a narrowing cast is safe.
  */
-function projectSnapshotRating(dealResult: EvaluateDealResult): SnapshotRating {
+export function projectSnapshotRating(dealResult: EvaluateDealResult): SnapshotRating {
   const r = dealResult.rating as unknown as {
     recommendation: SnapshotRating['recommendation'];
     band: SnapshotRating['band'];
@@ -408,7 +408,7 @@ function projectSnapshotRating(dealResult: EvaluateDealResult): SnapshotRating {
  * `derivedOutputs` verbatim. The reader knows which keys to read for which
  * surface (e.g., dim 7 → stressedValue/stressedLtv; dim 4 → exitDscr).
  */
-function projectSnapshotDimOutputs(
+export function projectSnapshotDimOutputs(
   dealResult: EvaluateDealResult,
 ): Readonly<Record<string, SnapshotDimOutput>> {
   const out: Record<string, SnapshotDimOutput> = {};
@@ -435,7 +435,7 @@ function projectSnapshotDimOutputs(
  * + LLM prompt still see the original Infinity values; only the persisted
  * snapshot body is sanitized).
  */
-function sanitizeForCanonicalJson(value: unknown): unknown {
+export function sanitizeForCanonicalJson(value: unknown): unknown {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null;
   }
