@@ -674,6 +674,55 @@ const MIGRATIONS: RenderContractMigration[] = [
       'in remediate-template-registry-v10.ts; gating uploadTemplate on a ' +
       'registry lookup is the durable fix.',
   },
+  {
+    fromVersion: 10,
+    toVersion: 11,
+    description:
+      'Tier-1 safe render wires. Two pure selectors against data already ' +
+      'computed elsewhere in the pipeline — meta.dealId and ' +
+      'adjustedInputs.assumptions.terminalCapRate.adjusted — surface on the ' +
+      'Cover Page and 10 Yr Pro Forma sheets respectively. v11 ADDS two ' +
+      'SheetSlots (Cover_Page, Ten_Year_Pro_Forma), two cell addresses ' +
+      '(Cover Page!Deal_Control_Number, 10 Yr Pro Forma!Terminal_Cap_Rate), ' +
+      'and unexcludes both sheets from managedNamespace.excludedSheets. No ' +
+      'new source surface, no payload-shape change, no extraction or ' +
+      'contract changes downstream of the schema — both selectors tag ' +
+      'surfaces v10 already permits (\'meta\' since v7, \'adjustedInputs\' ' +
+      'since v6). Carry-forward entries from v10 unchanged. xlsm artifact ' +
+      'unchanged. Pinned core (eval / envelope / snapshot / column-P NOI) ' +
+      'unaffected — Terminal_Cap_Rate already enters the verdict path via ' +
+      'judgment/apply-judgment-adjustments.ts (buildTerminalCapRate); this ' +
+      'change only closes the render gap so the value also displays in ' +
+      'its cell.',
+    autoApplicable: true,
+    addresses: [
+      { kind: 'address-added', address: 'Cover Page!Deal_Control_Number' },
+      { kind: 'address-added', address: '10 Yr Pro Forma!Terminal_Cap_Rate' },
+    ],
+    tables: [],
+    managedNamespace: [
+      { kind: 'namespace-excluded-sheet-removed', sheet: 'Cover Page', reason: 'v11 writes Deal_Control_Number (H2) on Cover Page.' },
+      { kind: 'namespace-excluded-sheet-removed', sheet: '10 Yr Pro Forma', reason: 'v11 writes Terminal_Cap_Rate (P36) on 10 Yr Pro Forma.' },
+    ],
+    visibility: [],
+    wire: [],
+    notes:
+      'v11 is additive on the schema surface (two new addresses, two sheets ' +
+      'unexcluded). v10-pinned templates keep rendering identically; v11 ' +
+      'becomes the default for new exports. Cleanup tickets carried ' +
+      'forward + extended:\n' +
+      '  1-10: as in v10.\n' +
+      '  11. NEW: Loan_Balance (Property & Loan Summary!W7:W97) was ' +
+      'scoped for v11 but HELD — recon confirmed no engine-side ' +
+      'amortization-balance series exists. Engine surfaces scalars only ' +
+      '(annualDebtService + maturityBalance via judgment/amortization.ts); ' +
+      'the workbook\'s own Amortization Schedule sheet projects the series ' +
+      'via its existing formula chain (column I "Ending Balance"). Wiring ' +
+      'W7:W97 would need either a formula-emitting selector (selectors ' +
+      'return CellValue today, not formulas) or an engine extension to ' +
+      'compute the series. Either is a separate scope; v11 keeps W7:W97 ' +
+      'honest-blank.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

@@ -45,8 +45,26 @@ import type { RentRoll } from '@cre/contracts';
  * RenderInput (a hydrated bundle.rentRoll passthrough — no derivation, no
  * mutation). New SourceSurface tag `'rentRoll'` declared in render-schema's
  * ALLOWED_SOURCES_BY_VERSION for v10. v9 entries carry forward verbatim.
+ *
+ * v11 — Tier-1 safe render wires. Two pure selectors against data already
+ * computed / in the bundle, with no extraction / contract surface changes
+ * downstream of the schema layer. New SheetSlots Cover_Page and
+ * Ten_Year_Pro_Forma surface two sheets the schema previously left in
+ * excludedSheets:
+ *   • Cover Page!Deal_Control_Number (H2) ← meta.dealId
+ *   • 10 Yr Pro Forma!Terminal_Cap_Rate (P36) ← adjustedInputs.assumptions
+ *     .terminalCapRate (already extracted by extract-cbre-appraisal.ts and
+ *     already threaded through judgment/apply-judgment-adjustments.ts; this
+ *     only closes the render gap)
+ * Loan_Balance (Property & Loan Summary!W7:W97) was scoped for v11 but
+ * HELD — confirmed at the recon: no engine-side amortization-balance series
+ * exists (engine surfaces scalars annualDebtService + maturityBalance only;
+ * the workbook's own Amortization Schedule sheet projects the series via
+ * its formula chain). Selectors return CellValue, not formulas — so the
+ * existing computed series cannot be wired through the schema layer
+ * without a separate scope. Carry-forward entries from v10 unchanged.
  */
-export const RENDER_CONTRACT_VERSION = 10;
+export const RENDER_CONTRACT_VERSION = 11;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

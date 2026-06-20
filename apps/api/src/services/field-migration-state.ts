@@ -44,7 +44,7 @@ export type FieldMigrationState =
   | 'HYBRID'             // resolvedContext primary; adjustedInputs fallback allowed (in hydrator)
   | 'FULL_MODERN'        // resolvedContext sole authority; adjustedInputs forbidden
   | 'RENT_ROLL_SOURCED'  // bundle.rentRoll passthrough (per-tenant rows + RRP toggle); new at v10
-  | 'APPRAISAL_SOURCED'; // resolvedContext.appraisal atoms (CBRE / appraiser-concluded); new at v10
+  | 'APPRAISAL_SOURCED'  // resolvedContext.appraisal atoms (CBRE / appraiser-concluded); new at v10
                           // for cells whose source-of-truth is the appraisal extraction —
                           // E41 (Appraised LTV = loan/appraisal.valueConclusion),
                           // Concluded_Cap_Rate (appraisal.overallCapRate). Routed via
@@ -52,6 +52,12 @@ export type FieldMigrationState =
                           // FULL_MODERN), but state-named explicitly so the migration
                           // ledger distinguishes "appraisal-derived" from "extraction-
                           // descriptor-derived" cells in the readout.
+  | 'META_SOURCED';      // RenderInput.meta passthrough (dealId, dealName,
+                          // generatedAt); new at v11 for the Cover Page
+                          // Deal_Control_Number wire. Route-controlled
+                          // metadata that the render layer reads from
+                          // input.meta — not derived from any extraction
+                          // / engine output.
 
 export type FieldGroup =
   | 'property'
@@ -81,6 +87,10 @@ export const REQUIRED_SOURCE_BY_STATE: Readonly<Record<FieldMigrationState, Sour
   // because `has(required)` checks set membership — the appraisal tag is
   // present alongside adjustedInputs.
   APPRAISAL_SOURCED:  'resolvedContext',
+  // Meta-sourced cells read from RenderInput.meta (dealId, dealName,
+  // generatedAt — the route-controlled identifiers). The selector tag is
+  // 'meta', already permitted at the schema level since v7. New at v11.
+  META_SOURCED:       'meta',
 };
 
 /**
@@ -660,7 +670,38 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     };
     return [...carryForward, ...rrEntries, rrpOverride];
   })(),
+  // v11: Tier-1 safe render wires. Carries v10 forward verbatim and adds
+  // two new cells — Cover Page!Deal_Control_Number (meta source) and
+  // 10 Yr Pro Forma!Terminal_Cap_Rate (resolvedContext source, same channel
+  // v10's Third Party Reports!E18 uses for the identical extracted-appraisal
+  // value). No state transitions on carry-forward entries; only two
+  // additions. v10 carry-forward is computed via the same closure pattern
+  // that v10 itself uses, just re-inlined here because const-initializers
+  // cannot self-reference the object they're populating.
+  11: [],
 };
+
+// v11 carry-forward + additions. Defined post-registry-creation so the
+// v10 entry is fully populated when we read it. Mutates the registry's
+// v11 slot in place; the registry contract is read-only after this point.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[11] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[10] ?? [];
+  const v11Additions: FieldStateDeclaration[] = [
+    {
+      address: 'Cover Page!Deal_Control_Number',
+      group: 'property',
+      state: 'META_SOURCED',
+      notes: 'New at v11. meta.dealId — route-controlled identifier already on RenderInput; sourced via the meta selector helper (\'meta\' surface, permitted since v7).',
+    },
+    {
+      address: '10 Yr Pro Forma!Terminal_Cap_Rate',
+      group: 'financial_core',
+      state: 'APPRAISAL_SOURCED',
+      notes: 'New at v11. resolvedContext.appraisal.terminalCapRate — identical channel to v10\'s Third Party Reports!E18. Verdict path already consumes this value through judgment/apply-judgment-adjustments.ts (buildTerminalCapRate); v11 only closes the render gap so the Terminal_Cap_Rate cell also displays it.',
+    },
+  ];
+  return [...carryForward, ...v11Additions];
+})();
 
 // --- Legal cross-version transitions ---------------------------------------
 

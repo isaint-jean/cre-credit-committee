@@ -127,7 +127,9 @@ type SheetSlot =
   | 'Comparables_Lease'
   | 'Comparables_Sales'
   | 'Comparables_CMBS'
-  | 'Rent_Roll';
+  | 'Rent_Roll'
+  | 'Cover_Page'
+  | 'Ten_Year_Pro_Forma';
 
 const SHEET_SLOTS: ReadonlyArray<SheetSlot> = [
   'Property_Loan_Summary',
@@ -143,6 +145,8 @@ const SHEET_SLOTS: ReadonlyArray<SheetSlot> = [
   'Comparables_Sales',
   'Comparables_CMBS',
   'Rent_Roll',
+  'Cover_Page',
+  'Ten_Year_Pro_Forma',
 ];
 
 /**
@@ -191,6 +195,8 @@ function sheet(assetClass: AssetType, slot: SheetSlot): string {
     case 'Comparables_Sales':     return 'Sales Comps';
     case 'Comparables_CMBS':      return 'CMBS Comps';
     case 'Rent_Roll':             return 'Rent Roll';
+    case 'Cover_Page':            return 'Cover Page';
+    case 'Ten_Year_Pro_Forma':    return '10 Yr Pro Forma';
   }
 }
 
@@ -1841,6 +1847,118 @@ const SCHEMA_V10: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v10DefsFor('manufactured_housing') },
 };
 
+// --- v11 SCHEMA ENTRIES -----------------------------------------------------
+// Tier-1 safe render wires. Two pure selectors against data already computed
+// elsewhere in the pipeline. No new source surfaces — both selectors tag
+// surfaces v10 already permits ('meta', 'adjustedInputs'). v10 entries carry
+// forward verbatim; v11 only ADDS two cells and unexcludes the two sheets
+// they live on.
+//
+//   • Cover Page!Deal_Control_Number (H2) ← meta.dealId. The analysis ID is
+//     a route-controlled metadata field already on every RenderInput;
+//     surfacing it on the Cover Page closes the workbook's deal-tracking
+//     identifier slot.
+//
+//   • 10 Yr Pro Forma!Terminal_Cap_Rate (P36) ← resolvedContext.appraisal
+//     .terminalCapRate. The terminal cap rate is already extracted from the
+//     CBRE appraisal (extract-cbre-appraisal.ts:114), threaded into
+//     AdjustedInputs.assumptions by the judgment engine (apply-judgment-
+//     adjustments.ts buildTerminalCapRate), AND surfaced on
+//     resolvedContext.appraisal.terminalCapRate (the resolver projects it
+//     for render). The render-side AdjustedInputs shape (packages/shared)
+//     strips `assumptions`, so this wire reads through the same
+//     resolvedContext.appraisal channel that v10's Third Party Reports!E18
+//     already uses for the identical datum. The verdict path already uses
+//     this value through the stress-output chain; this wire only closes the
+//     10 Yr Pro Forma render gap so the same value also displays in its
+//     Terminal_Cap_Rate cell.
+//
+// HELD (NOT in schema): Property & Loan Summary!Loan_Balance (W7:W97).
+// Recon confirmed the engine surfaces no amortization balance series — only
+// scalars annualDebtService + maturityBalance. The workbook's own
+// Amortization Schedule sheet projects the series via its existing formula
+// chain (column I "Ending Balance", driven by Note_Date / Original_Balance /
+// Coupon). Wiring W7:W97 would require either (a) a formula-emitting
+// selector path that does not currently exist (selectors return CellValue,
+// not formulas) or (b) an engine extension to compute the series. Either is
+// out of scope for "render-layer selectors only". Surfaced as a finding;
+// keep W7:W97 honest-blank at v11.
+
+const V11_DEAL_CONTROL_NUMBER_ENTRY: SchemaEntry = {
+  slot: 'Cover_Page',
+  range: 'Deal_Control_Number',
+  selector: meta((i) => i.meta.dealId),
+  cellState: 'concluded',
+};
+
+const V11_TERMINAL_CAP_RATE_ENTRY: SchemaEntry = {
+  slot: 'Ten_Year_Pro_Forma',
+  range: 'Terminal_Cap_Rate',
+  // Same resolvedContext channel that v10's Third Party Reports!E18 reads
+  // for the identical extracted-appraisal value (CBRE OAR / terminal). The
+  // shared-package AdjustedInputs shape does not surface `assumptions`, so
+  // the render layer reads through resolvedContext.appraisal — matching the
+  // E18 wire's source-tagging.
+  selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.terminalCapRate),
+  cellState: 'concluded',
+};
+
+const V11_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V10_SHARED_ENTRIES,
+  V11_DEAL_CONTROL_NUMBER_ENTRY,
+  V11_TERMINAL_CAP_RATE_ENTRY,
+];
+
+const V11_MANAGED_NAMESPACE: ManagedNamespacePolicy = {
+  prefixes: [],
+  literals: V8_SHARED_ENTRIES.map((e) => e.range),
+  // v11 takes 'Cover Page' and '10 Yr Pro Forma' OUT of excludedSheets so
+  // the populator can write H2 / P36 there. 'Rent Roll' is already
+  // unexcluded at v10; carry that through.
+  excludedSheets: V10_MANAGED_NAMESPACE.excludedSheets.filter(
+    (s) => s !== 'Cover Page' && s !== '10 Yr Pro Forma',
+  ),
+};
+
+function v11Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V11_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE,
+  };
+}
+
+function v11DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v11Definition(assetClass)];
+}
+
+const SCHEMA_V11: ContractSchema = {
+  office: {
+    office_core:       v11DefsFor('office'),
+    office_trophy:     v11DefsFor('office'),
+    office_value_add:  v11DefsFor('office'),
+    office_distressed: v11DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v11DefsFor('multifamily'),
+    mf_large_scale: v11DefsFor('multifamily'),
+    mf_workforce:   v11DefsFor('multifamily'),
+    mf_value_add:   v11DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v11DefsFor('industrial'),
+    ind_logistics: v11DefsFor('industrial'),
+    ind_light:     v11DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v11DefsFor('retail') },
+  hotel:                { hotel_core:                v11DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v11DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v11DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v11DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -1883,6 +2001,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   8: SCHEMA_V8,
   9: SCHEMA_V9,
   10: SCHEMA_V10,
+  11: SCHEMA_V11,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2131,6 +2250,12 @@ function assertSchemaWellFormed(): void {
     // entries from v9 continue to read from adjustedInputs / resolvedContext /
     // meta unchanged.
     10: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v11 ADDS no new source surface — Deal_Control_Number reads from 'meta'
+    // (already permitted since v7) and Terminal_Cap_Rate reads from
+    // 'adjustedInputs' (the foundational v6 surface). The v11 widening is
+    // structural (two new SheetSlots + two new addresses + Cover Page /
+    // 10 Yr Pro Forma removed from excludedSheets), not source-policy.
+    11: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
