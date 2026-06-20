@@ -45,6 +45,7 @@ import type {
   ASRExtraction,
   PartiesExtraction,
   ContentHash,
+  LoanTermsExtraction,
   PropertyMetadata,
   PropertyMetadataSource,
   RentRoll,
@@ -58,6 +59,7 @@ import { parseDocument } from '../../document-parser.service.js';
 import { extractRentRollFromDocument } from '../../extract-rent-roll-from-document.js';
 import { extractPropertyMetadata } from '../../extract-property-metadata.js';
 import { extractASR } from '../../extract-asr.js';
+import { extractAsrLoanTerms } from '../../extract-asr-loan-terms.js';
 import { parsePartiesFromAsrText } from '../../extract-parties-from-asr.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 import { projectToRentRollExtraction } from './rent-roll.adapter.js';
@@ -71,7 +73,7 @@ import { projectToRentRollExtraction } from './rent-roll.adapter.js';
  *            placeholder; the `asr` field was always null in production.
  *    0.2.0 — Ticket I (#6). DEFAULT_ASR_DEPS.extractAsr is now extractASR
  *            (AI-driven). Adapter coordination/contract unchanged. */
-export const ASR_ADAPTER_VERSION = '0.2.0';
+export const ASR_ADAPTER_VERSION = '0.3.0';
 
 /**
  * One outcome value covers three ExtractionResult-relevant fields PLUS one
@@ -98,6 +100,19 @@ export interface AsrAdapterValue {
    *  Null when the regex matched neither name — same "absent" semantic as
    *  propertyMetadata-null (sub-extractor returned no usable data). */
   readonly parties: PartiesExtraction | null;
+  /** Loan-terms block parsed from the ASR's "Loan Terms" structured table
+   *  (extractAsrLoanTerms — deterministic regex; no AI). Stamped with
+   *  source='ASR'. The composer uses this when the caller's request body
+   *  did NOT supply a loanTerms override; the caller's value still wins
+   *  when present (explicit override per the precedence rule). Null when
+   *  the anchor "Original Principal Balance:" was not found in the
+   *  extracted text. */
+  readonly loanTerms: LoanTermsExtraction | null;
+  /** Internal-consistency warnings surfaced during loan-terms parsing
+   *  (e.g. balloon ≠ original principal for IO loans). Always empty when
+   *  loanTerms is null. Empty even when loanTerms is non-null if all
+   *  cross-checks passed. */
+  readonly loanTermsWarnings: readonly string[];
 }
 
 /**
@@ -286,7 +301,16 @@ export async function runAsrAdapterOnDocument(
   const hasRrf = rentRollFallback !== null;
   const hasParties = parties !== null;
 
-  if (!hasAsr && !hasPm && !hasRrf && !hasParties) {
+  // v0.3.0 — Loan-terms block. Synchronous regex parser; runs after the
+  // async sub-extractors so its result is deterministic w.r.t. the parsed
+  // doc text and there's no need to allSettled-wrap (it cannot throw on
+  // well-formed text and returns EMPTY_RESULT on empty input).
+  const loanTermsResult = extractAsrLoanTerms(doc);
+  const loanTerms = loanTermsResult.loanTerms;
+  const loanTermsWarnings = loanTermsResult.warnings;
+  const hasLoanTerms = loanTerms !== null;
+
+  if (!hasAsr && !hasPm && !hasRrf && !hasParties && !hasLoanTerms) {
     return {
       status: 'empty',
       sourceRefs: [],
@@ -308,6 +332,8 @@ export async function runAsrAdapterOnDocument(
   // from the same ASR text already covered by the 'asr' / 'property_metadata'
   // refs above. Adding a 'parties' kind would widen SourceDocumentKind for
   // no traceability gain. See contract extraction.ts SourceDocumentKind union.
+  // loanTerms similarly is derived from the same ASR text → covered by the
+  // 'asr' ref when both are present; no separate kind.
 
   return {
     status: 'ok',
@@ -319,6 +345,8 @@ export async function runAsrAdapterOnDocument(
       // projection. Non-null whenever rentRollFallback is non-null (same source).
       rentRollFallbackTyped: rentRollLegacy,
       parties,
+      loanTerms,
+      loanTermsWarnings,
     },
     sourceRefs: refs,
     adapterVersion: ASR_ADAPTER_VERSION,

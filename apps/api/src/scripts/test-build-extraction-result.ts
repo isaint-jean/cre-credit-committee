@@ -213,6 +213,8 @@ function asrOkOutcome(opts: {
       rentRollFallback: fallback,
       rentRollFallbackTyped: fallbackTyped,
       parties: null,
+      loanTerms: null,
+      loanTermsWarnings: [],
     },
     sourceRefs: refs,
     adapterVersion: '0.1.0',

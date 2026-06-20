@@ -386,7 +386,7 @@ export function buildLoanAmount(args: {
 
   return requireRaw({
     raw,
-    extractionSource: 'BANK',
+    extractionSource: args.extraction.loanTerms?.source ?? 'BANK',
     insufficientDataMessage: 'JE_LOAN_AMOUNT_MISSING: loan terms not provided',
   });
 }
@@ -405,7 +405,7 @@ export function buildInterestRate(args: {
 
   return adjustSubstituteOnly({
     raw,
-    extractionSource: 'BANK',
+    extractionSource: args.extraction.loanTerms?.source ?? 'BANK',
     substitutionValue: args.marketBenchmarks.interestRateAssumptions.baseRate,
     substitutionRuleId: 'JE_INTEREST_RATE_SUBSTITUTED_FROM_BENCHMARK',
     substitutionReason: `interest rate null; substituted from market benchmark base rate (${args.marketBenchmarks.interestRateAssumptions.baseRate})`,
@@ -434,7 +434,7 @@ export function buildTermMonths(args: {
 
   return requireRaw({
     raw,
-    extractionSource: 'BANK',
+    extractionSource: args.extraction.loanTerms?.source ?? 'BANK',
     insufficientDataMessage: 'JE_TERM_MONTHS_MISSING: maturity date not provided in loan terms',
   });
 }
@@ -1067,7 +1067,7 @@ export function buildAmortizationMonths(args: { readonly extraction: ExtractionR
   const raw = args.extraction.loanTerms?.amortization ?? null;
   return requireRaw({
     raw,
-    extractionSource: 'BANK',
+    extractionSource: args.extraction.loanTerms?.source ?? 'BANK',
     insufficientDataMessage: 'JE_AMORTIZATION_MISSING: loan terms not provided',
   });
 }
@@ -1080,7 +1080,7 @@ export function buildIoPeriodMonths(args: {
   const raw = args.extraction.loanTerms?.interestOnlyPeriod ?? null;
   return requireRaw({
     raw,
-    extractionSource: 'BANK',
+    extractionSource: args.extraction.loanTerms?.source ?? 'BANK',
     insufficientDataMessage: 'JE_IO_PERIOD_MISSING: applicability says yes but value missing',
   });
 }

@@ -334,6 +334,11 @@ export async function buildExtractionResult(
   const asrRentRollFallback = asrOk === null ? null : asrOk.rentRollFallback;
   const asrRentRollFallbackTyped = asrOk === null ? null : asrOk.rentRollFallbackTyped;
   const parties = asrOk === null ? null : asrOk.parties;
+  // v0.3.0 — ASR adapter now also extracts the loan-terms block
+  // (deterministic regex on the "Original Principal Balance:" anchor).
+  // Stamped with source='ASR' so downstream provenance checks distinguish
+  // document-extracted loan terms from caller-supplied overrides.
+  const asrLoanTerms = asrOk === null ? null : asrOk.loanTerms;
 
   /* PCA: single-value outcome (PCAExtraction | null). Adapter returns
      'empty' when extractPca returns null (both AI calls produced no data),
@@ -367,15 +372,22 @@ export async function buildExtractionResult(
   if (pcaOutcome !== null) sourceDocuments.push(...pcaOutcome.sourceRefs);
   if (apprOutcome !== null) sourceDocuments.push(...apprOutcome.sourceRefs);
 
-  /* loanTerms projection — caller-provided via args (Ticket K #7). Treat
-     undefined and null as "absent" (composer projects null). When present,
-     project the caller's value verbatim into extractionResult.loanTerms,
-     which downstream judgment then sees as populated and proceeds without
-     the JE_LOAN_AMOUNT_MISSING hard throw. */
+  /* loanTerms precedence — caller-supplied wins as an explicit override;
+     ASR-extracted is PRIMARY when the caller didn't supply.
+     (ASR adapter v0.3.0 — extractAsrLoanTerms.)
+
+     Truth table:
+       args.loanTerms present (non-null / non-undefined) → caller's value
+         (no source field; downstream builders default to 'BANK' →
+          provenance gate WARN as caller-supplied)
+       args.loanTerms absent + ASR block parsed → asrLoanTerms
+         (source='ASR' → provenance gate clears)
+       both absent → null
+         (downstream judgment throws JE_LOAN_AMOUNT_MISSING) */
   const loanTerms: LoanTermsExtraction | null =
-    args.loanTerms === undefined || args.loanTerms === null
-      ? null
-      : args.loanTerms;
+    args.loanTerms !== undefined && args.loanTerms !== null
+      ? args.loanTerms
+      : asrLoanTerms;
 
   /* extractorVersions — Ticket D per-extractor version metadata.
    *
@@ -418,6 +430,18 @@ export async function buildExtractionResult(
   }
   if (asrOutcome !== null && asrOutcome.status === 'ok' && asr !== null) {
     extractorVersions.asr = asrOutcome.adapterVersion;
+  }
+  // ASR adapter v0.3.0 added a loan-terms extractor. Stamp the 'loanTerms'
+  // key with the adapter version IFF the final projected loanTerms came
+  // from the ASR path (i.e. caller didn't supply an override AND ASR
+  // produced a non-null record).
+  if (
+    asrOutcome !== null
+    && asrOutcome.status === 'ok'
+    && asrLoanTerms !== null
+    && (args.loanTerms === undefined || args.loanTerms === null)
+  ) {
+    extractorVersions.loanTerms = asrOutcome.adapterVersion;
   }
   if (pcaOutcome !== null && pcaOutcome.status === 'ok' && pca !== null) {
     extractorVersions.pca = pcaOutcome.adapterVersion;

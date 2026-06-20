@@ -22,6 +22,7 @@ import type {
   ExtractionEngineVersion,
   ISODateTime,
 } from './versioning.js';
+import type { SourceTier } from './source-tier.js';
 
 /* ------------------------- source-document provenance ----------------------- */
 
@@ -482,6 +483,19 @@ export interface LoanTermsExtraction {
   readonly amortization: number | null;            // months
   readonly interestOnlyPeriod: number | null;      // months
   readonly maturityDate: ISODateTime | null;
+  /**
+   * Provenance tag for the loan-terms record. Optional for back-compat —
+   * legacy persisted records (and the caller-supplied / route-form-field
+   * path) do not carry this field; line-item builders treat absent as
+   * 'BANK' (the historical default, semantically "caller-supplied").
+   *
+   * Set to 'ASR' when the loan-terms block was parsed from the ASR PDF
+   * (`extractAsrLoanTerms`). The data-integrity gate's
+   * STUB_SUSPECT_SOURCES does NOT include 'ASR', so document-extracted
+   * loan terms clear the provenance gate; caller-supplied terms
+   * (source=BANK) continue to surface a WARN.
+   */
+  readonly source?: SourceTier;
 }
 
 /* ------------------------------- 424B5 Annex A ------------------------------ */
