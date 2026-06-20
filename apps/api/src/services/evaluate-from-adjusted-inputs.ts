@@ -38,6 +38,7 @@ import type {
   AssetProfile,
   CrossCheckResult,
   DoctrineEvaluation,
+  ExtractionResult,
   ExtractionResultId,
   HandbookEvaluation,
   ISODateTime,
@@ -113,6 +114,18 @@ export interface EvaluateFromAdjustedInputsArgs {
   /** Stamped on the resulting DoctrineEvaluation so the bundle is reachable from the
    *  root in single-hop FK lookups (Batch 6.5 hydration invariant HY1). */
   readonly extractionResultId: ExtractionResultId;
+  /**
+   * The ExtractionResult body, in-memory. Threaded so the data-integrity
+   * gate can run BEFORE any persist (orphan-extraction cleanup) — without
+   * this, the gate would have to look up the record from the store, which
+   * means the record must have been persisted first, which is exactly the
+   * orphan we're eliminating.
+   *
+   * This function inserts the extraction at the head of its persist chain
+   * (idempotent ON CONFLICT — safe for the revision path where the
+   * extraction is already persisted from the parent's ingest).
+   */
+  readonly extraction: ExtractionResult;
   readonly analysisAsOfDate: ISODateTime;
   /** Best-effort PropertyMetadata for the handbook field-bag assembler.
    *  Sourced upstream via getPropertyMetadataByExtractionResultId(extractionResultId).
@@ -207,10 +220,58 @@ export async function evaluateFromAdjustedInputs(
     librarySnapshot,
     narrativeFacts,
     extractionResultId,
+    extraction,
     analysisAsOfDate,
     propertyMetadata,
     rentRoll,
   } = args;
+
+  /* ★ DATA-INTEGRITY GATE — runs FIRST, before any persist. A HARD halt
+   * throws before a single store.insert*() call lands, so the persisted
+   * graph is unchanged. Provenance + plausibility + cross-consistency
+   * checks read in-memory `extraction` (no store lookup; caller threads
+   * it through). Calibrated against the 267-deal corpus: 1/267 HARD
+   * (true positive) and 72/267 SOFT (reasonable). Sunroad phantom
+   * ($11M < $65.4M payoff) trips refi-vs-prior-payoff HARD.
+   *
+   * Chokepoint preserved — single gate location covering both production
+   * paths (ingestExtractionResult + applyRevisionDelta). The previous
+   * placement (line ~310 in the pre-gate-cleanups version) was AFTER
+   * Stages 4-7 had already persisted; on HARD halt those 5 records
+   * (AdjustedInputs, CrossCheckResult, StressOutputs, HandbookEvaluation,
+   * ValuationConclusion) leaked as orphans, plus the 5 ingest-side
+   * records persisted in ingestExtractionResult before this function was
+   * even called. Moving the gate up + having the caller defer Stage 1-3
+   * persists eliminates the entire orphan footprint.
+   */
+  const netRentableArea = rentRoll === null
+    ? null
+    : sumTenantSquareFeet(rentRoll);
+  const dataIntegrityReport = runDataIntegrityGate({
+    adjustedInputs,
+    extraction,
+    propertyMetadata,
+    netRentableArea,
+  });
+  if (dataIntegrityReport.hardHalt) {
+    throw new DataIntegrityHardHaltError(dataIntegrityReport);
+  }
+
+  /* ── Gate passed: persist Stage 1-3 (deferred from ingest) + PM. ──
+   *
+   * These records were computed in memory by ingestExtractionResult and
+   * threaded here so a HARD halt above persists NOTHING. All inserts are
+   * idempotent (ON CONFLICT(id) DO NOTHING on content-hash ids), so the
+   * revision path — where the parent's records are already persisted —
+   * gracefully no-ops. The FK order matters for doctrine_evaluations at
+   * stage 8 (which FK's extraction_results + asset_profiles + narrative_
+   * facts + rent_rolls): all four must exist before stage 8 inserts.
+   */
+  store.insertExtractionResult(extraction);
+  if (rentRoll !== null) store.insertRentRoll(rentRoll);
+  store.insertNarrativeFacts(narrativeFacts);
+  store.insertAssetProfile(assetProfile);
+  if (propertyMetadata !== null) store.insertPropertyMetadata(propertyMetadata);
 
   /* Stage 4 (insert only) — AdjustedInputs already constructed by caller. */
   store.insertAdjustedInputs(adjustedInputs);
@@ -283,39 +344,13 @@ export async function evaluateFromAdjustedInputs(
    * literal union; the clean-path tag is recorded inline at CLEAN_DOCTRINE_PATH_TAG
    * for future lineage filtering. judgmentEngineVersion stays at the existing
    * value because judgment still produces AdjustedInputs for the bundle.
-   */
-  const extraction = store.getExtractionResult(extractionResultId);
-  if (extraction === null) {
-    throw new Error(
-      `evaluate-from-adjusted-inputs: ExtractionResult ${extractionResultId} not found in store. ` +
-      `The clean doctrine needs the raw extraction record (not just its id); ensure ingest persists ` +
-      `it before this stage. Tag: ${CLEAN_DOCTRINE_PATH_TAG}`,
-    );
-  }
-
-  /* ★ DATA-INTEGRITY GATE — provenance + plausibility + cross-consistency.
    *
-   * Runs at the single ingest chokepoint covering both production paths
-   * (ingestExtractionResult + applyRevisionDelta). HARD findings throw
-   * DataIntegrityHardHaltError, which short-circuits the verdict before
-   * any handbook / doctrine eval is produced. SOFT and WARN findings
-   * thread forward through the result so the narrative surface can
-   * display them. Calibrated against the 267-deal corpus: 1/267 HARD
-   * (true positive) and 72/267 SOFT (reasonable). Sunroad phantom
-   * ($11M < $65.4M payoff) trips refi-vs-prior-payoff HARD.
+   * (Gate-cleanups note) Previously this stage looked up `extraction` from
+   * the store via getExtractionResult(extractionResultId). It's now threaded
+   * in-memory via args.extraction (required so the gate above can run before
+   * any persist). The store-lookup is gone; CLEAN_DOCTRINE_PATH_TAG sentinel
+   * remains for the unchanged DealBag adapter path below.
    */
-  const netRentableArea = rentRoll === null
-    ? null
-    : sumTenantSquareFeet(rentRoll);
-  const dataIntegrityReport = runDataIntegrityGate({
-    adjustedInputs,
-    extraction,
-    propertyMetadata,
-    netRentableArea,
-  });
-  if (dataIntegrityReport.hardHalt) {
-    throw new DataIntegrityHardHaltError(dataIntegrityReport);
-  }
 
   // Conservative-lease-up doctrine (DOCTRINE_VERSION 1.5). The detection
   // predicate routes lease-up deals to the contracted basis (rent-roll

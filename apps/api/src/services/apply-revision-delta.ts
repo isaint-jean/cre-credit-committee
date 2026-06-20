@@ -528,6 +528,18 @@ export async function applyRevisionDelta(
   const rentRoll = parentDoctrine.rentRollId === null
     ? null
     : store.getRentRoll(parentDoctrine.rentRollId);
+  // Gate-cleanups refactor: evaluateFromAdjustedInputs now takes the
+  // ExtractionResult in-memory so the data-integrity gate can run before
+  // any persist. On the revision path the extraction is already persisted
+  // from the parent's ingest; fetch it and thread through. The downstream
+  // insertExtractionResult is idempotent (ON CONFLICT DO NOTHING on the
+  // content-hash id) so this is a graceful no-op.
+  const parentExtraction = store.getExtractionResult(parentDoctrine.extractionResultId);
+  if (parentExtraction === null) {
+    throw new Error(
+      `apply-revision-delta: parent ExtractionResult ${parentDoctrine.extractionResultId} not found`,
+    );
+  }
   const { evaluation } = await evaluateAndNarrate(
     {
       adjustedInputs: childAdjustedInputs,
@@ -535,6 +547,7 @@ export async function applyRevisionDelta(
       librarySnapshot,
       narrativeFacts,
       extractionResultId: parentDoctrine.extractionResultId,
+      extraction: parentExtraction,
       analysisAsOfDate: parentAdjustedInputs.analysisAsOfDate,
       propertyMetadata,
       rentRoll,

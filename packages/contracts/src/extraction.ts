@@ -703,6 +703,22 @@ export interface ExtractionResult {
   readonly parties: PartiesExtraction | null;
   readonly loanTerms: LoanTermsExtraction | null;
   /**
+   * Internal-consistency contradictions surfaced by the ASR loan-terms
+   * extractor at parse time. The extractor checks: (i) Balloon Amount ==
+   * Original Principal Balance for IO loans; (ii) Note Date + Original
+   * Term (mos) ≈ Maturity Date within ±31 days. Cross-checks rely on
+   * `balloon` + `noteDate` which are NOT carried on LoanTermsExtraction,
+   * so the data-integrity gate CANNOT recompute them downstream — the
+   * extractor's warnings are persisted here so the cross-consistency
+   * gate layer can emit them as WARN findings (and the Data Quality
+   * memo section can render them).
+   *
+   * Optional / back-compat: legacy persisted ExtractionResults (and the
+   * caller-supplied-loan-terms path which goes through no extractor at
+   * all) have no warnings to carry. Treat absent === [].
+   */
+  readonly loanTermsWarnings?: readonly string[];
+  /**
    * 424B5 prospectus Annex A — issuer-stated per-loan stratification. Always
    * null when the deal has no Annex A source filing OR when the parser couldn't
    * locate the section. CROSS-REFERENCE LAYER ONLY — see the AnnexAExtraction

@@ -345,6 +345,29 @@ function runCrossConsistencyGate(
       });
     }
   }
+
+  // FLAG — ASR loan-terms extractor's internal-consistency warnings.
+  // Persisted on ExtractionResult by the composer (build-extraction-result.ts);
+  // surfaced here as WARN findings so the Data Quality memo section's
+  // "Cross-consistency observations" subsection renders them. The gate can't
+  // recompute these contradictions (balloon + noteDate are NOT on the
+  // LoanTermsExtraction contract) — the extractor produced the warning at
+  // parse time and we forward it unchanged. Each warning string becomes one
+  // finding; absent / empty is the common case (Sunroad: 0 warnings).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const loanTermsWarnings = (args.extraction as any).loanTermsWarnings as readonly string[] | undefined;
+  if (loanTermsWarnings !== undefined) {
+    for (const w of loanTermsWarnings) {
+      out.push({
+        layer: 'cross_consistency',
+        severity: 'WARN',
+        check: 'ASR_LOAN_TERMS_INTERNAL_CONTRADICTION',
+        title: 'ASR loan-terms internal contradiction',
+        message: w,
+        values: {},
+      });
+    }
+  }
 }
 
 /* --------------------------------- helpers ---------------------------------- */

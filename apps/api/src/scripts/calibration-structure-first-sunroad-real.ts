@@ -144,6 +144,7 @@ async function main(): Promise<void> {
   const result = await evaluateAndNarrate({
     adjustedInputs, assetProfile, librarySnapshot, narrativeFacts,
     extractionResultId,
+    extraction: store.getExtractionResult(extractionResultId)!,
     analysisAsOfDate: (adjustedInputs as any).analysisAsOfDate,
     propertyMetadata: null as PropertyMetadata | null,
     rentRoll: null as RentRoll | null,

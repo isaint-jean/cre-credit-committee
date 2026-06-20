@@ -52,6 +52,7 @@ import type {
   MarketBenchmarks,
   MarketBenchmarksId,
   MarketLiquidity,
+  PropertyMetadata,
   RentRoll,
   RevisionId,
   RevisionLineageEnvelope,
@@ -62,7 +63,7 @@ import { buildNarrativeFacts } from './narrative-facts.service.js';
 import { classifyAssetProfile } from './asset-profiler.service.js';
 import { evaluateAndNarrate } from './evaluate-and-narrate.js';
 import type { LLMCallFn } from './narrative/build-narrative.js';
-import { computeRevisionId } from '../util/content-hash.js';
+import { computeContentHash, computeRevisionId } from '../util/content-hash.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 /**
@@ -133,6 +134,16 @@ export interface IngestExtractionResultArgs {
    *  DoctrineEvaluation.rentRollId. null when no xlsx was uploaded and the
    *  ASR fallback produced nothing. */
   readonly rentRoll: RentRoll | null;
+  /** Sprint-0: typed PropertyMetadata surfaced by the composer (or null when
+   *  no ASR-AI extraction produced one). Persisted to the property_metadata
+   *  table here so downstream stages (judgment, handbook, narrative,
+   *  doctrine, populator) can read it, AND an extraction_input_cache row is
+   *  written linking it to extractionResult.id so the read-side projector
+   *  (project-legacy-analysis-from-graph) can resolve it back via
+   *  getPropertyMetadataByExtractionResultId(). Without this, ~30
+   *  property-identity cells on the Bank/BP Spire workbook export render
+   *  blank even when the ASR extracted them. */
+  readonly propertyMetadata?: PropertyMetadata | null;
 }
 
 export interface IngestionResult {
@@ -210,24 +221,22 @@ export async function ingestExtractionResult(
     });
   }
 
-  /* Stage 1 — persist extraction. */
-  store.insertExtractionResult(extractionResult);
-
-  /* Stage 1.5 — Phase 1 (rent-roll-node). Persist the typed RentRoll as a
-     first-class graph node when present. Idempotent on content-hash via
-     ON CONFLICT DO NOTHING. Hydration not yet wired (Phase 2). */
-  if (rentRoll !== null) {
-    store.insertRentRoll(rentRoll);
-  }
-
-  /* Stage 1/3 — NarrativeFacts. */
+  /* Stages 1, 1.5, 1/3, 3 — COMPUTE ONLY (no persist).
+   *
+   * Gate-cleanups refactor: persistence of these records is DEFERRED to
+   * evaluateFromAdjustedInputs, which inserts them right AFTER the
+   * data-integrity gate passes. This eliminates the orphan footprint on
+   * HARD halt — previously each of these 4 records (plus PM below) leaked
+   * to SQLite before the gate fired, leaving an inert but persisted
+   * extraction in the graph.
+   *
+   * The records are still computed in their original order (FK / data
+   * dependencies preserved); the persist call sites moved downstream. */
   const narrativeFacts = buildNarrativeFacts({
     extractionResult,
     analysisAsOfDate,
   });
-  store.insertNarrativeFacts(narrativeFacts);
 
-  /* Stage 3 — AssetProfile. */
   const assetProfile = classifyAssetProfile({
     propertyType,
     narrativeFacts: {
@@ -236,7 +245,6 @@ export async function ingestExtractionResult(
     },
     ...(marketLiquidityHint !== undefined ? { marketLiquidityHint } : {}),
   });
-  store.insertAssetProfile(assetProfile);
 
   /* Pinned input — LibrarySnapshot lookup. */
   const librarySnapshot = store.getLibrarySnapshot(librarySnapshotId);
@@ -257,10 +265,27 @@ export async function ingestExtractionResult(
     analysisAsOfDate,
   });
 
-  /* Best-effort PropertyMetadata for the handbook evaluator (#31, Commit 2).
-     Looked up via the stopgap cache-traversal method; returns null if no PM
-     was produced or persisted for this extraction. */
-  const propertyMetadata = store.getPropertyMetadataByExtractionResultId(extractionResult.id);
+  /* PropertyMetadata resolution (deferred-persist variant):
+   *
+   * If the caller passes a typed PM from the composer, hold it in-memory;
+   * evaluateFromAdjustedInputs will insert it post-gate (idempotent).
+   * If the caller doesn't pass one, fall back to the legacy lookup which
+   * traverses the cache via extractionResult.id — that lookup only
+   * succeeds if a PRIOR ingest already linked one (revision path), since
+   * the extraction itself hasn't been persisted yet this turn. New ingest
+   * + no PM = legitimately null (existing behavior).
+   *
+   * The extraction_input_cache row that links PM → extractionResult.id is
+   * persisted here ONLY IF the gate is going to pass (we defer it next to
+   * the PM insert). To preserve the original semantics, the cache link
+   * write is moved to AFTER evaluateAndNarrate returns, gated on whether
+   * the caller supplied PM (same condition as before). */
+  let propertyMetadata: PropertyMetadata | null;
+  if (args.propertyMetadata !== undefined && args.propertyMetadata !== null) {
+    propertyMetadata = args.propertyMetadata;
+  } else {
+    propertyMetadata = store.getPropertyMetadataByExtractionResultId(extractionResult.id);
+  }
 
   /* Stages 4-8 + narrative composition delegated to the coupled
      `evaluateAndNarrate` wrapper (Piece A Phase 1 batch 2). This composes
@@ -273,6 +298,7 @@ export async function ingestExtractionResult(
       librarySnapshot,
       narrativeFacts,
       extractionResultId: extractionResult.id,
+      extraction: extractionResult,
       analysisAsOfDate,
       propertyMetadata,
       rentRoll,
@@ -280,6 +306,31 @@ export async function ingestExtractionResult(
     store,
     { llmCall: deps.llmCall, manualInputs: deps.manualInputs },
   );
+
+  /* Post-gate PM cache link. evaluateFromAdjustedInputs inserts the
+   * PropertyMetadata record itself (post-gate, idempotent); the cache
+   * link that joins PM ↔ ExtractionResult is ingest-specific so it
+   * lands here. Skip on the revision path (caller passes existing PM
+   * looked up from the parent — link is already present). */
+  if (args.propertyMetadata !== undefined && args.propertyMetadata !== null) {
+    const existingLink = store.getPropertyMetadataByExtractionResultId(extractionResult.id);
+    if (existingLink === null) {
+      store.insertExtractionInputCache({
+        cacheKey: computeContentHash({
+          kind: 'sprint-0-pm-link',
+          extractionResultId: extractionResult.id,
+          propertyMetadataId: args.propertyMetadata.id,
+        }),
+        extractionResultId: extractionResult.id,
+        propertyMetadataId: args.propertyMetadata.id,
+        cfHash: null,
+        rentRollHash: null,
+        asrHash: null,
+        pcaHash: null,
+        extractorVersions: {},
+      });
+    }
+  }
 
   /* Stage 9 — Root revision envelope + provenance (Option C / issue #20).
      Every graph-backed analysis gets a lineage root envelope at ingest. Identity

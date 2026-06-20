@@ -339,6 +339,13 @@ export async function buildExtractionResult(
   // Stamped with source='ASR' so downstream provenance checks distinguish
   // document-extracted loan terms from caller-supplied overrides.
   const asrLoanTerms = asrOk === null ? null : asrOk.loanTerms;
+  // Internal-consistency warnings from the loan-terms extractor (balloon
+  // vs original principal, Note Date + term vs Maturity Date). Empty when
+  // (a) no ASR slot, (b) ASR slot but anchor missing, or (c) cross-checks
+  // passed. These get persisted onto ExtractionResult so the
+  // cross-consistency gate layer can emit them as WARN findings — the gate
+  // can't recompute them (balloon + noteDate are NOT on LoanTermsExtraction).
+  const asrLoanTermsWarnings: readonly string[] = asrOk === null ? [] : asrOk.loanTermsWarnings;
 
   /* PCA: single-value outcome (PCAExtraction | null). Adapter returns
      'empty' when extractPca returns null (both AI calls produced no data),
@@ -480,6 +487,15 @@ export async function buildExtractionResult(
     asr,
     parties,
     loanTerms,
+    // Persist the extractor's internal-consistency warnings ONLY when the
+    // final projected loanTerms came from the ASR path (caller didn't
+    // override). Otherwise the warnings refer to a record that's been
+    // displaced by caller input — emit empty array to avoid surfacing
+    // contradictions about data no longer in use. Absent on legacy
+    // records (additive optional widening; readers treat undefined === []).
+    loanTermsWarnings: (args.loanTerms === undefined || args.loanTerms === null)
+      ? asrLoanTermsWarnings
+      : [],
     // v1.6 — Annex A slot. Always null today via the production composer;
     // the adapter is exercised standalone (see Stage-1 validation harness
     // in apps/api/src/scripts/calibration-annexA-stage1-validation.ts). When
