@@ -403,7 +403,16 @@ function buildAppraisalAtoms(analysis: Analysis): Record<string, number | string
     // ($0 there); the appraiser's capex equivalent is the Nonreimbursable
     // Landlord deduction, which we surface here separately so D49 reflects
     // an escrow target rather than the literal $0 row.
-    perAppraisalCapex:              apx.perAppraisalReserves?.replacementReserves ?? null,
+    //
+    // Phase B — field-name fix: read directly from the extracted
+    // `stabilizedProForma.nonreimbursableLandlord` ($54,952 for Sunroad,
+    // already in the bundle) instead of `perAppraisalReserves.replacement
+    // Reserves` (which the extractor never populates because the appraisal's
+    // literal "Replacement Reserves" pro-forma row is $0; the operative
+    // escrow figure lives one row up as "Nonreimbursable Landlord
+    // Expense"). The atom is still labeled `perAppraisalCapex` because
+    // that's the schema-side contract; only the read path changes.
+    perAppraisalCapex:              apx.stabilizedProForma?.nonreimbursableLandlord ?? null,
     // Sprint-2: dates lifted for Third Party Reports Summary E4 / E7.
     asIsValueDate:                  apx.asIsValueDate ?? null,
     asStabilizedValueDate:          apx.asStabilizedValueDate ?? null,
