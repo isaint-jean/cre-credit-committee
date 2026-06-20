@@ -508,8 +508,15 @@ analysisRoutes.get('/:id/memo', (req: Request, res: Response) => {
     return;
   }
   const safeName = analysis.name.replace(/[^a-zA-Z0-9_\- ]/g, '').substring(0, 60).trim() || 'CreditCommitteeMemo';
+  // RFC 7230 § 3.2.4 forbids non-ASCII octets in field-value; Node's strict
+  // http parser rejects setHeader() with non-ASCII (e.g. U+2014 em-dash) by
+  // throwing ERR_INVALID_CHAR, which surfaces as a 500. Use a plain ASCII
+  // hyphen-minus here. The frontend passes the prettier em-dash separator
+  // via the <a download="…"> attribute (which DOES accept Unicode), so the
+  // browser-saved filename keeps the typographic dash; only the server-side
+  // fallback name is constrained to ASCII.
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${safeName} — Credit Committee Memo.html"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName} - Credit Committee Memo.html"`);
   res.send(result.html);
 });
 
