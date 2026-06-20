@@ -657,3 +657,90 @@ export function buildCommitteeRecommendationPromptV1_6(
     .replace('{{mitigations}}', composedMitigantsText)
     .replace('{{auth_numbers_instruction}}', AUTHORITATIVE_NUMBERS_INSTRUCTION_V1_6);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// v1.8 — Open Items / Data Required (deterministic, no LLM).
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// The 5th narrative slot. Surfaces handbookEvaluation.skippedPrinciples filtered
+// to reason ∈ {needs_manual_input, missing_field}, grouped by diligence theme.
+// All constants below enter the narrative-engine hash snapshot — edits force a
+// version bump + manifest append (same discipline as v1.5 / v1.6 constants).
+
+export const OPEN_ITEMS_HEADER_V1_8 =
+  '## Open Items / Data Required for Final Underwriting';
+
+export const OPEN_ITEMS_INTRO_V1_8 =
+  'The handbook principles below could not be evaluated against the data ' +
+  'available in this deal file. Each is grouped by the diligence workstream ' +
+  'that owns the request, with the specific input the principle needs in ' +
+  'order to conclude. Items marked with the engine label are deterministic ' +
+  'data-field gaps; items with a prose ask are LLM-evaluated principles ' +
+  'whose detail text already names the required input.';
+
+// Empty-case sentinel — frozen + hashed; emitted when zero data-gated skips.
+export const OPEN_ITEMS_EMPTY_V1_8 =
+  'No open items: every evaluable principle in the handbook was either ' +
+  'fired with a flag or assessed cleanly with available data. Any further ' +
+  'diligence is at committee discretion.';
+
+// Theme labels, ordered by how the committee should read them (sponsor side
+// first; income/lease; then market; then property ops). Order is frozen +
+// hashed — reordering requires a version bump.
+export const OPEN_ITEMS_THEME_HEADERS_V1_8: ReadonlyArray<readonly [
+  'sponsor_borrower' | 'income_leases' | 'market_comps' | 'property_ops' | 'other',
+  string,
+]> = [
+  ['sponsor_borrower', '### Sponsor & borrower diligence'],
+  ['income_leases',    '### Income & lease completeness'],
+  ['market_comps',     '### Submarket & comparable data'],
+  ['property_ops',     '### Property condition & operations'],
+  ['other',            '### Other principles requiring analyst review'],
+];
+
+// Per-principle theme assignment. Default 'other' covers any handbook
+// principle not enumerated here (forward-compatibility for new principles).
+// Edits require a version bump.
+export const OPEN_ITEMS_PRINCIPLE_THEME_V1_8: Readonly<Record<string,
+  'sponsor_borrower' | 'income_leases' | 'market_comps' | 'property_ops' | 'other'
+>> = {
+  // Sponsor & borrower diligence — refinance-side scrutiny, sources/uses
+  // proceeds flow, sponsor background.
+  'P-II-3':     'sponsor_borrower',
+  'P-III-5':    'sponsor_borrower',
+  'P-III-11':   'sponsor_borrower',
+  'P-III-12':   'sponsor_borrower',
+  // Income & lease completeness — NOI reconciliation, signed-lease execution,
+  // termination options, tenant-cash-flow durability.
+  'P-II-1':     'income_leases',
+  'P-II-2':     'income_leases',
+  'P-II-4':     'income_leases',
+  'P-II-9':     'income_leases',
+  'P-III-1':    'income_leases',
+  'P-III-15':   'income_leases',
+  // Submarket & comparable data — submarket leasing, sales/rent comps,
+  // portfolio exposure benchmarking.
+  'P-III-2':    'market_comps',
+  'P-III-7':    'market_comps',
+  'P-III-13':   'market_comps',
+  'P-IV-OFF-1': 'market_comps',
+  'P-IV-OFF-7': 'market_comps',
+  'P-IV-OFF-8': 'market_comps',
+  'P-IV-OFF-10': 'market_comps',
+  // Property condition & operations — physical asset attributes, utilization
+  // patterns, sublease overhang, stress sensitivity.
+  'P-IV-OFF-2': 'property_ops',
+  'P-IV-OFF-4': 'property_ops',
+  'P-IV-OFF-5': 'property_ops',
+  'P-IV-OFF-6': 'property_ops',
+};
+
+// Enrichment for the bare missing_field paths the deterministic handbook
+// emits (e.g. "metric field 'cash_out_amount'"). Maps each field token to a
+// human-readable required-input description. Principles without an entry
+// fall back to the bare detail string.
+export const OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8: Readonly<Record<string, string>> = {
+  'cash_out_amount':             'Sponsor cash-out amount at refinancing (Sources & Uses statement)',
+  'building_class':              'Building class designation (Class A / B / C — from appraisal or PCA)',
+  'stressed_dscr_top_3_removed': 'Stressed DSCR with top-3 tenants removed (stress engine output gap)',
+};

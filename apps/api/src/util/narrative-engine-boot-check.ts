@@ -40,6 +40,16 @@ import {
   MITIGATION_SUGGESTIONS_HEADER_V1_6,
   MITIGATION_SUGGESTIONS_EMPTY_V1_6,
   MITIGATION_SUGGESTIONS_RECONCILIATION_HEADER_V1_6,
+  // v1.8 — Open Items / Data Required deterministic slot. The header text,
+  // intro, empty-case sentinel, theme labels (ordered), per-principle theme
+  // assignment, and missing_field enrichment table all enter the hash snapshot
+  // so any edit forces a version bump + manifest append.
+  OPEN_ITEMS_HEADER_V1_8,
+  OPEN_ITEMS_INTRO_V1_8,
+  OPEN_ITEMS_EMPTY_V1_8,
+  OPEN_ITEMS_THEME_HEADERS_V1_8,
+  OPEN_ITEMS_PRINCIPLE_THEME_V1_8,
+  OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8,
 } from '../services/narrative/prompt-templates.js';
 import { computeContentHash } from './content-hash.js';
 
@@ -80,6 +90,15 @@ function buildNarrativeEngineHashSnapshot() {
     mitigationSuggestionsHeaderV16: MITIGATION_SUGGESTIONS_HEADER_V1_6,
     mitigationSuggestionsEmptyV16: MITIGATION_SUGGESTIONS_EMPTY_V1_6,
     mitigationSuggestionsReconciliationHeaderV16: MITIGATION_SUGGESTIONS_RECONCILIATION_HEADER_V1_6,
+    // v1.8 — Open Items / Data Required deterministic slot. All v1.8 constants
+    // enter the hash; the theme-headers list is canonicalized as a tuple-array
+    // so insertion order is hash-significant (reordering = bump).
+    openItemsHeaderV18: OPEN_ITEMS_HEADER_V1_8,
+    openItemsIntroV18: OPEN_ITEMS_INTRO_V1_8,
+    openItemsEmptyV18: OPEN_ITEMS_EMPTY_V1_8,
+    openItemsThemeHeadersV18: OPEN_ITEMS_THEME_HEADERS_V1_8,
+    openItemsPrincipleThemeV18: OPEN_ITEMS_PRINCIPLE_THEME_V1_8,
+    openItemsMissingFieldLabelsV18: OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8,
   };
 }
 

@@ -701,6 +701,27 @@ function renderCommitteeRecommendation(narrative: NarrativeEvaluation): string {
     </section>`;
 }
 
+/**
+ * v1.1 — Open Items / Data Required section. Renders the deterministic
+ * narrative.openItemsAndDataRequired prose (theme-grouped diligence
+ * checklist of handbook principles skipped with reason ∈ {needs_manual_
+ * input, missing_field}). Falls back gracefully when the field is missing
+ * (legacy v1.7 NarrativeEvaluation records pre-Phase-C); in that case
+ * the section is suppressed entirely rather than rendering an empty
+ * header — old narratives keep their original 7-section memo shape.
+ */
+function renderOpenItems(narrative: NarrativeEvaluation): string {
+  const prose = narrative.openItemsAndDataRequired;
+  if (prose === undefined || prose === null || prose === '') {
+    return '';
+  }
+  return `
+    <section class="memo-section">
+      <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS.open_items}</h2>
+      <div class="memo-prose">${proseToHtml(prose)}</div>
+    </section>`;
+}
+
 function renderFooter(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
   const basisLabel =
     auth.concludedValueSource === 'operator-supplied' ? 'operator-supplied'
@@ -1064,6 +1085,7 @@ function renderHtml(
     sponsor_burden:           () => renderSponsorBurden(input.composedMitigationPackage.sponsorBurdenProfile, input.composedMitigationPackage.finalLoanAmount),
     risk_assessment:          () => renderRiskAssessment(input.narrative, findings),
     committee_recommendation: () => renderCommitteeRecommendation(input.narrative),
+    open_items:               () => renderOpenItems(input.narrative),
     footer:                   () => renderFooter(input, auth),
   };
   const sections = MEMO_SECTION_ORDER.map(id => SECTION_RENDERERS[id]()).join('\n  ');

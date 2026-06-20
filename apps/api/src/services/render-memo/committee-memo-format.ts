@@ -48,6 +48,12 @@ export const MEMO_SECTION_ORDER = [
   'sponsor_burden',
   'risk_assessment',
   'committee_recommendation',
+  // v1.1 — Open Items / Data Required (Phase C). Renders the deterministic
+  // narrative.openItemsAndDataRequired prose. Appended AFTER committee_
+  // recommendation so the reader's last substantive section is the verdict;
+  // the open items list reads as a follow-on diligence punch list rather
+  // than mixing with the committee's accept/condition language.
+  'open_items',
   'footer',
 ] as const;
 export type MemoSectionId = (typeof MEMO_SECTION_ORDER)[number];
@@ -60,6 +66,7 @@ export const MEMO_SECTION_HEADINGS: Readonly<Record<Exclude<MemoSectionId, 'head
   sponsor_burden:           'Sponsor Burden',
   risk_assessment:          'Risk Assessment',
   committee_recommendation: 'Committee Recommendation',
+  open_items:               'Open Items / Data Required',
 } as const;
 
 /** Centerpiece section title — variant by whether the recommended package

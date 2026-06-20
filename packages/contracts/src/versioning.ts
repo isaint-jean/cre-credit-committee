@@ -160,7 +160,7 @@ export const HANDBOOK_ENGINE_VERSION = '1.6.0' as const;
  * Historical-replay union extends as new versions ship — see
  * `NARRATIVE_ENGINE_MANIFEST` (mirror of the judgment-engine manifest pattern).
  */
-export const NARRATIVE_ENGINE_VERSION = '1.7' as const;
+export const NARRATIVE_ENGINE_VERSION = '1.8' as const;
 
 /**
  * Mitigation-engine semantic version. Stamped onto every MitigationProposalSet
@@ -226,7 +226,7 @@ export const MITIGATION_ENGINE_VERSION = '1.8' as const;
  *      COMMITTEE_MEMO_MANIFEST.
  *   4. Run `npm run check:committee-memo` to verify the gate passes.
  */
-export const COMMITTEE_MEMO_VERSION = '1.0' as const;
+export const COMMITTEE_MEMO_VERSION = '1.1' as const;
 
 export type DoctrineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5';
 /**
@@ -248,14 +248,14 @@ export type HandbookEngineVersion = typeof HANDBOOK_ENGINE_VERSION;
  * the `NARRATIVE_ENGINE_VERSION` constant and EXTEND this union (do not replace)
  * when adding a new narrative-engine revision.
  */
-export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6' | '1.7';
+export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6' | '1.7' | '1.8';
 
 /**
  * Historical-replay union for the committee-memo format. EXTEND (do not
  * replace) when bumping COMMITTEE_MEMO_VERSION; COMMITTEE_MEMO_MANIFEST
  * is keyed on this union.
  */
-export type CommitteeMemoVersion = '1.0';
+export type CommitteeMemoVersion = '1.0' | '1.1';
 
 /**
  * Historical-replay union: includes every MITIGATION_ENGINE_VERSION ever shipped so

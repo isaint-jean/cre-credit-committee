@@ -54,6 +54,8 @@ function makeBody(overrides: Partial<{
   mitigationSuggestionsConsumedFlagPrincipleIds: readonly string[];
   committeeRecommendation: string;
   committeeRecommendationConsumedFlagPrincipleIds: readonly string[];
+  openItemsAndDataRequired: string;
+  openItemsConsumedSkippedPrincipleIds: readonly string[];
 }> = {}) {
   return {
     analysisAsOfDate: AS_OF,
@@ -81,6 +83,10 @@ function makeBody(overrides: Partial<{
     committeeRecommendation:
       overrides.committeeRecommendation ??
       'Recommend conditional approval subject to $5M upfront reserve (P-II-3 cash-out exposure), minimum DSCR covenant at 1.25x with cash sweep above debt yield 11% (P-II-3), and specialty-asset risk premium of 50bps on the spread (P-II-8 Medical Office subtype). Residual Class B + DC submarket concerns (P-IV-OFF-2, P-IV-OFF-9) are acceptable at the proposed terms given DSCR of 1.42x.',
+    openItemsAndDataRequired:
+      overrides.openItemsAndDataRequired ?? '',
+    openItemsConsumedSkippedPrincipleIds:
+      overrides.openItemsConsumedSkippedPrincipleIds ?? [],
   };
 }
 

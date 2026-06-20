@@ -198,4 +198,40 @@ export interface NarrativeEvaluation {
    * committee reads last and acts on.
    */
   readonly committeeRecommendation: string;
+
+  /**
+   * Deterministic-templated "Open Items / Data Required" prose (Phase C
+   * addition; NARRATIVE_ENGINE_VERSION '1.8'). Surfaces the data-gated
+   * subset of `handbookEvaluation.skippedPrinciples` — every principle
+   * whose reason is 'needs_manual_input' or 'missing_field' — grouped by
+   * diligence theme so the memo reader can scan a clustered checklist
+   * rather than a flat 20+ item wall.
+   *
+   * Rendered by `buildOpenItemsAndDataRequired` directly from the handbook
+   * skipped ledger. No LLM call. `needs_manual_input` skips drop in
+   * verbatim (their detail text is LLM-generated at handbook-eval time
+   * and is already deal-specific and fluent). `missing_field` skips
+   * (which carry only a bare metric path) are translated through a small
+   * principle → required-input table to surface a human-readable ask
+   * rather than the engine token.
+   *
+   * Empty-state ('') indicates the handbook reported zero data-gated
+   * skips for this deal. Renderer emits the canonical "all evaluable
+   * principles were assessed" sentinel string in that case (frozen +
+   * content-hashed alongside the other deterministic sentinels).
+   */
+  readonly openItemsAndDataRequired: string;
+
+  /**
+   * Principle ids of the data-gated skipped principles consumed by the
+   * `openItemsAndDataRequired` slot. Sorted ascending for
+   * canonicalization stability. Mirrors the sibling `*ConsumedFlag*`
+   * fields' shape so replay can recompute this list from the handbook
+   * evaluation and verify equality without re-rendering.
+   *
+   * Distinct from the prior four `*ConsumedFlagPrincipleIds` fields —
+   * those scope to FIRED flags filtered by injection point; this one
+   * scopes to SKIPPED principles filtered by data-gated reason.
+   */
+  readonly openItemsConsumedSkippedPrincipleIds: readonly string[];
 }

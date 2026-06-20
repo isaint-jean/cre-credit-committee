@@ -69,7 +69,15 @@ import {
   type AuthoritativeNumbers,
   type CleanDoctrineFinding,
   type ComposedMitigationView,
+  // v1.8 — Open Items / Data Required deterministic slot.
+  OPEN_ITEMS_HEADER_V1_8,
+  OPEN_ITEMS_INTRO_V1_8,
+  OPEN_ITEMS_EMPTY_V1_8,
+  OPEN_ITEMS_THEME_HEADERS_V1_8,
+  OPEN_ITEMS_PRINCIPLE_THEME_V1_8,
+  OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8,
 } from './prompt-templates.js';
+import { handbook as handbookData } from '@cre/handbook-data';
 import type { EvaluateDealResult } from '../../doctrine-clean/scoring/evaluate-deal.js';
 import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
 import {
@@ -556,6 +564,116 @@ async function buildCommitteeRecommendation(
   return { committeeRecommendation, committeeRecommendationConsumedFlagPrincipleIds };
 }
 
+/* -------------------- open items / data required (v1.8) -------------------- */
+
+interface OpenItemsFragment {
+  readonly openItemsAndDataRequired: string;
+  readonly openItemsConsumedSkippedPrincipleIds: readonly string[];
+}
+
+// Lookup of principle id → title for citation in the rendered prose.
+// Built once at module load; handbook-data is already a dependency of the
+// assembler so no new package coupling.
+const PRINCIPLE_TITLE_BY_ID: ReadonlyMap<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const p of handbookData.principles) {
+    m.set(p.id, p.title);
+  }
+  return m;
+})();
+
+// Parse "metric field 'cash_out_amount'" → "cash_out_amount". Robust to
+// minor format drift in the engine's diagnostic text.
+function extractMissingFieldToken(detail: string | undefined): string | null {
+  if (!detail) return null;
+  const m = detail.match(/^metric field '([a-zA-Z_][a-zA-Z0-9_]*)'$/);
+  return m ? m[1]! : null;
+}
+
+function buildOpenItemsAndDataRequired(
+  input: BuildNarrativeInput,
+): OpenItemsFragment {
+  const { handbookEvaluation } = input;
+
+  // Filter to data-gated reasons. Other skip reasons (trigger_inactive,
+  // no_band_matched, not_deterministic, etc.) are bookkeeping for the
+  // engine's audit trail — they're not analyst-actionable open items.
+  const dataGated = handbookEvaluation.skippedPrinciples.filter(
+    (s) => s.reason === 'needs_manual_input' || s.reason === 'missing_field',
+  );
+
+  if (dataGated.length === 0) {
+    return {
+      openItemsAndDataRequired: [
+        OPEN_ITEMS_HEADER_V1_8,
+        '',
+        OPEN_ITEMS_EMPTY_V1_8,
+      ].join('\n'),
+      openItemsConsumedSkippedPrincipleIds: [],
+    };
+  }
+
+  // Bucket by theme; preserve principle-id order within each bucket so the
+  // output is deterministic given identical input.
+  type ThemeKey = 'sponsor_borrower' | 'income_leases' | 'market_comps' | 'property_ops' | 'other';
+  const bucketed = new Map<ThemeKey, typeof dataGated>();
+  for (const [theme] of OPEN_ITEMS_THEME_HEADERS_V1_8) {
+    bucketed.set(theme as ThemeKey, [] as typeof dataGated);
+  }
+  for (const s of dataGated) {
+    const theme = (OPEN_ITEMS_PRINCIPLE_THEME_V1_8[s.principleId] ?? 'other') as ThemeKey;
+    bucketed.get(theme)!.push(s);
+  }
+  for (const arr of bucketed.values()) {
+    arr.sort((a, b) => a.principleId.localeCompare(b.principleId));
+  }
+
+  // Render. Each theme section emits ONLY when it has items — keeps the
+  // memo lean (no empty "## sponsor_borrower" headers when nothing landed
+  // there).
+  const lines: string[] = [OPEN_ITEMS_HEADER_V1_8, '', OPEN_ITEMS_INTRO_V1_8, ''];
+  for (const [theme, header] of OPEN_ITEMS_THEME_HEADERS_V1_8) {
+    const items = bucketed.get(theme as ThemeKey)!;
+    if (items.length === 0) continue;
+    lines.push(header);
+    for (const s of items) {
+      const title = PRINCIPLE_TITLE_BY_ID.get(s.principleId) ?? '(title unavailable)';
+      const ask = renderOpenItemAsk(s);
+      lines.push(`- **${s.principleId} (${title})** — ${ask}`);
+    }
+    lines.push('');
+  }
+
+  // The principle-id list for replay bookkeeping. Sorted ascending across
+  // ALL data-gated skips (not by theme) — sibling to the existing
+  // *ConsumedFlagPrincipleIds fields which are also flat sorted lists.
+  const ids = dataGated.map((s) => s.principleId).sort();
+  return {
+    openItemsAndDataRequired: lines.join('\n').trimEnd(),
+    openItemsConsumedSkippedPrincipleIds: ids,
+  };
+}
+
+// Render the diligence ask for a single data-gated skip.
+//   - needs_manual_input → the LLM-generated detail is already deal-specific
+//     and fluent (verified across Sunroad's 18 such skips). Surface verbatim.
+//   - missing_field → the engine's bare metric-path token gets translated
+//     via OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8. Falls back to the bare
+//     detail when the field token is not yet enumerated in the table; that's
+//     the honest disclosure path for any new missing_field principle that
+//     ships before the table is extended.
+function renderOpenItemAsk(skip: { reason: string; detail?: string }): string {
+  if (skip.reason === 'missing_field') {
+    const token = extractMissingFieldToken(skip.detail);
+    if (token !== null && OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8[token] !== undefined) {
+      return `${OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8[token]} required.`;
+    }
+    return (skip.detail ?? '(field path unavailable)') + ' required.';
+  }
+  // needs_manual_input — verbatim. The detail is the analyst-facing ask.
+  return skip.detail ?? '(detail unavailable; reason needs_manual_input)';
+}
+
 /* ----------------------------- orchestrator (public) ----------------------- */
 
 export async function buildNarrative(
@@ -589,6 +707,12 @@ export async function buildNarrative(
   // not raw produceMitigations output.
   const mitigation = buildMitigationSuggestions(input);
 
+  // v1.8 — Open Items / Data Required deterministic slot. Surfaces the
+  // handbook's data-gated skips (needs_manual_input + missing_field) so the
+  // memo reads the diligence ledger, not just the fired-flag ledger. No
+  // LLM call — pure template.
+  const openItems = buildOpenItemsAndDataRequired(input);
+
   // Promise.all: parallel LLM calls for the remaining three slots. If any
   // rejects, the wrapper rejects — per Q-S4 (f.1) partial-failure semantics.
   // No partial NarrativeEvaluation row is persisted; v23 idempotency-via-
@@ -608,10 +732,12 @@ export async function buildNarrative(
     redFlagAssessmentConsumedFlagPrincipleIds: redFlag.redFlagAssessmentConsumedFlagPrincipleIds,
     mitigationSuggestionsConsumedFlagPrincipleIds: mitigation.mitigationSuggestionsConsumedFlagPrincipleIds,
     committeeRecommendationConsumedFlagPrincipleIds: committee.committeeRecommendationConsumedFlagPrincipleIds,
+    openItemsConsumedSkippedPrincipleIds: openItems.openItemsConsumedSkippedPrincipleIds,
     executiveSummary: execSummary.executiveSummary,
     redFlagAssessment: redFlag.redFlagAssessment,
     mitigationSuggestions: mitigation.mitigationSuggestions,
     committeeRecommendation: committee.committeeRecommendation,
+    openItemsAndDataRequired: openItems.openItemsAndDataRequired,
   };
 
   return {

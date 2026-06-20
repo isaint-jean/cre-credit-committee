@@ -235,6 +235,8 @@ function seedSpine(
     redFlagAssessmentConsumedFlagPrincipleIds: [],
     mitigationSuggestionsConsumedFlagPrincipleIds: [],
     committeeRecommendationConsumedFlagPrincipleIds: [],
+    openItemsAndDataRequired: '',
+    openItemsConsumedSkippedPrincipleIds: [],
   };
   db.prepare('INSERT INTO narratives (id, payload, analysis_as_of_date, adjusted_inputs_id, handbook_evaluation_id, engine_version, created_at) VALUES (?,?,?,?,?,?,?)').run(
     neid, JSON.stringify(neRecord), AS_OF, aiid, heid, NARRATIVE_ENGINE_VERSION, AS_OF,

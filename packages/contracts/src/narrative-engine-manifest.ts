@@ -90,4 +90,21 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // entire <p class="memo-prose"> span, so the memo's structural sha
   // (f71ec742…) is unchanged.
   '1.7': '0621c6940c0aa29ad51b377a7e054670b941a22dc2c93220bf3a2be4132d665c' as ContentHash,
+  // v1.8 — Phase C "Open Items / Data Required" deterministic slot. A 5th
+  // section is added to NarrativeEvaluation: openItemsAndDataRequired (with
+  // sibling openItemsConsumedSkippedPrincipleIds for replay bookkeeping).
+  // The slot consumes handbookEvaluation.skippedPrinciples filtered to
+  // reason ∈ {needs_manual_input, missing_field}, groups by diligence
+  // theme, and renders deterministically — no LLM call.
+  //
+  // The frozen state additionally includes OPEN_ITEMS_HEADER_V1_8,
+  // OPEN_ITEMS_EMPTY_V1_8, OPEN_ITEMS_THEME_HEADERS_V1_8 (the 4 theme
+  // labels), OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8 (3-entry enrichment
+  // table for the bare engine-field paths), and OPEN_ITEMS_FALLBACK_THEME_V1_8.
+  //
+  // Hash placeholder pending `npm run narrative-engine:print-hash`;
+  // populated by the print-hash workflow after the prompt-template
+  // constants land. The boot-check rejects mismatches so a stale hash
+  // is caught at startup, not at runtime.
+  '1.8': 'cabfd40f6aefbccfbe1f14c9728aa4cbf78d6446975e573df04e405829f19477' as ContentHash,
 };

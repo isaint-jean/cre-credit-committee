@@ -222,6 +222,8 @@ function makeNarrative(
     redFlagAssessment?: string;
     mitigationSuggestions?: string;
     committeeRecommendation?: string;
+    openItemsAndDataRequired?: string;
+    openItemsConsumedSkippedPrincipleIds?: readonly string[];
   } = {},
 ): NarrativeEvaluation {
   const body = {
@@ -245,6 +247,10 @@ function makeNarrative(
     committeeRecommendation:
       overrides.committeeRecommendation ??
       'Recommend conditional approval subject to standard reserves for P-A-1 (Phase 4 store test).',
+    openItemsAndDataRequired:
+      overrides.openItemsAndDataRequired ?? '',
+    openItemsConsumedSkippedPrincipleIds:
+      overrides.openItemsConsumedSkippedPrincipleIds ?? [],
   };
   return { id: computeNarrativeEvaluationId(body), ...body };
 }

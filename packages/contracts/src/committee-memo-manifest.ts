@@ -45,4 +45,14 @@ export const COMMITTEE_MEMO_MANIFEST: CommitteeMemoManifest = {
   // printer; if you see __COMMITTEE_MEMO_V1_HASH__ here, run
   // `npm run committee-memo:print-hash` and replace the placeholder.
   '1.0': '3638b2992461af7b6653d74e763c92f8ccec1263804d6e9b381ed777b19fff51' as ContentHash,
+  // v1.1 — Phase C "Open Items / Data Required" section added (2026-06-20).
+  // MEMO_SECTION_ORDER widens by one entry (open_items appended after
+  // committee_recommendation); MEMO_SECTION_HEADINGS adds the new h2 string.
+  // No reordering, no callout-label changes, no null-sentinel change — the
+  // existing 8 entries are preserved verbatim and the new section appends.
+  //
+  // Hash placeholder pending `npm run committee-memo:print-hash` after the
+  // memo-format constants land. The boot-check rejects mismatches so a
+  // stale hash is caught at startup.
+  '1.1': '49f582eae808b7e48ceab0e203653199f34cb25d253ffd6df3655b9b43a84d61' as ContentHash,
 };
