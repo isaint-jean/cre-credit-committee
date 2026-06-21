@@ -64,6 +64,7 @@ import { classifyAssetProfile } from './asset-profiler.service.js';
 import { evaluateAndNarrate } from './evaluate-and-narrate.js';
 import type { LLMCallFn } from './narrative/build-narrative.js';
 import { computeContentHash, computeRevisionId } from '../util/content-hash.js';
+import { diffAdjustedInputs } from './apply-revision-delta.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 /**
@@ -376,15 +377,21 @@ export async function ingestExtractionResult(
     };
     store.insertRevisionLineageEnvelope(childEnvelope);
 
-    /* Child provenance — child shape (borrowed from apply-revision-delta).
-       beforeHash = parent's AdjustedInputs id; afterHash = this re-extraction's.
-       SYSTEM_RECALC is the closest existing RevisionTrigger; a dedicated
-       DOC_APPEND trigger + the structural inputDiff are a step-2 refinement
-       (the envelope lineage — the thing append depends on — is complete here). */
+    /* Child provenance — child shape (borrowed from apply-revision-delta), with
+       the REAL structural diff: parent AdjustedInputs vs this re-extraction's.
+       DOC_APPEND names the append source. beforeHash/afterHash are the
+       AdjustedInputs ids of the transition. */
+    const parentAdjustedInputs = store.getAdjustedInputs(parentEnvelope.adjustedInputsId);
+    if (parentAdjustedInputs === null) {
+      throw new IngestionError({
+        code: 'PARENT_REVISION_NOT_FOUND',
+        parentRevisionId: args.parentRevisionId,
+      });
+    }
     const childProvenance: RevisionProvenance = {
       revisionId: childRevisionId,
-      inputDiff: { changedFields: [] },
-      triggerSource: 'SYSTEM_RECALC',
+      inputDiff: diffAdjustedInputs(parentAdjustedInputs, adjustedInputs),
+      triggerSource: 'DOC_APPEND',
       appliedRuleIds: [],
       adjustmentOrigin: [],
       beforeHash: parentEnvelope.adjustedInputsId,

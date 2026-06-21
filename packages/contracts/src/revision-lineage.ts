@@ -158,6 +158,9 @@ export const REVISION_TRIGGERS = [
   'STRESS_ENGINE',
   'DOCTRINE_ADJUSTMENT',
   'SYSTEM_RECALC',
+  // Re-ingest under an existing deal's lineage with an added source document
+  // (append flow). Child revision; the inputDiff is parent-vs-child AdjustedInputs.
+  'DOC_APPEND',
 ] as const;
 export type RevisionTrigger = typeof REVISION_TRIGGERS[number];
 
