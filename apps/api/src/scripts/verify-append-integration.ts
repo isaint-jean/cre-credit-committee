@@ -45,7 +45,7 @@ import { getSourceDocBuffer, getDealManifest } from '../services/source-doc-stor
 import { saveDealSourceDoc } from '../services/deal-source-doc-store.service.js';
 import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
-import { computeLibrarySnapshotId, computeMarketBenchmarksId, computeCreditManifestoId } from '../util/content-hash.js';
+import { computeLibrarySnapshotId, computeMarketBenchmarksId, computeCreditManifestoId, computeRevisionId } from '../util/content-hash.js';
 import type { ContentHash, ISODateTime, AssetType, MarketBenchmarks, LibrarySnapshot, CreditManifesto, RevisionId } from '@cre/contracts';
 
 const REPO = path.resolve(process.cwd());
@@ -133,8 +133,21 @@ async function main(): Promise<void> {
   const bar6 = proj.graphRevisionId === res.childRevisionId && proj.uwModel != null;
   console.log(`6. RENDER COHERENT: child projects via real loader, graphRevisionId=${String(proj.graphRevisionId).slice(0, 8)} uwModel=${!!proj.uwModel} ${bar6 ? '✓' : '✗'}`);
 
-  const allPass = bar1 && bar2 && bar3 && bar4 && bar5 && bar6;
-  console.log(`\n===== ${allPass ? 'ALL SIX BARS PASS ✓' : 'FAILURE — see ✗ above'} =====`);
+  console.log('\n===== A-ENABLER (evaluation-context self-sourcing) =====');
+  const rootCtx = graph.getRevisionEvaluationContext(parent.rootId);
+  const e1 = rootCtx?.marketBenchmarksId === mb.id && rootCtx?.creditManifestoId === cm.id;
+  console.log(`7. ROOT context recorded: ${JSON.stringify(rootCtx)} ${e1 ? '✓ = {mb,cm}' : '✗'}`);
+  const childCtx = graph.getRevisionEvaluationContext(res.childRevisionId);
+  const e2 = childCtx?.marketBenchmarksId === rootCtx?.marketBenchmarksId && childCtx?.creditManifestoId === rootCtx?.creditManifestoId;
+  console.log(`8. CHILD inherited context == parent's: ${JSON.stringify(childCtx)} ${e2 ? '✓ (grandchild can self-source)' : '✗'}`);
+  // ADDITIVE: root revision id derives ONLY from {parent:null, adjustedInputsId, doctrineVersion} —
+  // recording benchmarks/manifesto does NOT perturb it.
+  const expectedRootId = computeRevisionId({ parentRevisionId: null, adjustedInputsId: pe.adjustedInputsId, doctrineVersion: pe.doctrineVersion } as never);
+  const e3 = expectedRootId === parent.rootId;
+  console.log(`9. ADDITIVE — root id = computeRevisionId(no benchmarks): ${e3 ? '✓ unchanged' : '✗ PERTURBED ' + String(expectedRootId).slice(0, 8) + ' != ' + parent.rootId.slice(0, 8)}`);
+
+  const allPass = bar1 && bar2 && bar3 && bar4 && bar5 && bar6 && e1 && e2 && e3;
+  console.log(`\n===== ${allPass ? 'ALL BARS PASS ✓ (6 append + 3 A-enabler)' : 'FAILURE — see ✗ above'} =====`);
   if (!allPass) process.exitCode = 2;
 }
 

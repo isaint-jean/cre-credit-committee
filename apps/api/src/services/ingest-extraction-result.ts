@@ -399,6 +399,15 @@ export async function ingestExtractionResult(
     };
     store.insertRevisionProvenance(childProvenance);
 
+    // A-enabler: record the evaluation context (the INHERITED benchmarks/manifesto
+    // the orchestration passed — read off the parent) for the child, so a second
+    // append (grandchild) can self-source. Additive sibling; no id boundary.
+    store.insertRevisionEvaluationContext({
+      revisionId: childRevisionId,
+      marketBenchmarksId: marketBenchmarks.id,
+      creditManifestoId: creditManifesto.id,
+    });
+
     return { rootId: childRevisionId, evaluationId: evaluation.id, evaluation };
   }
 
@@ -442,6 +451,16 @@ export async function ingestExtractionResult(
     afterHash: adjustedInputs.id,
   };
   store.insertRevisionProvenance(rootProvenance);
+
+  // A-enabler: record the evaluation context (benchmarks/manifesto this root was
+  // evaluated against) so the append flow can self-source it from the parent.
+  // Additive sibling — computeRevisionId ignores these ids, so the root revision
+  // id is unchanged.
+  store.insertRevisionEvaluationContext({
+    revisionId: rootRevisionId,
+    marketBenchmarksId: marketBenchmarks.id,
+    creditManifestoId: creditManifesto.id,
+  });
 
   return { rootId: rootRevisionId, evaluationId: evaluation.id, evaluation };
 }

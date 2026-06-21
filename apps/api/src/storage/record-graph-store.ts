@@ -484,6 +484,20 @@ export class RecordGraphStore {
         FOREIGN KEY (revision_id) REFERENCES revision_lineage_envelopes(revision_id)
       );
 
+      -- Evaluation-context sibling. Records WHICH market-benchmarks + credit-
+      -- manifesto a revision was evaluated against. These ids are NOT part of
+      -- any record's hash boundary (computeRevisionId ignores them), so a row
+      -- here never perturbs a revision id — pure additive sibling, like
+      -- revision_provenance. Enables the append flow to self-source the parent's
+      -- benchmarks/manifesto (and a grandchild append to inherit the child's).
+      CREATE TABLE IF NOT EXISTS revision_evaluation_context (
+        revision_id          TEXT PRIMARY KEY,
+        market_benchmarks_id TEXT NOT NULL,
+        credit_manifesto_id  TEXT NOT NULL,
+        created_at           TEXT NOT NULL,
+        FOREIGN KEY (revision_id) REFERENCES revision_lineage_envelopes(revision_id)
+      );
+
       -- Read-instead-of-recompute sibling. One snapshot per DoctrineEvaluation;
       -- carries the projected view-layer outputs (rating, dim outputs,
       -- AuthoritativeNumbers, ComposedMitigationPackage). NOT in the doctrine
@@ -1530,6 +1544,41 @@ export class RecordGraphStore {
       )
       .get(revisionId) as RevisionProvenanceRow | undefined;
     return row ? parseProvenanceRow(row) : null;
+  }
+
+  /* ----------------------- revision_evaluation_context ------------------------- */
+
+  /** Record which market-benchmarks + credit-manifesto a revision was evaluated
+   *  against. Idempotent (ON CONFLICT DO NOTHING). Additive sibling — never in a
+   *  hash boundary. */
+  insertRevisionEvaluationContext(ctx: {
+    revisionId: string;
+    marketBenchmarksId: string;
+    creditManifestoId: string;
+  }): { inserted: boolean } {
+    const result = this.db
+      .prepare(
+        `INSERT INTO revision_evaluation_context
+         (revision_id, market_benchmarks_id, credit_manifesto_id, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(revision_id) DO NOTHING`,
+      )
+      .run(ctx.revisionId, ctx.marketBenchmarksId, ctx.creditManifestoId, new Date().toISOString());
+    return { inserted: result.changes > 0 };
+  }
+
+  /** Read a revision's evaluation context (the benchmarks/manifesto ids it used).
+   *  null for revisions ingested before this sibling existed (back-compat). */
+  getRevisionEvaluationContext(
+    revisionId: string,
+  ): { marketBenchmarksId: string; creditManifestoId: string } | null {
+    const row = this.db
+      .prepare(
+        `SELECT market_benchmarks_id, credit_manifesto_id
+         FROM revision_evaluation_context WHERE revision_id = ?`,
+      )
+      .get(revisionId) as { market_benchmarks_id: string; credit_manifesto_id: string } | undefined;
+    return row ? { marketBenchmarksId: row.market_benchmarks_id, creditManifestoId: row.credit_manifesto_id } : null;
   }
 
   /* ----------------------- doctrine_render_snapshots --------------------------- */
