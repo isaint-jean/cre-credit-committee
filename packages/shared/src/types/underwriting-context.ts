@@ -173,6 +173,9 @@ export interface UnderwritingPropertyAtoms {
   yearRenovated:      number | null;
   buildingClass:      string | null;
   numberOfBuildings:  number | null;
+  /** Loan purpose (Acquisition / Refinance / …). propertyMetadata-only.
+   *  Surfaced for K27 (Property & Loan Summary) at RENDER_CONTRACT_VERSION 12. */
+  loanPurpose:        string | null;
 }
 
 /**
@@ -344,6 +347,8 @@ export interface ResolvedUnderwritingContext {
     yearRenovated:     ResolvedCellValue;
     buildingClass:     ResolvedCellValue;
     numberOfBuildings: ResolvedCellValue;
+    /** Loan purpose → K27 (Property & Loan Summary), v12. */
+    loanPurpose:       ResolvedCellValue;
   };
   loan: {
     termMonths:         ResolvedCellValue;

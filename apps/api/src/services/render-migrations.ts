@@ -723,6 +723,34 @@ const MIGRATIONS: RenderContractMigration[] = [
       'compute the series. Either is a separate scope; v11 keeps W7:W97 ' +
       'honest-blank.',
   },
+  {
+    fromVersion: 11,
+    toVersion: 12,
+    description:
+      'Loan Purpose render wire. One pure selector against data already ' +
+      'hydrated on the UnderwritingContext — c.property.loanPurpose ' +
+      '(propertyMetadata.loanPurpose) — surfaces on Property & Loan Summary!K27, ' +
+      'mirroring the buildingClass binding pattern. v12 ADDS exactly one cell ' +
+      'address (Property & Loan Summary!K27); no new SheetSlot, no source ' +
+      'surface (\'resolvedContext\' permitted since v7), no payload-shape ' +
+      'change, no namespace change. Carry-forward entries from v11 unchanged. ' +
+      'xlsm artifact unchanged. Pinned core (eval / envelope / snapshot / ' +
+      'column-P NOI) unaffected — loan purpose is display-only metadata.',
+    autoApplicable: true,
+    addresses: [
+      { kind: 'address-added', address: 'Property & Loan Summary!K27' },
+    ],
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v12 is additive on the schema surface (one new address). v11-pinned ' +
+      'templates keep rendering identically; v12 becomes the default for new ' +
+      'exports. Threads loanPurpose into the context property atoms ' +
+      '(hydrate-underwriting-context.ts buildPropertyAtoms, analogous to ' +
+      'buildingClass) + the UnderwritingPropertyAtoms raw and resolved types.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

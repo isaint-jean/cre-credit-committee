@@ -179,6 +179,9 @@ function buildPropertyAtoms(
     yearRenovated:     pickFirstNumber([pm?.yearRenovated]),
     buildingClass:     pickFirstString([pm?.buildingClass]),
     numberOfBuildings: pickFirstNumber([pm?.numberOfBuildings]),
+    // v12 — Loan Purpose → K27 (Property & Loan Summary). propertyMetadata-only,
+    // mirroring buildingClass above.
+    loanPurpose:       pickFirstString([pm?.loanPurpose]),
   };
 }
 

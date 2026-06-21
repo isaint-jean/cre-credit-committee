@@ -703,6 +703,23 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v11Additions];
 })();
 
+// v12 carry-forward + additions. Every v11 cell carries forward unchanged; the
+// only new declaration is K27 Loan Purpose (resolvedContext.property.loanPurpose),
+// a fresh FULL_MODERN property cell with no AdjustedInputs equivalent — same
+// shape as the buildingClass / Sprint-0 property-metadata cells.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[12] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[11] ?? [];
+  const v12Additions: FieldStateDeclaration[] = [
+    {
+      address: 'Property & Loan Summary!K27',
+      group: 'property',
+      state: 'FULL_MODERN',
+      notes: 'New at v12. resolvedContext.property.loanPurpose (propertyMetadata.loanPurpose); no AdjustedInputs equivalent. Mirrors buildingClass / Sprint-0 property-metadata cells.',
+    },
+  ];
+  return [...carryForward, ...v12Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

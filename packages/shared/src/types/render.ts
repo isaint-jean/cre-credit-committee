@@ -63,8 +63,12 @@ import type { RentRoll } from '@cre/contracts';
  * its formula chain). Selectors return CellValue, not formulas — so the
  * existing computed series cannot be wired through the schema layer
  * without a separate scope. Carry-forward entries from v10 unchanged.
+ *
+ * v12 (2026-06): additive — surfaces Loan Purpose into K27 (Property & Loan
+ * Summary) from propertyMetadata.loanPurpose. Exactly one new emitted address
+ * (Property & Loan Summary!K27); the v11 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 11;
+export const RENDER_CONTRACT_VERSION = 12;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

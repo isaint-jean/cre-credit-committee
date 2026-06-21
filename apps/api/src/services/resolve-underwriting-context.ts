@@ -363,6 +363,7 @@ export function resolveUnderwritingContext(
       yearRenovated:     ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.yearRenovated     ?? null),
       buildingClass:     ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.buildingClass     ?? null),
       numberOfBuildings: ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.numberOfBuildings ?? null),
+      loanPurpose:       ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.loanPurpose       ?? null),
     },
     loan: {
       termMonths:         ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.loan?.termMonths         ?? null),

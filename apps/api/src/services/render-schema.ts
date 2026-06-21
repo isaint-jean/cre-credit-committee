@@ -1959,6 +1959,63 @@ const SCHEMA_V11: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v11DefsFor('manufactured_housing') },
 };
 
+// ── v12: Loan Purpose → K27 (Property & Loan Summary) ────────────────────────
+// Purely additive over v11. The single new emitted address is
+// 'Property & Loan Summary!K27', sourced from c.property.loanPurpose
+// (propertyMetadata.loanPurpose), mirroring the buildingClass binding pattern.
+// The v11 slice above is NOT mutated — older templates keep rendering identical
+// output. (Hard invariant: do not change v11 to accommodate v12.)
+const V12_LOAN_PURPOSE_ENTRY: SchemaEntry = {
+  slot: 'Property_Loan_Summary',
+  range: 'K27',
+  selector: ctx((c) => c.property.loanPurpose),
+  cellState: 'concluded',
+};
+
+const V12_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V11_SHARED_ENTRIES,
+  V12_LOAN_PURPOSE_ENTRY,
+];
+
+function v12Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V12_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged — K27 needs no namespace change
+  };
+}
+
+function v12DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v12Definition(assetClass)];
+}
+
+const SCHEMA_V12: ContractSchema = {
+  office: {
+    office_core:       v12DefsFor('office'),
+    office_trophy:     v12DefsFor('office'),
+    office_value_add:  v12DefsFor('office'),
+    office_distressed: v12DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v12DefsFor('multifamily'),
+    mf_large_scale: v12DefsFor('multifamily'),
+    mf_workforce:   v12DefsFor('multifamily'),
+    mf_value_add:   v12DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v12DefsFor('industrial'),
+    ind_logistics: v12DefsFor('industrial'),
+    ind_light:     v12DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v12DefsFor('retail') },
+  hotel:                { hotel_core:                v12DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v12DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v12DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v12DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2002,6 +2059,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   9: SCHEMA_V9,
   10: SCHEMA_V10,
   11: SCHEMA_V11,
+  12: SCHEMA_V12,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2256,6 +2314,10 @@ function assertSchemaWellFormed(): void {
     // structural (two new SheetSlots + two new addresses + Cover Page /
     // 10 Yr Pro Forma removed from excludedSheets), not source-policy.
     11: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v12 ADDS no new source surface — the single new address (K27 Loan Purpose)
+    // reads from 'resolvedContext' (c.property.loanPurpose), permitted since v7.
+    // All v11 entries carry forward verbatim.
+    12: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
