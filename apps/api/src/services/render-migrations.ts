@@ -783,6 +783,38 @@ const MIGRATIONS: RenderContractMigration[] = [
       'Scenario tenant-loss columns now resolve on recompute (their join key is ' +
       'populated).',
   },
+  {
+    fromVersion: 13,
+    toVersion: 14,
+    description:
+      'Sources & Uses render wire. Binds the Property & Loan Summary S&U block ' +
+      'from the ASR\'s deterministically-parsed S&U table (no LLM), routed via ' +
+      'resolvedContext.sourcesUses.* (resolvedContext permitted since v7). Six ' +
+      'new input cells: F27 (Previous Debt payoff), F28 (Cash to Borrower / ' +
+      'return of equity), F29 (Escrow / Reserves), F30 (Closing Costs), F31 ' +
+      '(Other / capex), K30 (Total Cost Basis). The totals (F32, B32, K31, K32) ' +
+      'and the sources side (B27 = Original_Balance) are formula-wired and NOT ' +
+      'bound; Purchase Price (K29) stays honest-blank (Sunroad is a refinance). ' +
+      'v14 ADDS exactly 6 cell addresses; no new SheetSlot, no source surface, ' +
+      'no payload-shape change, no namespace change. Carry-forward entries from ' +
+      'v13 unchanged. xlsm artifact unchanged. Pinned core unaffected — S&U is ' +
+      'display-only metadata.',
+    autoApplicable: true,
+    addresses: ['F27', 'F28', 'F29', 'F30', 'F31', 'K30'].map((cell) => ({
+      kind: 'address-added' as const,
+      address: `Property & Loan Summary!${cell}`,
+    })),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v14 is additive on the schema surface (6 new S&U addresses). v13-pinned ' +
+      'templates keep rendering identically; v14 becomes the default for new ' +
+      'exports. Threads the ASR S&U table through analysis.sourcesAndUses → the ' +
+      'c.sourcesUses.* context atoms (hydrate buildSourcesUsesAtoms + resolver ' +
+      'passthrough), analogous to the appraisal / parties seams.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

@@ -2087,6 +2087,72 @@ const SCHEMA_V13: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v13DefsFor('manufactured_housing') },
 };
 
+// v14 — bind the Property & Loan Summary Sources & Uses block from the ASR's
+// deterministically-parsed S&U table, via resolvedContext.sourcesUses.*. The
+// six value cells (F27-F31, K30) are template inputs (0); the totals (F32, B32,
+// K31, K32) and the sources side (B27 = Original_Balance) are formula-wired and
+// are NOT bound. Purchase Price (K29) stays honest-blank — Sunroad is a refi.
+//
+// NEW array — appends to V13; the v13 slice carries forward byte-for-byte.
+const V14_SOURCES_USES_ENTRIES: SchemaEntry[] = [
+  // F27 — "Previous Debt" (D27 label is ="Refinance"→Previous Debt): loan payoff.
+  { slot: 'Property_Loan_Summary', range: 'F27', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.loanPayoff),          cellState: 'concluded' },
+  // F28 — Cash to Borrower (refi return of equity).
+  { slot: 'Property_Loan_Summary', range: 'F28', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.returnOfEquity),      cellState: 'concluded' },
+  // F29 — Escrow / Reserves (unfunded obligations).
+  { slot: 'Property_Loan_Summary', range: 'F29', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.unfundedObligations), cellState: 'concluded' },
+  // F30 — Closing Costs.
+  { slot: 'Property_Loan_Summary', range: 'F30', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.closingCosts),        cellState: 'concluded' },
+  // F31 — Other (capital expenditures reserve).
+  { slot: 'Property_Loan_Summary', range: 'F31', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.capitalExpenditures), cellState: 'concluded' },
+  // K30 — Total Cost Basis.
+  { slot: 'Property_Loan_Summary', range: 'K30', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.totalCostBasis),      cellState: 'concluded' },
+];
+
+const V14_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V13_SHARED_ENTRIES,
+  ...V14_SOURCES_USES_ENTRIES,
+];
+
+function v14Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V14_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v14DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v14Definition(assetClass)];
+}
+
+const SCHEMA_V14: ContractSchema = {
+  office: {
+    office_core:       v14DefsFor('office'),
+    office_trophy:     v14DefsFor('office'),
+    office_value_add:  v14DefsFor('office'),
+    office_distressed: v14DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v14DefsFor('multifamily'),
+    mf_large_scale: v14DefsFor('multifamily'),
+    mf_workforce:   v14DefsFor('multifamily'),
+    mf_value_add:   v14DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v14DefsFor('industrial'),
+    ind_logistics: v14DefsFor('industrial'),
+    ind_light:     v14DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v14DefsFor('retail') },
+  hotel:                { hotel_core:                v14DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v14DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v14DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v14DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2132,6 +2198,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   11: SCHEMA_V11,
   12: SCHEMA_V12,
   13: SCHEMA_V13,
+  14: SCHEMA_V14,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2394,6 +2461,10 @@ function assertSchemaWellFormed(): void {
     // read from 'rentRoll' (allowlisted since v10). All v12 entries carry
     // forward verbatim.
     13: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v14 ADDS no new source surface — the 6 new Sources & Uses cells
+    // (F27-F31, K30) read from 'resolvedContext' (c.sourcesUses.*), permitted
+    // since v7. All v13 entries carry forward verbatim.
+    14: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

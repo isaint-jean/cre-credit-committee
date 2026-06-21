@@ -427,6 +427,16 @@ export function resolveUnderwritingContext(
       borrowerName: ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.parties?.borrowerName ?? null),
       sponsorName:  ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.parties?.sponsorName  ?? null),
     },
+    sourcesUses: {
+      loanAmount:           ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.loanAmount           ?? null),
+      loanPayoff:           ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.loanPayoff           ?? null),
+      returnOfEquity:       ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.returnOfEquity       ?? null),
+      unfundedObligations:  ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.unfundedObligations  ?? null),
+      capitalExpenditures:  ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.capitalExpenditures  ?? null),
+      closingCosts:         ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.closingCosts         ?? null),
+      purchasePrice:        ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.purchasePrice        ?? null),
+      totalCostBasis:       ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.totalCostBasis       ?? null),
+    },
     comparablesLinkageRefs: ALLOWED_OPS.joinListAllowEmpty(ctx.comparablesLinkageRefs ?? []),
   };
 

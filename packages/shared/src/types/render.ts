@@ -75,8 +75,16 @@ import type { RentRoll } from '@cre/contracts';
  * unbound, so the stress join returned N/A. Exactly 30 new emitted addresses
  * (Rent Roll!A14 … A43), reading the 'rentRoll' surface (allowlisted since
  * v10); the v12 slice is carried forward byte-for-byte.
+ *
+ * v14 (2026-06): additive — binds the Property & Loan Summary Sources & Uses
+ * block from the ASR's deterministically-parsed S&U table (no LLM), routed via
+ * resolvedContext.sourcesUses.* (resolvedContext allowlisted since v7). Exactly
+ * 6 new emitted addresses: F27 (Previous Debt payoff), F28 (Cash to Borrower /
+ * return of equity), F29 (Escrow / Reserves), F30 (Closing Costs), F31 (Other /
+ * capex), K30 (Total Cost Basis). Purchase Price (K29) stays honest-blank (refi).
+ * The v13 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 13;
+export const RENDER_CONTRACT_VERSION = 14;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

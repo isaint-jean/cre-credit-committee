@@ -361,6 +361,24 @@ export function hydrateUnderwritingContext(
     // Sprint-1 Column L issuer-UW atoms — seller GS U/W column for
     // Operating ProForma L9–L40.
     issuerUw: buildIssuerUwAtoms(s.analysis),
+    // Sources & Uses atoms — ASR S&U table for Property & Loan Summary
+    // F28–F31 / K30. All-null when `analysis.sourcesAndUses` is absent.
+    sourcesUses: buildSourcesUsesAtoms(s.analysis),
+  };
+}
+
+/** Atom-builder for Sources & Uses cells. Returns all-null when absent. */
+function buildSourcesUsesAtoms(analysis: Analysis): Record<string, number | null> {
+  const su = analysis.sourcesAndUses;
+  return {
+    loanAmount:           su?.loanAmount ?? null,
+    loanPayoff:           su?.loanPayoff ?? null,
+    returnOfEquity:       su?.returnOfEquity ?? null,
+    unfundedObligations:  su?.unfundedObligations ?? null,
+    capitalExpenditures:  su?.capitalExpenditures ?? null,
+    closingCosts:         su?.closingCosts ?? null,
+    purchasePrice:        su?.purchasePrice ?? null,
+    totalCostBasis:       su?.totalCostBasis ?? null,
   };
 }
 

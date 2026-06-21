@@ -250,6 +250,12 @@ export interface UnderwritingContext {
    *  `analysis.issuerUwExtraction` when present; absent otherwise. Schema
    *  selectors read this via `ResolvedUnderwritingContext.issuerUw`. */
   issuerUw?: Readonly<Record<string, number | string | null>>;
+  /** Sources & Uses atoms (S&U ticket). Populated from
+   *  `analysis.sourcesAndUses` (the ASR's deterministically-parsed S&U table)
+   *  when present; absent otherwise. Schema selectors read this via
+   *  `ResolvedUnderwritingContext.sourcesUses`. Distinct from the narrative
+   *  `PropertyLoanSummary.sourcesAndUses` (a commentary string). */
+  sourcesUses?: Readonly<Record<string, number | null>>;
 }
 
 /**
@@ -428,5 +434,21 @@ export interface ResolvedUnderwritingContext {
     capex:                          ResolvedCellValue;  // L38 — belowNoiAdjustments.replacementReserves
     tenantImprovements:             ResolvedCellValue;  // L39
     leasingCommissions:             ResolvedCellValue;  // L40
+  };
+  /**
+   * Sources & Uses atoms (S&U ticket). Populated from `analysis.sourcesAndUses`
+   * (the ASR's deterministically-parsed S&U table) when present, all null
+   * otherwise. Schema entries on the Property & Loan Summary S&U block read
+   * from this block. Refi → purchasePrice null (honest-blank).
+   */
+  readonly sourcesUses: {
+    loanAmount:           ResolvedCellValue;  // sources side
+    loanPayoff:           ResolvedCellValue;  // uses — refinanced-debt payoff
+    returnOfEquity:       ResolvedCellValue;  // F28 (Cash to Borrower)
+    unfundedObligations:  ResolvedCellValue;  // F29 (Escrow / Reserves)
+    capitalExpenditures:  ResolvedCellValue;  // F31 (Other)
+    closingCosts:         ResolvedCellValue;  // F30 (Closing Costs)
+    purchasePrice:        ResolvedCellValue;  // K29 — null for refinance
+    totalCostBasis:       ResolvedCellValue;  // K30 (Total Cost Basis)
   };
 }

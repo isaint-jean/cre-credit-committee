@@ -34,7 +34,7 @@
  *     = 100%, implausible but preserved as the literal value).
  */
 
-import type { ASRExtraction } from '@cre/contracts';
+import type { ASRExtraction, SourcesAndUses } from '@cre/contracts';
 import type { ParsedDocument } from '@cre/shared';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
 import { CLAUDE_MODEL } from '../config/llm-model.js';
@@ -94,6 +94,49 @@ function asCapRate(v: unknown): number | null {
   if (n < 0) return null;
   if (n > 1) return n / 100;
   return n;
+}
+
+/**
+ * Deterministic Sources & Uses parser — NO LLM. Reads the ASR's "Sources &
+ * Uses" table directly from the parsed PDF text. Each line is matched by its
+ * label and the first dollar amount that follows (footnote superscripts after
+ * the label, e.g. "Loan Payoff1", are tolerated by the `\d*`). Honest-blank:
+ * a label not present → null (never 0 / fabricated); a refinance has no
+ * "Purchase Price" line, so `purchasePrice` is null. Returns null when the
+ * document has no S&U table at all (nothing matched).
+ *
+ * Exported pure so it can be exercised without a live document.
+ */
+export function parseSourcesAndUses(rawText: string): SourcesAndUses | null {
+  if (typeof rawText !== 'string' || rawText.length === 0) return null;
+  // "$65,365,379" → 65365379
+  const dollars = (re: RegExp): number | null => {
+    const m = re.exec(rawText);
+    if (!m || m[1] === undefined) return null;
+    const n = Number(m[1].replace(/[$,\s]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+  // "$91.6 million" → 91_600_000
+  const millions = (re: RegExp): number | null => {
+    const m = re.exec(rawText);
+    if (!m || m[1] === undefined) return null;
+    const n = Number(m[1]);
+    return Number.isFinite(n) ? Math.round(n * 1_000_000) : null;
+  };
+
+  const su: SourcesAndUses = {
+    loanAmount:           dollars(/Loan Amount\s+\$([\d,]+)/i),
+    loanPayoff:           dollars(/Loan Payoff\d*\s+\$([\d,]+)/i),
+    returnOfEquity:       dollars(/Return of Equity\s+\$([\d,]+)/i),
+    unfundedObligations:  dollars(/Unfunded Obligations\d*\s+\$([\d,]+)/i),
+    capitalExpenditures:  dollars(/Capital Expenditures\s+\$([\d,]+)/i),
+    closingCosts:         dollars(/Closing Costs\s+\$([\d,]+)/i),
+    purchasePrice:        dollars(/Purchase Price\s+\$([\d,]+)/i),
+    totalCostBasis:       millions(/total cost basis of \$([\d.]+)\s*million/i),
+  };
+
+  const anyPresent = Object.values(su).some((v) => v !== null);
+  return anyPresent ? su : null;
 }
 
 /**
@@ -159,8 +202,24 @@ export async function extractASR(document: ParsedDocument): Promise<ASRExtractio
     });
   } catch (err) {
     console.warn('[AI:ASR] extraction call failed:', err);
-    return null;
+    // The deterministic S&U parse does not depend on the AI call — recover it
+    // below rather than losing it to an AI failure.
+    responseText = '';
   }
 
-  return parseAsrAiResponse(responseText);
+  const llm = responseText ? parseAsrAiResponse(responseText) : null;
+  // Deterministic S&U over the full parsed text (no LLM). Prefer the parsed
+  // loanPayoff for priorDebtPayoff — the table line is more reliable than the
+  // LLM's free-text read for this gate-critical figure.
+  const sourcesAndUses = parseSourcesAndUses(document.rawText ?? '');
+
+  if (llm === null && sourcesAndUses === null) return null;
+  const base: ASRExtraction = llm ?? {
+    impliedValue: null, impliedCapRate: null, underwrittenNOI: null, priorDebtPayoff: null,
+  };
+  return {
+    ...base,
+    priorDebtPayoff: sourcesAndUses?.loanPayoff ?? base.priorDebtPayoff,
+    sourcesAndUses,
+  };
 }

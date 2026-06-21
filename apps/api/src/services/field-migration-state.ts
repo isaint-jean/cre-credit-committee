@@ -739,6 +739,24 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v13Additions];
 })();
 
+// v14 carry-forward + additions. Every v13 cell carries forward unchanged; the
+// only new declarations are the 6 Sources & Uses cells (F27-F31, K30) — fresh
+// FULL_MODERN property cells sourced from resolvedContext.sourcesUses.* (the
+// ASR S&U table), mirroring the K27 loanPurpose cell. No AdjustedInputs
+// equivalent. Purchase Price (K29) is intentionally NOT declared — honest-blank.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[14] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[13] ?? [];
+  const v14Additions: FieldStateDeclaration[] = [
+    'F27', 'F28', 'F29', 'F30', 'F31', 'K30',
+  ].map((cell) => ({
+    address: `Property & Loan Summary!${cell}`,
+    group: 'property' as const,
+    state: 'FULL_MODERN' as const,
+    notes: 'New at v14. resolvedContext.sourcesUses.* (ASR Sources & Uses table); no AdjustedInputs equivalent. Mirrors the K27 loanPurpose property cell.',
+  }));
+  return [...carryForward, ...v14Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

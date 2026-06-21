@@ -473,6 +473,46 @@ export interface ASRExtraction {
    * identically (both = "not extracted").
    */
   readonly priorDebtPayoff: number | null;
+
+  /**
+   * The ASR's Sources & Uses table, parsed deterministically from the PDF
+   * text (no LLM). Display metadata for the Property & Loan Summary S&U block
+   * (rows 27-32). Every field is nullable and follows the honest-blank rule:
+   * a line genuinely absent from the table is `null`, never 0 or fabricated.
+   *
+   * For a REFINANCE (e.g. Sunroad) there is no purchase price — the uses are
+   * a loan payoff + return of equity + reserves + costs; `purchasePrice` is
+   * therefore null. `priorDebtPayoff` (above) and `sourcesAndUses.loanPayoff`
+   * carry the same figure (the refinanced-debt line) — both populated for
+   * back-compat with the data-integrity gate's existing reader.
+   *
+   * Additive widening — older records persist with this field absent;
+   * readers treat undefined and null identically.
+   */
+  readonly sourcesAndUses?: SourcesAndUses | null;
+}
+
+/**
+ * Sources & Uses figures from the ASR. Dollars. All nullable; honest-blank
+ * (null) for any line not present in the deal's S&U table.
+ */
+export interface SourcesAndUses {
+  /** Sources side: the new loan amount (e.g. $85,000,000). */
+  readonly loanAmount: number | null;
+  /** Uses: payoff of the refinanced debt. null for non-refi / absent. */
+  readonly loanPayoff: number | null;
+  /** Uses: equity returned to the sponsor (the refi "cash to borrower"). */
+  readonly returnOfEquity: number | null;
+  /** Uses: unfunded obligations reserve (abated rent + TI/LC + gap rent). */
+  readonly unfundedObligations: number | null;
+  /** Uses: capital-expenditures reserve. */
+  readonly capitalExpenditures: number | null;
+  /** Uses: closing costs. */
+  readonly closingCosts: number | null;
+  /** Acquisition price. null for a refinance (no purchase). */
+  readonly purchasePrice: number | null;
+  /** Total cost basis (land + building + improvements + TIs), if stated. */
+  readonly totalCostBasis: number | null;
 }
 
 /* -------------------------------- loan terms -------------------------------- */

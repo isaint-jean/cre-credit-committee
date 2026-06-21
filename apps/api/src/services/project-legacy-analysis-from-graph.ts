@@ -222,6 +222,19 @@ export function projectLegacyAnalysisFromGraph(
     if (er?.parties) projectedPartiesExtraction = er.parties;
   }
 
+  // Sources & Uses read-side projection (mirrors the appraisal / parties seam).
+  // The ASR sub-extractor parses the S&U table onto er.asr.sourcesAndUses; this
+  // overlay carries it to analysis.sourcesAndUses and from there to the
+  // c.sourcesAndUses.* atoms + render-schema v14 selectors. NULL-only fill.
+  let projectedSourcesAndUses = analysis.sourcesAndUses;
+  if (
+    (projectedSourcesAndUses === null || projectedSourcesAndUses === undefined) &&
+    doctrine !== null
+  ) {
+    const er = store.getExtractionResult(doctrine.extractionResultId);
+    if (er?.asr?.sourcesAndUses) projectedSourcesAndUses = er.asr.sourcesAndUses;
+  }
+
   // Sunroad appraisal-ingest: merge AppraisalExtraction identity fields into
   // PropertyMetadata where PM is null (NEVER overwrite the ASR-AI source per
   // Sprint-0 honest-blank discipline). Fills address/zip/county/yearBuilt
@@ -278,6 +291,7 @@ export function projectLegacyAnalysisFromGraph(
     issuerUwExtraction: projectedIssuerUwExtraction,
     appraisalExtraction: projectedAppraisalExtraction,
     partiesExtraction: projectedPartiesExtraction,
+    sourcesAndUses: projectedSourcesAndUses,
   };
 }
 
