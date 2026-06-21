@@ -131,6 +131,24 @@ function pickFirstNumber(candidates: Array<number | null | undefined>): number |
   return null;
 }
 
+/**
+ * Convert an ISO date string to an Excel date SERIAL number so the workbook's
+ * date-formatted cells (e.g. Third Party Reports Summary!E4/E7, numFmt
+ * "mm-dd-yy") render a clean date instead of the raw ISO string
+ * "2023-07-13T00:00:00.000Z". Emitting a number (not text) lets Excel apply the
+ * cell's existing date format. Excel's epoch is 1899-12-30 (serial 1 =
+ * 1900-01-01); the standard days-since-epoch offset is exact for all dates the
+ * appraisal carries (≫ 1900-03-01, past Excel's fictional 1900-02-29). Null /
+ * unparseable → null (honest-blank, never 0).
+ */
+const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30);
+function isoDateToExcelSerial(iso: string | null | undefined): number | null {
+  if (iso === null || iso === undefined || iso === '') return null;
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return null;
+  return Math.round((ms - EXCEL_EPOCH_MS) / 86_400_000);
+}
+
 // --- Atomic block builders -------------------------------------------------
 
 // Property atoms precedence (Batch 1H integration):
@@ -417,8 +435,10 @@ function buildAppraisalAtoms(analysis: Analysis): Record<string, number | string
     // that's the schema-side contract; only the read path changes.
     perAppraisalCapex:              apx.stabilizedProForma?.nonreimbursableLandlord ?? null,
     // Sprint-2: dates lifted for Third Party Reports Summary E4 / E7.
-    asIsValueDate:                  apx.asIsValueDate ?? null,
-    asStabilizedValueDate:          apx.asStabilizedValueDate ?? null,
+    // Emit Excel date SERIALS (numbers) so the cells' "mm-dd-yy" format renders
+    // a clean date, not the raw ISO string ("2023-07-13T00:00:00.000Z").
+    asIsValueDate:                  isoDateToExcelSerial(apx.asIsValueDate),
+    asStabilizedValueDate:          isoDateToExcelSerial(apx.asStabilizedValueDate),
     insurableValue:                 apx.insurableValue ?? null,
   };
 }

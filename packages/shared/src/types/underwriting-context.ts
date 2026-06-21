@@ -396,8 +396,8 @@ export interface ResolvedUnderwritingContext {
     grossBuildingArea:              ResolvedCellValue;  // B3 on Property Detail (Sprint-0 honest-blank → now filled)
     numberOfStories:                ResolvedCellValue;  // not currently mapped; available for future schema entry
     perAppraisalCapex:              ResolvedCellValue;  // Conclusions & Escrows D49 (appraiser's reserve recommendation; distinct from stabilized pro forma's $0 row)
-    asIsValueDate:                  ResolvedCellValue;  // Third Party Reports Summary E4 (ISO date string)
-    asStabilizedValueDate:          ResolvedCellValue;  // Third Party Reports Summary E7 (ISO date string)
+    asIsValueDate:                  ResolvedCellValue;  // Third Party Reports Summary E4 (Excel date serial → mm-dd-yy)
+    asStabilizedValueDate:          ResolvedCellValue;  // Third Party Reports Summary E7 (Excel date serial → mm-dd-yy)
     insurableValue:                 ResolvedCellValue;  // Third Party Reports Summary E8 ($)
   };
   // Sprint-2 PCA. Two values surfaced for Third Party Reports Summary
