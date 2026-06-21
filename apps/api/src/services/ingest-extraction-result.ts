@@ -91,13 +91,15 @@ export interface IngestExtractionResultDeps {
 export type IngestionErrorCode =
   | 'LIBRARY_SNAPSHOT_NOT_FOUND'
   | 'MARKET_BENCHMARKS_NOT_FOUND'
-  | 'CREDIT_MANIFESTO_NOT_FOUND';
+  | 'CREDIT_MANIFESTO_NOT_FOUND'
+  | 'PARENT_REVISION_NOT_FOUND';
 
 export interface IngestionErrorContext {
   readonly code: IngestionErrorCode;
   readonly librarySnapshotId?: string;
   readonly marketBenchmarksId?: string;
   readonly creditManifestoId?: string;
+  readonly parentRevisionId?: string;
 }
 
 export class IngestionError extends Error {
@@ -116,6 +118,15 @@ export class IngestionError extends Error {
 
 export interface IngestExtractionResultArgs {
   readonly extractionResult: ExtractionResult;
+  /**
+   * Append-step seam (Option C / lineage). When ABSENT (the default, every
+   * create-path ingest), Stage 9 writes a ROOT envelope exactly as before.
+   * When PRESENT, Stage 9 instead writes a CHILD envelope under the parent's
+   * lineage (lineageRootId from parent, ordinal+1, deterministic child id) —
+   * the lineage-correct re-ingest the append flow needs. Envelope branch only;
+   * no other behavior changes.
+   */
+  readonly parentRevisionId?: RevisionId;
   readonly propertyType: AssetType;
   readonly marketLiquidityHint?: MarketLiquidity;
   readonly librarySnapshotId: LibrarySnapshotId;
@@ -330,6 +341,58 @@ export async function ingestExtractionResult(
         extractorVersions: {},
       });
     }
+  }
+
+  /* Stage 9 (CHILD branch) — append-step lineage. When parentRevisionId is
+     supplied, this ingest is a re-extraction APPENDED under an existing deal's
+     lineage: write a child envelope (parent's lineageRootId, parentRevisionId,
+     ordinal+1) instead of a root, with a deterministic child id over the same
+     §5 hash-input subset (parent + adjustedInputsId + doctrineVersion). Early
+     return leaves the ROOT branch below BYTE-IDENTICAL to the create path. */
+  if (args.parentRevisionId !== undefined) {
+    const parentEnvelope = store.getRevisionEnvelope(args.parentRevisionId);
+    if (parentEnvelope === null) {
+      throw new IngestionError({
+        code: 'PARENT_REVISION_NOT_FOUND',
+        parentRevisionId: args.parentRevisionId,
+      });
+    }
+    const childRevisionId = computeRevisionId({
+      parentRevisionId: args.parentRevisionId,
+      adjustedInputsId: adjustedInputs.id,
+      doctrineVersion: evaluation.doctrineVersion,
+    });
+    const childEnvelope: RevisionLineageEnvelope = {
+      revisionId: childRevisionId,
+      lineageRootId: parentEnvelope.lineageRootId,
+      parentRevisionId: args.parentRevisionId,
+      revisionOrdinal: parentEnvelope.revisionOrdinal + 1,
+      doctrineEvaluationId: evaluation.id,
+      adjustedInputsId: adjustedInputs.id,
+      doctrineVersion: evaluation.doctrineVersion,
+      judgmentEngineVersion: evaluation.judgmentEngineVersion,
+      stressEngineVersion: evaluation.stressEngineVersion,
+      valuationEngineVersion: evaluation.valuationEngineVersion,
+    };
+    store.insertRevisionLineageEnvelope(childEnvelope);
+
+    /* Child provenance — child shape (borrowed from apply-revision-delta).
+       beforeHash = parent's AdjustedInputs id; afterHash = this re-extraction's.
+       SYSTEM_RECALC is the closest existing RevisionTrigger; a dedicated
+       DOC_APPEND trigger + the structural inputDiff are a step-2 refinement
+       (the envelope lineage — the thing append depends on — is complete here). */
+    const childProvenance: RevisionProvenance = {
+      revisionId: childRevisionId,
+      inputDiff: { changedFields: [] },
+      triggerSource: 'SYSTEM_RECALC',
+      appliedRuleIds: [],
+      adjustmentOrigin: [],
+      beforeHash: parentEnvelope.adjustedInputsId,
+      afterHash: adjustedInputs.id,
+    };
+    store.insertRevisionProvenance(childProvenance);
+
+    return { rootId: childRevisionId, evaluationId: evaluation.id, evaluation };
   }
 
   /* Stage 9 — Root revision envelope + provenance (Option C / issue #20).
