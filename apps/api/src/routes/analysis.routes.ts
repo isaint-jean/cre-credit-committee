@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { uploadDualFiles, uploadAnalysisFiles } from '../middleware/upload.js';
+import { uploadDualFiles, uploadAnalysisFiles, upload } from '../middleware/upload.js';
 import { store } from '../storage/sqlite-store.js';
+import type { SqliteStore } from '../storage/sqlite-store.js';
+import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
+import { IngestionError } from '../services/ingest-extraction-result.js';
+import type { SourceDocSlot } from '@cre/shared';
+import type { MarketBenchmarksId, CreditManifestoId } from '@cre/contracts';
 import { parseDocument } from '../services/document-parser.service.js';
 import { populateTemplate, createDefaultTemplate } from '../services/template-engine.service.js';
 import {
@@ -1462,3 +1467,69 @@ async function runAnalysisPipeline(
 
 // Nested property access helpers extracted to apps/api/src/util/object-path.ts in Batch 6.3
 // (previously inline here). Used by the revision-creator service.
+
+/* --------------------------- append-document (3a) ------------------------- */
+
+/**
+ * POST /api/analyses/:id/append-document — add a source document to an existing
+ * deal and re-ingest it as a CHILD revision (append flow). SELF-SOURCES the
+ * parent's market-benchmarks + credit-manifesto via the eval-context sibling
+ * (the A-enabler), so the child stays consistent with the parent — no caller
+ * re-benchmarking. Factory with INJECTABLE stores so the integration verify can
+ * drive the handler copy-bound (analysis.routes is otherwise singleton-bound).
+ *
+ *   multipart: file field "document" + body field "slot"
+ *   201 → { childRevisionId, revisionOrdinal, overlayDivergences, newDocPersist }
+ */
+export function makeAppendDocumentHandler(deps: { store: SqliteStore; graph: RecordGraphStore }) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id;
+    const file = (req as Request & { file?: { buffer: Buffer; originalname: string } }).file;
+    const slot = (req.body as { slot?: string } | undefined)?.slot;
+    if (!file) { res.status(400).json({ error: 'no_document', message: 'multipart file field "document" is required' }); return; }
+    if (!slot) { res.status(400).json({ error: 'missing_slot', message: 'body field "slot" is required' }); return; }
+
+    const analysis = deps.store.getAnalysis(id);
+    if (analysis === null) { res.status(404).json({ error: 'analysis_not_found', id }); return; }
+    const parentRev = analysis.graphRevisionId;
+    if (!parentRev) { res.status(404).json({ error: 'not_graph_backed', id, message: 'analysis has no graph revision' }); return; }
+
+    // SELF-SOURCE benchmarks/manifesto from the parent (A-enabler). No caller
+    // fallback — a deal that predates eval-context recording is not append-able.
+    const ctx = deps.graph.getRevisionEvaluationContext(parentRev);
+    if (ctx === null) {
+      res.status(422).json({ error: 'no_eval_context', message: 'deal predates eval-context recording — not append-able' });
+      return;
+    }
+
+    try {
+      const result = await appendSourceDocToDeal(
+        {
+          analysisId: id,
+          newDoc: { slot: slot as SourceDocSlot, originalFileName: file.originalname, bytes: file.buffer },
+          marketBenchmarksId: ctx.marketBenchmarksId as MarketBenchmarksId,
+          creditManifestoId: ctx.creditManifestoId as CreditManifestoId,
+        },
+        { sqliteStore: deps.store, recordGraphStore: deps.graph },
+      );
+      res.status(201).json(result);
+    } catch (e) {
+      if (e instanceof IngestionError) {
+        if (e.code === 'MARKET_BENCHMARKS_NOT_FOUND' || e.code === 'CREDIT_MANIFESTO_NOT_FOUND') {
+          res.status(422).json({ error: 'parent_context_unresolvable', code: e.code, message: "parent's benchmarks/manifesto not resolvable — not append-able" });
+          return;
+        }
+        if (e.code === 'PARENT_REVISION_NOT_FOUND') { res.status(404).json({ error: e.code, message: e.message }); return; }
+        res.status(400).json({ error: e.code, message: e.message });
+        return;
+      }
+      const msg = (e as Error)?.message ?? 'append failed';
+      if (/invalid deal-doc slot/.test(msg)) { res.status(400).json({ error: 'invalid_slot', message: msg }); return; }
+      // eslint-disable-next-line no-console
+      console.error('[append-document] error:', msg);
+      res.status(500).json({ error: 'append_failed', message: msg });
+    }
+  };
+}
+
+analysisRoutes.post('/:id/append-document', upload.single('document'), makeAppendDocumentHandler({ store, graph: recordGraphStore }));

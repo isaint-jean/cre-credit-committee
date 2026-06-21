@@ -44,6 +44,7 @@ import { ingestExtractionResult } from '../services/ingest-extraction-result.js'
 import { getSourceDocBuffer, getDealManifest } from '../services/source-doc-store.service.js';
 import { saveDealSourceDoc } from '../services/deal-source-doc-store.service.js';
 import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
+import { makeAppendDocumentHandler } from '../routes/analysis.routes.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import { computeLibrarySnapshotId, computeMarketBenchmarksId, computeCreditManifestoId, computeRevisionId } from '../util/content-hash.js';
 import type { ContentHash, ISODateTime, AssetType, MarketBenchmarks, LibrarySnapshot, CreditManifesto, RevisionId } from '@cre/contracts';
@@ -146,8 +147,29 @@ async function main(): Promise<void> {
   const e3 = expectedRootId === parent.rootId;
   console.log(`9. ADDITIVE — root id = computeRevisionId(no benchmarks): ${e3 ? '✓ unchanged' : '✗ PERTURBED ' + String(expectedRootId).slice(0, 8) + ' != ' + parent.rootId.slice(0, 8)}`);
 
-  const allPass = bar1 && bar2 && bar3 && bar4 && bar5 && bar6 && e1 && e2 && e3;
-  console.log(`\n===== ${allPass ? 'ALL BARS PASS ✓ (6 append + 3 A-enabler)' : 'FAILURE — see ✗ above'} =====`);
+  console.log('\n===== 3a ROUTE (handler, copy-bound) =====');
+  const handler = makeAppendDocumentHandler({ store: sql, graph });
+  const mkRes = () => { const r = { _s: 0, _b: null as unknown, status(s: number) { r._s = s; return r; }, json(b: unknown) { r._b = b; return r; } }; return r; };
+  // 201 path — append (grandchild) via the route, self-sourcing the child's context.
+  const req201 = { params: { id: AID }, file: { buffer: cfP!.buffer, originalname: cfP!.filename }, body: { slot: 'cf' } } as never;
+  const res201 = mkRes();
+  await handler(req201, res201 as never);
+  const childRev2 = (res201._b as { childRevisionId?: string } | null)?.childRevisionId;
+  const r1 = res201._s === 201 && !!childRev2;
+  console.log(`10. ROUTE 201: status=${res201._s} childRevisionId=${String(childRev2).slice(0, 8)} ${r1 ? '✓ self-sourced + advanced' : '✗'}`);
+  // advance coherence via the route path: column+blob both = the new grandchild rev.
+  const row2 = sql.rawDb().prepare('SELECT graph_revision_id, data FROM analyses WHERE id = ?').get(AID) as { graph_revision_id: string; data: string };
+  const r2 = row2.graph_revision_id === childRev2 && JSON.parse(row2.data).graphRevisionId === childRev2;
+  console.log(`11. ROUTE advance coherence: column+blob both=${String(childRev2).slice(0, 8)} ${r2 ? '✓ no orphan' : '✗'}`);
+  // 422 path — Sunroad (in the copy) predates the eval-context enabler → not append-able.
+  const req422 = { params: { id: '71edb76c-eb1b-4b3d-8669-bffa7b3b9737' }, file: { buffer: cfP!.buffer, originalname: cfP!.filename }, body: { slot: 'cf' } } as never;
+  const res422 = mkRes();
+  await handler(req422, res422 as never);
+  const r3 = res422._s === 422 && (res422._b as { error?: string } | null)?.error === 'no_eval_context';
+  console.log(`12. ROUTE 422 (no eval-context / pre-enabler deal): status=${res422._s} error=${(res422._b as { error?: string } | null)?.error} ${r3 ? '✓ clean 4xx, no ingest' : '✗'}`);
+
+  const allPass = bar1 && bar2 && bar3 && bar4 && bar5 && bar6 && e1 && e2 && e3 && r1 && r2 && r3;
+  console.log(`\n===== ${allPass ? 'ALL BARS PASS ✓ (6 append + 3 A-enabler + 3 route)' : 'FAILURE — see ✗ above'} =====`);
   if (!allPass) process.exitCode = 2;
 }
 
