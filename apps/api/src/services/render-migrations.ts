@@ -751,6 +751,38 @@ const MIGRATIONS: RenderContractMigration[] = [
       '(hydrate-underwriting-context.ts buildPropertyAtoms, analogous to ' +
       'buildingClass) + the UnderwritingPropertyAtoms raw and resolved types.',
   },
+  {
+    fromVersion: 12,
+    toVersion: 13,
+    description:
+      'Rent Roll Rank column wire. Binds Rent Roll!A14:A43 to the income-sorted ' +
+      'rent-roll line index (rank = i+1; A14=1 … A43=30), reusing the existing ' +
+      'rrField guard (null for rows beyond the tenant count). This is the join ' +
+      'key the Stress Scenario tab keys on (SUMIF/MATCH on \'Rent Roll\'!$A$14:' +
+      '$A$323) — the column was previously unbound (V10_RENT_ROLL_ENTRIES binds ' +
+      'B,C,D,E,F,G,I,N but never A), so the tenant-loss stress columns returned ' +
+      'N/A despite the tenant data being present. v13 ADDS exactly 30 cell ' +
+      'addresses (Rent Roll!A14 … A43); no new SheetSlot, no source surface ' +
+      '(\'rentRoll\' permitted since v10), no payload-shape change, no namespace ' +
+      'change. Carry-forward entries from v12 unchanged. xlsm artifact unchanged. ' +
+      'Pinned core (eval / envelope / snapshot / column-P NOI) unaffected.',
+    autoApplicable: true,
+    addresses: Array.from({ length: 30 }, (_, i) => ({
+      kind: 'address-added' as const,
+      address: `Rent Roll!A${14 + i}`,
+    })),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v13 is additive on the schema surface (30 new Rank addresses). v12-pinned ' +
+      'templates keep rendering identically; v13 becomes the default for new ' +
+      'exports. No new source surface — the Rank cells read the same \'rentRoll\' ' +
+      'bundle the v10 per-tenant rows already use. Side effect: the Stress ' +
+      'Scenario tenant-loss columns now resolve on recompute (their join key is ' +
+      'populated).',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

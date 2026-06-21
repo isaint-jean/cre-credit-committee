@@ -67,8 +67,16 @@ import type { RentRoll } from '@cre/contracts';
  * v12 (2026-06): additive — surfaces Loan Purpose into K27 (Property & Loan
  * Summary) from propertyMetadata.loanPurpose. Exactly one new emitted address
  * (Property & Loan Summary!K27); the v11 slice is carried forward byte-for-byte.
+ *
+ * v13 (2026-06): additive — binds the Rent Roll Rank column (Rent Roll!A14:A43)
+ * from the income-sorted rent-roll line index (rank = i+1). This is the join
+ * key the Stress Scenario tab's tenant-loss formulas key on
+ * (SUMIF/MATCH on 'Rent Roll'!$A$14:$A$323); the column was previously
+ * unbound, so the stress join returned N/A. Exactly 30 new emitted addresses
+ * (Rent Roll!A14 … A43), reading the 'rentRoll' surface (allowlisted since
+ * v10); the v12 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 12;
+export const RENDER_CONTRACT_VERSION = 13;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

@@ -720,6 +720,25 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v12Additions];
 })();
 
+// v13 carry-forward + additions. Every v12 cell carries forward unchanged; the
+// only new declarations are the 30 Rent Roll Rank cells (A14:A43) — fresh
+// RENT_ROLL_SOURCED cells in the rent_roll group, mirroring the existing
+// per-tenant rent-roll rows (cols B,C,D,E,F,G,I,N) which used the same
+// group/state since v10. A was the one input column never bound.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[13] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[12] ?? [];
+  const v13Additions: FieldStateDeclaration[] = [];
+  for (let row = 14; row <= 43; row++) {
+    v13Additions.push({
+      address: `Rent Roll!A${row}`,
+      group: 'rent_roll',
+      state: 'RENT_ROLL_SOURCED',
+      notes: 'New at v13. Per-tenant rank (income-sorted index, rank = row-13) — the Stress Scenario tab join key. Same group/state as the v10 rent-roll passthrough cols (B,C,D,E,F,G,I,N).',
+    });
+  }
+  return [...carryForward, ...v13Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

@@ -2016,6 +2016,77 @@ const SCHEMA_V12: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v12DefsFor('manufactured_housing') },
 };
 
+// v13 — bind the Rent Roll Rank column (Rent Roll!A14:A43). The rent-roll lines
+// arrive income-sorted (largest in-place rent first), so a tenant's rank is its
+// 1-based index: A14=1, A15=2, … A43=30. The existing rrField guard returns null
+// for rows beyond the tenant count (honest-blank, never 0). This is the join key
+// the Stress Scenario tab keys on (SUMIF/MATCH on 'Rent Roll'!$A$14:$A$323) —
+// the column was previously unbound (V10_RENT_ROLL_ENTRIES binds B,C,D,E,F,G,I,N
+// but NOT A), which is why the tenant-loss stress columns returned N/A.
+//
+// NEW array — V10_RENT_ROLL_ENTRIES is spread into v10–v12 and must NOT be
+// edited (that would retroactively mutate prior versions). v13 appends only.
+const V13_RENT_ROLL_RANK_ENTRIES: SchemaEntry[] = (() => {
+  const out: SchemaEntry[] = [];
+  for (let i = 0; i < RENT_ROLL_TENANT_CAPACITY; i++) {
+    const row = RENT_ROLL_FIRST_ROW + i;
+    // A<row>: Rank — income-sorted 1-based index. rrField(i, …)'s guard yields
+    // null for unused rows (i >= tenant count) → honest-blank for A24+ here.
+    out.push({
+      slot: 'Rent_Roll',
+      range: `A${row}`,
+      selector: rrField(i, () => i + 1),
+      cellState: 'concluded',
+      forceOverwrite: true,
+    });
+  }
+  return out;
+})();
+
+const V13_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V12_SHARED_ENTRIES,
+  ...V13_RENT_ROLL_RANK_ENTRIES,
+];
+
+function v13Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V13_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged — Rank needs no namespace change
+  };
+}
+
+function v13DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v13Definition(assetClass)];
+}
+
+const SCHEMA_V13: ContractSchema = {
+  office: {
+    office_core:       v13DefsFor('office'),
+    office_trophy:     v13DefsFor('office'),
+    office_value_add:  v13DefsFor('office'),
+    office_distressed: v13DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v13DefsFor('multifamily'),
+    mf_large_scale: v13DefsFor('multifamily'),
+    mf_workforce:   v13DefsFor('multifamily'),
+    mf_value_add:   v13DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v13DefsFor('industrial'),
+    ind_logistics: v13DefsFor('industrial'),
+    ind_light:     v13DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v13DefsFor('retail') },
+  hotel:                { hotel_core:                v13DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v13DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v13DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v13DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2060,6 +2131,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   10: SCHEMA_V10,
   11: SCHEMA_V11,
   12: SCHEMA_V12,
+  13: SCHEMA_V13,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2318,6 +2390,10 @@ function assertSchemaWellFormed(): void {
     // reads from 'resolvedContext' (c.property.loanPurpose), permitted since v7.
     // All v11 entries carry forward verbatim.
     12: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v13 ADDS no new source surface — the 30 new Rent Roll!A14:A43 Rank cells
+    // read from 'rentRoll' (allowlisted since v10). All v12 entries carry
+    // forward verbatim.
+    13: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
