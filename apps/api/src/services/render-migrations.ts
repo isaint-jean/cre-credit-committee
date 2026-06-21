@@ -815,6 +815,36 @@ const MIGRATIONS: RenderContractMigration[] = [
       'c.sourcesUses.* context atoms (hydrate buildSourcesUsesAtoms + resolver ' +
       'passthrough), analogous to the appraisal / parties seams.',
   },
+  {
+    fromVersion: 14,
+    toVersion: 15,
+    description:
+      'Note Date render wire. Binds Property & Loan Summary!C13 (the Note_Date ' +
+      'named range cell) to the loan Note Date — derived credit-free from ' +
+      'maturityDate − termMonths and emitted as an Excel date serial, routed via ' +
+      'resolvedContext.property.noteDate (permitted since v7). Anchors the ' +
+      'period-date headers (YEAR(Note_Date)-1 …), which rendered 1899 while C13 ' +
+      'was empty (YEAR of the Excel epoch). v15 ADDS exactly one cell address ' +
+      '(Property & Loan Summary!C13); no new SheetSlot, no source surface, no ' +
+      'payload-shape change, no namespace change. Carry-forward entries from v14 ' +
+      'unchanged. Companion template-artifact edit (OH!H3 / Hotel!K3: ' +
+      'YEAR(TODAY()) → YEAR(Note_Date)) kills the separate 2026 TODAY()-leak. ' +
+      'Pinned core unaffected — date labels are display-only.',
+    autoApplicable: true,
+    addresses: [
+      { kind: 'address-added', address: 'Property & Loan Summary!C13' },
+    ],
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v15 is additive on the schema surface (one new address). v14-pinned ' +
+      'templates keep rendering identically; v15 becomes the default for new ' +
+      'exports. Threads noteDate into the context property atoms ' +
+      '(hydrate-underwriting-context.ts buildPropertyAtoms, analogous to ' +
+      'loanPurpose).',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

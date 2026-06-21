@@ -364,6 +364,7 @@ export function resolveUnderwritingContext(
       buildingClass:     ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.buildingClass     ?? null),
       numberOfBuildings: ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.numberOfBuildings ?? null),
       loanPurpose:       ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.loanPurpose       ?? null),
+      noteDate:          ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.property?.noteDate          ?? null),
     },
     loan: {
       termMonths:         ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.loan?.termMonths         ?? null),

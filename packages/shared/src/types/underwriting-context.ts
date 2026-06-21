@@ -176,6 +176,10 @@ export interface UnderwritingPropertyAtoms {
   /** Loan purpose (Acquisition / Refinance / …). propertyMetadata-only.
    *  Surfaced for K27 (Property & Loan Summary) at RENDER_CONTRACT_VERSION 12. */
   loanPurpose:        string | null;
+  /** Loan Note Date as an Excel date SERIAL (maturityDate − termMonths).
+   *  Surfaced for C13 (the Note_Date named range) at RENDER_CONTRACT_VERSION 15
+   *  — anchors the period-date headers. null when maturity/term unavailable. */
+  noteDate:           number | null;
 }
 
 /**
@@ -355,6 +359,8 @@ export interface ResolvedUnderwritingContext {
     numberOfBuildings: ResolvedCellValue;
     /** Loan purpose → K27 (Property & Loan Summary), v12. */
     loanPurpose:       ResolvedCellValue;
+    /** Loan Note Date serial → C13 (Note_Date named range), v15. */
+    noteDate:          ResolvedCellValue;
   };
   loan: {
     termMonths:         ResolvedCellValue;

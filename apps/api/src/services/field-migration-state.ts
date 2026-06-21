@@ -757,6 +757,23 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v14Additions];
 })();
 
+// v15 carry-forward + additions. Every v14 cell carries forward unchanged; the
+// only new declaration is Note_Date (Property & Loan Summary!C13) — a fresh
+// FULL_MODERN property cell sourced from resolvedContext.property.noteDate
+// (derived from maturityDate − termMonths). Mirrors the K27 loanPurpose cell.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[15] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[14] ?? [];
+  const v15Additions: FieldStateDeclaration[] = [
+    {
+      address: 'Property & Loan Summary!C13',
+      group: 'property',
+      state: 'FULL_MODERN',
+      notes: 'New at v15. resolvedContext.property.noteDate (Note Date serial = maturityDate − termMonths); no AdjustedInputs equivalent. Anchors the period-date headers. Mirrors the K27 loanPurpose property cell.',
+    },
+  ];
+  return [...carryForward, ...v15Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

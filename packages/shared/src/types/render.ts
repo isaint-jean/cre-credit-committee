@@ -83,8 +83,16 @@ import type { RentRoll } from '@cre/contracts';
  * return of equity), F29 (Escrow / Reserves), F30 (Closing Costs), F31 (Other /
  * capex), K30 (Total Cost Basis). Purchase Price (K29) stays honest-blank (refi).
  * The v13 slice is carried forward byte-for-byte.
+ *
+ * v15 (2026-06): additive — binds Property & Loan Summary!C13 (the Note_Date
+ * named range cell) to the loan Note Date (resolvedContext.property.noteDate,
+ * derived from maturityDate − termMonths, emitted as an Excel date serial).
+ * Anchors the period-date headers (YEAR(Note_Date)-1 …), which rendered 1899
+ * while C13 was empty. Exactly 1 new emitted address (C13). A companion
+ * template-artifact edit fixes the separate OH!H3 / Hotel!K3 TODAY()-leak
+ * (→ 2026). The v14 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 14;
+export const RENDER_CONTRACT_VERSION = 15;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

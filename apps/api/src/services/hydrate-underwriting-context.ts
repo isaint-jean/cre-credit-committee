@@ -200,6 +200,14 @@ function buildPropertyAtoms(
     // v12 — Loan Purpose → K27 (Property & Loan Summary). propertyMetadata-only,
     // mirroring buildingClass above.
     loanPurpose:       pickFirstString([pm?.loanPurpose]),
+    // v15 — Note Date → C13 (the Note_Date named range). Anchored on the
+    // appraisal as-is value date — the deal's valuation as-of (≈ note/period
+    // anchor), emitted as an Excel date serial. (maturity − term is NOT used:
+    // the reachable termMonths is the REMAINING term from analysisAsOfDate, not
+    // the original note-to-maturity term, so it would point at the 2026 as-of.)
+    // Honest-blank: null when no appraisal date → the period labels go blank,
+    // never 1899 (epoch) or a today-leaked date.
+    noteDate:          isoDateToExcelSerial(analysis.appraisalExtraction?.asIsValueDate ?? null),
   };
 }
 

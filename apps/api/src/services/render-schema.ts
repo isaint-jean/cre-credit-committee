@@ -2153,6 +2153,63 @@ const SCHEMA_V14: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v14DefsFor('manufactured_housing') },
 };
 
+// v15 — bind Property & Loan Summary!C13 (the Note_Date named range's cell) to
+// the loan Note Date serial (resolvedContext.property.noteDate, derived
+// credit-free from maturityDate − termMonths). This anchors the period-date
+// headers: YEAR(Note_Date)-1 etc. were rendering 1899 (empty cell → epoch).
+// Mirrors the K27 loanPurpose binding. The TODAY()-leak in OH!H3 (→ 2026) is
+// fixed separately in the template artifact (H3 now reads YEAR(Note_Date)).
+const V15_NOTE_DATE_ENTRY: SchemaEntry = {
+  slot: 'Property_Loan_Summary',
+  range: 'C13',
+  selector: ctx((c) => c.property.noteDate),
+  cellState: 'concluded',
+};
+
+const V15_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V14_SHARED_ENTRIES,
+  V15_NOTE_DATE_ENTRY,
+];
+
+function v15Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V15_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v15DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v15Definition(assetClass)];
+}
+
+const SCHEMA_V15: ContractSchema = {
+  office: {
+    office_core:       v15DefsFor('office'),
+    office_trophy:     v15DefsFor('office'),
+    office_value_add:  v15DefsFor('office'),
+    office_distressed: v15DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v15DefsFor('multifamily'),
+    mf_large_scale: v15DefsFor('multifamily'),
+    mf_workforce:   v15DefsFor('multifamily'),
+    mf_value_add:   v15DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v15DefsFor('industrial'),
+    ind_logistics: v15DefsFor('industrial'),
+    ind_light:     v15DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v15DefsFor('retail') },
+  hotel:                { hotel_core:                v15DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v15DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v15DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v15DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2199,6 +2256,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   12: SCHEMA_V12,
   13: SCHEMA_V13,
   14: SCHEMA_V14,
+  15: SCHEMA_V15,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2465,6 +2523,10 @@ function assertSchemaWellFormed(): void {
     // (F27-F31, K30) read from 'resolvedContext' (c.sourcesUses.*), permitted
     // since v7. All v13 entries carry forward verbatim.
     14: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v15 ADDS no new source surface — the single new Note_Date cell (C13)
+    // reads from 'resolvedContext' (c.property.noteDate), permitted since v7.
+    // All v14 entries carry forward verbatim.
+    15: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
