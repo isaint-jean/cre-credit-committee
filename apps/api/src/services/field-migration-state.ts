@@ -821,6 +821,23 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v18Additions];
 })();
 
+// v19 carry-forward + the 3 Document-Completeness Ledger cells (A55 present /
+// A56 missing / A57 coverage), across both Operating_ProForma sheets. Declared
+// (schema sentinel) but filled by the downstream display layer.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[19] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[18] ?? [];
+  const sheets = ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'];
+  const v19Additions: FieldStateDeclaration[] = sheets.flatMap((sh) =>
+    ['A55', 'A56', 'A57'].map((cell) => ({
+      address: `${sh}!${cell}`,
+      group: 'property' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v19. Document-Completeness Ledger — null sentinel selector; text filled by applyDocumentCompletenessDisplay (downstream render-time display).',
+    })),
+  );
+  return [...carryForward, ...v19Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

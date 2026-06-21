@@ -938,6 +938,32 @@ const MIGRATIONS: RenderContractMigration[] = [
       'passthrough). The dormant analyses.data.comments stamp is superseded by ' +
       'this consumed location and removed in the same re-stamp (single home).',
   },
+  {
+    fromVersion: 18,
+    toVersion: 19,
+    description:
+      'Document-Completeness Ledger. Declares 3 Operating History "Comments:"-area ' +
+      'cells (A55 present / A56 missing / A57 coverage) across both Operating_ProForma ' +
+      'sheets. The schema selector emits a null sentinel; the text is filled by a ' +
+      'downstream render-time DISPLAY layer (applyDocumentCompletenessDisplay) because ' +
+      'the ledger\'s actually-blank-in-render sanity gate reads OTHER cells\' rendered ' +
+      'values — unknowable to a pure pre-projection selector. Pure derived display: no ' +
+      'projection feedback, no underwriting-value mutation. v19 ADDS exactly 6 addresses ' +
+      '(3 cells × 2 sheets); no new SheetSlot, no source surface, no payload-shape ' +
+      'change. Carry-forward entries from v18 unchanged.',
+    autoApplicable: true,
+    addresses: ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'].flatMap((sh) =>
+      ['A55', 'A56', 'A57'].map((cell) => ({ kind: 'address-added' as const, address: `${sh}!${cell}` })),
+    ),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v19 is additive (6 new ledger addresses). Values computed by ' +
+      'computeDocumentCompleteness(sourceDocuments ∪ overlays vs the field-authority ' +
+      'registry) and written post-projection — declared-in-schema, filled-by-display.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

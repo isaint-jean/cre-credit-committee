@@ -113,8 +113,16 @@ import type { RentRoll } from '@cre/contracts';
  * adjustment trail), from resolvedContext.t12.{vintage,creditSignal}. Schema
  * cell comments do not survive to Excel, so these are real cell VALUES in the
  * print area. The v17 slice is carried forward byte-for-byte.
+ *
+ * v19 (2026-06): additive — Document-Completeness Ledger. Declares 3 Operating
+ * History cells (A55 present / A56 missing / A57 coverage) emitting a null
+ * sentinel selector; their text is filled by a downstream render-time display
+ * layer (applyDocumentCompletenessDisplay) that reads cellBindings to honor the
+ * "actually-blank-in-render" sanity gate. Pure derived display — no projection
+ * feedback, no underwriting-value mutation. The v18 slice is carried forward
+ * byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 18;
+export const RENDER_CONTRACT_VERSION = 19;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

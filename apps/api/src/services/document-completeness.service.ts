@@ -20,6 +20,8 @@
  */
 import type { FieldAuthorityRegistry, SourceDocument } from './field-authority.types.js';
 import type { SourceDocumentKind } from '@cre/contracts';
+import type { CellValue } from '@cre/shared';
+import { PROPERTY_AND_LOAN_SUMMARY_REGISTRY } from './field-authority.registry.js';
 
 /** Verified bridge: extraction-side kind → registry-side SourceDocument.
  *  null = no registry equivalent (never satisfies or blocks a registry cell). */
@@ -150,4 +152,41 @@ export function computeDocumentCompleteness(input: DocumentCompletenessInput): D
       appraisalNote: 'appraisal presence not checked (no required-doc mapping)',
     },
   };
+}
+
+/**
+ * Downstream render-time DISPLAY layer (v19). Reads the projected cellBindings,
+ * computes the ledger, and OVERWRITES only the three schema-declared sentinel
+ * cells (A55/A56/A57) on the Operating_ProForma sheet(s) with the section text.
+ *
+ * Purity (the WIRE-(A) condition): this runs AFTER buildRenderPayload, mutates
+ * ONLY the 3 display cells, reads — never writes — every underwriting value, and
+ * does not feed back into projection. buildRenderPayload's "no computation"
+ * doctrine is intact; this is pure downstream display.
+ */
+const LEDGER_RANGES: Record<string, 'present' | 'missing' | 'coverage'> = {
+  A55: 'present', A56: 'missing', A57: 'coverage',
+};
+export function applyDocumentCompletenessDisplay(
+  payload: { cellBindings: Record<string, CellValue> },
+  input: { sourceDocumentKinds: readonly SourceDocumentKind[]; overlayPresence: OverlayPresence },
+): { applied: number; section: { present: string; missing: string; coverage: string } } {
+  const renderedValueByRange = new Map<string, unknown>();
+  for (const [key, value] of Object.entries(payload.cellBindings)) {
+    renderedValueByRange.set(key.split('!').pop() as string, value);
+  }
+  const dc = computeDocumentCompleteness({
+    sourceDocumentKinds: input.sourceDocumentKinds,
+    overlayPresence: input.overlayPresence,
+    registry: PROPERTY_AND_LOAN_SUMMARY_REGISTRY,
+    renderedValueByRange,
+  });
+  const section = formatCompletenessSection(dc);
+  let applied = 0;
+  for (const key of Object.keys(payload.cellBindings)) {
+    const range = key.split('!').pop() as string;
+    const slot = LEDGER_RANGES[range];
+    if (slot) { payload.cellBindings[key] = section[slot]; applied++; }
+  }
+  return { applied, section };
 }

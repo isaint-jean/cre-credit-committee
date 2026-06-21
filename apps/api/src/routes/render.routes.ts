@@ -10,6 +10,7 @@
  */
 import { Router, Request, Response } from 'express';
 import { store } from '../storage/sqlite-store.js';
+import { applyDocumentCompletenessDisplay } from '../services/document-completeness.service.js';
 import {
   buildRenderPayload,
   getAssetClassVariantModeTabs,
@@ -377,6 +378,32 @@ function composeRenderPayloadFromQuery(
   }
   if (clientVersion !== null && clientVersion < payload.contractVersion) {
     payload.migrationsFromClient = getMigrationManifest(clientVersion, payload.contractVersion);
+  }
+
+  // v19 Document-Completeness Ledger — downstream display layer. Reads the
+  // projected cellBindings + this deal's sourceDocuments ∪ populated overlays,
+  // and fills the 3 schema-declared sentinel cells (A55-A57) with the section
+  // text. Pure display: mutates only those cells, never an underwriting value,
+  // never feeds projection. Swallowed like the observability hook — a ledger
+  // failure must never block the export (the cells degrade to blank sentinels).
+  try {
+    const erForDocs = doctrineForRR
+      ? recordGraphStore.getExtractionResult(doctrineForRR.extractionResultId)
+      : null;
+    const sourceDocumentKinds = (erForDocs?.sourceDocuments ?? []).map((d) => d.kind);
+    applyDocumentCompletenessDisplay(payload, {
+      sourceDocumentKinds,
+      overlayPresence: {
+        t12Extraction: !!analysis.t12Extraction,
+        issuerUwExtraction: !!analysis.issuerUwExtraction,
+        sourcesAndUses: !!analysis.sourcesAndUses,
+        pcaExtraction: !!analysis.pcaExtraction,
+        partiesExtraction: !!analysis.partiesExtraction,
+        appraisalExtraction: !!analysis.appraisalExtraction,
+      },
+    });
+  } catch (err) {
+    console.error('[doc-completeness] display fill error (swallowed):', (err as Error)?.message);
   }
 
   return { status: 'ok', payload, analysis, assetClass, structuralVariantKey, underwritingMode };

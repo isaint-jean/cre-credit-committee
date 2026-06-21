@@ -2418,6 +2418,66 @@ const SCHEMA_V18: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v18DefsFor('manufactured_housing') },
 };
 
+// v19 — Document-Completeness Ledger. Three Operating History "Comments:"-area
+// cells (A55 present / A56 missing / A57 coverage), below the v18 T12 notes.
+// DECLARED here (so the addresses are versioned + carry a migration entry) but
+// FILLED by a downstream, render-time DISPLAY layer — the ledger's sanity gate
+// reads OTHER cells' rendered values (to know a loan term is populated), which
+// is unknowable to a pure pre-projection selector. The selector therefore emits
+// a null sentinel; applyDocumentCompletenessDisplay (render.routes) overwrites
+// it with the computed section string after projection. This does NOT mutate any
+// underwriting value or feed back into projection — buildRenderPayload's
+// "no computation" doctrine is intact; the ledger is pure downstream display.
+const V19_DOC_COMPLETENESS_ENTRIES: SchemaEntry[] = [
+  { slot: 'Operating_ProForma', range: 'A55', selector: ctx(() => null), cellState: 'concluded' },
+  { slot: 'Operating_ProForma', range: 'A56', selector: ctx(() => null), cellState: 'concluded' },
+  { slot: 'Operating_ProForma', range: 'A57', selector: ctx(() => null), cellState: 'concluded' },
+];
+
+const V19_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V18_SHARED_ENTRIES,
+  ...V19_DOC_COMPLETENESS_ENTRIES,
+];
+
+function v19Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V19_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v19DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v19Definition(assetClass)];
+}
+
+const SCHEMA_V19: ContractSchema = {
+  office: {
+    office_core:       v19DefsFor('office'),
+    office_trophy:     v19DefsFor('office'),
+    office_value_add:  v19DefsFor('office'),
+    office_distressed: v19DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v19DefsFor('multifamily'),
+    mf_large_scale: v19DefsFor('multifamily'),
+    mf_workforce:   v19DefsFor('multifamily'),
+    mf_value_add:   v19DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v19DefsFor('industrial'),
+    ind_logistics: v19DefsFor('industrial'),
+    ind_light:     v19DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v19DefsFor('retail') },
+  hotel:                { hotel_core:                v19DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v19DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v19DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v19DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2468,6 +2528,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   16: SCHEMA_V16,
   17: SCHEMA_V17,
   18: SCHEMA_V18,
+  19: SCHEMA_V19,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2749,6 +2810,10 @@ function assertSchemaWellFormed(): void {
     // v18 ADDS no new source surface — the 2 new T12-notes cells (R4, A53)
     // read from 'resolvedContext' (c.t12.*), permitted since v7.
     18: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v19 ADDS no new source surface — the 3 ledger cells (A55-A57) emit a null
+    // sentinel selector; their text is filled by the downstream display layer
+    // (not a schema SourceSurface read).
+    19: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
