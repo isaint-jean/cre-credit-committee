@@ -1999,6 +1999,42 @@ function writeTable(workbook: ExcelJS.Workbook, table: TablePayload): boolean {
  * No computation is performed; this is the renderer side of the
  * extraction → library → judgment → adjusted-inputs → metrics → render pipeline.
  */
+// Operating-History historical-period columns + input rows on the standard
+// (non-hotel) 'Operating History and Pro Forma' tab. Columns B/D/F/H are the
+// 3rd-prior / 2nd-prior / prior / T12 trailing-actuals periods. Rows are the
+// numeric INPUT lines only (PGR, Other Income, Reimbursements, the variable +
+// fixed expenses, and the capital items) — the SUBTOTAL/formula rows
+// (10,12,17,27,33,35,42,44) are intentionally excluded (they're formulas).
+// Column J (UW pro-forma) and E16 (real IO-loan amortization 0) are NOT here.
+const OH_HISTORICAL_TAB = 'Operating History and Pro Forma';
+const OH_HISTORICAL_COLUMNS = ['B', 'D', 'F', 'H'] as const;
+const OH_HISTORICAL_INPUT_ROWS = [9, 14, 15, 21, 22, 23, 24, 25, 26, 30, 31, 32, 38, 39, 40] as const;
+
+/**
+ * Blank the template-default 0s in the Operating History tab's historical
+ * trailing-period input cells when no binding populated them. See the call site
+ * in applyRenderPayloadToTemplate for the full rationale + invariants. Guards:
+ * (1) only the standard non-hotel OH tab; (2) skip any cell a binding wrote
+ * (writtenAddresses); (3) never null a formula cell; (4) only clear a literal
+ * numeric 0 (the misleading template default) — leave anything else untouched.
+ */
+function clearAbsentOperatingHistoryZeros(
+  workbook: ExcelJS.Workbook,
+  writtenAddresses: ReadonlySet<string>,
+): void {
+  const ws = workbook.getWorksheet(OH_HISTORICAL_TAB);
+  if (!ws) return; // hotel deals (different tab) or template without it → no-op
+  for (const col of OH_HISTORICAL_COLUMNS) {
+    for (const row of OH_HISTORICAL_INPUT_ROWS) {
+      const ref = `${col}${row}`;
+      if (writtenAddresses.has(`${OH_HISTORICAL_TAB}!${ref}`)) continue; // bound → keep
+      const cell = ws.getCell(ref);
+      if (cell.formula) continue;        // never null a formula
+      if (cell.value === 0) cell.value = null; // strip the misleading default 0 only
+    }
+  }
+}
+
 export async function applyRenderPayloadToTemplate(
   templateBuffer: Buffer,
   payload: RenderPayload,
@@ -2054,6 +2090,27 @@ export async function applyRenderPayloadToTemplate(
     for (const c of cells) writeCellValue(c, value, state, comment, forceOverwrite);
     writtenAddresses.push(address);
   }
+
+  // ── Operating-History historical-column zero cleanup (workbook-polish-zeros) ──
+  // The Blank UW template ships the 'Operating History and Pro Forma' tab's
+  // historical input cells (3rd-prior / 2nd-prior / prior / T12 = columns
+  // B/D/F/H) pre-filled with 0. The render schema binds ONLY column J (the
+  // appraisal pro-forma) and never populates the historical columns, so those
+  // template-default 0s show through as a misleading "$0 across every year" for
+  // deals with no trailing actuals (e.g. JE_TRAILING_ACTUALS_MISSING). Clear
+  // them to blank so absent history reads as absent, not as a real zero.
+  //
+  // Invariant-safe: this mutates already-loaded cells only — it touches NO
+  // cellBindings / schemaAddresses, so the versioned render-schema surface
+  // (RENDER_CONTRACT_VERSION) is byte-identical. No version bump.
+  //
+  // Override precedence: `writtenAddresses` IS the gate. A cell is cleared ONLY
+  // when it is NOT in writtenAddresses — i.e. no binding (today's column-J, or a
+  // future historical-column feature) claimed it. A bound cell keeps its value,
+  // so future per-period values survive untouched. We additionally (a) never
+  // null a formula cell and (b) only clear a literal numeric 0 — so we strip the
+  // template's misleading default zeros and nothing else.
+  clearAbsentOperatingHistoryZeros(workbook, new Set(writtenAddresses));
 
   const visible = new Set(payload.visibleTabs);
   const hiddenSheets: string[] = [];
