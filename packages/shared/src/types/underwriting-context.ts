@@ -469,6 +469,8 @@ export interface ResolvedUnderwritingContext {
     capex:                          ResolvedCellValue;  // H38
     tenantImprovements:             ResolvedCellValue;  // H39
     leasingCommissions:             ResolvedCellValue;  // H40
+    vintage:                        ResolvedCellValue;  // R4 — vintage label (v18)
+    creditSignal:                   ResolvedCellValue;  // A53 — credit signal + trail (v18)
   };
   /**
    * Sources & Uses atoms (S&U ticket). Populated from `analysis.sourcesAndUses`

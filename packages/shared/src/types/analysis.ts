@@ -353,6 +353,10 @@ export interface Analysis {
   // reclassified). Mirrors issuerUwExtraction semantics: pure read-side
   // reference, doctrine stays frozen — the historical column is display only.
   t12Extraction?: import('@cre/contracts').OperatingStatementExtraction | null;
+  // T12 display notes — the must-carry surfacing strings rendered into visible
+  // Operating History cells (R4 vintage label, A53 credit signal). Display-only
+  // overlay (kept out of the extraction contract); deal-specific text.
+  t12Notes?: { vintage: string | null; creditSignal: string | null } | null;
   // Sprint-2 (Borrower / Sponsor ticket) — counterparty identity standalone
   // record. Optional; populated by a deterministic regex extractor over the
   // ASR PDF. Mirrors appraisalExtraction / pcaExtraction / issuerUwExtraction

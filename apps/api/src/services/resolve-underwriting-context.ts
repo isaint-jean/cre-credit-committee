@@ -441,6 +441,8 @@ export function resolveUnderwritingContext(
       capex:                          ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).t12?.capex ?? null),
       tenantImprovements:             ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).t12?.tenantImprovements ?? null),
       leasingCommissions:             ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).t12?.leasingCommissions ?? null),
+      vintage:                        ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).t12?.vintage ?? null),
+      creditSignal:                   ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).t12?.creditSignal ?? null),
     },
     parties: {
       borrowerName: ALLOWED_OPS.passthrough<ResolvedCellValue>(ctx.parties?.borrowerName ?? null),

@@ -33,20 +33,19 @@ const T12 = {
   belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
 };
 
-const MUST_CARRY =
-  'T12 HISTORICAL (Operating History column H) — FINAL-vintage borrower actuals, ' +
-  'period Mar 2023–Feb 2024 (statement 3/25/2024).\n' +
-  'ADJUSTMENT TRAIL: reported NOI $6,952,470 − one-time lease-termination fee ' +
-  '$2,850,631 (acct 420625, Jul-2023) − reclassify operating electric $228,405 ' +
-  '(681089 vacant-space $82,869 + 681097 GSA $145,536, moved from below-NOI into ' +
-  'utilities) = derived T12 NOI $3,873,434. Ties to the issuer completed-UW T12 ' +
-  '($3,863,842) within ~$9.6K (~0.25%, category-mapping rounding — honest residual).\n' +
-  'VINTAGE ASYMMETRY: this T12 column is FINAL-vintage actuals; the loan terms on ' +
-  'this deal remain PRELIM vintage. Do not read the two as a single vintage.\n' +
-  'RED FLAG (credit signal, not just an accounting footnote): a tenant paid $2.85M ' +
-  'to terminate early in the trailing period, and the window also carries ' +
-  'vacant-space electric ($82,869) — a tenant-departure / rollover + carried-' +
-  'vacancy signal for the memo.';
+// v18 — the must-carry payload, surfaced as VISIBLE Operating History cell
+// values (A53 vintage / A54 credit signal), each ≤240 chars to fit the A:R band.
+const T12_NOTES = {
+  vintage:
+    'T12 column = FINAL-vintage actuals (borrower statement 3/25/2024, period ' +
+    'Mar 2023–Feb 2024). Loan terms on this deal remain PRELIM vintage — do not ' +
+    'read the T12 and the loan as a single vintage.',
+  creditSignal:
+    'Lease-termination fee $2,850,631 (acct 420625, Jul-2023) normalized out of ' +
+    'T12 income; tenant paid to exit — rollover/vacancy signal. T12 NOI ' +
+    '$3,873,434 = reported $6,952,470 − fee $2,850,631 − operating electric ' +
+    'reclassified $228,405.',
+};
 
 const db = new Database(DB);
 const row = db.prepare('SELECT data FROM analyses WHERE id = ?').get(ANALYSIS_ID) as { data: string } | undefined;
@@ -55,18 +54,21 @@ const data = JSON.parse(row.data);
 
 console.log('=== persist-sunroad-t12 ===');
 console.log('  DB:', DB, '| APPLY:', APPLY);
-console.log('  before: t12Extraction present?', !!data.t12Extraction);
+console.log('  before: t12Extraction present?', !!data.t12Extraction, '| t12Notes present?', !!data.t12Notes, '| comments:', (data.comments || []).length);
 
 const now = new Date().toISOString();
 data.t12Extraction = T12;
-data.comments = Array.isArray(data.comments) ? data.comments : [];
-data.comments.push({
-  id: randomUUID(), analysisId: ANALYSIS_ID, sectionId: 'operating-history',
-  stance: 'note', text: MUST_CARRY, author: 'system:t12-normalization',
-  createdAt: now, updatedAt: now,
-});
-
-console.log('  after:  t12Extraction.noi =', data.t12Extraction.noi, '| comments +1 (must-carry note)');
+data.t12Notes = T12_NOTES;
+// v18 single-home cleanup: the prior dormant data.comments stamp (author
+// system:t12-normalization) is superseded by t12Notes (the consumed location).
+// Remove it so there is exactly one home for the note. (randomUUID retained
+// import-free; no new comment is written.)
+void randomUUID;
+const beforeComments = (data.comments || []).length;
+data.comments = (Array.isArray(data.comments) ? data.comments : []).filter(
+  (c: { author?: string }) => c?.author !== 'system:t12-normalization',
+);
+console.log('  after:  t12Extraction.noi =', data.t12Extraction.noi, '| t12Notes set | dormant comments removed:', beforeComments - data.comments.length);
 
 if (!APPLY) {
   console.log('\nDRY-RUN — no write. Re-run with --apply (after backup + copy-verify) to write live.');

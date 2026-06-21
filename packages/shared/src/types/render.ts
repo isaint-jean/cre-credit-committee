@@ -107,8 +107,14 @@ import type { RentRoll } from '@cre/contracts';
  * the normalized borrower 12-month statement), mirroring the issuer-UW column L.
  * The column was previously honest-blank (no source). Display-only; doctrine
  * frozen. The v16 slice is carried forward byte-for-byte.
+ *
+ * v18 (2026-06): additive — surfaces the T12 must-carry payload as VISIBLE
+ * Operating History cell values: R4 (vintage label) + A53 (credit signal +
+ * adjustment trail), from resolvedContext.t12.{vintage,creditSignal}. Schema
+ * cell comments do not survive to Excel, so these are real cell VALUES in the
+ * print area. The v17 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 17;
+export const RENDER_CONTRACT_VERSION = 18;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

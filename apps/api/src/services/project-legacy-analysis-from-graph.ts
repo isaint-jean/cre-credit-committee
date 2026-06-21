@@ -297,6 +297,7 @@ export function projectLegacyAnalysisFromGraph(
     pcaExtraction: projectedPcaExtraction,
     issuerUwExtraction: projectedIssuerUwExtraction,
     t12Extraction: projectedT12Extraction,
+    t12Notes: analysis.t12Notes ?? null,
     appraisalExtraction: projectedAppraisalExtraction,
     partiesExtraction: projectedPartiesExtraction,
     sourcesAndUses: projectedSourcesAndUses,

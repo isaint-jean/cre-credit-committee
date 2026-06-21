@@ -804,6 +804,23 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v17Additions];
 })();
 
+// v18 carry-forward + the 2 T12-notes cells (R4 vintage, A53 credit signal),
+// across both Operating_ProForma sheets (standard + hotel). Fresh FULL_MODERN
+// property cells sourced from resolvedContext.t12.{vintage,creditSignal}.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[18] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[17] ?? [];
+  const sheets = ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'];
+  const v18Additions: FieldStateDeclaration[] = sheets.flatMap((sh) =>
+    ['A53', 'A54'].map((cell) => ({
+      address: `${sh}!${cell}`,
+      group: 'property' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v18. resolvedContext.t12.{vintage,creditSignal} — visible T12 must-carry notes (vintage label / credit signal).',
+    })),
+  );
+  return [...carryForward, ...v18Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

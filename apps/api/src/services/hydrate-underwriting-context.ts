@@ -523,6 +523,9 @@ function buildIssuerUwAtoms(analysis: Analysis): Record<string, number | string 
  *  buildIssuerUwAtoms; reads analysis.t12Extraction. All-null when absent. */
 function buildT12Atoms(analysis: Analysis): Record<string, number | string | null> {
   const t12 = analysis.t12Extraction;
+  // v18 — display notes (independent of the numeric extraction).
+  const vintage = analysis.t12Notes?.vintage ?? null;
+  const creditSignal = analysis.t12Notes?.creditSignal ?? null;
   if (!t12) {
     return {
       pgr: null, economicOccupancy: null, badDebt: null,
@@ -531,6 +534,7 @@ function buildT12Atoms(analysis: Analysis): Record<string, number | string | nul
       expensesUtilities: null, expensesOtherVariable: null,
       expensesManagement: null, expensesTaxes: null, expensesInsurance: null,
       capex: null, tenantImprovements: null, leasingCommissions: null,
+      vintage, creditSignal,
     };
   }
   const pgr = t12.income.grossPotentialRent;
@@ -555,6 +559,7 @@ function buildT12Atoms(analysis: Analysis): Record<string, number | string | nul
     capex:                         t12.belowNoiAdjustments.replacementReserves ?? null,
     tenantImprovements:            t12.belowNoiAdjustments.tenantImprovements ?? null,
     leasingCommissions:            t12.belowNoiAdjustments.leasingCommissions ?? null,
+    vintage, creditSignal,
   };
 }
 

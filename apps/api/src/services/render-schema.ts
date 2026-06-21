@@ -2362,6 +2362,62 @@ const SCHEMA_V17: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v17DefsFor('manufactured_housing') },
 };
 
+// v18 — surface the T12 must-carry payload as VISIBLE Operating History cell
+// values (not comments, which don't survive to Excel). Both go in the "Comments:"
+// section (A52 header): A53 = vintage label, A54 = credit signal + trail. Column
+// A (width ~30) overflows rightward across the empty A:R band (~240 char/row,
+// inside the A1:R78 print area), so each note is fully legible on its own row —
+// unlike the rightmost "Notes:" cell (R4), which clips off the right edge.
+// Sourced from resolvedContext.t12.{vintage,creditSignal} (analysis.t12Notes).
+const V18_T12_NOTES_ENTRIES: SchemaEntry[] = [
+  { slot: 'Operating_ProForma', range: 'A53', selector: ctx((c) => (c as never as { t12: Record<string, CellValue> }).t12.vintage),      cellState: 'concluded' },
+  { slot: 'Operating_ProForma', range: 'A54', selector: ctx((c) => (c as never as { t12: Record<string, CellValue> }).t12.creditSignal), cellState: 'concluded' },
+];
+
+const V18_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V17_SHARED_ENTRIES,
+  ...V18_T12_NOTES_ENTRIES,
+];
+
+function v18Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V18_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v18DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v18Definition(assetClass)];
+}
+
+const SCHEMA_V18: ContractSchema = {
+  office: {
+    office_core:       v18DefsFor('office'),
+    office_trophy:     v18DefsFor('office'),
+    office_value_add:  v18DefsFor('office'),
+    office_distressed: v18DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v18DefsFor('multifamily'),
+    mf_large_scale: v18DefsFor('multifamily'),
+    mf_workforce:   v18DefsFor('multifamily'),
+    mf_value_add:   v18DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v18DefsFor('industrial'),
+    ind_logistics: v18DefsFor('industrial'),
+    ind_light:     v18DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v18DefsFor('retail') },
+  hotel:                { hotel_core:                v18DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v18DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v18DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v18DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2411,6 +2467,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   15: SCHEMA_V15,
   16: SCHEMA_V16,
   17: SCHEMA_V17,
+  18: SCHEMA_V18,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2689,6 +2746,9 @@ function assertSchemaWellFormed(): void {
     // 'resolvedContext' (c.t12.*), permitted since v7. All v16 entries carry
     // forward verbatim.
     17: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v18 ADDS no new source surface — the 2 new T12-notes cells (R4, A53)
+    // read from 'resolvedContext' (c.t12.*), permitted since v7.
+    18: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

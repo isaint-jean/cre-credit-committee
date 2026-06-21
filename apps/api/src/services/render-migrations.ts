@@ -910,6 +910,34 @@ const MIGRATIONS: RenderContractMigration[] = [
       'analogous to the issuer-UW seam. Vintage asymmetry (T12 FINAL vs loan ' +
       'PRELIM) + the lease-termination red flag carried on the H9 cell comment.',
   },
+  {
+    fromVersion: 17,
+    toVersion: 18,
+    description:
+      'T12 must-carry surfacing. Binds two VISIBLE Operating History cells from ' +
+      'resolvedContext.t12.{vintage,creditSignal} (analysis.t12Notes), both in ' +
+      'the Operating History "Comments:" section: A53 = the vintage label (T12 ' +
+      'FINAL vs loan PRELIM); A54 = the lease-termination credit signal + ' +
+      'adjustment trail. Schema cell comments do not survive to Excel (the ' +
+      'criterion-3 lesson) — these are real cell VALUES inside the print area ' +
+      '(A1:R78), so a reviewer of the B-piece workbook actually sees them. v18 ' +
+      'ADDS exactly 2 cell addresses; no new SheetSlot, no source surface ' +
+      '(resolvedContext permitted since v7), no payload-shape change. ' +
+      'Carry-forward entries from v17 unchanged.',
+    autoApplicable: true,
+    addresses: ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'].flatMap((sh) =>
+      ['A53', 'A54'].map((cell) => ({ kind: 'address-added' as const, address: `${sh}!${cell}` })),
+    ),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v18 is additive (2 new note addresses). Threads analysis.t12Notes → the ' +
+      'c.t12.{vintage,creditSignal} atoms (hydrate buildT12Atoms + resolver ' +
+      'passthrough). The dormant analyses.data.comments stamp is superseded by ' +
+      'this consumed location and removed in the same re-stamp (single home).',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------
