@@ -782,6 +782,28 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward];
 })();
 
+// v17 carry-forward + the 16 T12 column-H cells. Fresh FULL_MODERN
+// financial_core cells sourced from resolvedContext.t12.* — same group/state as
+// the v10 issuer-UW column-L cells (the Operating History period columns are
+// symmetric).
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[17] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[16] ?? [];
+  const cells = ['H9', 'H6', 'H11', 'H13', 'H14', 'H15', 'H22', 'H24',
+                 'H25', 'H26', 'H30', 'H31', 'H32', 'H38', 'H39', 'H40'];
+  // The Operating_ProForma slot resolves to two distinct sheets across asset
+  // classes (standard + hotel) — declare both, exactly as the issuer-UW L cells.
+  const sheets = ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'];
+  const v17Additions: FieldStateDeclaration[] = sheets.flatMap((sh) =>
+    cells.map((cell) => ({
+      address: `${sh}!${cell}`,
+      group: 'financial_core' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v17. resolvedContext.t12.* — normalized borrower 12-month statement (T12 historical column). Same shape as the issuer-UW column-L cells.',
+    })),
+  );
+  return [...carryForward, ...v17Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

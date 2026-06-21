@@ -260,9 +260,13 @@ export function projectLegacyAnalysisFromGraph(
   // analyst-edited value.
   let projectedPcaExtraction = analysis.pcaExtraction;
   let projectedIssuerUwExtraction = analysis.issuerUwExtraction;
+  // T12 historical overlay — analysis.t12Extraction PRIMARY (stamped on the
+  // analyses row), fallback er.t12Actual. Mirrors the issuer-UW seam.
+  let projectedT12Extraction = analysis.t12Extraction;
   if (
     (projectedPcaExtraction === null || projectedPcaExtraction === undefined ||
-     projectedIssuerUwExtraction === null || projectedIssuerUwExtraction === undefined) &&
+     projectedIssuerUwExtraction === null || projectedIssuerUwExtraction === undefined ||
+     projectedT12Extraction === null || projectedT12Extraction === undefined) &&
     doctrine !== null
   ) {
     const er = store.getExtractionResult(doctrine.extractionResultId);
@@ -271,6 +275,9 @@ export function projectLegacyAnalysisFromGraph(
     }
     if (er?.sellerUwOperatingStatement && (projectedIssuerUwExtraction === null || projectedIssuerUwExtraction === undefined)) {
       projectedIssuerUwExtraction = er.sellerUwOperatingStatement;
+    }
+    if (er?.t12Actual && (projectedT12Extraction === null || projectedT12Extraction === undefined)) {
+      projectedT12Extraction = er.t12Actual;
     }
   }
 
@@ -289,6 +296,7 @@ export function projectLegacyAnalysisFromGraph(
     propertyMetadata: projectedPropertyMetadata,
     pcaExtraction: projectedPcaExtraction,
     issuerUwExtraction: projectedIssuerUwExtraction,
+    t12Extraction: projectedT12Extraction,
     appraisalExtraction: projectedAppraisalExtraction,
     partiesExtraction: projectedPartiesExtraction,
     sourcesAndUses: projectedSourcesAndUses,

@@ -101,8 +101,14 @@ import type { RentRoll } from '@cre/contracts';
  * branch — the −$86M 10-Yr Pro Forma cash flow. v16 emits ioMonths (60, in
  * months), matching Interest_Only_Period; no new address (selector re-point on
  * an existing cell). The v15 slice is carried forward byte-for-byte.
+ *
+ * v17 (2026-06): additive — binds the T12 historical column (16 Operating
+ * History column-H cells) from resolvedContext.t12.* (analysis.t12Extraction —
+ * the normalized borrower 12-month statement), mirroring the issuer-UW column L.
+ * The column was previously honest-blank (no source). Display-only; doctrine
+ * frozen. The v16 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 16;
+export const RENDER_CONTRACT_VERSION = 17;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

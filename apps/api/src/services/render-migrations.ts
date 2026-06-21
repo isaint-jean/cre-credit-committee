@@ -878,6 +878,38 @@ const MIGRATIONS: RenderContractMigration[] = [
       'date / term field in the extraction), but ioMonths is strictly better ' +
       'than the prior remaining-term and exact for full-term-IO deals.',
   },
+  {
+    fromVersion: 16,
+    toVersion: 17,
+    description:
+      'T12 historical column render wire. Binds the 16 Operating History ' +
+      'column-H input cells (H6/H9/H11/H13/H14/H15/H22/H24/H25/H26/H30/H31/H32/' +
+      'H38/H39/H40) from resolvedContext.t12.* (analysis.t12Extraction — the ' +
+      'normalized borrower 12-month operating statement), mirroring the issuer-' +
+      'UW column L cell-for-cell. The H10/H12/H17/H27/H33/H35 subtotals are ' +
+      'formulas and are NOT bound. Display-only historical column — doctrine ' +
+      'stays frozen. v17 ADDS exactly 16 cell addresses; no new SheetSlot, no ' +
+      'source surface (resolvedContext permitted since v7), no payload-shape ' +
+      'change, no namespace change. Carry-forward entries from v16 unchanged.',
+    autoApplicable: true,
+    addresses: ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'].flatMap((sh) =>
+      ['H6', 'H9', 'H11', 'H13', 'H14', 'H15', 'H22', 'H24', 'H25', 'H26', 'H30', 'H31', 'H32', 'H38', 'H39', 'H40'].map((cell) => ({
+        kind: 'address-added' as const,
+        address: `${sh}!${cell}`,
+      })),
+    ),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v17 is additive on the schema surface (16 new T12 addresses). v16-pinned ' +
+      'templates keep rendering identically; v17 becomes the default for new ' +
+      'exports. Threads the normalized T12 actuals through analysis.t12Extraction ' +
+      '→ the c.t12.* context atoms (hydrate buildT12Atoms + resolver passthrough), ' +
+      'analogous to the issuer-UW seam. Vintage asymmetry (T12 FINAL vs loan ' +
+      'PRELIM) + the lease-termination red flag carried on the H9 cell comment.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

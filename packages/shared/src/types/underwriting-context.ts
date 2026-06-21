@@ -254,6 +254,10 @@ export interface UnderwritingContext {
    *  `analysis.issuerUwExtraction` when present; absent otherwise. Schema
    *  selectors read this via `ResolvedUnderwritingContext.issuerUw`. */
   issuerUw?: Readonly<Record<string, number | string | null>>;
+  /** T12 historical-actuals atoms (column H). Populated from
+   *  `analysis.t12Extraction` when present; absent otherwise. Schema selectors
+   *  read this via `ResolvedUnderwritingContext.t12`. */
+  t12?: Readonly<Record<string, number | string | null>>;
   /** Sources & Uses atoms (S&U ticket). Populated from
    *  `analysis.sourcesAndUses` (the ASR's deterministically-parsed S&U table)
    *  when present; absent otherwise. Schema selectors read this via
@@ -440,6 +444,31 @@ export interface ResolvedUnderwritingContext {
     capex:                          ResolvedCellValue;  // L38 — belowNoiAdjustments.replacementReserves
     tenantImprovements:             ResolvedCellValue;  // L39
     leasingCommissions:             ResolvedCellValue;  // L40
+  };
+  /**
+   * T12 historical-actuals atoms (column H). Populated from
+   * `analysis.t12Extraction` (the normalized borrower 12-month statement) when
+   * present, all null otherwise. Same shape as `issuerUw` (column L) — the
+   * Operating History period columns are symmetric. Display-only; the H35 NOI
+   * formula sums these inputs.
+   */
+  readonly t12: {
+    pgr:                            ResolvedCellValue;  // H9
+    economicOccupancy:              ResolvedCellValue;  // H6
+    badDebt:                        ResolvedCellValue;  // H11
+    uwAdjustments:                  ResolvedCellValue;  // H13 (null for T12 actuals)
+    otherIncome:                    ResolvedCellValue;  // H14
+    reimbursements:                 ResolvedCellValue;  // H15
+    expensesGeneralAdmin:           ResolvedCellValue;  // H22
+    expensesRepairsMaintenance:     ResolvedCellValue;  // H24
+    expensesUtilities:              ResolvedCellValue;  // H25
+    expensesOtherVariable:          ResolvedCellValue;  // H26
+    expensesManagement:             ResolvedCellValue;  // H30
+    expensesTaxes:                  ResolvedCellValue;  // H31
+    expensesInsurance:              ResolvedCellValue;  // H32
+    capex:                          ResolvedCellValue;  // H38
+    tenantImprovements:             ResolvedCellValue;  // H39
+    leasingCommissions:             ResolvedCellValue;  // H40
   };
   /**
    * Sources & Uses atoms (S&U ticket). Populated from `analysis.sourcesAndUses`

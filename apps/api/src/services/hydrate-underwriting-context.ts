@@ -369,6 +369,8 @@ export function hydrateUnderwritingContext(
     // Sprint-1 Column L issuer-UW atoms — seller GS U/W column for
     // Operating ProForma L9–L40.
     issuerUw: buildIssuerUwAtoms(s.analysis),
+    // T12 historical-actuals atoms (column H). Same shape as issuerUw.
+    t12: buildT12Atoms(s.analysis),
     // Sources & Uses atoms — ASR S&U table for Property & Loan Summary
     // F28–F31 / K30. All-null when `analysis.sourcesAndUses` is absent.
     sourcesUses: buildSourcesUsesAtoms(s.analysis),
@@ -514,6 +516,45 @@ function buildIssuerUwAtoms(analysis: Analysis): Record<string, number | string 
     capex:                         uw.belowNoiAdjustments.replacementReserves ?? null,
     tenantImprovements:            uw.belowNoiAdjustments.tenantImprovements ?? null,
     leasingCommissions:            uw.belowNoiAdjustments.leasingCommissions ?? null,
+  };
+}
+
+/** Atom-builder for the T12 historical column (H). Same mapping as
+ *  buildIssuerUwAtoms; reads analysis.t12Extraction. All-null when absent. */
+function buildT12Atoms(analysis: Analysis): Record<string, number | string | null> {
+  const t12 = analysis.t12Extraction;
+  if (!t12) {
+    return {
+      pgr: null, economicOccupancy: null, badDebt: null,
+      uwAdjustments: null, otherIncome: null, reimbursements: null,
+      expensesGeneralAdmin: null, expensesRepairsMaintenance: null,
+      expensesUtilities: null, expensesOtherVariable: null,
+      expensesManagement: null, expensesTaxes: null, expensesInsurance: null,
+      capex: null, tenantImprovements: null, leasingCommissions: null,
+    };
+  }
+  const pgr = t12.income.grossPotentialRent;
+  const economicOccupancy =
+    typeof pgr === 'number' && pgr > 0 && typeof t12.vacancyLoss === 'number'
+      ? 1 - (-t12.vacancyLoss / pgr)
+      : null;
+  return {
+    pgr,
+    economicOccupancy,
+    badDebt:                       null,
+    uwAdjustments:                 t12.income.uwAdjustments ?? null,
+    otherIncome:                   t12.income.otherIncome ?? null,
+    reimbursements:                t12.expenses.reimbursements ?? null,
+    expensesGeneralAdmin:          t12.expenses.generalAndAdmin ?? null,
+    expensesRepairsMaintenance:    t12.expenses.repairsMaintenance ?? null,
+    expensesUtilities:             t12.expenses.utilities ?? null,
+    expensesOtherVariable:         t12.expenses.janitorial ?? null,
+    expensesManagement:            t12.expenses.managementFees ?? null,
+    expensesTaxes:                 t12.expenses.taxes ?? null,
+    expensesInsurance:             t12.expenses.insurance ?? null,
+    capex:                         t12.belowNoiAdjustments.replacementReserves ?? null,
+    tenantImprovements:            t12.belowNoiAdjustments.tenantImprovements ?? null,
+    leasingCommissions:            t12.belowNoiAdjustments.leasingCommissions ?? null,
   };
 }
 

@@ -2273,6 +2273,95 @@ const SCHEMA_V16: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v16DefsFor('manufactured_housing') },
 };
 
+// v17 — bind the T12 historical column (H) on Operating History from
+// resolvedContext.t12.* (analysis.t12Extraction — the normalized borrower
+// 12-month statement). Mirrors the issuer-UW column L cell-for-cell (same 16
+// input rows; the H10/H12/H17/H27/H33/H35 subtotals are formulas, never bound).
+// Display-only historical column — doctrine stays frozen. Column H was
+// previously honest-blank (no source); v17 fills it from the FINAL-vintage
+// borrower actuals while the loan terms remain PRELIM vintage (asymmetry noted
+// in the H9 cell comment).
+const v17T12 = (range: string, atom: string, comment?: () => string): SchemaEntry => ({
+  slot: 'Operating_ProForma', range,
+  selector: ctx((c) => (c as never as { t12: Record<string, CellValue> }).t12[atom]),
+  cellState: 'concluded',
+  ...(comment ? { comment } : {}),
+});
+
+const V17_T12_ENTRIES: SchemaEntry[] = [
+  v17T12('H9', 'pgr', () =>
+    'T12 historical actuals — borrower 12-month operating statement, period ' +
+    'Mar 2023–Feb 2024 (FINAL vintage 3/25/2024). NORMALIZATIONS: (1) one-time ' +
+    'lease-termination fee $2,850,631 (acct 420625, Jul-2023) EXCLUDED from ' +
+    'income; (2) operating electric $228,405 (Vacant-Space $82,869 + GSA ' +
+    '$145,536) reclassified from below-NOI into utilities. Derived T12 NOI ' +
+    '$3,873,434; ties to the issuer completed-UW T12 ($3,863,842) within ~$9.6K ' +
+    '(~0.25%, category-mapping rounding). VINTAGE ASYMMETRY: this T12 column is ' +
+    'FINAL-vintage actuals; the loan terms on this deal remain PRELIM vintage. ' +
+    'RED FLAG: a tenant paid $2.85M to terminate early in the trailing period ' +
+    'and the window also carries vacant-space electric — a tenant-departure / ' +
+    'rollover signal for the memo, not just a normalization.'),
+  v17T12('H6', 'economicOccupancy'),
+  v17T12('H11', 'badDebt'),
+  v17T12('H13', 'uwAdjustments'),
+  v17T12('H14', 'otherIncome'),
+  v17T12('H15', 'reimbursements'),
+  v17T12('H22', 'expensesGeneralAdmin'),
+  v17T12('H24', 'expensesRepairsMaintenance'),
+  v17T12('H25', 'expensesUtilities'),
+  v17T12('H26', 'expensesOtherVariable'),
+  v17T12('H30', 'expensesManagement'),
+  v17T12('H31', 'expensesTaxes'),
+  v17T12('H32', 'expensesInsurance'),
+  v17T12('H38', 'capex'),
+  v17T12('H39', 'tenantImprovements'),
+  v17T12('H40', 'leasingCommissions'),
+];
+
+const V17_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V16_SHARED_ENTRIES,
+  ...V17_T12_ENTRIES,
+];
+
+function v17Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V17_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v17DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v17Definition(assetClass)];
+}
+
+const SCHEMA_V17: ContractSchema = {
+  office: {
+    office_core:       v17DefsFor('office'),
+    office_trophy:     v17DefsFor('office'),
+    office_value_add:  v17DefsFor('office'),
+    office_distressed: v17DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v17DefsFor('multifamily'),
+    mf_large_scale: v17DefsFor('multifamily'),
+    mf_workforce:   v17DefsFor('multifamily'),
+    mf_value_add:   v17DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v17DefsFor('industrial'),
+    ind_logistics: v17DefsFor('industrial'),
+    ind_light:     v17DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v17DefsFor('retail') },
+  hotel:                { hotel_core:                v17DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v17DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v17DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v17DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2321,6 +2410,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   14: SCHEMA_V14,
   15: SCHEMA_V15,
   16: SCHEMA_V16,
+  17: SCHEMA_V17,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2595,6 +2685,10 @@ function assertSchemaWellFormed(): void {
     // existing cell (Balloon_Term) to 'resolvedContext' (c.loan.ioMonths),
     // permitted since v7. All v15 entries carry forward verbatim.
     16: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v17 ADDS no new source surface — the 16 new T12 column-H cells read from
+    // 'resolvedContext' (c.t12.*), permitted since v7. All v16 entries carry
+    // forward verbatim.
+    17: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

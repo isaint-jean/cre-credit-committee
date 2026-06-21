@@ -347,6 +347,12 @@ export interface Analysis {
   // Optional; mirrors pcaExtraction / appraisalExtraction semantics: pure
   // read-side, doctrine stays frozen.
   issuerUwExtraction?: import('@cre/contracts').OperatingStatementExtraction | null;
+  // T12 historical actuals (T12 column H on Operating History). Optional;
+  // populated by a deterministic normalization of the borrower's 12-month
+  // operating statement (one-time items excluded, below-NOI operating costs
+  // reclassified). Mirrors issuerUwExtraction semantics: pure read-side
+  // reference, doctrine stays frozen — the historical column is display only.
+  t12Extraction?: import('@cre/contracts').OperatingStatementExtraction | null;
   // Sprint-2 (Borrower / Sponsor ticket) — counterparty identity standalone
   // record. Optional; populated by a deterministic regex extractor over the
   // ASR PDF. Mirrors appraisalExtraction / pcaExtraction / issuerUwExtraction
