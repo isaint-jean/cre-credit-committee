@@ -114,7 +114,22 @@ export async function appendSourceDocToDeal(
   if (doctrineEval === null) throw new Error(`append: parent doctrine evaluation not found`);
   const assetProfile = graph.getAssetProfile(doctrineEval.assetProfileId);
   if (assetProfile === null) throw new Error(`append: parent asset profile not found`);
+  const parentAdjustedInputs = graph.getAdjustedInputs(parentEnv.adjustedInputsId);
+  if (parentAdjustedInputs === null) throw new Error(`append: parent adjusted inputs not found`);
   const lineageRoot = parentEnv.lineageRootId; // deal-doc store key (stable across revisions)
+
+  // Reconstruct the parent's CURRENT (adjusted) loan economics into the
+  // LoanTermsExtraction the composer expects, so the child re-extraction carries
+  // the deal's loan terms — not a blank. Source of truth = parent AdjustedInputs
+  // (inherit the adjusted terms, not the raw original).
+  const pl = parentAdjustedInputs.loan;
+  const loanTerms: import('@cre/contracts').LoanTermsExtraction = {
+    loanAmount: pl.loanAmount.adjusted,
+    interestRate: pl.interestRate.adjusted,
+    amortization: pl.amortizationMonths.adjusted,
+    interestOnlyPeriod: pl.ioPeriodMonths.adjusted,
+    maturityDate: pl.maturityDate,
+  };
 
   // 2. Assemble docs: prior (from (a)) + new. Map slot → composer InputSlots.
   const prior = await getDealSourceDocs(lineageRoot);
@@ -133,6 +148,7 @@ export async function appendSourceDocToDeal(
     slots: slots as InputSlots,
     analysisAsOfDate: doctrineEval.analysisAsOfDate,
     dealRef: analysis.name ?? args.analysisId,
+    loanTerms,
   });
 
   // 4. PRESERVE-AND-FLAG overlay divergences (own channel; PRESERVE is automatic).
