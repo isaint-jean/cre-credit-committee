@@ -749,6 +749,46 @@ export const api = {
     return res.json();
   },
 
+  // Append a source document to an existing deal → re-ingest as a CHILD revision.
+  // Mirrors buildAndIngest's multipart (file field "document" + body "slot"; no
+  // Content-Type so the browser sets the boundary). Returns a result UNION so the
+  // UI can branch on the structured error (e.g. 422 no_eval_context) without
+  // string-parsing a thrown Error.
+  appendDocument: async (
+    id: string,
+    slot: string,
+    file: File,
+  ): Promise<
+    | {
+        ok: true;
+        childRevisionId: string;
+        revisionOrdinal: number;
+        overlayDivergences: Array<{ overlay: string; detail: string }>;
+        newDocPersist: { slot: string; status: 'ok' | 'error'; fileHash?: string; message?: string };
+      }
+    | { ok: false; status: number; error: string; message: string }
+  > => {
+    const fd = new FormData();
+    fd.append('document', file);
+    fd.append('slot', slot);
+    const res = await fetch(`${API_BASE}/analyses/${id}/append-document`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+      body: fd,
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText, message: res.statusText }));
+      return { ok: false, status: res.status, error: body.error ?? 'append_failed', message: body.message ?? body.error ?? 'Upload failed' };
+    }
+    const body = await res.json();
+    return { ok: true, ...body };
+  },
+
   // ---------------------------------------------------------------------------
   // Kicks registry (#34 follow-up) — institutional memory of rejected deals.
   // ---------------------------------------------------------------------------

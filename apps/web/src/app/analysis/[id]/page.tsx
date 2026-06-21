@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
+import { AddDocumentControl } from '@/components/AddDocumentControl';
 import {
   formatCurrencyFull,
   formatPercent,
@@ -109,6 +110,24 @@ export default function AnalysisDashboard() {
     fetchAnalysis();
     interval = setInterval(fetchAnalysis, 2000);
     return () => clearInterval(interval);
+  }, [id]);
+
+  // One-shot re-fetch for post-append re-render. After an append the deal's row
+  // advances to the CHILD revision (content-hash-immutable), so a single fetch —
+  // not the polling loop — re-renders the now-advanced deal + its projections.
+  const refetchAfterAppend = useCallback(async () => {
+    try {
+      const response = await api.getAnalysis(id);
+      if (response.kind === 'rendered') {
+        setRendered(response.body);
+        const rootId = response.body.rootId;
+        try { setWorkflow(await api.getWorkflowState(rootId)); } catch {}
+        try { setTimeline(await api.getCommitteeTimeline(rootId)); } catch {}
+        try { setHandbookEvaluation(await api.getHandbookEvaluation(rootId)); } catch {}
+      } else {
+        setAnalysis(response.body.analysis as Analysis);
+      }
+    } catch { /* soft — the panel already showed success */ }
   }, [id]);
 
   const handleAddComment = useCallback(async (sectionId: string, findingId?: string) => {
@@ -257,6 +276,12 @@ export default function AnalysisDashboard() {
           <span className="badge badge-medium">{analysis.assetType.toUpperCase()}</span>
         </div>
         <div className="flex items-center gap-3">
+          {/* Append a source document → re-ingest as a child revision. Only for
+              graph-backed deals; deals predating the eval-context enabler get a
+              clear 422 message from the control. */}
+          {analysis.graphRevisionId && (
+            <AddDocumentControl analysisId={analysis.id} onAppended={refetchAfterAppend} />
+          )}
           {/* Bank Underwriter and BP Spire Underwriter — both use the SAME
               unified Excel export pipeline (/api/underwriting/export). They
               differ only in the `profile` parameter (input configuration).
