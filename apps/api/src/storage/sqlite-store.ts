@@ -49,7 +49,12 @@ export class SqliteStore {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    this.db = new Database(DB_PATH);
+    // Test seam: honor a real file-path override (e.g. a cre.db COPY) so
+    // copy-bound verifies never touch the live db. Default behavior unchanged —
+    // the prod singleton (no arg) resolves `undefined ?? DB_PATH` = DB_PATH.
+    // migrate() is CREATE-IF-NOT-EXISTS and the seeds are INSERT-OR-IGNORE, so
+    // opening an EXISTING copy is non-clobbering (idempotent).
+    this.db = new Database(dbPathOverride ?? DB_PATH);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
