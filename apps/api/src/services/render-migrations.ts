@@ -845,6 +845,39 @@ const MIGRATIONS: RenderContractMigration[] = [
       '(hydrate-underwriting-context.ts buildPropertyAtoms, analogous to ' +
       'loanPurpose).',
   },
+  {
+    fromVersion: 15,
+    toVersion: 16,
+    description:
+      'Balloon_Term corrective override. Re-points an EXISTING bound cell ' +
+      '(Property & Loan Summary!Balloon_Term) from ctxLoanMonthsToYears(' +
+      'termMonths) to c.loan.ioMonths. The old binding emitted round(27/12)=2 — ' +
+      'wrong SOURCE (termMonths = remaining term from the as-of, not the ' +
+      'original) and wrong UNIT (years; the template consumes Balloon_Term in ' +
+      'MONTHS). That made the amortization balloon fire at month 2 and forced ' +
+      'Annual_Debt_Service onto the degenerate amortizing PMT branch (since ' +
+      'IO=60 ≠ 2) — the −$86M 10-Yr Pro Forma cash flow. v16 emits ioMonths ' +
+      '(60, in months), matching Interest_Only_Period, so the balloon fires at ' +
+      'month 60 and Annual_Debt_Service takes the IO branch (≈$6.09M). v16 ADDS ' +
+      'NO cell address (selector re-point on an existing cell) and no source ' +
+      'surface (resolvedContext permitted since v7); the schema address set is ' +
+      'identical to v15. Carry-forward entries from v15 unchanged. xlsm artifact ' +
+      'unchanged.',
+    autoApplicable: true,
+    addresses: [],
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v16 is a value-correcting selector override on an existing address — no ' +
+      'new addresses, no structural-fingerprint change. v15-pinned templates ' +
+      'keep rendering identically; v16 becomes the default for new exports. ' +
+      'ioMonths is the original term only for full-term-IO loans (amort=0); for ' +
+      'amortizing loans the true original term is not reachable (no origination ' +
+      'date / term field in the extraction), but ioMonths is strictly better ' +
+      'than the prior remaining-term and exact for full-term-IO deals.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

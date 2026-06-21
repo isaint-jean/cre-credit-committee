@@ -2210,6 +2210,69 @@ const SCHEMA_V15: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v15DefsFor('manufactured_housing') },
 };
 
+// v16 — corrective OVERRIDE of Balloon_Term (an existing v6 address). The v6
+// entries (lines ~506/~750) bind it via ctxLoanMonthsToYears(termMonths) →
+// round(27/12)=2 (wrong source: remaining term; wrong unit: years). Those v6
+// entries are spread into v6–v15 and must NOT be edited (render-versioning).
+// Appended last, this override wins (projectCellBindings is last-by-order) and
+// emits ioMonths (60, MONTHS), matching Interest_Only_Period — so the
+// amortization balloon fires at month 60 and Annual_Debt_Service takes the IO
+// branch. No new address; the v15 slice carries forward byte-for-byte.
+const V16_BALLOON_TERM_OVERRIDE: SchemaEntry = {
+  slot: 'Property_Loan_Summary',
+  range: 'Balloon_Term',
+  selector: ctx((c) => c.loan.ioMonths),
+  cellState: 'concluded',
+};
+
+// Schema slices require UNIQUE addresses, so this REPLACES the carried-forward
+// Balloon_Term entry (filter it out) rather than appending a duplicate.
+const V16_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V15_SHARED_ENTRIES.filter(
+    (e) => !(e.slot === 'Property_Loan_Summary' && e.range === 'Balloon_Term'),
+  ),
+  V16_BALLOON_TERM_OVERRIDE,
+];
+
+function v16Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V16_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v16DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v16Definition(assetClass)];
+}
+
+const SCHEMA_V16: ContractSchema = {
+  office: {
+    office_core:       v16DefsFor('office'),
+    office_trophy:     v16DefsFor('office'),
+    office_value_add:  v16DefsFor('office'),
+    office_distressed: v16DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v16DefsFor('multifamily'),
+    mf_large_scale: v16DefsFor('multifamily'),
+    mf_workforce:   v16DefsFor('multifamily'),
+    mf_value_add:   v16DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v16DefsFor('industrial'),
+    ind_logistics: v16DefsFor('industrial'),
+    ind_light:     v16DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v16DefsFor('retail') },
+  hotel:                { hotel_core:                v16DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v16DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v16DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v16DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2257,6 +2320,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   13: SCHEMA_V13,
   14: SCHEMA_V14,
   15: SCHEMA_V15,
+  16: SCHEMA_V16,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2527,6 +2591,10 @@ function assertSchemaWellFormed(): void {
     // reads from 'resolvedContext' (c.property.noteDate), permitted since v7.
     // All v14 entries carry forward verbatim.
     15: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v16 ADDS no new source surface and no new address — it re-points an
+    // existing cell (Balloon_Term) to 'resolvedContext' (c.loan.ioMonths),
+    // permitted since v7. All v15 entries carry forward verbatim.
+    16: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

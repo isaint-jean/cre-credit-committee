@@ -91,8 +91,18 @@ import type { RentRoll } from '@cre/contracts';
  * while C13 was empty. Exactly 1 new emitted address (C13). A companion
  * template-artifact edit fixes the separate OH!H3 / Hotel!K3 TODAY()-leak
  * (→ 2026). The v14 slice is carried forward byte-for-byte.
+ *
+ * v16 (2026-06): corrective override — re-points Balloon_Term (an EXISTING
+ * bound address) from `ctxLoanMonthsToYears(termMonths)` to `c.loan.ioMonths`.
+ * The old binding emitted round(27/12)=2: wrong source (termMonths = the
+ * REMAINING term from the as-of, not the original) AND wrong unit (years; the
+ * template consumes Balloon_Term in MONTHS). Result: the amortization balloon
+ * fired at month 2 and Annual_Debt_Service took the degenerate amortizing PMT
+ * branch — the −$86M 10-Yr Pro Forma cash flow. v16 emits ioMonths (60, in
+ * months), matching Interest_Only_Period; no new address (selector re-point on
+ * an existing cell). The v15 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 15;
+export const RENDER_CONTRACT_VERSION = 16;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

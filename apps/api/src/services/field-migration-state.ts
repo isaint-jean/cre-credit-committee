@@ -774,6 +774,14 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v15Additions];
 })();
 
+// v16 carry-forward, no additions. v16 re-points the Balloon_Term selector (an
+// existing address, already declared in the carried-forward registry) — it adds
+// no new cell, so the field-state set is identical to v15.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[16] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[15] ?? [];
+  return [...carryForward];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**
