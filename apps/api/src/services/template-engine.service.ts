@@ -1533,6 +1533,66 @@ function resolveNamedRangeCells(
  *
  * Returns the number of cells resolved (useful for diagnostic logging).
  */
+
+// --- shared-formula relative-reference translation --------------------------
+// A shared-formula DESCENDANT carries the master's formula offset by the
+// descendant's position. Materializing it requires shifting the master's
+// RELATIVE A1 references by (descendant − master) — copying the master string
+// verbatim makes every descendant reference the master's column (the cause of
+// the UW-column "sums column B" cash-flow corruption). These helpers do the
+// shift, leaving absolute ($-locked) parts, sheet-qualified refs, named ranges,
+// and string literals untouched.
+
+function colLettersToNum(letters: string): number {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n;
+}
+function colNumToLetters(num: number): string {
+  let s = '';
+  while (num > 0) { const r = (num - 1) % 26; s = String.fromCharCode(65 + r) + s; num = Math.floor((num - 1) / 26); }
+  return s;
+}
+function parseA1(addr: string): { col: number; row: number } | null {
+  const m = /^\$?([A-Z]{1,3})\$?(\d+)$/.exec(addr);
+  return m ? { col: colLettersToNum(m[1]!), row: Number(m[2]) } : null;
+}
+function shiftRef(ref: string, dCol: number, dRow: number): string {
+  const m = /^(\$?)([A-Z]{1,3})(\$?)(\d+)$/.exec(ref);
+  if (!m) return ref;
+  const [, colAbs, colLetters, rowAbs, rowDigits] = m;
+  const newColNum = colAbs ? colLettersToNum(colLetters!) : colLettersToNum(colLetters!) + dCol;
+  const newRowNum = rowAbs ? Number(rowDigits) : Number(rowDigits) + dRow;
+  if (newColNum < 1 || newRowNum < 1) return ref; // would be #REF! — leave the original defensively
+  return `${colAbs}${colAbs ? colLetters : colNumToLetters(newColNum)}${rowAbs}${newRowNum}`;
+}
+
+/**
+ * Translate the master formula's RELATIVE references for a shared-formula
+ * descendant at `targetAddr`. Δ=0 (the master itself) returns the formula
+ * unchanged.
+ *
+ * The tokenizer alternation skips, in order: (1) string literals "…", (2)
+ * sheet-qualified refs ('Sheet'!A1 or Sheet!A1, incl. ranges) — left verbatim
+ * per the conservative policy, (3) bare A1 refs — translated. Named ranges
+ * (word-identifiers; none in this template match the A1 shape — verified
+ * against all 214 defined names) and function names (no trailing digits) never
+ * match the bare-ref alternative, so they pass through untouched.
+ */
+function translateRelativeRefs(masterFormula: string, masterAddr: string, targetAddr: string): string {
+  const m = parseA1(masterAddr);
+  const t = parseA1(targetAddr);
+  if (!m || !t) return masterFormula;
+  const dCol = t.col - m.col;
+  const dRow = t.row - m.row;
+  if (dCol === 0 && dRow === 0) return masterFormula;
+  const TOKEN = /("(?:[^"]|"")*")|((?:'(?:[^']|'')*'|[A-Za-z_][\w.]*)!\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)|(\$?[A-Z]{1,3}\$?\d+)/g;
+  return masterFormula.replace(TOKEN, (whole, str, sheetQual, bareRef) => {
+    if (str !== undefined || sheetQual !== undefined) return whole; // string / sheet-qualified — leave
+    return shiftRef(bareRef, dCol, dRow);
+  });
+}
+
 function preResolveSharedFormulas(workbook: ExcelJS.Workbook): number {
   let resolved = 0;
   workbook.eachSheet((ws) => {
@@ -1559,10 +1619,14 @@ function preResolveSharedFormulas(workbook: ExcelJS.Workbook): number {
           const masterRef = v.sharedFormula as string;
           const masterFormula = masters[masterRef];
           if (masterFormula) {
-            // Clone the master's formula to this cell as a standalone
-            // formula. The cached result is preserved so first-open
-            // display is correct even before Excel recomputes.
-            cell.value = { formula: masterFormula, result: v.result } as any;
+            // Clone the master's formula to this cell as a standalone formula,
+            // TRANSLATING relative references by (descendant − master) so each
+            // cell references ITS OWN column/row (not the master's). The cached
+            // result is preserved so first-open display is correct even before
+            // Excel recomputes. (Verbatim copy was the UW-column corruption:
+            // P12 became =SUM(B9:B11) instead of =SUM(P9:P11).)
+            const translated = translateRelativeRefs(masterFormula, masterRef, cell.address);
+            cell.value = { formula: translated, result: v.result } as any;
             resolved++;
           } else {
             // Master not in the lookup (unusual — possibly the master
