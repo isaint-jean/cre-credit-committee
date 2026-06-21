@@ -101,6 +101,8 @@ import { cityStateToMarketLiquidity } from '../services/metro-tier-lookup.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 import { blobStore, BlobStoreError } from '../storage/blob-store.js';
+import { saveDealSourceDoc } from '../services/deal-source-doc-store.service.js';
+import type { SourceDocSlot } from '@cre/shared';
 import type { BlobStore } from '../storage/blob-store.js';
 import { computeBufferContentHash } from '../util/content-hash.js';
 import { computeExtractionInputKey } from '../util/extraction-cache-key.js';
@@ -564,6 +566,32 @@ export function makeBuildAndIngestHandler(
       }
     }
 
+    /* (a) Persist the raw uploads keyed by the REAL rootId, so a later append
+       can re-supply the prior doc set without a full re-upload. PURELY ADDITIVE:
+       the bytes already ride blobStore; this records only the rootId→slot/hash
+       mapping in a separate deal-scoped manifest. The graph + response + render
+       are unchanged. Each slot's persist outcome is RETURNED + logged (flag 3) —
+       a failure is SURFACED, never swallowed, so append can trust the manifest. */
+    const rawDocSlots: ReadonlyArray<readonly [SourceDocSlot, { buffer: Buffer; filename: string } | undefined]> = [
+      ['asr', asr], ['rent_roll', rr], ['cf', cf], ['pca', pca],
+    ];
+    const sourceDocPersist: Array<{ slot: SourceDocSlot; status: 'ok' | 'error'; fileHash?: string; message?: string }> = [];
+    for (const [slot, f] of rawDocSlots) {
+      if (f === undefined) continue;
+      try {
+        const entry = await saveDealSourceDoc(ingested.rootId, slot, {
+          originalFileName: f.filename,
+          bytes: f.buffer,
+        });
+        sourceDocPersist.push({ slot, status: 'ok', fileHash: entry.fileHash });
+      } catch (e) {
+        const message = (e as Error)?.message ?? 'persist failed';
+        // eslint-disable-next-line no-console
+        console.error(`[build-and-ingest] deal-source-doc persist FAILED for slot ${slot} (rootId ${ingested.rootId}):`, message);
+        sourceDocPersist.push({ slot, status: 'error', message });
+      }
+    }
+
     const responseBody: {
       rootId: RevisionId;
       evaluationId: DoctrineEvaluationId;
@@ -572,6 +600,7 @@ export function makeBuildAndIngestHandler(
       buildReport: BuildReport;
       evaluation: DoctrineEvaluation;
       propertyMetadataError?: { name: string; message: string };
+      sourceDocPersist: Array<{ slot: SourceDocSlot; status: 'ok' | 'error'; fileHash?: string; message?: string }>;
     } = {
       rootId: ingested.rootId,
       evaluationId: ingested.evaluationId,
@@ -579,6 +608,7 @@ export function makeBuildAndIngestHandler(
       propertyMetadataId,
       buildReport: composed.report,
       evaluation: ingested.evaluation,
+      sourceDocPersist,
     };
     if (propertyMetadataError !== undefined) {
       responseBody.propertyMetadataError = propertyMetadataError;
