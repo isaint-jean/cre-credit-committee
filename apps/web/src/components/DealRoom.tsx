@@ -449,8 +449,11 @@ export function DealRoom({ id }: { id: string }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {view.access.workbook === 'buyer-only' ? (
                   <>
-                    <button onClick={() => api.downloadPopulatedTemplate(analysis.id, `${analysis.name}_Workbook.xlsx`)}
-                      style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, border: 'none', cursor: 'pointer', background: C.teal, color: '#fff' }}>
+                    {/* Primary workbook download — the on-demand /export path (bp_spire = the full
+                        populated workbook; same engine + active uw_template). Gated on the template probe. */}
+                    <button disabled={hasActiveTemplate !== true}
+                      onClick={() => api.exportUnderwriting(analysis.id, { profile: 'bp_spire', assetClass: analysis.assetType, underwritingMode: 'single_loan' }, `${analysis.name}_Workbook.xlsx`)}
+                      style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, border: 'none', cursor: hasActiveTemplate === true ? 'pointer' : 'not-allowed', background: hasActiveTemplate === true ? C.teal : C.border, color: '#fff' }}>
                       Open full workbook
                     </button>
                     <button onClick={() => setWorkspaceOpen(true)}
@@ -467,24 +470,16 @@ export function DealRoom({ id }: { id: string }) {
                   : 'The underwriting workbook is held by the buyer. The memo is shared.'}
               </div>
 
-              {/* UW workbook exports — BUYER-ONLY, compact, probe-gated (active template required) */}
-              {view.access.workbook === 'buyer-only' && (
-                <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                  <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 6 }}>UW workbook exports</div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {(['bp_spire', 'bank'] as const).map((p) => {
-                      const on = hasActiveTemplate === true;
-                      return (
-                        <button key={p} disabled={!on}
-                          onClick={() => api.exportUnderwriting(analysis.id, { profile: p, assetClass: analysis.assetType, underwritingMode: 'single_loan' }, `${p === 'bp_spire' ? 'BPSpire' : 'Bank'}_UW_${analysis.name}.xlsx`)}
-                          style={{ flex: 1, fontSize: 11, fontWeight: 600, padding: '7px 0', borderRadius: 6, cursor: on ? 'pointer' : 'not-allowed', border: `1px solid ${C.border}`, background: on ? C.surface : C.surface2, color: on ? C.ink : C.ink3 }}>
-                          {p === 'bp_spire' ? 'BP Spire' : 'Bank'}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {hasActiveTemplate === false && <div style={{ fontSize: 10, color: C.ink3, marginTop: 4 }}>No active UW template — exports unavailable.</div>}
-                </div>
+              {/* Bank-profile workbook — the alternate export (the primary "Open full workbook"
+                  above is the BP Spire profile; same /export engine, different input profile). */}
+              {view.access.workbook === 'buyer-only' && hasActiveTemplate === true && (
+                <button onClick={() => api.exportUnderwriting(analysis.id, { profile: 'bank', assetClass: analysis.assetType, underwritingMode: 'single_loan' }, `Bank_UW_${analysis.name}.xlsx`)}
+                  style={{ width: '100%', marginTop: 10, fontSize: 11, fontWeight: 600, padding: '7px 0', borderRadius: 6, cursor: 'pointer', border: `1px solid ${C.border}`, background: C.surface, color: C.ink2 }}>
+                  Bank-profile workbook
+                </button>
+              )}
+              {view.access.workbook === 'buyer-only' && hasActiveTemplate === false && (
+                <div style={{ fontSize: 10, color: C.ink3, marginTop: 10 }}>No active UW template — workbook export unavailable.</div>
               )}
             </div>
 
