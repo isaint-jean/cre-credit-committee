@@ -24,6 +24,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
+import { AddDocumentControl } from '@/components/AddDocumentControl';
 import { formatCurrencyFull, formatDecimalPercent, formatMultipleSafe, formatPercent } from '@/lib/format';
 import type { Analysis, Finding, Comment, UnderwritingModel } from '@cre/shared';
 import { recalculateFullModel } from '@cre/shared';
@@ -102,6 +103,7 @@ export default function DealRoom() {
   const [workspaceTab, setWorkspaceTab] = useState<WSTab>('criteria');
   const [handbookEval, setHandbookEval] = useState<{ firedFlags?: Array<{ principleId: string; severity: string; flag_message: string; metricValue?: unknown }> } | null>(null);
   const [scenario, setScenario] = useState<UnderwritingModel | null>(null); // client-side what-if (NON-persisting); null = showing the actual underwriting
+  const [hasActiveTemplate, setHasActiveTemplate] = useState<boolean | null>(null); // export-availability probe
 
   useEffect(() => {
     let alive = true;
@@ -127,6 +129,14 @@ export default function DealRoom() {
     api.getHandbookEvaluation(rev).then((he) => { if (alive) setHandbookEval(he as never); }).catch(() => {});
     return () => { alive = false; };
   }, [analysis?.graphRevisionId]);
+
+  // Export-availability probe (mirrors the analysis page): an active UW template gates the
+  // BP Spire / Bank workbook exports. Soft — failure → unavailable, exports disable cleanly.
+  useEffect(() => {
+    let alive = true;
+    api.getActiveTemplate('single_loan').then(() => { if (alive) setHasActiveTemplate(true); }).catch(() => { if (alive) setHasActiveTemplate(false); });
+    return () => { alive = false; };
+  }, []);
 
   const refetch = async () => {
     const r = await api.getAnalysis(id);
@@ -227,6 +237,8 @@ export default function DealRoom() {
             <span style={{ fontSize: 12, color: C.ink3 }}>negotiation view</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Append a source document — buyer-only (behind the access seam). Reused verbatim. */}
+            {role === 'bp_spire' && <AddDocumentControl analysisId={analysis.id} onAppended={refetch} />}
             {/* Deal-level Request a call (either role; visual/local-only) */}
             <button onClick={() => requestCall('deal')}
               style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 7, cursor: 'pointer',
@@ -456,6 +468,26 @@ export default function DealRoom() {
                   ? 'The underwriting workbook is private to BP Spire. The memo is shared.'
                   : 'The underwriting workbook is held by the buyer. The memo is shared.'}
               </div>
+
+              {/* UW workbook exports — BUYER-ONLY, compact, probe-gated (active template required) */}
+              {view.access.workbook === 'buyer-only' && (
+                <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                  <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 6 }}>UW workbook exports</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {(['bp_spire', 'bank'] as const).map((p) => {
+                      const on = hasActiveTemplate === true;
+                      return (
+                        <button key={p} disabled={!on}
+                          onClick={() => api.exportUnderwriting(analysis.id, { profile: p, assetClass: analysis.assetType, underwritingMode: 'single_loan' }, `${p === 'bp_spire' ? 'BPSpire' : 'Bank'}_UW_${analysis.name}.xlsx`)}
+                          style={{ flex: 1, fontSize: 11, fontWeight: 600, padding: '7px 0', borderRadius: 6, cursor: on ? 'pointer' : 'not-allowed', border: `1px solid ${C.border}`, background: on ? C.surface : C.surface2, color: on ? C.ink : C.ink3 }}>
+                          {p === 'bp_spire' ? 'BP Spire' : 'Bank'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {hasActiveTemplate === false && <div style={{ fontSize: 10, color: C.ink3, marginTop: 4 }}>No active UW template — exports unavailable.</div>}
+                </div>
+              )}
             </div>
 
             {/* ORIGINATOR rail: what's being asked of them */}
