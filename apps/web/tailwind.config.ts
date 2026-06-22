@@ -19,42 +19,43 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // RELIGHT (1a) — flipped to the deal-room light palette (one source of truth).
         bg: {
-          primary:    '#0C1118', // --canvas
-          secondary:  '#141A24', // --panel
-          tertiary:   '#1A2230', // --panel-2
-          quaternary: '#222C3C', // --panel-3 (NEW — elevated chips, popovers)
+          primary:    '#F5F7F8', // canvas
+          secondary:  '#FFFFFF', // surface
+          tertiary:   '#FBFCFC', // surface-2
+          quaternary: '#FFFFFF', // elevated chips, popovers
         },
         border: {
-          primary:   '#28323F', // --hair
-          secondary: '#1F2733', // --hair-soft  (the lighter hairline)
-          subtle:    '#1F2733', // alias — semantic name for hair-soft
+          primary:   '#E2E8EA', // hairline
+          secondary: '#CCD6D9', // border-strong
+          subtle:    '#CCD6D9', // alias — border-strong
         },
         text: {
-          primary:   '#E9EDF3', // --ink
-          secondary: '#AAB4C4', // --ink-2
-          muted:     '#7E8A9C', // --muted
-          subtle:    '#5C6677', // --muted-2 (NEW — fourth tier)
+          primary:   '#15262C', // ink
+          secondary: '#4A5C62', // ink-2
+          muted:     '#8A979C', // ink-3
+          subtle:    '#8A979C', // ink-3
         },
-        // Brand teal — replaces amber. `accent.DEFAULT` is the brand color,
-        // `accent.hover` is the dimmed variant. All existing `bg-accent`,
-        // `text-accent`, `hover:bg-accent-hover` refs cascade.
+        // Brand teal — deal-room teal. `accent.DEFAULT` is the brand color,
+        // `accent.hover` is the deep variant, `accent.soft` the tinted fill.
         accent: {
-          DEFAULT: '#3FA7A0', // --brand
-          hover:   '#2C7570', // --brand-dim
+          DEFAULT: '#0C6E78', // teal
+          hover:   '#0A555D', // teal-deep
+          soft:    '#E6F1F2', // tealSoft (tinted fill)
         },
         risk: {
-          critical: '#D46A6A', // align with prototype's kick palette
-          high:     '#D46A6A', // --kick  (the primary kick/danger color)
-          medium:   '#E0973F', // --flag  (distinct from accent now — they conflicted before)
-          low:      '#7E8A9C', // align with --muted
-          positive: '#4FB17C', // --accept
+          critical: '#AE3A33', // kicked
+          high:     '#AE3A33', // kicked
+          medium:   '#A9641F', // flagged
+          low:      '#8A979C', // ink-3
+          positive: '#2E7D5B', // resolved
         },
         score: {
-          strong:     '#4FB17C', // --accept
-          acceptable: '#E0973F', // --flag
-          watchlist:  '#E0973F', // hold for a future distinction
-          high_risk:  '#D46A6A', // --kick
+          strong:     '#2E7D5B', // resolved
+          acceptable: '#A9641F', // flagged
+          watchlist:  '#A9641F', // flagged
+          high_risk:  '#AE3A33', // kicked
         },
         // New status families the prototype uses; tokens added now so the
         // later port PRs (Sankey, new-tape interrupt, negotiation actions)

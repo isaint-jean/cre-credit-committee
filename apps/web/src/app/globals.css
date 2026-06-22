@@ -9,14 +9,13 @@
 @layer base {
   html, body { margin: 0; padding: 0; }
 
-  /* Atmospheric canvas — two radial gradients (teal top-right, lavender bottom-left)
-   * over the panel canvas color. From prototype's body background block. */
+  /* RELIGHT (1a) — light canvas. Very-low-opacity teal wash top-right over the
+   * light canvas; dropped the dark lavender gradient. */
   body {
     @apply text-text-primary font-sans;
     background:
-      radial-gradient(1200px 700px at 84% -10%, rgba(63, 167, 160, 0.07), transparent 60%),
-      radial-gradient(900px 600px at 2% 108%,  rgba(128, 147, 230, 0.05), transparent 55%),
-      #0C1118;
+      radial-gradient(1200px 700px at 84% -10%, rgba(12, 110, 120, 0.04), transparent 60%),
+      #F5F7F8;
     -webkit-font-smoothing: antialiased;
     font-size: 15px;
     line-height: 1.5;
