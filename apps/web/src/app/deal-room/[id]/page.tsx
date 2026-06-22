@@ -28,6 +28,12 @@ import { formatCurrencyFull, formatDecimalPercent, formatMultipleSafe } from '@/
 import type { Analysis, Finding, Comment } from '@cre/shared';
 
 type Role = 'bp_spire' | 'originator';
+type WSTab = 'criteria' | 'score' | 'crosscheck' | 'research' | 'decision' | 'stress' | 'schedule' | 'handbook';
+const WS_TABS: ReadonlyArray<{ key: WSTab; label: string }> = [
+  { key: 'criteria', label: 'Criteria' }, { key: 'score', label: 'Score detail' }, { key: 'crosscheck', label: 'Cross-check' },
+  { key: 'research', label: 'Research' }, { key: 'decision', label: 'B-piece decision' }, { key: 'stress', label: 'Stress' },
+  { key: 'schedule', label: 'Schedule' }, { key: 'handbook', label: 'Handbook' },
+];
 
 // ── Wireframe palette (explicit; scoped to this page) ──────────────────────────
 const C = {
@@ -90,6 +96,9 @@ export default function DealRoom() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [callRequests, setCallRequests] = useState<Set<string>>(new Set()); // local-only (preview)
   const [localFlags, setLocalFlags] = useState<Array<{ id: string; title: string; rationale: string; addedBy: string }>>([]); // local-only (preview; clears on refresh)
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);          // buyer-only depth drawer
+  const [workspaceTab, setWorkspaceTab] = useState<WSTab>('criteria');
+  const [handbookEval, setHandbookEval] = useState<{ firedFlags?: Array<{ principleId: string; severity: string; flag_message: string; metricValue?: unknown }> } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -106,6 +115,15 @@ export default function DealRoom() {
     })();
     return () => { alive = false; };
   }, [id]);
+
+  // Soft-fetch the handbook evaluation (fired principles) by graph revision; non-blocking.
+  useEffect(() => {
+    const rev = analysis?.graphRevisionId;
+    if (!rev) return;
+    let alive = true;
+    api.getHandbookEvaluation(rev).then((he) => { if (alive) setHandbookEval(he as never); }).catch(() => {});
+    return () => { alive = false; };
+  }, [analysis?.graphRevisionId]);
 
   const refetch = async () => {
     const r = await api.getAnalysis(id);
@@ -138,6 +156,23 @@ export default function DealRoom() {
   const loan = uw?.loanAmount ?? null;
   const uwNoi = uw && loan != null && uw.debtYield != null ? uw.debtYield * loan : null;
   const value = uw && loan != null && uw.ltv ? loan / uw.ltv : null;
+
+  // Workspace sub-tabs are DATA-DRIVEN — a tab appears only when its data is non-empty
+  // (and reappears automatically for deals that populate it). Handbook is async — only
+  // available once firedFlags has loaded. The active tab falls back to the first
+  // available, so the drawer never opens on a hidden tab.
+  const wsAvail: Record<WSTab, boolean> = {
+    criteria: (analysis.criteriaEvaluations?.length ?? 0) > 0,
+    score: (score?.categories?.length ?? 0) > 0,
+    crosscheck: (analysis.crossCheckFindings?.length ?? 0) > 0,
+    research: !!analysis.research && (['sponsor', 'market', 'news'] as const).some((k) => (((analysis.research as never as Record<string, unknown[] | undefined>)?.[k]?.length) ?? 0) > 0),
+    decision: analysis.bPieceDecision != null,
+    stress: (analysis.stressScenarios?.length ?? 0) > 0,
+    schedule: (((uw?.repaymentSchedule as never as { entries?: unknown[] } | null)?.entries?.length) ?? 0) > 0,
+    handbook: (handbookEval?.firedFlags?.length ?? 0) > 0,
+  };
+  const availableTabs = WS_TABS.filter((t) => wsAvail[t.key]);
+  const effectiveTab: WSTab | null = availableTabs.some((t) => t.key === workspaceTab) ? workspaceTab : (availableTabs[0]?.key ?? null);
 
   const toggle = (pid: string) =>
     setExpanded((prev) => { const n = new Set(prev); if (n.has(pid)) n.delete(pid); else n.add(pid); return n; });
@@ -254,6 +289,15 @@ export default function DealRoom() {
                             <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}>{p.buyerPosition}</div>
                           </div>
 
+                          {/* Mitigants relocated onto the point (keyed by findingId; blank when none) */}
+                          {(analysis.mitigations ?? []).filter((m) => m.findingId === p.id).map((m, mi) => (
+                            <div key={mi} style={{ borderLeft: `3px solid ${C.resolved}`, background: '#F0F6F2', borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
+                              <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.resolved, fontWeight: 600, marginBottom: 3 }}>Mitigant</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{m.strategy}</div>
+                              {m.description && <div style={{ fontSize: 12, color: C.ink2, marginTop: 2, lineHeight: 1.4 }}>{m.description}</div>}
+                            </div>
+                          ))}
+
                           {/* Comment thread — existing comments grouped by findingId */}
                           {thread.length > 0 && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -351,10 +395,16 @@ export default function DealRoom() {
               {/* Artifacts — memo SHARED (both rails); workbook BUYER-ONLY */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {view.access.workbook === 'buyer-only' ? (
-                  <button onClick={() => api.downloadPopulatedTemplate(analysis.id, `${analysis.name}_Workbook.xlsx`)}
-                    style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, border: 'none', cursor: 'pointer', background: C.teal, color: '#fff' }}>
-                    Open full workbook
-                  </button>
+                  <>
+                    <button onClick={() => api.downloadPopulatedTemplate(analysis.id, `${analysis.name}_Workbook.xlsx`)}
+                      style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, border: 'none', cursor: 'pointer', background: C.teal, color: '#fff' }}>
+                      Open full workbook
+                    </button>
+                    <button onClick={() => setWorkspaceOpen(true)}
+                      style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, cursor: 'pointer', background: C.surface, color: C.teal, border: `1px solid ${C.teal}` }}>
+                      Underwriting workspace
+                    </button>
+                  </>
                 ) : null}
                 <MemoButton accent={view.accent} />
               </div>
@@ -377,8 +427,225 @@ export default function DealRoom() {
           </aside>
         </div>
       </div>
+
+      {/* ── Buyer-only Underwriting workspace drawer (read-only depth) ───────── */}
+      {workspaceOpen && role === 'bp_spire' && (
+        <div onClick={() => setWorkspaceOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(21,38,44,0.35)', zIndex: 50, display: 'flex', justifyContent: 'flex-end' }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(760px, 94vw)', height: '100%', background: C.bg, borderLeft: `1px solid ${C.borderStrong}`, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 24px rgba(0,0,0,0.12)' }}>
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, background: C.surface, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Underwriting workspace</div>
+                <div style={{ fontSize: 11, color: C.ink3 }}>Buyer-only · read-only · BP Spire&apos;s working detail</div>
+              </div>
+              <button onClick={() => setWorkspaceOpen(false)} style={{ fontSize: 16, color: C.ink3, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+            </div>
+            {availableTabs.length > 0 && (
+              <div style={{ display: 'flex', gap: 4, padding: '8px 12px', borderBottom: `1px solid ${C.border}`, background: C.surface, overflowX: 'auto' }}>
+                {availableTabs.map((t) => {
+                  const on = effectiveTab === t.key;
+                  return (
+                    <button key={t.key} onClick={() => setWorkspaceTab(t.key)}
+                      style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', background: on ? C.tealSoft : 'transparent', color: on ? C.tealDeep : C.ink2 }}>{t.label}</button>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+              {effectiveTab === null && <WSEmpty label="No underwriting detail computed for this deal yet." />}
+              {effectiveTab === 'criteria' && <CriteriaList items={analysis.criteriaEvaluations ?? []} />}
+              {effectiveTab === 'score' && <ScoreDetail score={score} />}
+              {effectiveTab === 'crosscheck' && <CrossCheckList items={analysis.crossCheckFindings ?? []} />}
+              {effectiveTab === 'research' && <ResearchView research={analysis.research as never} />}
+              {effectiveTab === 'decision' && <DecisionPanel decision={analysis.bPieceDecision as never} />}
+              {effectiveTab === 'stress' && <StressTable scenarios={(analysis.stressScenarios ?? []) as never} uwNoi={uwNoi} />}
+              {effectiveTab === 'schedule' && <ScheduleTable schedule={(uw?.repaymentSchedule ?? null) as never} />}
+              {effectiveTab === 'handbook' && <HandbookList firedFlags={handbookEval?.firedFlags ?? null} />}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
+}
+
+interface ResearchItem { title: string; snippet?: string; source?: string; publishedDate?: string; url?: string; riskSignal?: string }
+
+// ── Workspace read-only renderers (light palette; real data; no edits) ─────────
+const wsCol: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
+const wsCard: React.CSSProperties = { border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, padding: 12 };
+const wsCell: React.CSSProperties = { padding: '6px 8px', fontSize: 12, borderBottom: `1px solid ${C.border}`, textAlign: 'left' };
+function WSEmpty({ label }: { label: string }) {
+  return <div style={{ ...wsCard, color: C.ink3, fontSize: 13 }}>{label}</div>;
+}
+function WSPill({ text, tone }: { text: string; tone: string }) {
+  return <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: '#fff', background: tone, borderRadius: 4, padding: '2px 7px' }}>{text}</span>;
+}
+
+function CriteriaList({ items }: { items: ReadonlyArray<{ ruleName: string; result: string; reason?: string; source?: string }> }) {
+  if (!items.length) return <WSEmpty label="No criteria evaluations." />;
+  return <div style={wsCol}>{items.map((c, i) => (
+    <div key={i} style={wsCard}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <WSPill text={c.result} tone={c.result === 'pass' ? C.resolved : c.result === 'fail' ? C.kicked : C.conceded} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{c.ruleName}</span>
+      </div>
+      {c.reason && <div style={{ fontSize: 12, color: C.ink2, marginTop: 5, lineHeight: 1.5 }}>{c.reason}</div>}
+      {c.source && <div style={{ fontSize: 11, color: C.teal, marginTop: 2 }}>{c.source}</div>}
+    </div>
+  ))}</div>;
+}
+
+function ScoreDetail({ score }: { score: { overall?: number; riskTier?: string; recommendation?: string; whyThisScore?: string; howToImprove?: string; categories?: ReadonlyArray<{ category: string; weightedScore: number; weight: number; score: number; maxScore: number; tier?: string | null; explanation?: string }> } | null | undefined }) {
+  if (!score) return <WSEmpty label="No score." />;
+  return <div style={wsCol}>
+    <div style={wsCard}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ ...num(C.ink), fontSize: 28, fontWeight: 700 }}>{score.overall}</span>
+        <span style={{ fontSize: 12, color: C.ink3, textTransform: 'capitalize' }}>/ 100 · {score.riskTier?.replace('_', ' ')} · {score.recommendation?.replace(/_/g, ' ')}</span>
+      </div>
+      {score.whyThisScore && <div style={{ fontSize: 12, color: C.ink2, marginTop: 6, lineHeight: 1.5 }}>{score.whyThisScore}</div>}
+      {score.howToImprove && <div style={{ fontSize: 12, color: C.ink2, marginTop: 4, lineHeight: 1.5 }}><strong>To improve:</strong> {score.howToImprove}</div>}
+    </div>
+    {(score.categories ?? []).map((cat) => {
+      const pct = cat.maxScore ? Math.round((cat.score / cat.maxScore) * 100) : 0;
+      return (
+        <div key={cat.category} style={wsCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: C.ink, textTransform: 'capitalize' }}>{cat.category.replace(/_/g, ' ')}</span>
+            <span style={{ ...num(C.ink2), fontSize: 12 }}>{Math.round(cat.weightedScore)} / {cat.weight}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: C.border, marginTop: 6, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: pct >= 70 ? C.resolved : pct >= 40 ? C.amber : C.kicked }} />
+          </div>
+          {cat.explanation && <div style={{ fontSize: 11, color: C.ink3, marginTop: 5 }}>{cat.explanation}</div>}
+        </div>
+      );
+    })}
+  </div>;
+}
+
+function CrossCheckList({ items }: { items: ReadonlyArray<{ metric: string; sellerBankValue?: string; bpSpiralValue?: string; percentVariance?: number | null; flag?: string; commentary?: string }> }) {
+  if (!items.length) return <WSEmpty label="No cross-check findings." />;
+  return <div style={wsCol}>{items.map((c, i) => (
+    <div key={i} style={wsCard}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{c.metric}</span>
+        {c.flag && <WSPill text={c.flag} tone={c.flag === 'material' ? C.kicked : c.flag === 'moderate' ? C.amber : C.conceded} />}
+      </div>
+      <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 12 }}>
+        <span style={{ color: C.ink2 }}>Seller/Bank <span style={num(C.ink)}>{c.sellerBankValue ?? '—'}</span></span>
+        <span style={{ color: C.ink2 }}>BP Spire <span style={num(C.ink)}>{c.bpSpiralValue ?? '—'}</span></span>
+        {c.percentVariance != null && <span style={{ ...num(c.percentVariance >= 0 ? C.resolved : C.kicked) }}>{c.percentVariance >= 0 ? '+' : ''}{c.percentVariance.toFixed(1)}%</span>}
+      </div>
+      {c.commentary && <div style={{ fontSize: 12, color: C.ink2, marginTop: 5, lineHeight: 1.4 }}>{c.commentary}</div>}
+    </div>
+  ))}</div>;
+}
+
+function ResearchView({ research }: { research: { sponsor?: ReadonlyArray<ResearchItem>; market?: ReadonlyArray<ResearchItem>; news?: ReadonlyArray<ResearchItem> } | null }) {
+  if (!research) return <WSEmpty label="No research." />;
+  const groups: ReadonlyArray<[string, ReadonlyArray<ResearchItem> | undefined]> = [['Sponsor', research.sponsor], ['Market', research.market], ['News', research.news]];
+  const any = groups.some(([, g]) => (g?.length ?? 0) > 0);
+  if (!any) return <WSEmpty label="No research results." />;
+  return <div style={wsCol}>{groups.map(([label, g]) => (g && g.length > 0) ? (
+    <div key={label}>
+      <div style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 6 }}>{label}</div>
+      <div style={wsCol}>{g.map((r, i) => (
+        <div key={i} style={wsCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{r.title}</span>
+            {r.riskSignal && <WSPill text={r.riskSignal} tone={r.riskSignal === 'negative' ? C.kicked : r.riskSignal === 'positive' ? C.resolved : C.conceded} />}
+          </div>
+          {r.snippet && <div style={{ fontSize: 12, color: C.ink2, marginTop: 4 }}>{r.snippet}</div>}
+          <div style={{ fontSize: 11, color: C.ink3, marginTop: 4 }}>{r.source}{r.publishedDate ? ` · ${r.publishedDate}` : ''}{r.url ? <> · <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: C.teal }}>View source</a></> : null}</div>
+        </div>
+      ))}</div>
+    </div>
+  ) : null)}</div>;
+}
+
+function DecisionPanel({ decision }: { decision: { recommendation?: string; conviction?: string; summary?: string; dealBreakers?: ReadonlyArray<string>; keyConditions?: ReadonlyArray<string>; pricingGuidance?: string } | null }) {
+  if (!decision) return <WSEmpty label="No B-piece decision." />;
+  return <div style={wsCol}>
+    <div style={wsCard}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <WSPill text={(decision.recommendation ?? '').replace(/_/g, ' ')} tone={decision.recommendation === 'approve' ? C.resolved : decision.recommendation === 'decline' ? C.kicked : C.amber} />
+        {decision.conviction && <span style={{ fontSize: 12, color: C.ink2 }}>conviction: {decision.conviction}</span>}
+      </div>
+      {decision.summary && <div style={{ fontSize: 13, color: C.ink, marginTop: 8, lineHeight: 1.5 }}>{decision.summary}</div>}
+    </div>
+    {(decision.dealBreakers?.length ?? 0) > 0 && <div style={wsCard}><div style={{ fontSize: 11, textTransform: 'uppercase', color: C.kicked, fontWeight: 600, marginBottom: 4 }}>Deal breakers</div><ul style={{ margin: 0, paddingLeft: 16 }}>{decision.dealBreakers!.map((d, i) => <li key={i} style={{ fontSize: 12.5, color: C.ink2, marginBottom: 2 }}>{d}</li>)}</ul></div>}
+    {(decision.keyConditions?.length ?? 0) > 0 && <div style={wsCard}><div style={{ fontSize: 11, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 4 }}>Key conditions</div><ul style={{ margin: 0, paddingLeft: 16 }}>{decision.keyConditions!.map((d, i) => <li key={i} style={{ fontSize: 12.5, color: C.ink2, marginBottom: 2 }}>{d}</li>)}</ul></div>}
+    {decision.pricingGuidance && <div style={wsCard}><div style={{ fontSize: 11, textTransform: 'uppercase', color: C.ink3, fontWeight: 600, marginBottom: 4 }}>Pricing guidance</div><div style={{ fontSize: 12.5, color: C.ink2 }}>{decision.pricingGuidance}</div></div>}
+  </div>;
+}
+
+function StressTable({ scenarios, uwNoi }: { scenarios: ReadonlyArray<{ name: string; results?: { noi?: number; dscr?: number | null; ltv?: number | null; debtYield?: number | null; dscrBreached?: boolean | null; ltvBreached?: boolean | null }; breaksCovenants?: boolean }>; uwNoi: number | null }) {
+  if (!scenarios.length) return <WSEmpty label="No stress scenarios." />;
+  const breach = (v: boolean | null | undefined): React.CSSProperties => v ? { color: C.kicked, fontWeight: 600 } : {};
+  return <div style={{ ...wsCard, padding: 0, overflow: 'hidden' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <thead><tr>{['Scenario', 'NOI', 'DSCR', 'LTV', 'Covenants'].map((h) => <th key={h} style={{ ...wsCell, fontSize: 10, textTransform: 'uppercase', color: C.ink3, background: C.surface2 }}>{h}</th>)}</tr></thead>
+      <tbody>
+        {uwNoi != null && <tr><td style={{ ...wsCell, color: C.ink2 }}>Base case</td><td style={{ ...wsCell, ...num(C.ink) }}>{formatCurrencyFull(uwNoi)}</td><td style={wsCell}>—</td><td style={wsCell}>—</td><td style={wsCell}>—</td></tr>}
+        {scenarios.map((s, i) => (
+          <tr key={i}>
+            <td style={{ ...wsCell, color: C.ink }}>{s.name}</td>
+            <td style={{ ...wsCell, ...num(C.ink) }}>{s.results?.noi != null ? formatCurrencyFull(s.results.noi) : '—'}</td>
+            <td style={{ ...wsCell, ...num(C.ink), ...breach(s.results?.dscrBreached) }}>{formatMultipleSafe(s.results?.dscr ?? null)}</td>
+            <td style={{ ...wsCell, ...num(C.ink), ...breach(s.results?.ltvBreached) }}>{formatDecimalPercent(s.results?.ltv ?? null)}</td>
+            <td style={wsCell}><WSPill text={s.breaksCovenants ? 'fail' : 'pass'} tone={s.breaksCovenants ? C.kicked : C.resolved} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>;
+}
+
+function ScheduleTable({ schedule }: { schedule: { entries?: ReadonlyArray<{ month: number; date: string; isIO: boolean; beginningBalance: number; interest: number; totalPayment: number; endingBalance: number }>; summary?: { totalInterest: number; totalPrincipal: number; balloonBalance: number; balloonDate: string } } | null }) {
+  if (!schedule || !(schedule.entries?.length)) return <WSEmpty label="No repayment schedule." />;
+  const rows = schedule.entries.filter((_, i) => i % 12 === 0 || i === schedule.entries!.length - 1); // annual cadence for readability
+  return <div style={wsCol}>
+    {schedule.summary && (
+      <div style={{ ...wsCard, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: C.ink2 }}>Total interest <span style={num(C.ink)}>{formatCurrencyFull(schedule.summary.totalInterest)}</span></span>
+        <span style={{ fontSize: 12, color: C.ink2 }}>Balloon <span style={num(C.ink)}>{formatCurrencyFull(schedule.summary.balloonBalance)}</span></span>
+        <span style={{ fontSize: 12, color: C.ink2 }}>Balloon date <span style={num(C.ink)}>{schedule.summary.balloonDate}</span></span>
+      </div>
+    )}
+    <div style={{ ...wsCard, padding: 0, overflow: 'hidden' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead><tr>{['Mo', 'Date', 'Type', 'Begin', 'Interest', 'Payment', 'End'].map((h) => <th key={h} style={{ ...wsCell, fontSize: 10, textTransform: 'uppercase', color: C.ink3, background: C.surface2 }}>{h}</th>)}</tr></thead>
+        <tbody>{rows.map((e, i) => (
+          <tr key={i}>
+            <td style={{ ...wsCell, ...num(C.ink2) }}>{e.month}</td>
+            <td style={{ ...wsCell, color: C.ink2 }}>{e.date}</td>
+            <td style={wsCell}><WSPill text={e.isIO ? 'IO' : 'P+I'} tone={e.isIO ? C.amber : C.teal} /></td>
+            <td style={{ ...wsCell, ...num(C.ink) }}>{formatCurrencyFull(e.beginningBalance)}</td>
+            <td style={{ ...wsCell, ...num(C.ink) }}>{formatCurrencyFull(e.interest)}</td>
+            <td style={{ ...wsCell, ...num(C.ink) }}>{formatCurrencyFull(e.totalPayment)}</td>
+            <td style={{ ...wsCell, ...num(C.ink) }}>{formatCurrencyFull(e.endingBalance)}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  </div>;
+}
+
+function HandbookList({ firedFlags }: { firedFlags: ReadonlyArray<{ principleId: string; severity: string; flag_message: string; metricValue?: unknown }> | null }) {
+  if (!firedFlags) return <WSEmpty label="Handbook evaluation not available for this deal." />;
+  if (!firedFlags.length) return <WSEmpty label="No principles fired." />;
+  return <div style={wsCol}>{firedFlags.map((f, i) => (
+    <div key={i} style={wsCard}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ ...num(C.ink3), fontSize: 11 }}>{f.principleId}</span>
+        <WSPill text={f.severity} tone={f.severity === 'critical' || f.severity === 'high' ? C.kicked : f.severity === 'medium' ? C.amber : C.conceded} />
+      </div>
+      <div style={{ fontSize: 13, color: C.ink, marginTop: 5, lineHeight: 1.5 }}>{f.flag_message}</div>
+    </div>
+  ))}</div>;
 }
 
 function PointComposer({ onPost }: { onPost: (stance: string, text: string) => Promise<void> }) {
