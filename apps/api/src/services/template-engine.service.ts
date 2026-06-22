@@ -2099,6 +2099,65 @@ function clearAbsentOperatingHistoryZeros(
   }
 }
 
+// Asset class (case-insensitive) → the canonical 'Controls' table key the
+// workbook's Factor VLOOKUP (`Z3 = VLOOKUP(Property_Type, Controls!A2:D17, 4, 0)`)
+// expects. Keys verified against the Blank UW template's Controls sheet.
+const ASSET_CLASS_TO_CONTROLS_KEY: Readonly<Record<string, string>> = {
+  office:       'Office',
+  retail:       'Retail',
+  multifamily:  'Multifamily',
+  hotel:        'Hotel',
+  industrial:   'Industrial',
+  selfstorage:  'Self-Storage',
+  mhc:          'MHC',
+  mixeduse:     'Mixed Use',
+  other:        'Various',
+};
+
+// 10 Yr Pro Forma projection inputs (see call site for rationale). Two value-
+// writes; both leave Year-1 untouched. Unmapped asset classes are LEFT ALONE
+// (no guess) — Property_Type keeps the schema value and Factor stays as-is.
+function applyProFormaProjectionInputs(workbook: ExcelJS.Workbook, assetClass: string): void {
+  const key = ASSET_CLASS_TO_CONTROLS_KEY[String(assetClass).toLowerCase()];
+  if (key === undefined) return; // unmapped asset class → leave the workbook alone (no guess)
+
+  // (1) Property_Type → canonical Controls key (fixes Factor #N/A → unblocks the
+  //     PGI PSF chain D21→E21→E22).
+  for (const c of resolveNamedRangeCells(workbook, 'Property & Loan Summary', 'Property_Type')) {
+    if (!c.formula) c.value = key;
+  }
+
+  // (2) Disable RRP → route to the STABILIZED-GROWTH projection. The render binds
+  //     RRP="TRUE" to 'Property & Loan Summary'!AA3 (the M2M lease-rollover toggle).
+  //     The RRP rollover rolls expiring leases to per-tenant MARKET rents and
+  //     re-leases vacated space — data (marketRentAnnual) the current pipeline doesn't
+  //     capture — so for RRP classes (Retail/Office/Industrial) it yields $0 rolled
+  //     rent AND ~100% occupancy loss past Year 1 (PGI + EGI collapse → NOI deeply
+  //     negative). Overwriting AA3 with "FALSE" bypasses BOTH the rent and occupancy
+  //     rollovers, routing the projection through the template's own stabilized path
+  //     (grow PGI off the real Year-1 figure; hold the Year-1 physical vacancy) — the
+  //     same path MF/Hotel use. When per-tenant market comps are captured upstream,
+  //     this should become conditional (keep RRP on for deals that have them).
+  const plsRrp = workbook.getWorksheet('Property & Loan Summary');
+  if (plsRrp) plsRrp.getCell('AA3').value = 'FALSE';
+
+  // (3) Mode label → "Stabilized" (cosmetic; RRP-off already routes to growth) +
+  //     a transparency note on the mode cell, so the projection's assumptions are
+  //     legible in the workbook itself (the structured analysis-flag route would
+  //     require a schema/contract change and is intentionally out of this surface).
+  const pf = workbook.getWorksheet('10 Yr Pro Forma');
+  if (pf) {
+    const c8 = pf.getCell('C8');
+    if (!c8.formula) c8.value = 'Stabilized';
+    c8.note =
+      'Stabilized projection: PGI grown ~1%/yr off the in-place Year-1; physical vacancy held at ' +
+      'the Year-1 level. The Mark-to-Market lease-rollover is bypassed because per-tenant market ' +
+      'comps were not captured. The state-agency tenants’ contractual 2027 step-down ' +
+      '(~$60 → ~$49.80/SF on ~18.6% of rent) is NOT modeled, so later years are modestly ' +
+      'optimistic on that slice; later-year NOI is approximate (1% rent growth vs faster OpEx growth).';
+  }
+}
+
 export async function applyRenderPayloadToTemplate(
   templateBuffer: Buffer,
   payload: RenderPayload,
@@ -2175,6 +2234,20 @@ export async function applyRenderPayloadToTemplate(
   // null a formula cell and (b) only clear a literal numeric 0 — so we strip the
   // template's misleading default zeros and nothing else.
   clearAbsentOperatingHistoryZeros(workbook, new Set(writtenAddresses));
+
+  // ── 10 Yr Pro Forma projection inputs (workbook-polish; render-layer, no schema touch) ──
+  // Two value-writes that unblock the multi-year projection (Year 1 is unaffected):
+  //  (1) Property_Type — the schema binds the free-text descriptor (e.g. "Suburban
+  //      Office") to the Property_Type named range, but Factor (Z3 = VLOOKUP(
+  //      Property_Type, Controls, 4)) needs the canonical Controls key. A mismatch →
+  //      Factor #N/A → the PGI PSF chain (D21→E21→E22) collapses to $0 past Year 1.
+  //      Overwrite with the asset-class → Controls-key mapping.
+  //  (2) Mode — set the pro-forma to "Stabilized" so PGI grows off the real Year-1
+  //      figure (E21×Measure×Factor) rather than the Mark-to-Market rollover, which
+  //      rolls expiring leases to per-tenant market comps we don't have (→ $0).
+  // Invariant-safe: post-cellBindings cell mutations only; touches no schema address
+  // (same precedent as clearAbsentOperatingHistoryZeros). No RENDER_CONTRACT bump.
+  applyProFormaProjectionInputs(workbook, payload.assetClass);
 
   const visible = new Set(payload.visibleTabs);
   const hiddenSheets: string[] = [];
