@@ -24,12 +24,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
-import { formatCurrencyFull, formatDecimalPercent, formatMultipleSafe } from '@/lib/format';
-import type { Analysis, Finding, Comment } from '@cre/shared';
+import { formatCurrencyFull, formatDecimalPercent, formatMultipleSafe, formatPercent } from '@/lib/format';
+import type { Analysis, Finding, Comment, UnderwritingModel } from '@cre/shared';
+import { recalculateFullModel } from '@cre/shared';
 
 type Role = 'bp_spire' | 'originator';
-type WSTab = 'criteria' | 'score' | 'crosscheck' | 'research' | 'decision' | 'stress' | 'schedule' | 'handbook';
+type WSTab = 'adjust' | 'criteria' | 'score' | 'crosscheck' | 'research' | 'decision' | 'stress' | 'schedule' | 'handbook';
 const WS_TABS: ReadonlyArray<{ key: WSTab; label: string }> = [
+  { key: 'adjust', label: 'Adjust inputs' },
   { key: 'criteria', label: 'Criteria' }, { key: 'score', label: 'Score detail' }, { key: 'crosscheck', label: 'Cross-check' },
   { key: 'research', label: 'Research' }, { key: 'decision', label: 'B-piece decision' }, { key: 'stress', label: 'Stress' },
   { key: 'schedule', label: 'Schedule' }, { key: 'handbook', label: 'Handbook' },
@@ -99,6 +101,7 @@ export default function DealRoom() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);          // buyer-only depth drawer
   const [workspaceTab, setWorkspaceTab] = useState<WSTab>('criteria');
   const [handbookEval, setHandbookEval] = useState<{ firedFlags?: Array<{ principleId: string; severity: string; flag_message: string; metricValue?: unknown }> } | null>(null);
+  const [scenario, setScenario] = useState<UnderwritingModel | null>(null); // client-side what-if (NON-persisting); null = showing the actual underwriting
 
   useEffect(() => {
     let alive = true;
@@ -135,6 +138,32 @@ export default function DealRoom() {
   };
   const requestCall = (key: string) => setCallRequests((p) => new Set(p).add(key)); // local/visual only
 
+  // ★ Adjust inputs = a NON-PERSISTING client-side what-if. We clone the projected uwModel,
+  // apply the edit (mirroring the backend's applyLoanTermUpdates field-setting), and run the
+  // SAME engine (recalculateFullModel from @cre/shared) in-browser. Nothing is written — no
+  // revision rows, no lineage growth, no LLM, no 404. Reset returns to the actual underwriting.
+  const applyLoanTerms = (updates: { interestRate?: number; loanAmount?: number; ioMonths?: number; amortizationMonths?: number; termMonths?: number }) => {
+    const base = scenario ?? analysis?.uwModel;
+    if (!base) return;
+    const next = JSON.parse(JSON.stringify(base)) as UnderwritingModel;
+    if (updates.interestRate !== undefined) { next.interestRate = updates.interestRate; if (next.loanDetails) next.loanDetails.interestRate = updates.interestRate; }
+    if (updates.loanAmount !== undefined) { next.loanAmount = updates.loanAmount; if (next.loanDetails) next.loanDetails.loanAmount = updates.loanAmount; }
+    if (updates.ioMonths !== undefined && next.loanDetails) next.loanDetails.ioMonths = updates.ioMonths;
+    if (updates.amortizationMonths !== undefined) { if (next.loanDetails) next.loanDetails.amortizationMonths = updates.amortizationMonths; next.amortizationYears = updates.amortizationMonths / 12; }
+    if (updates.termMonths !== undefined) { if (next.loanDetails) next.loanDetails.termMonths = updates.termMonths; next.termYears = updates.termMonths / 12; }
+    (next as { asReported?: boolean }).asReported = false;
+    setScenario(recalculateFullModel(next));
+  };
+  const applyCapRate = (value: number) => {
+    const base = scenario ?? analysis?.uwModel;
+    if (!base) return;
+    const next = JSON.parse(JSON.stringify(base)) as UnderwritingModel;
+    (next as { capRate?: number }).capRate = value;
+    (next as { asReported?: boolean }).asReported = false;
+    setScenario(recalculateFullModel(next));
+  };
+  const resetScenario = () => setScenario(null);
+
   const shell = (inner: React.ReactNode) => (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.ink, fontFamily: SANS }}>{inner}</div>
   );
@@ -153,15 +182,18 @@ export default function DealRoom() {
   const comments = analysis.comments ?? [];
   const score = analysis.creditScore;
   const uw = analysis.uwModel;
-  const loan = uw?.loanAmount ?? null;
-  const uwNoi = uw && loan != null && uw.debtYield != null ? uw.debtYield * loan : null;
-  const value = uw && loan != null && uw.ltv ? loan / uw.ltv : null;
+  const effUw = scenario ?? uw;                 // what the rail shows: the what-if if active, else the actual UW
+  const scenarioActive = scenario !== null;
+  const loan = effUw?.loanAmount ?? null;
+  const uwNoi = (effUw as { netOperatingIncome?: number } | null)?.netOperatingIncome ?? (effUw && loan != null && effUw.debtYield != null ? effUw.debtYield * loan : null);
+  const value = effUw && loan != null && effUw.ltv ? loan / effUw.ltv : null;
 
   // Workspace sub-tabs are DATA-DRIVEN — a tab appears only when its data is non-empty
   // (and reappears automatically for deals that populate it). Handbook is async — only
   // available once firedFlags has loaded. The active tab falls back to the first
   // available, so the drawer never opens on a hidden tab.
   const wsAvail: Record<WSTab, boolean> = {
+    adjust: !!uw,
     criteria: (analysis.criteriaEvaluations?.length ?? 0) > 0,
     score: (score?.categories?.length ?? 0) > 0,
     crosscheck: (analysis.crossCheckFindings?.length ?? 0) > 0,
@@ -259,6 +291,11 @@ export default function DealRoom() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, alignItems: 'start' }}>
           {/* ── 4. Contested-point cards ──────────────────────── */}
           <main>
+            {scenarioActive && (
+              <div style={{ fontSize: 12, color: '#6e4a1d', background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.amber}`, borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
+                These findings reflect the <strong>original underwriting</strong> — they were not re-run on the what-if inputs.
+              </div>
+            )}
             <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3, marginBottom: 8 }}>Contested points</div>
             {points.length === 0 ? (
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, padding: 16, color: C.ink3, fontSize: 14 }}>No findings to contest.</div>
@@ -385,9 +422,15 @@ export default function DealRoom() {
                   </div>
                 </div>
               )}
+              {scenarioActive && (
+                <div style={{ fontSize: 11, color: C.amber, background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: '6px 8px', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span><strong>Scenario (not saved)</strong> — metrics recomputed from adjusted inputs. Score &amp; findings are the original underwriting.</span>
+                  <button onClick={resetScenario} style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>Reset</button>
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-                <Metric label="DSCR" value={uw ? formatMultipleSafe(uw.dscr) : '—'} />
-                <Metric label="Debt yield" value={uw ? formatDecimalPercent(uw.debtYield) : '—'} />
+                <Metric label="DSCR" value={effUw ? formatMultipleSafe(effUw.dscr) : '—'} />
+                <Metric label="Debt yield" value={effUw ? formatDecimalPercent(effUw.debtYield) : '—'} />
                 <Metric label="Value" value={value != null ? formatCurrencyFull(value) : '—'} />
                 <Metric label="UW NOI" value={uwNoi != null ? formatCurrencyFull(uwNoi) : '—'} />
               </div>
@@ -454,6 +497,7 @@ export default function DealRoom() {
             )}
             <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
               {effectiveTab === null && <WSEmpty label="No underwriting detail computed for this deal yet." />}
+              {effectiveTab === 'adjust' && <AdjustInputs uw={effUw as never} scenarioActive={scenarioActive} onApplyTerms={applyLoanTerms} onApplyCapRate={applyCapRate} onReset={resetScenario} />}
               {effectiveTab === 'criteria' && <CriteriaList items={analysis.criteriaEvaluations ?? []} />}
               {effectiveTab === 'score' && <ScoreDetail score={score} />}
               {effectiveTab === 'crosscheck' && <CrossCheckList items={analysis.crossCheckFindings ?? []} />}
@@ -632,6 +676,63 @@ function ScheduleTable({ schedule }: { schedule: { entries?: ReadonlyArray<{ mon
       </table>
     </div>
   </div>;
+}
+
+interface UwLite {
+  loanAmount: number; interestRate: number; capRate: number;
+  termYears?: number; amortizationYears?: number;
+  loanDetails?: { ioMonths?: number; termMonths?: number; amortizationMonths?: number } | null;
+}
+function AdjustInputs({ uw, scenarioActive, onApplyTerms, onApplyCapRate, onReset }: {
+  uw: UwLite | null; scenarioActive: boolean;
+  onApplyTerms: (updates: Record<string, number>) => void; onApplyCapRate: (value: number) => void; onReset: () => void;
+}) {
+  if (!uw) return <WSEmpty label="No underwriting model to adjust." />;
+  const ld = uw.loanDetails ?? {};
+  const term = ld.termMonths ?? (uw.termYears ? uw.termYears * 12 : 0);
+  const amort = ld.amortizationMonths ?? (uw.amortizationYears ? uw.amortizationYears * 12 : 0);
+  return (
+    <div style={wsCol}>
+      <div style={{ ...wsCard, background: C.tealSoft, borderColor: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ fontSize: 12, color: C.tealDeep, lineHeight: 1.5 }}>
+          <strong>What-if (not saved).</strong> Edits recompute the rail metrics using the real underwriting engine, in-browser. Nothing is written — no revision, no lineage change. Score &amp; findings stay the original underwriting.
+        </div>
+        {scenarioActive && <button onClick={onReset} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: C.teal, border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Reset</button>}
+      </div>
+      <LightTermInput label="Loan amount" value={uw.loanAmount} display={formatCurrencyFull(uw.loanAmount)} onApply={(v) => onApplyTerms({ loanAmount: v })} />
+      <LightTermInput label="Interest rate" value={uw.interestRate} display={formatPercent(uw.interestRate)} step={0.125} onApply={(v) => onApplyTerms({ interestRate: v })} />
+      <LightTermInput label="Cap rate" value={uw.capRate} display={formatDecimalPercent(uw.capRate)} step={0.00125} onApply={(v) => onApplyCapRate(v)} />
+      <LightTermInput label="IO period (months)" value={ld.ioMonths ?? 0} display={`${ld.ioMonths ?? 0} mo`} step={1} onApply={(v) => onApplyTerms({ ioMonths: v })} />
+      <LightTermInput label="Term (months)" value={term} display={`${term} mo`} step={12} onApply={(v) => onApplyTerms({ termMonths: v })} />
+      <LightTermInput label="Amortization (months)" value={amort} display={`${amort} mo`} step={12} onApply={(v) => onApplyTerms({ amortizationMonths: v })} />
+    </div>
+  );
+}
+function LightTermInput({ label, value, display, step, onApply }: {
+  label: string; value: number; display: string; step?: number; onApply: (v: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const apply = () => { const v = parseFloat(draft); if (!Number.isNaN(v)) onApply(v); setEditing(false); };
+  return (
+    <div style={{ ...wsCard, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <span style={{ fontSize: 13, color: C.ink }}>{label}</span>
+      {editing ? (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="number" step={step ?? 'any'} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter') apply(); if (e.key === 'Escape') setEditing(false); }}
+            style={{ width: 130, fontSize: 13, padding: '5px 7px', borderRadius: 6, border: `1px solid ${C.teal}`, fontFamily: MONO, boxSizing: 'border-box' }} />
+          <button onClick={apply} style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 6, border: 'none', background: C.teal, color: '#fff', cursor: 'pointer' }}>Apply</button>
+          <button onClick={() => setEditing(false)} style={{ fontSize: 12, padding: '5px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.ink2, cursor: 'pointer' }}>✕</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span style={{ ...num(C.ink), fontSize: 14, fontWeight: 600 }}>{display}</span>
+          <button onClick={() => { setDraft(String(value)); setEditing(true); }} style={{ fontSize: 11, color: C.teal, background: 'none', border: 'none', cursor: 'pointer' }}>Edit</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function HandbookList({ firedFlags }: { firedFlags: ReadonlyArray<{ principleId: string; severity: string; flag_message: string; metricValue?: unknown }> | null }) {
