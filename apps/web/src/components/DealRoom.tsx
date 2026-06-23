@@ -274,6 +274,30 @@ export function DealRoom({ id }: { id: string }) {
           <span style={{ fontSize: 12, fontWeight: 600, color: C.flagged, background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderRadius: 999, padding: '4px 12px' }}>In review</span>
         </div>
 
+        {/* ── Market-vs-in-place (per appraisal leasing assumptions) ──
+            Honest-blank: renders nothing unless BOTH market + in-place are
+            present (appraisal must be ingested). Verdict is computed from the
+            numbers (±2% band), never hardcoded. Display-only. */}
+        {(() => {
+          const la = analysis.appraisalExtraction?.leasingAssumptions;
+          const market = la?.marketRentPsfPerMonth != null ? la.marketRentPsfPerMonth * 12 : null;
+          const inPlace = la?.weightedInPlaceRentPsfPerMonth != null ? la.weightedInPlaceRentPsfPerMonth * 12 : null;
+          if (market == null || inPlace == null) return null;
+          const delta = inPlace / market - 1;
+          const verdict = Math.abs(delta) <= 0.02 ? 'at market' : delta > 0 ? 'above market' : 'below market';
+          const vColor = verdict === 'at market' ? C.ink2 : verdict === 'above market' ? C.flagged : C.teal;
+          return (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 16, fontSize: 13, color: C.ink2 }}>
+              <span>
+                Appraisal Market Rent <span style={num(C.ink)}>${market.toFixed(2)}/SF</span>
+                {' vs In-Place '}<span style={num(C.ink)}>${inPlace.toFixed(2)}/SF</span>
+                {' — '}<span style={{ fontWeight: 600, color: vColor }}>{verdict}</span>
+              </span>
+              <span style={{ fontSize: 11, color: C.ink3 }}>per appraisal</span>
+            </div>
+          );
+        })()}
+
         {/* ── 3. Tally strip ──────────────────────────────────── */}
         <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, marginBottom: 18, overflow: 'hidden' }}>
           {([['Flagged', points.length, C.flagged], ['Contested', 0, C.contested], ['Resolved', 0, C.resolved], ['Conceded', 0, C.conceded]] as const).map(([label, n, sw], i) => (
