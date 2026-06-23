@@ -110,6 +110,7 @@ import { CF_ADAPTER_VERSION } from '../services/extraction/adapters/cf.adapter.j
 import { RENT_ROLL_ADAPTER_VERSION } from '../services/extraction/adapters/rent-roll.adapter.js';
 import { ASR_ADAPTER_VERSION } from '../services/extraction/adapters/asr.adapter.js';
 import { PCA_ADAPTER_VERSION } from '../services/extraction/adapters/pca.adapter.js';
+import { APPRAISAL_ADAPTER_VERSION } from '../services/extraction/adapters/appraisal.adapter.js';
 import { upload } from '../middleware/upload.js';
 
 /* ------------------------------ multer config ----------------------------- */
@@ -123,6 +124,7 @@ const uploadBuildAndIngestFields = upload.fields([
   { name: 'rent_roll', maxCount: 1 },
   { name: 'seller_cf', maxCount: 1 },
   { name: 'pca', maxCount: 1 },
+  { name: 'appraisal', maxCount: 1 },
 ]);
 
 /* --------------------------------- deps ---------------------------------- */
@@ -159,6 +161,7 @@ export const DEFAULT_BUILD_AND_INGEST_DEPS: BuildAndIngestDeps = {
     rentRoll: RENT_ROLL_ADAPTER_VERSION,
     asr: ASR_ADAPTER_VERSION,
     pca: PCA_ADAPTER_VERSION,
+    appraisal: APPRAISAL_ADAPTER_VERSION,
     engine: EXTRACTION_ENGINE_VERSION,
   },
 };
@@ -315,11 +318,13 @@ export function makeBuildAndIngestHandler(
     const rr = takeFile(files, 'rent_roll');
     const cf = takeFile(files, 'seller_cf');
     const pca = takeFile(files, 'pca');
+    const appraisal = takeFile(files, 'appraisal');
     const slots: InputSlots = {
       ...(asr !== undefined ? { asrPdf: asr } : {}),
       ...(rr !== undefined ? { rentRollXlsx: rr } : {}),
       ...(cf !== undefined ? { sellerCfXlsx: cf } : {}),
       ...(pca !== undefined ? { pcaPdf: pca } : {}),
+      ...(appraisal !== undefined ? { appraisalPdf: appraisal } : {}),
     };
 
     /* Tier B short-circuit (issue #10 / ADR §6). Before invoking the composer:
@@ -384,6 +389,7 @@ export function makeBuildAndIngestHandler(
         if (rr)  await deps.blobStore.putBlob(rr.buffer);
         if (asr) await deps.blobStore.putBlob(asr.buffer);
         if (pca) await deps.blobStore.putBlob(pca.buffer);
+        if (appraisal) await deps.blobStore.putBlob(appraisal.buffer);
       } catch (e) {
         if (e instanceof BlobStoreError) {
           res.status(500).json({
@@ -573,7 +579,7 @@ export function makeBuildAndIngestHandler(
        are unchanged. Each slot's persist outcome is RETURNED + logged (flag 3) —
        a failure is SURFACED, never swallowed, so append can trust the manifest. */
     const rawDocSlots: ReadonlyArray<readonly [SourceDocSlot, { buffer: Buffer; filename: string } | undefined]> = [
-      ['asr', asr], ['rent_roll', rr], ['cf', cf], ['pca', pca],
+      ['asr', asr], ['rent_roll', rr], ['cf', cf], ['pca', pca], ['appraisal', appraisal],
     ];
     const sourceDocPersist: Array<{ slot: SourceDocSlot; status: 'ok' | 'error'; fileHash?: string; message?: string }> = [];
     for (const [slot, f] of rawDocSlots) {
