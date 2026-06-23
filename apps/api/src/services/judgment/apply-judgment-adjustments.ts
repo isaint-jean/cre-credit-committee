@@ -22,6 +22,7 @@
 
 import type {
   AdjustedInputs,
+  AdjustedLeasingAssumptions,
   AdjustmentEntry,
   AssetProfile,
   CreditManifesto,
@@ -140,6 +141,23 @@ function checkPreconditions(args: ApplyJudgmentAdjustmentsArgs): void {
 }
 
 /* ------------------------------ helpers (Stage 6) --------------------------- */
+
+// Pre-fill the DISPLAY-ONLY leasing assumptions from the appraisal's
+// leasingAssumptions. Honest-blank: null when the appraisal didn't conclude
+// one. Units normalized to the model's convention (annual $/SF market, years
+// term). ★ This is a pure passthrough into the ISOLATED assumptions.leasing
+// region — it feeds NO scoring path (see AdjustedAssumptions.leasing).
+function deriveLeasingAssumptions(extraction: ExtractionResult): AdjustedLeasingAssumptions | null {
+  const la = extraction.appraisal?.leasingAssumptions ?? null;
+  if (la === null) return null;
+  return {
+    tiNewPsf: la.tiNewPsf,
+    tiRenewPsf: la.tiRenewPsf,
+    marketRentPsf: la.marketRentPsfPerMonth != null ? la.marketRentPsfPerMonth * 12 : null,
+    downtimeMonths: la.downtimeMonths,
+    leaseTermYears: la.avgLeaseTermMonths != null ? la.avgLeaseTermMonths / 12 : null,
+  };
+}
 
 function computeTop1IncomeShare(extraction: ExtractionResult, gri: number): number | null {
   if (extraction.rentRoll === null || gri <= 0) return null;
@@ -519,7 +537,7 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     // concludedCapRate is analyst-input-only per §14.3 Decision 3 + Delta X
     // (handbook P-III-9 disallows deterministic threshold derivation); null
     // until set via revision-delta override.
-    assumptions: { capRate, terminalCapRate, concludedCapRate: null, rentGrowthPct, expenseGrowthPct },
+    assumptions: { capRate, terminalCapRate, concludedCapRate: null, rentGrowthPct, expenseGrowthPct, leasing: deriveLeasingAssumptions(extraction) },
     metrics: {
       noi: finalNoi,
       value,

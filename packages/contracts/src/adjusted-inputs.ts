@@ -242,6 +242,33 @@ export interface AdjustedAssumptions {
   readonly concludedCapRate: AdjustedLineItem | null;
   readonly rentGrowthPct: AdjustedLineItem;
   readonly expenseGrowthPct: AdjustedLineItem;
+  /**
+   * ★ DISPLAY-ONLY leasing assumptions (TI / market rent / downtime / term),
+   * pre-filled from the appraisal's `leasingAssumptions` and analyst-overridable
+   * via the revision-delta path. ISOLATED FROM SCORING BY CONSTRUCTION: no
+   * doctrine/scoring path reads this region — `evaluateDeal` consumes a DealBag
+   * built from the EXTRACTION (`adaptExtractionToDealBag`), and `adjustedInputs`
+   * reaches scoring only through `computeContractedNoi` (which reads
+   * `income.vacancyPct` + `metrics.expenseRatio` + `income.otherIncome` only).
+   * These fields touch NONE of those, so they cannot move the score. Keep it
+   * that way: do not wire `leasing` into computeContractedNoi or the DealBag
+   * adapter. Optional + nullable for additive back-compat.
+   */
+  readonly leasing?: AdjustedLeasingAssumptions | null;
+}
+
+/**
+ * Display-only leasing assumptions on AdjustedInputs. All nullable; honest-blank
+ * when the appraisal didn't conclude one. NOT consumed by scoring (see
+ * AdjustedAssumptions.leasing). Market rent is ANNUAL $/SF (appraisal states
+ * monthly; pre-fill multiplies ×12); term is YEARS (appraisal states months).
+ */
+export interface AdjustedLeasingAssumptions {
+  readonly tiNewPsf: number | null;
+  readonly tiRenewPsf: number | null;
+  readonly marketRentPsf: number | null;   // annual $/SF
+  readonly downtimeMonths: number | null;
+  readonly leaseTermYears: number | null;
 }
 
 /**
