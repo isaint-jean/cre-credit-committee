@@ -50,6 +50,7 @@ import { evaluateAndNarrate } from './evaluate-and-narrate.js';
 import type { LLMCallFn } from './narrative/build-narrative.js';
 import { annualDebtService, maturityBalance } from './judgment/amortization.js';
 import { checkNoiDivergence } from './judgment/noi-divergence.js';
+import { applyNoiCap } from './judgment/noi-cap.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 
 /**
@@ -302,7 +303,35 @@ export function recomputeDerivedFields(
   const matBalance = maturityBalance({ loanAmount, interestRate, amortizationMonths, termMonths });
 
   const capRate = body.assumptions.capRate.adjusted;
-  const noi = egi - totalOpEx;
+  const derivedNoi = egi - totalOpEx;
+
+  // ★ Opt-3 (keep cap on override): when the parent carried a
+  // JE_NOI_CAPPED_TO_BANK cap, re-apply it so the recomputed metrics.noi stays
+  // at bankNoi (consistent with the cap entry + the doctrine score) rather than
+  // the uncapped derived — which would otherwise break the synthesize-uw-model
+  // NOI tie-out (a hard throw on capped/aggressive-UW deals). bankNoi is
+  // recoverable from the INCOMING body.metrics.noi: the judgment engine set
+  // metrics.noi = capped = bankNoi, so no extraction / bankNoiCascade is needed.
+  // The stale entry's delta is relative to the judgment's pre-cap derived, which
+  // differs from THIS recompute's derived (recompute does not replay vacancy/
+  // loss conservatism); applyNoiCap REGENERATES the entry (delta = bankNoi −
+  // derivedNoi) so the synthesize ties out by construction. General to any
+  // capped deal; non-capped deals (no entry) are untouched. Does not alter the
+  // cap logic (noi-cap.ts) or the doctrine score (which reads sustainable NOI,
+  // not this metric). If the override drops derived ≤ bankNoi the cap no longer
+  // binds — the stale entry is removed and noi stays at the (lower) derived.
+  const hadNoiCap =
+    body.metrics.noi !== null &&
+    body.topLevelAdjustments.some((a) => a.ruleId === 'JE_NOI_CAPPED_TO_BANK');
+  const capRes = hadNoiCap ? applyNoiCap({ derivedNoi, bankNoi: body.metrics.noi as number }) : null;
+  const noi = capRes !== null ? capRes.capped : derivedNoi;
+  const topLevelAdjustments = hadNoiCap
+    ? [
+        ...body.topLevelAdjustments.filter((a) => a.ruleId !== 'JE_NOI_CAPPED_TO_BANK'),
+        ...(capRes!.entry !== null ? [capRes!.entry] : []),
+      ]
+    : body.topLevelAdjustments;
+
   const value = capRate > 0 ? noi / capRate : null;
   const dscr = debtService > 0 ? noi / debtService : null;
   const debtYield = loanAmount > 0 ? noi / loanAmount : null;
@@ -346,6 +375,7 @@ export function recomputeDerivedFields(
 
   return {
     ...body,
+    topLevelAdjustments,
     income: {
       ...body.income,
       effectiveGrossIncome: { ...body.income.effectiveGrossIncome, adjusted: egi },
