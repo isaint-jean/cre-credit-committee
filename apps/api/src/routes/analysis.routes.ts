@@ -45,6 +45,7 @@ import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger, type AssetTyp
 import { requirePermission } from '../middleware/require-permission.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
+import { SynthesizeUwModelTieOutError } from '../services/synthesize-uw-model-from-graph.js';
 import { v4 as uuid } from 'uuid';
 import {
   dispatchByIdFormat,
@@ -862,6 +863,24 @@ export async function handleGraphRevision(
           message:  f.message,
           ...(f.values ? { values: f.values } : {}),
         })),
+      });
+      return;
+    }
+    if (e instanceof SynthesizeUwModelTieOutError) {
+      // Graceful 500 — the revision's synthesized UW model failed the NOI
+      // tie-out (e.g. an override on a deal carrying a stale
+      // JE_NOI_CAPPED_TO_BANK cap; see the option 2/3 root-cause recon). Surface
+      // a clear error rather than letting the throw escape the async handler and
+      // crash the process. No revision was persisted; the existing lineage is
+      // intact. (This is robustness only — it does NOT make such overrides
+      // succeed; that is the cap replay/drop fix.)
+      res.status(500).json({
+        error: 'REVISION_TIEOUT',
+        message:
+          'Revision could not be evaluated — the synthesized underwriting model did not ' +
+          'tie out to the engine NOI. No revision was saved.',
+        synthesizedNoi: e.synthesizedNoi,
+        aiMetricsNoi: e.aiMetricsNoi,
       });
       return;
     }
