@@ -838,6 +838,24 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v19Additions];
 })();
 
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[20] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[19] ?? [];
+  // v20: Rent Roll tier-table leasing baseline — 15 cells (C7:C11 market,
+  // F7:F11 TI-new, G7:G11 TI-renew) reading adjustedInputs.assumptions.leasing.
+  // State LEGACY because the authority is adjustedInputs (REQUIRED_SOURCE_BY_STATE
+  // .LEGACY === 'adjustedInputs', matching the selector's ['adjustedInputs'] tag).
+  // New addresses at v20 — no prior-version state, so no transition check applies.
+  const v20Additions: FieldStateDeclaration[] = (['C', 'F', 'G'] as const).flatMap((col) =>
+    [7, 8, 9, 10, 11].map((row): FieldStateDeclaration => ({
+      address: `Rent Roll!${col}${row}`,
+      group: 'rent_roll' as const,
+      state: 'LEGACY' as const,
+      notes: 'New at v20. Display-only appraisal leasing baseline (market / TI-new / TI-renew), flat down all 5 tier rows from adjustedInputs.assumptions.leasing. D/E (term/downtime) unbound.',
+    })),
+  );
+  return [...carryForward, ...v20Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

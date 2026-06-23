@@ -964,6 +964,32 @@ const MIGRATIONS: RenderContractMigration[] = [
       'computeDocumentCompleteness(sourceDocuments ∪ overlays vs the field-authority ' +
       'registry) and written post-projection — declared-in-schema, filled-by-display.',
   },
+  {
+    fromVersion: 19,
+    toVersion: 20,
+    description:
+      'Rent Roll tier-table leasing baseline (SCHEMA_V20). B1 lands the empty ' +
+      'mirror (zero address changes) to validate the cascade + resolve snapshot ' +
+      'keying before any binding. B2 adds 15 Rent Roll top-block addresses ' +
+      '(C7:C11 market, F7:F11 TI-new, G7:G11 TI-renew) reading ' +
+      'adjustedInputs.assumptions.leasing; D7:D11 + E7:E11 stay unbound ' +
+      '(honest-blank). Display-only (RRP=FALSE top block); no new SheetSlot, no ' +
+      'source surface, no payload-shape change. Carry-forward v19 unchanged.',
+    autoApplicable: true,
+    addresses: (['C', 'F', 'G'] as const).flatMap((col) =>
+      [7, 8, 9, 10, 11].map((row) => ({ kind: 'address-added' as const, address: `Rent Roll!${col}${row}` })),
+    ),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v20 is additive (15 new Rent Roll top-block addresses: C7:C11 market, ' +
+      'F7:F11 TI-new, G7:G11 TI-renew). Same flat value down all 5 tier rows from ' +
+      'adjustedInputs.assumptions.leasing; D7:D11 + E7:E11 stay unbound. ' +
+      'Display-only (RRP=FALSE top block); no new SheetSlot, no source surface, ' +
+      'no payload-shape change.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

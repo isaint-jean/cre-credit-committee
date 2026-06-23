@@ -2478,6 +2478,78 @@ const SCHEMA_V19: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v19DefsFor('manufactured_housing') },
 };
 
+// ── V20: Rent Roll tier-table top-block leasing baseline (display-only) ──
+// B1 skeleton: empty entries, an exact mirror of V19 (no address changes — the
+// empty bump exists to validate the cascade + resolve the snapshot-keying
+// question before any binding lands). B2 fills V20_RENT_ROLL_TIER_ENTRIES with
+// the C7:C11 (market) / F7:F11 (TI-new) / G7:G11 (TI-renew) bindings reading
+// adjustedInputs.assumptions.leasing. D7:D11 (term) + E7:E11 (downtime) stay
+// UNBOUND (honest-blank — flat would misrepresent the analyst's per-tier split).
+const V20_RENT_ROLL_TIER_ENTRIES: SchemaEntry[] = (
+  [
+    ['C', (a: AdjustedInputs) => a.assumptions?.leasing?.marketRentPsf ?? null],
+    ['F', (a: AdjustedInputs) => a.assumptions?.leasing?.tiNewPsf ?? null],
+    ['G', (a: AdjustedInputs) => a.assumptions?.leasing?.tiRenewPsf ?? null],
+  ] as ReadonlyArray<readonly [string, (a: AdjustedInputs) => number | null]>
+).flatMap(([col, pick]) =>
+  // Flat value down all 5 tier rows (7-11 = tiers M/L/T/X/Y); the model holds
+  // one flat leasing struct, so each column gets the same value per row. Reads
+  // adjustedInputs.assumptions.leasing (tagged 'adjustedInputs'); honest-blank
+  // (null) when the appraisal didn't conclude one. D7:D11 (term) + E7:E11
+  // (downtime) deliberately UNBOUND — flat would misrepresent the analyst's
+  // per-tier split. Display-only top block (RRP=FALSE → M2M bypassed).
+  [7, 8, 9, 10, 11].map((row): SchemaEntry => ({
+    slot: 'Rent_Roll',
+    range: `${col}${row}`,
+    selector: num(pick),
+    cellState: 'concluded',
+  })),
+);
+
+const V20_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V19_SHARED_ENTRIES,
+  ...V20_RENT_ROLL_TIER_ENTRIES,
+];
+
+function v20Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V20_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v20DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v20Definition(assetClass)];
+}
+
+const SCHEMA_V20: ContractSchema = {
+  office: {
+    office_core:       v20DefsFor('office'),
+    office_trophy:     v20DefsFor('office'),
+    office_value_add:  v20DefsFor('office'),
+    office_distressed: v20DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v20DefsFor('multifamily'),
+    mf_large_scale: v20DefsFor('multifamily'),
+    mf_workforce:   v20DefsFor('multifamily'),
+    mf_value_add:   v20DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v20DefsFor('industrial'),
+    ind_logistics: v20DefsFor('industrial'),
+    ind_light:     v20DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v20DefsFor('retail') },
+  hotel:                { hotel_core:                v20DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v20DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v20DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v20DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2529,6 +2601,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   17: SCHEMA_V17,
   18: SCHEMA_V18,
   19: SCHEMA_V19,
+  20: SCHEMA_V20,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2814,6 +2887,7 @@ function assertSchemaWellFormed(): void {
     // sentinel selector; their text is filled by the downstream display layer
     // (not a schema SourceSurface read).
     19: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    20: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

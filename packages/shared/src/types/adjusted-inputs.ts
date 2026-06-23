@@ -154,4 +154,27 @@ export interface AdjustedInputs {
   adjustments: AdjustmentEntry[];
   /** 0..1 — confidence reduction applied due to missing inputs / penalties. */
   confidenceReduction: number;
+  /**
+   * Display-only assumptions threaded from the graph AdjustedInputs
+   * (@cre/contracts). The VALUE already flows to the render via the projection
+   * (build-underwriting-context-projection passes `graph.adjustedInputs`); this
+   * optional field exists so the render schema's leasing selectors type-check.
+   * Leasing assumptions are display-only (workbook top-block) and are NOT read
+   * by scoring. Optional/nullable for back-compat with legacy adapters.
+   */
+  assumptions?: { leasing?: AdjustedLeasingAssumptionsView | null } | null;
+}
+
+/**
+ * Display-only leasing assumptions surfaced for the render — a local mirror of
+ * the @cre/contracts `AdjustedLeasingAssumptions` (shared cannot import from
+ * contracts). All nullable; honest-blank when the appraisal didn't conclude one.
+ * Market rent is annual $/SF; term is years.
+ */
+export interface AdjustedLeasingAssumptionsView {
+  tiNewPsf: number | null;
+  tiRenewPsf: number | null;
+  marketRentPsf: number | null;
+  downtimeMonths: number | null;
+  leaseTermYears: number | null;
 }

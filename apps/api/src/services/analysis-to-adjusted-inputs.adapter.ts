@@ -23,6 +23,7 @@ import type {
   AdjustedExpenses,
   AdjustedIncome,
   AdjustedInputs,
+  AdjustedLeasingAssumptionsView,
   AdjustedLineItem,
   AdjustedLoan,
   AdjustedMetrics,
@@ -262,12 +263,35 @@ function buildMetrics(model: UnderwritingModel): AdjustedMetrics {
   };
 }
 
+// Display-only leasing baseline for the workbook top-block. Mirrors Phase 1's
+// deriveLeasingAssumptions (apply-judgment-adjustments) but sources from the
+// Analysis's appraisal extraction — this legacy adapter is the workbook-export
+// path (render.routes → buildRenderPayload), which doesn't carry the graph
+// AdjustedInputs.assumptions. Honest-blank: null when the appraisal didn't
+// conclude one. Market rent annualized (×12); term in years (÷12). NOT read by
+// scoring (display-only; the render is downstream of the graph doctrine score).
+function deriveLeasingView(
+  la: NonNullable<NonNullable<Analysis['appraisalExtraction']>['leasingAssumptions']> | null | undefined,
+): { leasing: AdjustedLeasingAssumptionsView } | null {
+  if (la === null || la === undefined) return null;
+  return {
+    leasing: {
+      tiNewPsf: la.tiNewPsf,
+      tiRenewPsf: la.tiRenewPsf,
+      marketRentPsf: la.marketRentPsfPerMonth != null ? la.marketRentPsfPerMonth * 12 : null,
+      downtimeMonths: la.downtimeMonths,
+      leaseTermYears: la.avgLeaseTermMonths != null ? la.avgLeaseTermMonths / 12 : null,
+    },
+  };
+}
+
 export function adaptAnalysisToAdjustedInputs(analysis: Analysis): AdjustedInputs | null {
   const model = analysis.uwModel;
   if (!model) return null;
   return {
     income: buildIncome(model),
     expenses: buildExpenses(model),
+    assumptions: deriveLeasingView(analysis.appraisalExtraction?.leasingAssumptions ?? null),
     // Below-NOI / capital reserves. Populated from the synthesized graph
     // when present, all-zeros default with missing-data-penalty otherwise.
     capitalReserves: buildCapitalReserves(model),
