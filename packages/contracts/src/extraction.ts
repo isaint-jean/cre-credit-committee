@@ -416,6 +416,9 @@ export interface AppraisalExtraction {
   // ---- Per-appraisal reserves (Conclusions tab) ----
   readonly perAppraisalReserves?: AppraisalReserveEstimates;
 
+  // ---- Leasing assumptions (Market Rent Conclusions p.83 / Leasing Costs Outstanding p.84) ----
+  readonly leasingAssumptions?: AppraisalLeasingAssumptions | null;
+
   // ---- Provenance: field name → PDF page (1-indexed) ----
   readonly pageReferences?: Readonly<Record<string, number>>;
 
@@ -423,6 +426,43 @@ export interface AppraisalExtraction {
   readonly valueConclusion: number | null;        // alias for asIsValue (legacy callers)
   readonly capRate: number | null;                // alias for overallCapRate
   readonly methodology: string | null;            // 'Income Capitalization Approach' etc.
+}
+
+/**
+ * Appraisal leasing assumptions — deterministic parse of the appraisal's
+ * "Market Rent Conclusions" + "Leasing Costs Outstanding" tables. Every field
+ * nullable; honest-blank — a label genuinely absent → null, never inferred.
+ * Units are FAITHFUL to the document: market/in-place rents are the stated
+ * MONTHLY $/SF (NOT pre-multiplied to annual); percentages are fractions
+ * (5.00% → 0.05); months are integers. CAPTURED store-only; the top-block
+ * populate (display market vs in-place) is a separate step.
+ */
+export interface AppraisalLeasingAssumptions {
+  /** Concluded market rent, $/SF/MONTH as stated (e.g. 3.80). */
+  readonly marketRentPsfPerMonth: number | null;
+  /** Weighted-average in-place rent, $/SF/MONTH as stated (e.g. 3.83). */
+  readonly weightedInPlaceRentPsfPerMonth: number | null;
+  /** New-tenant TI allowance, $/SF (e.g. 60.00). */
+  readonly tiNewPsf: number | null;
+  /** Renewal TI allowance, $/SF (e.g. 30.00). */
+  readonly tiRenewPsf: number | null;
+  /** Average lease term, months (e.g. 120). */
+  readonly avgLeaseTermMonths: number | null;
+  /** New-tenant leasing commission, fraction (5.00% → 0.05). */
+  readonly lcNewPct: number | null;
+  /** Renewal leasing commission, fraction (3.00% → 0.03). */
+  readonly lcRenewPct: number | null;
+  /** New-tenant free rent / concessions, months (e.g. 10). */
+  readonly freeRentNewMonths: number | null;
+  /** Renewal free rent / concessions, months (e.g. 5). */
+  readonly freeRentRenewMonths: number | null;
+  /** Annual rent escalation, fraction (3.00%/yr → 0.03). */
+  readonly escalationPct: number | null;
+  /** Estimated downtime between leases, months — from the Leasing Costs
+   *  Outstanding table's concluded value (NOT prose asides). E.g. 10. */
+  readonly downtimeMonths: number | null;
+  /** Provenance — the section(s)/page(s) the values were lifted from. */
+  readonly source: string | null;
 }
 
 /* ----------------------------- Parties (Borrower / Sponsor) --------------- */

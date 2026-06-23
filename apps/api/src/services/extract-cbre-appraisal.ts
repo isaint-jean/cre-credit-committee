@@ -21,7 +21,7 @@
  * and fill the same AppraisalExtraction contract — downstream consumers see no
  * difference.
  */
-import type { AppraisalExtraction, ISODateTime } from '@cre/contracts';
+import type { AppraisalExtraction, AppraisalLeasingAssumptions, ISODateTime } from '@cre/contracts';
 import { extractText, getDocumentProxy } from 'unpdf';
 
 /* -------------------------------------------------------------------------- */
@@ -86,6 +86,71 @@ function findAfter(text: string, label: string, valueRegex: RegExp): string | nu
 /* -------------------------------------------------------------------------- */
 /* Main extractor                                                             */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Deterministic leasing-assumptions parser — NO LLM. Label-anchored on the
+ * appraisal's "Market Rent Conclusions" + "Leasing Costs Outstanding" tables.
+ * Honest-blank: a label not present → null (never fabricated). Units faithful
+ * to the document: market/in-place rents as the stated MONTHLY $/SF, percentages
+ * as fractions, months as integers. ★ Downtime is scoped to the Leasing Costs
+ * Outstanding table so a prose aside ("~9 months") cannot win over the concluded
+ * value (10). Returns null when no leasing labels match. Exported pure for tests.
+ */
+export function parseLeasingAssumptions(rawText: string): AppraisalLeasingAssumptions | null {
+  if (typeof rawText !== 'string' || rawText.length === 0) return null;
+  // Scope each value to its own table so unrelated matches elsewhere in the
+  // 180-page document can't bleed in, and provenance stays accurate.
+  const mrcIdx = rawText.search(/MARKET RENT CONCLUSIONS/i);
+  const mrc = mrcIdx >= 0 ? rawText.slice(mrcIdx, mrcIdx + 1400) : '';
+
+  const num = (scope: string, re: RegExp): number | null => {
+    const m = re.exec(scope);
+    if (!m || m[1] === undefined) return null;
+    const n = Number(m[1].replace(/[$,\s]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+  const pct = (scope: string, re: RegExp): number | null => {
+    const n = num(scope, re);
+    return n === null ? null : n / 100;
+  };
+
+  const marketRentPsfPerMonth          = num(mrc, /Market Rent\s*\(\$\/SF\/Mo\.?\)\s*\$?([\d.]+)/i);
+  const weightedInPlaceRentPsfPerMonth = num(mrc, /Weighted Average In-?place Rent\s*\$?([\d.]+)/i);
+  const tiNewPsf                       = num(mrc, /Tenant Improvements\s*\(New Tenants?\)\s*\$?([\d.]+)/i);
+  const tiRenewPsf                     = num(mrc, /Tenant Improvements\s*\(Renewals?\)\s*\$?([\d.]+)/i);
+  const avgLeaseTermMonths             = num(mrc, /Average Lease Term\s*([\d]+)\s*Months?/i);
+  const lcNewPct                       = pct(mrc, /Leasing Commissions\s*\(New Tenants?\)\s*([\d.]+)\s*%/i);
+  const lcRenewPct                     = pct(mrc, /Leasing Commissions\s*\(Renewals?\)\s*([\d.]+)\s*%/i);
+  const freeRentNewMonths              = num(mrc, /Concessions\s*\(New Tenants?\)\s*([\d]+)\s*Months?/i);
+  const freeRentRenewMonths            = num(mrc, /Concessions\s*\(Renewals?\)\s*([\d]+)\s*Months?/i);
+  const escalationPct                  = pct(mrc, /Escalations\s*([\d.]+)\s*%/i);
+  // Downtime: anchor on the unique table row label "Estimated Downtime" over the
+  // full text. The "LEASING COSTS OUTSTANDING" header recurs in value-summary
+  // lines (so scoping on it is unreliable), while "Estimated Downtime" appears
+  // exactly once and is distinct from the prose aside ("downtime between leases
+  // averaging ~9 months") — so the table's concluded 10 wins, not the prose 9.
+  const downtimeMonths                 = num(rawText, /Estimated Downtime\s*([\d]+)\s*Months?/i);
+
+  const anyPresent = [
+    marketRentPsfPerMonth, weightedInPlaceRentPsfPerMonth, tiNewPsf, tiRenewPsf, avgLeaseTermMonths,
+    lcNewPct, lcRenewPct, freeRentNewMonths, freeRentRenewMonths, escalationPct, downtimeMonths,
+  ].some((v) => v !== null);
+  if (!anyPresent) return null;
+  return {
+    marketRentPsfPerMonth,
+    weightedInPlaceRentPsfPerMonth,
+    tiNewPsf,
+    tiRenewPsf,
+    avgLeaseTermMonths,
+    lcNewPct,
+    lcRenewPct,
+    freeRentNewMonths,
+    freeRentRenewMonths,
+    escalationPct,
+    downtimeMonths,
+    source: 'Appraisal · Market Rent Conclusions (p.83) / Leasing Costs Outstanding (p.84)',
+  };
+}
 
 export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExtraction> {
   const pages = await loadPages(buffer);
@@ -369,10 +434,14 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
       realEstateTaxes: reTax,        // appraiser's stabilized tax projection
       insurance,
       replacementReserves: null,     // CBRE Sunroad does not recommend a separate reserves escrow; the $0 line on the stabilized pro forma is literal. Honest-blank rather than reusing Nonreim Landlord.
-      tenantImprovements: null,      // sourced from leasing-costs table (p.102) — separately if needed
-      leasingCommissions: null,
+      tenantImprovements: null,      // LEFT NULL: perAppraisalReserves is a recurring reserve-escrow concept; the new leasingAssumptions struct carries the leasing TI ($60/$30 PSF), and the Leasing Costs Outstanding $7.66M is a one-time value deduction — neither is a reserve, so no semantically-valid wiring here.
+      leasingCommissions: null,      // LEFT NULL: same — LC lives in leasingAssumptions (5%/3%), not as a reserve.
       environmental: null,
     },
+
+    // Leasing assumptions (Market Rent Conclusions p.83 / Leasing Costs Outstanding p.84).
+    // Deterministic, store-only; the top-block populate is a separate step.
+    leasingAssumptions: parseLeasingAssumptions(pages.map((p) => p.text).join('\n')),
 
     pageReferences: pageRef,
 
