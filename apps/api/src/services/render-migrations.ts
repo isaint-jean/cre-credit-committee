@@ -990,6 +990,27 @@ const MIGRATIONS: RenderContractMigration[] = [
       'Display-only (RRP=FALSE top block); no new SheetSlot, no source surface, ' +
       'no payload-shape change.',
   },
+  {
+    fromVersion: 20,
+    toVersion: 21,
+    description:
+      'Property Detail Part A bindings (SCHEMA_V21). P1 lands the empty mirror ' +
+      '(zero address changes) to validate the cascade before any binding. P2 adds ' +
+      'the Property_Detail Part A addresses (zoning, parking total+ratio, land ' +
+      'area SF+acres, NRA-by-use, property rights) — ctx selectors reading ' +
+      'resolvedContext.appraisal (threaded via buildAppraisalAtoms). Part B ' +
+      'rollover (~110 cells) is OUT of scope. Display-only; no new SheetSlot ' +
+      '(Property_Detail exists), no source surface, no payload-shape change.',
+    autoApplicable: true,
+    addresses: [],
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v21 P1 is a no-op address-wise (empty mirror of v20). The Part A binding ' +
+      'addresses are added in P2.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

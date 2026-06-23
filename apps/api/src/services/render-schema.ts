@@ -2550,6 +2550,59 @@ const SCHEMA_V20: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v20DefsFor('manufactured_housing') },
 };
 
+// ── V21: Property Detail Part A bindings (display-only) ──
+// P1 skeleton: empty mirror of V20. P2 fills V21_PROPERTY_DETAIL_ENTRIES with
+// the zoning/parking/land/NRA/rights bindings — ctx selectors reading
+// resolvedContext.appraisal (threaded via buildAppraisalAtoms, NOT the
+// adjustedInputs adapter the leasing baseline used; Property_Detail is a ctx
+// slot). Part B (rollover, ~110 cells) is OUT of scope. Income-catch-safe
+// (render is downstream of the graph score).
+const V21_PROPERTY_DETAIL_ENTRIES: SchemaEntry[] = [];
+
+const V21_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V20_SHARED_ENTRIES,
+  ...V21_PROPERTY_DETAIL_ENTRIES,
+];
+
+function v21Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V21_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v21DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v21Definition(assetClass)];
+}
+
+const SCHEMA_V21: ContractSchema = {
+  office: {
+    office_core:       v21DefsFor('office'),
+    office_trophy:     v21DefsFor('office'),
+    office_value_add:  v21DefsFor('office'),
+    office_distressed: v21DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v21DefsFor('multifamily'),
+    mf_large_scale: v21DefsFor('multifamily'),
+    mf_workforce:   v21DefsFor('multifamily'),
+    mf_value_add:   v21DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v21DefsFor('industrial'),
+    ind_logistics: v21DefsFor('industrial'),
+    ind_light:     v21DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v21DefsFor('retail') },
+  hotel:                { hotel_core:                v21DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v21DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v21DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v21DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2602,6 +2655,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   18: SCHEMA_V18,
   19: SCHEMA_V19,
   20: SCHEMA_V20,
+  21: SCHEMA_V21,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2888,6 +2942,7 @@ function assertSchemaWellFormed(): void {
     // (not a schema SourceSurface read).
     19: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     20: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    21: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
