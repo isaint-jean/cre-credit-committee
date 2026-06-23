@@ -166,6 +166,16 @@ const EDITABLE_PATHS: ReadonlySet<string> = new Set([
   'assumptions.concludedCapRate.adjusted',
   'assumptions.rentGrowthPct.adjusted',
   'assumptions.expenseGrowthPct.adjusted',
+  // Display-only leasing assumptions (plain numeric leaves, no `.adjusted`).
+  // Analyst-overridable; ISOLATED from scoring (see AdjustedAssumptions.leasing
+  // — the DealBag is deep-equal regardless of these, so an override re-runs the
+  // doctrine to an identical score). The null-parent case (no appraisal pre-fill)
+  // is handled by applyOverride's `leasing` auto-construct below.
+  'assumptions.leasing.tiNewPsf',
+  'assumptions.leasing.tiRenewPsf',
+  'assumptions.leasing.marketRentPsf',
+  'assumptions.leasing.downtimeMonths',
+  'assumptions.leasing.leaseTermYears',
 ]);
 
 export function isEditablePath(path: string): boolean {
@@ -214,6 +224,17 @@ function applyOverride<T extends object>(obj: T, path: string, value: unknown): 
         adjusted: 0,           // placeholder; immediately overwritten below
         source: 'MANUAL',
         adjustments: [],
+      };
+      cursor[key] = fresh;
+      cursor = fresh;
+    } else if ((next === null || next === undefined) && i === parts.length - 1 && key === 'leasing') {
+      // Null-parent auto-construct for the DISPLAY-ONLY leasing struct: when the
+      // appraisal didn't pre-fill `assumptions.leasing` (null), build an all-null
+      // struct so the analyst can still set a leaf. The overridden leaf is written
+      // below; siblings stay null (honest-blank). No scoring impact (leasing is
+      // isolated from the DealBag).
+      const fresh: Record<string, unknown> = {
+        tiNewPsf: null, tiRenewPsf: null, marketRentPsf: null, downtimeMonths: null, leaseTermYears: null,
       };
       cursor[key] = fresh;
       cursor = fresh;
@@ -441,7 +462,13 @@ export async function applyRevisionDelta(
       const leaf = parts.pop();
       const parentPath = parts.join('.');
       const parentValue = parts.length > 0 ? getByPath(parentAdjustedInputs, parentPath) : undefined;
-      const isNullIntermediateAutoConstruct = leaf === 'adjusted' && parentValue === null;
+      const isNullIntermediateAutoConstruct =
+        (leaf === 'adjusted' && parentValue === null) ||
+        // Display-only leasing struct: the parent `assumptions.leasing` may be
+        // null (no appraisal pre-fill) or absent (deal ingested before the field
+        // existed) — applyOverride auto-constructs the all-null struct, so accept
+        // it here too. (Leasing leaves are plain numbers, not `.adjusted`.)
+        (parentPath.endsWith('assumptions.leasing') && (parentValue === null || parentValue === undefined));
       if (!isNullIntermediateAutoConstruct) {
         throw new InvalidDeltaError('PATH_NOT_FOUND_ON_PARENT', op.path);
       }
