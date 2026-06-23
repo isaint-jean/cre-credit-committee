@@ -2143,6 +2143,39 @@ function applyRentRollUwBaseRent(workbook: ExcelJS.Workbook): void {
   }
 }
 
+// Rent Roll size-tier classifier (workbook-polish; render-layer, no schema touch).
+// Writes the single-char Office tier code into the "Code" column (E) per tenant,
+// classified from squareFeet ALONE. The template's E is the tier-code cell —
+// LEFT(E,1) feeds J (market-rent VLOOKUP) + AH (term/TI/LC by tier), RIGHT(E)
+// feeds AE → B (SUMPRODUCT in-place-per-tier). The v10 schema mis-writes E as the
+// status enum (its first letter never matches the M/L/T/X/Y lookup table), so the
+// whole top-block tier table reads blank; overwriting E with the tier code lights
+// it up. Safe: every per-tenant E consumer wants the tier code (none reads status),
+// E never feeds the projection (PGI/vacancy/base-rent$ don't read it), and the
+// income-catch is graph-sourced. Cutoffs reproduce the analyst's M/L/T assignment
+// from SF (M = anchor ≥100k, T < 10k, else L) — the answer key is NOT read.
+function applyRentRollSizeTier(workbook: ExcelJS.Workbook): void {
+  const ws = workbook.getWorksheet('Rent Roll');
+  if (!ws) return;
+  const D_COL = 4;   // Square Feet (schema-bound)
+  const E_COL = 5;   // "Code" — the single-char tier cell (LEFT/RIGHT(E) = tier)
+  const FIRST_ROW = 14;
+  const CAPACITY = 30; // rows 14..43
+  for (let row = FIRST_ROW; row < FIRST_ROW + CAPACITY; row++) {
+    const raw = ws.getCell(row, D_COL).value;
+    const sf =
+      typeof raw === 'number'
+        ? raw
+        : raw !== null && typeof raw === 'object' && typeof (raw as { result?: unknown }).result === 'number'
+          ? ((raw as { result: number }).result)
+          : null;
+    if (sf === null) continue;            // only where Square Feet is populated
+    const eCell = ws.getCell(row, E_COL);
+    if (eCell.formula) continue;          // never overwrite a formula cell
+    eCell.value = sf >= 100_000 ? 'M' : sf < 10_000 ? 'T' : 'L';
+  }
+}
+
 // 10 Yr Pro Forma projection inputs (see call site for rationale). Two value-
 // writes; both leave Year-1 untouched. Unmapped asset classes are LEFT ALONE
 // (no guess) — Property_Type keeps the schema value and Factor stays as-is.
@@ -2290,6 +2323,14 @@ export async function applyRenderPayloadToTemplate(
   // the same precedent as clearAbsentOperatingHistoryZeros / applyProFormaProjectionInputs.
   // Does NOT touch J (market rent) or the deliberately-bypassed M2M path.
   applyRentRollUwBaseRent(workbook);
+
+  // ── Rent Roll size-tier classifier (workbook-polish; render-layer, no schema touch) ──
+  // Writes the Office tier code (M/L/T) into the "Code" column (E) per tenant, derived
+  // from squareFeet alone, so the top-block tier table (in-place-per-tier) resolves. The
+  // v10 schema mis-writes E as status (breaking the tier lookups); this overwrites it
+  // with the correct tier code. Display-only — E feeds no projection input, so the
+  // income-catch is untouched. See the helper for the safety rationale + cutoffs.
+  applyRentRollSizeTier(workbook);
 
   const visible = new Set(payload.visibleTabs);
   const hiddenSheets: string[] = [];
