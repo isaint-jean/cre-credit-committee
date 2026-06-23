@@ -102,6 +102,10 @@ export function DealRoom({ id }: { id: string }) {
   const [handbookEval, setHandbookEval] = useState<{ firedFlags?: Array<{ principleId: string; severity: string; flag_message: string; metricValue?: unknown }> } | null>(null);
   const [scenario, setScenario] = useState<UnderwritingModel | null>(null); // client-side what-if (NON-persisting); null = showing the actual underwriting
   const [hasActiveTemplate, setHasActiveTemplate] = useState<boolean | null>(null); // export-availability probe
+  // Leasing-assumption override (persisted via /revisions; isolated from scoring). Edits keyed by field.
+  const [leasingEdits, setLeasingEdits] = useState<Record<string, string>>({});
+  const [leasingErr, setLeasingErr] = useState('');
+  const [leasingBusy, setLeasingBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -294,6 +298,64 @@ export function DealRoom({ id }: { id: string }) {
                 {' — '}<span style={{ fontWeight: 600, color: vColor }}>{verdict}</span>
               </span>
               <span style={{ fontSize: 11, color: C.ink3 }}>per appraisal</span>
+            </div>
+          );
+        })()}
+
+        {/* ── Leasing-assumption override (per appraisal; analyst-overridable) ──
+            Pre-fills from the appraisal's leasingAssumptions; persists via
+            /revisions (applyRevisionDelta) — ISOLATED from scoring (the income-
+            catch can't move). Honest-blank: empty fields, never $NaN. bp_spire only. */}
+        {role === 'bp_spire' && analysis.graphRevisionId && (() => {
+          const la = analysis.appraisalExtraction?.leasingAssumptions;
+          const defaults: Record<string, string> = {
+            marketRentPsf:  la?.marketRentPsfPerMonth != null ? (la.marketRentPsfPerMonth * 12).toFixed(2) : '',
+            tiNewPsf:       la?.tiNewPsf != null ? String(la.tiNewPsf) : '',
+            tiRenewPsf:     la?.tiRenewPsf != null ? String(la.tiRenewPsf) : '',
+            downtimeMonths: la?.downtimeMonths != null ? String(la.downtimeMonths) : '',
+            leaseTermYears: la?.avgLeaseTermMonths != null ? String(la.avgLeaseTermMonths / 12) : '',
+          };
+          const fields: ReadonlyArray<readonly [string, string, string]> = [
+            ['marketRentPsf', 'Market Rent', '$/SF/yr'], ['tiNewPsf', 'New TI', '$/SF'],
+            ['tiRenewPsf', 'Renew TI', '$/SF'], ['downtimeMonths', 'Downtime', 'mo'],
+            ['leaseTermYears', 'Lease Term', 'yr'],
+          ];
+          const val = (k: string) => leasingEdits[k] ?? defaults[k];
+          const changed = (k: string) => leasingEdits[k] != null && leasingEdits[k] !== '' && leasingEdits[k] !== defaults[k];
+          const dirty = fields.some(([k]) => changed(k));
+          const submit = async () => {
+            const overrides = fields.filter(([k]) => changed(k))
+              .map(([k]) => ({ path: `assumptions.leasing.${k}`, value: Number(leasingEdits[k]) }))
+              .filter((o) => Number.isFinite(o.value));
+            if (overrides.length === 0) return;
+            setLeasingBusy(true); setLeasingErr('');
+            try {
+              await api.createGraphRevision(analysis.graphRevisionId as string, overrides);
+              await refetch();
+              setLeasingEdits({});
+            } catch (e) { setLeasingErr((e as Error).message || 'Override failed'); }
+            finally { setLeasingBusy(false); }
+          };
+          return (
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, padding: '12px 16px', marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3 }}>Leasing assumptions</span>
+                <span style={{ fontSize: 11, color: C.ink3 }}>per appraisal — override to set</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end' }}>
+                {fields.map(([k, label, unit]) => (
+                  <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ fontSize: 11, color: C.ink2 }}>{label} <span style={{ color: C.ink3 }}>{unit}</span></span>
+                    <input value={val(k)} placeholder="—" inputMode="decimal"
+                      onChange={(ev) => setLeasingEdits((p) => ({ ...p, [k]: ev.target.value }))}
+                      style={{ width: 88, padding: '5px 8px', fontSize: 13, ...num(changed(k) ? C.teal : C.ink), background: C.bg, border: `1px solid ${C.borderStrong}`, borderRadius: 6 }} />
+                  </label>
+                ))}
+                <button onClick={submit} disabled={!dirty || leasingBusy}
+                  style={{ fontSize: 12, fontWeight: 600, color: dirty ? C.bg : C.ink3, background: dirty && !leasingBusy ? C.teal : C.surface2, border: `1px solid ${C.borderStrong}`, borderRadius: 7, padding: '6px 14px', cursor: dirty && !leasingBusy ? 'pointer' : 'default' }}>
+                  {leasingBusy ? 'Saving…' : 'Save override'}</button>
+              </div>
+              {leasingErr && <div style={{ fontSize: 11, color: C.flagged, marginTop: 6 }}>{leasingErr}</div>}
             </div>
           );
         })()}
