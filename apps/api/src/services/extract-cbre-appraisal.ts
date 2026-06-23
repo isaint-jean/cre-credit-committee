@@ -217,6 +217,54 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
   tag('numberOfBuildings', 12, buildingsMatch ? Number(buildingsMatch[1]) : null);
   tag('interestAppraised', 12, 'Leased Fee Interest');
 
+  // ─── Property Detail Part A (deterministic, display-only) ──────────────
+  // Honest-blank everywhere: any value not cleanly found → null, never a guess.
+  // NB: unpdf/pdfjs text is reordered (no layout) — labels and values aren't
+  // adjacent, so we match value patterns directly and DERIVE where the stated
+  // figure is out of reach.
+  const nraVal = nraMatch ? Number(nraMatch[1].replace(/,/g, '')) : null;
+  // Zoning — "CC-3-8 (Commercial Community)" (the "Zoning" label is separated in
+  // pdfjs; match the code pattern directly on the Salient Facts page).
+  const zoningMatch = p12.match(/([A-Z]{2,3}-\d-\d+)\s*\(([^)]+)\)/);
+  const zoning = zoningMatch ? { code: zoningMatch[1], description: zoningMatch[2].trim() } : null;
+  // Land area — acres extracted ("3.48 AC"); SF DERIVED = acres × 43,560 (= the
+  // analyst's 151,588.8; the appraisal's stated 151,587 is a display rounding).
+  const landAreaMatch = p12.match(/(\d+\.\d+)\s*AC\b/);
+  const landAreaAcres = landAreaMatch ? Number(landAreaMatch[1]) : null;
+  const landAreaSf = landAreaAcres !== null ? Math.round(landAreaAcres * 43_560 * 10) / 10 : null;
+  // Parking — total above-grade spaces ("Above Grade 1670"); ratio DERIVED =
+  // spaces ÷ NRA × 1000 (the stated ratio is reordered out of reach). The
+  // surface/covered split is NOT in the appraisal → null (honest-blank).
+  const p42 = text(42);
+  const parkingMatch = p42.match(/Above\s*Grade\s*([\d,]+)/);
+  const parkingTotal = parkingMatch ? Number(parkingMatch[1].replace(/,/g, '')) : null;
+  const parking = parkingTotal !== null
+    ? {
+        totalSpaces: parkingTotal,
+        // Full precision (matches the analyst's stored 6.078075…; display
+        // rounding to 6.08 is the render's job).
+        ratioPer1000: nraVal !== null && nraVal > 0 ? (parkingTotal / nraVal) * 1000 : null,
+        surfaceSpaces: null,
+        coveredSpaces: null,
+      }
+    : null;
+  // NRA-by-use — single-use office building: office = NRA, rest 0. Derived from
+  // the extracted NRA + the appraisal's office classification (p2). Honest-blank
+  // (null) for non-office subjects, where the real per-use split is needed.
+  const isOffice = /office\s+building|multi-?tenant\s+office/i.test(text(2));
+  const nraByUse = nraVal !== null && isOffice
+    ? { office: nraVal, retail: 0, industrial: 0, other: 0 }
+    : null;
+  // Property rights — p3 land value "Fee Simple" → fee ownership, no ground
+  // lease (distinct from interestAppraised = Leased Fee, which is the appraised
+  // leased-up interest).
+  const feeSimple = /Fee\s+Simple/i.test(text(3)) || /Fee\s+Simple/i.test(p12);
+  const propertyRights = feeSimple ? { ownershipInterest: 'Fee', groundLease: false } : null;
+  tag('zoningCode', 12, zoning?.code ?? null);
+  tag('parkingTotalSpaces', 42, parkingTotal);
+  tag('landAreaSf', 12, landAreaSf);
+  tag('ownershipInterest', 3, propertyRights?.ownershipInterest ?? null);
+
   // ─── PAGE 13 (detailed value + insurable + stabilized date) ──────────
   const p13 = text(13);
   // "Market Value As Stabilized On June 1, 2024"
@@ -382,6 +430,13 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
     netRentableArea: nraMatch ? Number(nraMatch[1].replace(/,/g,'')) : null,
     numberOfStories: storiesMatch ? Number(storiesMatch[1]) : null,
     numberOfBuildings: buildingsMatch ? Number(buildingsMatch[1]) : null,
+
+    zoning,
+    parking,
+    landAreaSf,
+    landAreaAcres,
+    nraByUse,
+    propertyRights,
 
     interestAppraised: 'Leased Fee Interest',
     asIsValueDate,

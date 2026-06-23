@@ -387,6 +387,30 @@ export interface AppraisalExtraction {
   readonly numberOfStories?: number | null;
   readonly numberOfBuildings?: number | null;
 
+  // ---- Property Detail Part A (deterministic appraisal-extracted) ----
+  // Display-only property-page fields. All nullable / honest-blank — never a
+  // guess. surface/covered parking split is NOT extracted (not stated in the
+  // appraisal); only total + ratio.
+  readonly zoning?: { readonly code: string | null; readonly description: string | null } | null;
+  readonly parking?: {
+    readonly totalSpaces: number | null;
+    readonly ratioPer1000: number | null;
+    readonly surfaceSpaces?: number | null;   // not in appraisal → null
+    readonly coveredSpaces?: number | null;   // not in appraisal → null
+  } | null;
+  readonly landAreaSf?: number | null;
+  readonly landAreaAcres?: number | null;
+  readonly nraByUse?: {
+    readonly office: number | null;
+    readonly retail: number | null;
+    readonly industrial: number | null;
+    readonly other: number | null;
+  } | null;
+  readonly propertyRights?: {
+    readonly ownershipInterest: string | null;   // 'Fee'
+    readonly groundLease: boolean | null;        // false when fee simple
+  } | null;
+
   // ---- Interest + value dates ----
   readonly interestAppraised?: string | null;      // 'Leased Fee Interest' | 'Fee Simple Estate'
   readonly asIsValueDate?: ISODateTime | null;
