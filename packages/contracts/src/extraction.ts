@@ -490,6 +490,65 @@ export interface ASRExtraction {
    * readers treat undefined and null identically.
    */
   readonly sourcesAndUses?: SourcesAndUses | null;
+
+  /**
+   * Environmental summary — deterministic parse of the ASR's "Third Party
+   * Reports – Environmental" table (no LLM). CAPTURED-BUT-UNCONSUMED: stored
+   * for audit/provenance; NO scoring/doctrine consumer reads it yet. Intended
+   * future consumer: an environmental-risk flag (a clean Phase I → no-issue).
+   * Additive widening — readers treat undefined and null identically.
+   */
+  readonly environmentalSummary?: EnvironmentalSummary | null;
+
+  /**
+   * Submarket market-rent summary — deterministic parse of the ASR's
+   * "Sub-Market Overview" (no LLM). CAPTURED-BUT-UNCONSUMED. ★ This is a
+   * SUBMARKET AGGREGATE, NOT per-tenant: it must NOT be routed to the
+   * per-tenant Mark-to-Market rollover (RentRoll.marketRentAnnual), which
+   * Build A deliberately bypassed. Intended future consumer: a UW-rent-vs-
+   * market cross-check, not the projection. Additive widening.
+   */
+  readonly marketRent?: MarketRentSummary | null;
+}
+
+/**
+ * Environmental summary lifted from the ASR's "Third Party Reports –
+ * Environmental" table. Every field nullable; honest-blank — a label genuinely
+ * absent is `null`, never fabricated. A stated "$0" (remediation/reserve) is a
+ * real extracted 0, distinct from null (the document is silent on it).
+ */
+export interface EnvironmentalSummary {
+  /** Environmental consultant firm (e.g. "Partner"). */
+  readonly firm: string | null;
+  /** Phase I report date as stated in the document (e.g. "7/27/2023"). */
+  readonly phaseIReportDate: string | null;
+  /** Whether a Phase II was recommended (stated Y/N → true/false). */
+  readonly phaseIIRecommended: boolean | null;
+  /** Phase II report date; null when stated "N/A" or absent. */
+  readonly phaseIIReportDate: string | null;
+  /** Remediation estimate (dollars). Stated $0 → 0; absent → null. */
+  readonly remediationEstimate: number | null;
+  /** Environmental reserve amount (dollars). Stated $0 → 0; absent → null. */
+  readonly reserveAmount: number | null;
+  /** True only when the Phase I findings matrix reads all-acceptable; null when not determinable. */
+  readonly findingsAcceptable: boolean | null;
+  /** Provenance — the section the values were lifted from. */
+  readonly source: string | null;
+}
+
+/**
+ * Submarket market-rent summary from the ASR's "Sub-Market Overview". A
+ * SUBMARKET-LEVEL aggregate (NOT per-tenant). All nullable; honest-blank.
+ */
+export interface MarketRentSummary {
+  /** Submarket name (e.g. "Kearny Mesa"). */
+  readonly submarketName: string | null;
+  /** Submarket vacancy rate as a 0..1 fraction (7.9% → 0.079). */
+  readonly vacancyRate: number | null;
+  /** Submarket average asking rent, dollars per SF (e.g. 38.57). */
+  readonly averageRentPsf: number | null;
+  /** Provenance — the section the values were lifted from. */
+  readonly source: string | null;
 }
 
 /**

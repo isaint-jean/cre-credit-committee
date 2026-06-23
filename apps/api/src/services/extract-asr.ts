@@ -34,7 +34,7 @@
  *     = 100%, implausible but preserved as the literal value).
  */
 
-import type { ASRExtraction, SourcesAndUses } from '@cre/contracts';
+import type { ASRExtraction, SourcesAndUses, EnvironmentalSummary, MarketRentSummary } from '@cre/contracts';
 import type { ParsedDocument } from '@cre/shared';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
 import { CLAUDE_MODEL } from '../config/llm-model.js';
@@ -140,6 +140,92 @@ export function parseSourcesAndUses(rawText: string): SourcesAndUses | null {
 }
 
 /**
+ * Deterministic environmental-summary parser — NO LLM. Reads the ASR's
+ * "Third Party Reports – Environmental" / "Environmental Summary" table
+ * label-by-label. Honest-blank: a label not present → null (never fabricated).
+ * A stated "$0" remediation/reserve → 0 (a real read), distinct from absent
+ * (→ null). Returns null when no environmental labels matched at all.
+ *
+ * STORE-ONLY (captured-but-unconsumed): the result rides on ASRExtraction for
+ * audit; no doctrine/scoring stage reads it yet. Exported pure for testing.
+ */
+export function parseEnvironmentalSummary(rawText: string): EnvironmentalSummary | null {
+  if (typeof rawText !== 'string' || rawText.length === 0) return null;
+  const str = (re: RegExp): string | null => {
+    const m = re.exec(rawText);
+    return m && m[1] !== undefined ? m[1].trim() : null;
+  };
+  const money = (re: RegExp): number | null => {
+    const m = re.exec(rawText);
+    if (!m || m[1] === undefined) return null;
+    const n = Number(m[1].replace(/[$,\s]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const firm = str(/Environmental Firm:\s*([A-Za-z][A-Za-z .&-]*?)(?:\s{2,}|\s+Phase\b|\n|$)/i);
+  const phaseIReportDate = str(/Phase I Report Date:\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+  const phaseIIRecStr = str(/Phase II Recommended[^:]*:\s*(Yes|No)\b/i);
+  const phaseIIRecommended = phaseIIRecStr === null ? null : /yes/i.test(phaseIIRecStr);
+  const phaseIIDateStr = str(/Phase II Report Date:\s*(N\/A|\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+  const phaseIIReportDate = phaseIIDateStr === null || /^n\/a$/i.test(phaseIIDateStr) ? null : phaseIIDateStr;
+  const remediationEstimate = money(/Environmental Remediation Estimate:\s*\$?([\d,]+)/i);
+  const reserveAmount = money(/Environmental Reserve Amount:\s*\$?([\d,]+)/i);
+
+  // findingsAcceptable: assert TRUE only when the findings matrix is present and
+  // the known rows read clean ("Acceptable=Yes, O&M=No, Additional=No, Costs=No").
+  // Otherwise null — we do NOT assert "not acceptable" from a parse we can't confirm.
+  let findingsAcceptable: boolean | null = null;
+  const matrixPresent = /Historical Review/i.test(rawText) && /Hazardous Substances/i.test(rawText);
+  if (matrixPresent) {
+    const cleanRow = (label: string): boolean =>
+      new RegExp(label + '[^\\n]*?\\bYes\\b\\s+No\\s+No\\s+No\\b', 'i').test(rawText);
+    if (cleanRow('Historical Review') && cleanRow('Hazardous Substances')) findingsAcceptable = true;
+  }
+
+  const anyPresent = [firm, phaseIReportDate, phaseIIRecommended, phaseIIReportDate, remediationEstimate, reserveAmount]
+    .some((v) => v !== null);
+  if (!anyPresent) return null;
+  return {
+    firm,
+    phaseIReportDate,
+    phaseIIRecommended,
+    phaseIIReportDate,
+    remediationEstimate,
+    reserveAmount,
+    findingsAcceptable,
+    source: 'ASR · Third Party Reports – Environmental',
+  };
+}
+
+/**
+ * Deterministic market-rent parser — NO LLM. Reads the ASR's "Sub-Market
+ * Overview" for the SUBMARKET-LEVEL aggregate (name, vacancy, average asking
+ * rent PSF). Honest-blank: a value not stated → null. ★ This aggregate must
+ * NOT be routed to the per-tenant Mark-to-Market rollover (the Build-A-bypassed
+ * path needs per-tenant marketRentAnnual, which this is not). STORE-ONLY.
+ * Exported pure for testing.
+ */
+export function parseMarketRent(rawText: string): MarketRentSummary | null {
+  if (typeof rawText !== 'string' || rawText.length === 0) return null;
+  // ★ Scope to the property's SUB-market table ("Sub-Market Overview – <name>"),
+  // NOT the broader metro "Market Overview – <metro>" that precedes it. They
+  // carry different vacancy + asking-rent figures (e.g. San Diego metro 11.3% /
+  // $38.57 vs Kearny Mesa submarket 7.8% / $34.36); we want the submarket's.
+  const m = /Sub-?Market Overview\s*[–—-]\s*([A-Za-z][A-Za-z ]*?)\s+Inventory\b/i.exec(rawText);
+  if (m === null) return null;
+  const submarketName = m[1] ? m[1].trim() : null;
+  const scope = rawText.slice(m.index, m.index + 300); // the submarket table only
+  const vacM = /Vacancy:\s*([\d.]+)\s*%/i.exec(scope);
+  const vacancyRate = vacM && vacM[1] !== undefined && Number.isFinite(Number(vacM[1])) ? Number(vacM[1]) / 100 : null;
+  const rentM = /Average Rental Rate:\s*\$?([\d.]+)/i.exec(scope);
+  const averageRentPsf = rentM && rentM[1] !== undefined && Number.isFinite(Number(rentM[1])) ? Number(rentM[1]) : null;
+
+  const anyPresent = [submarketName, vacancyRate, averageRentPsf].some((v) => v !== null);
+  if (!anyPresent) return null;
+  return { submarketName, vacancyRate, averageRentPsf, source: 'ASR · Sub-Market Overview' };
+}
+
+/**
  * Pure parser. Exported so tests can exercise normalization without invoking AI.
  *
  * Accepts either:
@@ -212,8 +298,13 @@ export async function extractASR(document: ParsedDocument): Promise<ASRExtractio
   // loanPayoff for priorDebtPayoff — the table line is more reliable than the
   // LLM's free-text read for this gate-critical figure.
   const sourcesAndUses = parseSourcesAndUses(document.rawText ?? '');
+  // Deterministic, no-LLM captures (store-only; no doctrine consumer reads these
+  // yet). Market rent is a submarket aggregate — NOT routed to the per-tenant
+  // M2M rollover (Build A bypassed that path). See contract comments.
+  const environmentalSummary = parseEnvironmentalSummary(document.rawText ?? '');
+  const marketRent = parseMarketRent(document.rawText ?? '');
 
-  if (llm === null && sourcesAndUses === null) return null;
+  if (llm === null && sourcesAndUses === null && environmentalSummary === null && marketRent === null) return null;
   const base: ASRExtraction = llm ?? {
     impliedValue: null, impliedCapRate: null, underwrittenNOI: null, priorDebtPayoff: null,
   };
@@ -221,5 +312,7 @@ export async function extractASR(document: ParsedDocument): Promise<ASRExtractio
     ...base,
     priorDebtPayoff: sourcesAndUses?.loanPayoff ?? base.priorDebtPayoff,
     sourcesAndUses,
+    environmentalSummary,
+    marketRent,
   };
 }
