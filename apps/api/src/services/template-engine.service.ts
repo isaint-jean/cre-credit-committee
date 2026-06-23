@@ -2114,6 +2114,35 @@ const ASSET_CLASS_TO_CONTROLS_KEY: Readonly<Record<string, string>> = {
   other:        'Various',
 };
 
+// Rent Roll UW Base Rent PSF (see call site for rationale). Copies the schema-
+// bound Contract Rent PSF (I = inPlaceRent/SF) into the unbound UW Base Rent PSF
+// (K) per tenant, so M (= +K*D) surfaces UW Annual Rent = in-place rent. Same
+// value + source as I (no estimate). Guards mirror the schema's: only where I is
+// populated, never overwriting a formula cell. Touches only the Rent Roll input
+// cells — no J/market, no M2M, no schema address.
+function applyRentRollUwBaseRent(workbook: ExcelJS.Workbook): void {
+  const ws = workbook.getWorksheet('Rent Roll');
+  if (!ws) return;
+  const I_COL = 9;   // Contract Rent PSF (schema-bound)
+  const K_COL = 11;  // UW Base Rent PSF (unbound — drives M = +K*D)
+  const FIRST_ROW = 14;
+  const CAPACITY = 30; // RENT_ROLL_TENANT_CAPACITY — rows 14..43
+  for (let row = FIRST_ROW; row < FIRST_ROW + CAPACITY; row++) {
+    const iCell = ws.getCell(row, I_COL);
+    const raw = iCell.value;
+    const iVal =
+      typeof raw === 'number'
+        ? raw
+        : raw !== null && typeof raw === 'object' && typeof (raw as { result?: unknown }).result === 'number'
+          ? ((raw as { result: number }).result)
+          : null;
+    if (iVal === null) continue;          // only where Contract Rent PSF is populated
+    const kCell = ws.getCell(row, K_COL);
+    if (kCell.formula) continue;          // never overwrite a formula cell
+    kCell.value = iVal;
+  }
+}
+
 // 10 Yr Pro Forma projection inputs (see call site for rationale). Two value-
 // writes; both leave Year-1 untouched. Unmapped asset classes are LEFT ALONE
 // (no guess) — Property_Type keeps the schema value and Factor stays as-is.
@@ -2248,6 +2277,19 @@ export async function applyRenderPayloadToTemplate(
   // Invariant-safe: post-cellBindings cell mutations only; touches no schema address
   // (same precedent as clearAbsentOperatingHistoryZeros). No RENDER_CONTRACT bump.
   applyProFormaProjectionInputs(workbook, payload.assetClass);
+
+  // ── Rent Roll UW Base Rent PSF (workbook-polish; render-layer, no schema touch) ──
+  // The v10 rent-roll schema binds Contract Rent PSF (I = inPlaceRent/SF) but leaves
+  // UW Base Rent PSF (K) unbound, so M (= +K*D = UW Annual Rent) stays blank — base
+  // rent $ never surfaces despite the data being in hand. Mirror I → K per tenant so
+  // M computes inPlaceRent. K shares I's EXACT value + source (no new value path, no
+  // estimate); we only copy where I is populated and K isn't a formula. K lives here
+  // in the post-pass while its sibling I is schema-bound — intentional + proportionate
+  // to one derived column (formal schema-homing would be a separate governed v-bump
+  // PR). Touches no schema address / version constant / migration — invariant-safe by
+  // the same precedent as clearAbsentOperatingHistoryZeros / applyProFormaProjectionInputs.
+  // Does NOT touch J (market rent) or the deliberately-bypassed M2M path.
+  applyRentRollUwBaseRent(workbook);
 
   const visible = new Set(payload.visibleTabs);
   const hiddenSheets: string[] = [];
