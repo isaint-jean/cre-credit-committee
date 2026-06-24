@@ -1011,6 +1011,34 @@ const MIGRATIONS: RenderContractMigration[] = [
       'v21 P1 is a no-op address-wise (empty mirror of v20). The Part A binding ' +
       'addresses are added in P2.',
   },
+  {
+    fromVersion: 21,
+    toVersion: 22,
+    description:
+      'Operating History T12 column + headers (SCHEMA_V22). P1 lands the empty ' +
+      'mirror (zero address changes) to validate the cascade before any binding. ' +
+      'P2 adds the Operating_ProForma column-H expense rows + H17 total revenues ' +
+      '(drives the H35 NOI=H17-H33 formula) + B3/D3/F3/H3 year headers — ctx ' +
+      'selectors reading resolvedContext.t12 (mirrors J/L). H9 PGI honest-blanks ' +
+      '(no t12 PGI). Prior-year cols B/D/F OUT (no data). Display-only; no new ' +
+      'SheetSlot (Operating_ProForma exists), no source surface, no payload change.',
+    autoApplicable: true,
+    addresses: ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'].flatMap((sheet) =>
+      ['H17', 'H3', 'F3', 'D3', 'B3'].map(
+        (cell) => ({ kind: 'address-added' as const, address: `${sheet}!${cell}` }),
+      ),
+    ),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v22 is additive (5 cells): H17 total revenues (forceOverwrite the ' +
+      'SUM(H12:H15) formula with t12 total income → fixes H35 NOit=H17-H33) + ' +
+      'B3/D3/F3/H3 year headers (forceOverwrite the YEAR(Note_Date)/YEAR(TODAY()) ' +
+      'template bug). resolvedContext.t12. The H line items are already bound by ' +
+      'v17T12; prior-year cols B/D/F OUT (no data).',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

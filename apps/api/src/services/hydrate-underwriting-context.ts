@@ -534,9 +534,18 @@ function buildT12Atoms(analysis: Analysis): Record<string, number | string | nul
       expensesUtilities: null, expensesOtherVariable: null,
       expensesManagement: null, expensesTaxes: null, expensesInsurance: null,
       capex: null, tenantImprovements: null, leasingCommissions: null,
+      totalIncome: null, periodYear: null,
       vintage, creditSignal,
     };
   }
+  // v22 — total income (t12 carries no PGI breakdown, only the total) + the
+  // period year parsed from e.g. "Trailing 12 (2/29/2024)" → 2024. Drive the
+  // Operating History T12 column (H17 total revenues → NOI formula) + row-3
+  // year headers (kills the YEAR(Note_Date)/YEAR(TODAY()) template-formula bug).
+  const periodYear = (() => {
+    const m = t12.period?.match(/(\d{4})\s*\)/) ?? t12.period?.match(/\b(\d{4})\b/);
+    return m ? Number(m[1]) : null;
+  })();
   const pgr = t12.income.grossPotentialRent;
   const economicOccupancy =
     typeof pgr === 'number' && pgr > 0 && typeof t12.vacancyLoss === 'number'
@@ -559,6 +568,8 @@ function buildT12Atoms(analysis: Analysis): Record<string, number | string | nul
     capex:                         t12.belowNoiAdjustments.replacementReserves ?? null,
     tenantImprovements:            t12.belowNoiAdjustments.tenantImprovements ?? null,
     leasingCommissions:            t12.belowNoiAdjustments.leasingCommissions ?? null,
+    totalIncome:                   t12.income.totalIncome ?? null,
+    periodYear,
     vintage, creditSignal,
   };
 }

@@ -469,6 +469,8 @@ export interface ResolvedUnderwritingContext {
     capex:                          ResolvedCellValue;  // H38
     tenantImprovements:             ResolvedCellValue;  // H39
     leasingCommissions:             ResolvedCellValue;  // H40
+    totalIncome:                    ResolvedCellValue;  // H17 — total revenues (v22, no PGI breakdown)
+    periodYear:                     ResolvedCellValue;  // B3/D3/F3/H3 year headers (v22)
     vintage:                        ResolvedCellValue;  // R4 — vintage label (v18)
     creditSignal:                   ResolvedCellValue;  // A53 — credit signal + trail (v18)
   };

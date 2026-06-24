@@ -868,6 +868,26 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward];
 })();
 
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[22] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[21] ?? [];
+  // v22: Operating History T12 column (H) + row-3 year headers. ctx slot
+  // reading resolvedContext.t12 → FULL_MODERN, mirroring the existing J/L
+  // (issuerUw/appraisal) declarations. Prior-year cols B/D/F stay OUT.
+  // Operating_ProForma resolves to BOTH sheets per asset class (office/etc. →
+  // "Operating History and Pro Forma"; hotel → "Hotel Op History and Pro Forma"),
+  // so declare on both — mirrors the existing J/L + v19 doc-completeness pattern.
+  const sheets = ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'];
+  const v22Additions: FieldStateDeclaration[] = sheets.flatMap((sheet) =>
+    ['H17', 'H3', 'F3', 'D3', 'B3'].map((cell): FieldStateDeclaration => ({
+      address: `${sheet}!${cell}`,
+      group: 'financial_core' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v22. Operating History T12 total revenues / year header — resolvedContext.t12.',
+    })),
+  );
+  return [...carryForward, ...v22Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

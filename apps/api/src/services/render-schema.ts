@@ -2603,6 +2603,87 @@ const SCHEMA_V21: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v21DefsFor('manufactured_housing') },
 };
 
+// ── V22: Operating History T12 column (H) + row-3 headers (display-only) ──
+// P1 skeleton: empty mirror of V21. P2 fills V22_OPERATING_ENTRIES with the H
+// expense rows + H17 total revenues (drives the H35 NOI = H17−H33 formula) +
+// the B3/D3/F3/H3 year headers — ctx selectors reading resolvedContext.t12
+// (mirrors J/L → appraisal/issuerUw). H9 PGI honest-blanks (t12 has no PGI).
+// Prior-year cols B/D/F stay OUT (no source data). Income-catch-safe (render
+// downstream of the graph score).
+const V22_OPERATING_ENTRIES: SchemaEntry[] = (() => {
+  // ctx → resolvedContext.t12 (mirrors L → issuerUw, J → appraisal).
+  const t12 = (pick: (t: Record<string, CellValue>) => CellValue): Selector =>
+    ctx((c) => pick((c as never as { t12: Record<string, CellValue> }).t12));
+  const e = (range: string, sel: Selector, force = false): SchemaEntry => ({
+    slot: 'Operating_ProForma',
+    range,
+    selector: sel,
+    cellState: 'concluded',
+    ...(force ? { forceOverwrite: true } : {}),
+  });
+  const yr = (off: number) => t12((t) => (typeof t.periodYear === 'number' ? t.periodYear - off : null));
+  return [
+    // ★ The H column LINE ITEMS (H9 pgr … H40 LC) are ALREADY bound by v17T12
+    // (the V17 T12 column). V22 adds ONLY the two things v17T12 omits:
+    // H17 TOTAL REVENUES — forceOverwrite the SUM(H12:H15) formula with the t12
+    // total income. t12 has no PGI breakdown, so the line-item rollup sums to
+    // ~$9K (reimbursements only) and the NOI goes negative; overwriting H17 with
+    // the real total ($6.9M) makes H35 NOI = H17 − H33 compute ~$3.86M.
+    e('H17', t12((t) => t.totalIncome), true),
+    // Row-3 year headers — forceOverwrite the buggy =YEAR(Note_Date)-1 (empty
+    // Note_Date → 1899 epoch) and ="T12 - "&YEAR(TODAY()) (→ 2026) formulas with
+    // computed years from the t12 period.
+    e('H3', t12((t) => (typeof t.periodYear === 'number' ? `T12 - ${t.periodYear}` : null)), true),
+    e('F3', yr(1), true),
+    e('D3', yr(2), true),
+    e('B3', yr(3), true),
+  ];
+})();
+
+const V22_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V21_SHARED_ENTRIES,
+  ...V22_OPERATING_ENTRIES,
+];
+
+function v22Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V22_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v22DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v22Definition(assetClass)];
+}
+
+const SCHEMA_V22: ContractSchema = {
+  office: {
+    office_core:       v22DefsFor('office'),
+    office_trophy:     v22DefsFor('office'),
+    office_value_add:  v22DefsFor('office'),
+    office_distressed: v22DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v22DefsFor('multifamily'),
+    mf_large_scale: v22DefsFor('multifamily'),
+    mf_workforce:   v22DefsFor('multifamily'),
+    mf_value_add:   v22DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v22DefsFor('industrial'),
+    ind_logistics: v22DefsFor('industrial'),
+    ind_light:     v22DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v22DefsFor('retail') },
+  hotel:                { hotel_core:                v22DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v22DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v22DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v22DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2656,6 +2737,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   19: SCHEMA_V19,
   20: SCHEMA_V20,
   21: SCHEMA_V21,
+  22: SCHEMA_V22,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -2943,6 +3025,7 @@ function assertSchemaWellFormed(): void {
     19: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     20: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     21: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    22: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
