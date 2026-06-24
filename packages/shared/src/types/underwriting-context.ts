@@ -444,6 +444,7 @@ export interface ResolvedUnderwritingContext {
     capex:                          ResolvedCellValue;  // L38 — belowNoiAdjustments.replacementReserves
     tenantImprovements:             ResolvedCellValue;  // L39
     leasingCommissions:             ResolvedCellValue;  // L40
+    totalIncome:                    ResolvedCellValue;  // L17 — total revenues (v23, no PGI breakdown)
   };
   /**
    * T12 historical-actuals atoms (column H). Populated from

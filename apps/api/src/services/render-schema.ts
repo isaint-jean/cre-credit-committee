@@ -2684,6 +2684,65 @@ const SCHEMA_V22: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v22DefsFor('manufactured_housing') },
 };
 
+// ── V23: Issuer UW column (L) total revenues — the v22 H17 fix one column over.
+// L's expense ladder is already bound (issuerUw atoms); its income side (L17)
+// was an unbound SUM(L12:L15) summing null PGI → L35 NOI = L17−L33 went negative
+// (−$3.3M). Bind L17 = issuerUw.totalIncome (forceOverwrite) → L35 NOI = $9.29M.
+// L9 PGI stays unbound/honest-blank (issuerUw.pgr null, like H9). Income-catch-safe.
+const V23_OPERATING_ENTRIES: SchemaEntry[] = [
+  {
+    slot: 'Operating_ProForma',
+    range: 'L17',
+    selector: ctx((c) => (c as never as { issuerUw: Record<string, CellValue> }).issuerUw.totalIncome),
+    cellState: 'concluded',
+    forceOverwrite: true,
+  },
+];
+
+const V23_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V22_SHARED_ENTRIES,
+  ...V23_OPERATING_ENTRIES,
+];
+
+function v23Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V23_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v23DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v23Definition(assetClass)];
+}
+
+const SCHEMA_V23: ContractSchema = {
+  office: {
+    office_core:       v23DefsFor('office'),
+    office_trophy:     v23DefsFor('office'),
+    office_value_add:  v23DefsFor('office'),
+    office_distressed: v23DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v23DefsFor('multifamily'),
+    mf_large_scale: v23DefsFor('multifamily'),
+    mf_workforce:   v23DefsFor('multifamily'),
+    mf_value_add:   v23DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v23DefsFor('industrial'),
+    ind_logistics: v23DefsFor('industrial'),
+    ind_light:     v23DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v23DefsFor('retail') },
+  hotel:                { hotel_core:                v23DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v23DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v23DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v23DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2738,6 +2797,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   20: SCHEMA_V20,
   21: SCHEMA_V21,
   22: SCHEMA_V22,
+  23: SCHEMA_V23,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -3026,6 +3086,7 @@ function assertSchemaWellFormed(): void {
     20: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     21: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     22: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    23: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

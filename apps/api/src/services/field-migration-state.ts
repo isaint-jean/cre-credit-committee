@@ -888,6 +888,20 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v22Additions];
 })();
 
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[23] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[22] ?? [];
+  // v23: Issuer UW column L17 total revenues (the v22 H17 fix one column over).
+  // ctx slot reading resolvedContext.issuerUw → FULL_MODERN, on both sheets.
+  const sheets = ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'];
+  const v23Additions: FieldStateDeclaration[] = sheets.map((sheet): FieldStateDeclaration => ({
+    address: `${sheet}!L17`,
+    group: 'financial_core' as const,
+    state: 'FULL_MODERN' as const,
+    notes: 'New at v23. Issuer UW total revenues — resolvedContext.issuerUw.totalIncome.',
+  }));
+  return [...carryForward, ...v23Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

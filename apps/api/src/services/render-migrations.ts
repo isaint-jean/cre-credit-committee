@@ -1039,6 +1039,26 @@ const MIGRATIONS: RenderContractMigration[] = [
       'template bug). resolvedContext.t12. The H line items are already bound by ' +
       'v17T12; prior-year cols B/D/F OUT (no data).',
   },
+  {
+    fromVersion: 22,
+    toVersion: 23,
+    description:
+      'Issuer UW column total revenues (SCHEMA_V23) — the v22 H17 fix one column ' +
+      'over. Binds L17 = issuerUw.totalIncome (forceOverwrite the SUM(L12:L15) ' +
+      'formula) so L35 NOI = L17-L33 = $9.29M instead of going negative. The L ' +
+      'expense ladder is already bound (issuerUw atoms); L9 PGI stays unbound ' +
+      '(issuerUw.pgr null, honest-blank like H9). resolvedContext.issuerUw.',
+    autoApplicable: true,
+    addresses: ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'].map(
+      (sheet) => ({ kind: 'address-added' as const, address: `${sheet}!L17` }),
+    ),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v23 is additive (1 cell × 2 sheets): L17 total revenues. Mirrors v22 H17.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

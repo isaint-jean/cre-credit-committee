@@ -423,6 +423,7 @@ export function resolveUnderwritingContext(
       capex:                          ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).issuerUw?.capex ?? null),
       tenantImprovements:             ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).issuerUw?.tenantImprovements ?? null),
       leasingCommissions:             ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).issuerUw?.leasingCommissions ?? null),
+      totalIncome:                    ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).issuerUw?.totalIncome ?? null),
     },
     t12: {
       pgr:                            ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).t12?.pgr ?? null),

@@ -492,6 +492,7 @@ function buildIssuerUwAtoms(analysis: Analysis): Record<string, number | string 
       expensesUtilities: null, expensesOtherVariable: null,
       expensesManagement: null, expensesTaxes: null, expensesInsurance: null,
       capex: null, tenantImprovements: null, leasingCommissions: null,
+      totalIncome: null,
     };
   }
   const pgr = uw.income.grossPotentialRent;
@@ -516,6 +517,10 @@ function buildIssuerUwAtoms(analysis: Analysis): Record<string, number | string 
     capex:                         uw.belowNoiAdjustments.replacementReserves ?? null,
     tenantImprovements:            uw.belowNoiAdjustments.tenantImprovements ?? null,
     leasingCommissions:            uw.belowNoiAdjustments.leasingCommissions ?? null,
+    // v23 — total revenue (UW statement carries no PGI breakdown, only the
+    // total). Drives the Issuer UW column L17 total revenues → L35 NOI formula,
+    // mirroring the v22 t12 totalIncome fix one column over.
+    totalIncome:                   uw.income.totalIncome ?? null,
   };
 }
 
