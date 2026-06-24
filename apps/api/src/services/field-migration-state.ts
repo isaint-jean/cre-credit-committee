@@ -856,6 +856,18 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v20Additions];
 })();
 
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[21] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[20] ?? [];
+  // v21: SCHEMA_V21 is the P1 skeleton — an exact mirror of V20
+  // (V21_PROPERTY_DETAIL_ENTRIES is empty until P2 binds Property Detail
+  // Part A). Carry v20 forward verbatim: no new cells and no state changes,
+  // so every v20→v21 transition is identity (legal per isLegalTransition's
+  // from === to short-circuit). When P2 populates V21_PROPERTY_DETAIL_ENTRIES,
+  // add the matching declarations here (Property_Detail is a ctx slot reading
+  // resolvedContext.appraisal → FULL_MODERN).
+  return [...carryForward];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**
