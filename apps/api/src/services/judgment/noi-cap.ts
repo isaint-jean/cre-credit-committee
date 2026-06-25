@@ -24,6 +24,11 @@ export interface NoiCapResult {
 export function applyNoiCap(args: {
   readonly derivedNoi: number;
   readonly bankNoi: number | null;
+  /** Winning bank-NOI cascade tier (e.g. 'T12_ACTUAL', 'T12_PRELEASED') —
+   *  disclosed in the cap reason so the workbook can show WHY the ceiling is
+   *  what it is (a signed-lease-credited cap reads 'T12_PRELEASED'). Optional
+   *  for back-compat with callers that don't thread the tier. */
+  readonly bankNoiTier?: string;
 }): NoiCapResult {
   if (args.bankNoi === null) {
     return { capped: args.derivedNoi, entry: null };
@@ -32,12 +37,13 @@ export function applyNoiCap(args: {
     return { capped: args.derivedNoi, entry: null };
   }
   const delta = args.bankNoi - args.derivedNoi; // negative; we lowered NOI
+  const tierNote = args.bankNoiTier ? ` (bank source: ${args.bankNoiTier})` : '';
   return {
     capped: args.bankNoi,
     entry: {
       ruleId: 'JE_NOI_CAPPED_TO_BANK',
       delta,
-      reason: `derived NOI ${args.derivedNoi} exceeded bank NOI ${args.bankNoi}; capped to bank`,
+      reason: `derived NOI ${args.derivedNoi} exceeded bank NOI ${args.bankNoi}; capped to bank${tierNote}`,
     },
   };
 }

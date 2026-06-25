@@ -14,6 +14,11 @@
 
 export const SOURCE_TIERS = [
   'BANK',
+  // T12 trailing actual PLUS contractual rent of signed-but-not-commenced
+  // (PRELEASED) leases, net of opex (signed-lease credit). Outranks the bare
+  // T12_ACTUAL in the bank-NOI cascade: a SIGNED lease is proven income the
+  // trailing window simply predates. Inert (absent) when no PRELEASED leases.
+  'T12_PRELEASED',
   'T12_ACTUAL',
   'IN_PLACE',
   'RENT_ROLL',

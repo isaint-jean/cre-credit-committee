@@ -18,8 +18,10 @@
 
 import type {
   ExtractionResult,
+  RentRoll,
   SourceTier,
 } from '@cre/contracts';
+import { computeSignedLeaseCreditedNoi } from './signed-lease-credit.js';
 
 export interface SourceCandidate {
   readonly tier: SourceTier;
@@ -132,8 +134,32 @@ export function capRateCascade(extraction: ExtractionResult): readonly SourceCan
  * (e.g., Prop 13 taxes) that materially shift NOI; In-Place is a fallback
  * when the issuer's UW column is also absent.
  */
-export function bankNoiCascade(extraction: ExtractionResult): readonly SourceCandidate[] {
+export function bankNoiCascade(
+  extraction: ExtractionResult,
+  signedLease?: { readonly rentRoll: RentRoll | null; readonly expenseRatio: number | null } | null,
+): readonly SourceCandidate[] {
   const cs: SourceCandidate[] = [];
+  // Signed-lease (PRELEASED) credit — ranked ABOVE T12_ACTUAL. When a rent roll
+  // carrying PRELEASED-in-window leases is supplied, credit their contractual
+  // rent (net of opex) over the trailing T-12: a SIGNED lease is proven income
+  // the trailing window predates. Inert (no tier pushed) when no rent roll / no
+  // expense ratio / no real T-12 base / no PRELEASED leases → the cascade falls
+  // through to T12_ACTUAL exactly as before (no regression on other deals).
+  if (
+    signedLease?.rentRoll != null &&
+    signedLease.expenseRatio != null &&
+    extraction.t12Actual?.noi != null
+  ) {
+    const credit = computeSignedLeaseCreditedNoi({
+      rentRoll: signedLease.rentRoll,
+      t12Noi: extraction.t12Actual.noi,
+      expenseRatio: signedLease.expenseRatio,
+      asOfDate: signedLease.rentRoll.asOfDate,
+    });
+    if (credit.creditedTenants.length > 0) {
+      cs.push({ tier: 'T12_PRELEASED', value: credit.noi });
+    }
+  }
   if (extraction.t12Actual !== null) {
     cs.push({ tier: 'T12_ACTUAL', value: extraction.t12Actual.noi });
   }

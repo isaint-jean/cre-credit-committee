@@ -33,6 +33,7 @@ import type {
   LibrarySnapshot,
   LibrarySnapshotId,
   MarketBenchmarks,
+  RentRoll,
 } from '@cre/contracts';
 import { JUDGMENT_ENGINE_VERSION } from '@cre/contracts';
 import { computeAdjustedInputsId } from '../../util/content-hash.js';
@@ -113,6 +114,13 @@ export interface ApplyJudgmentAdjustmentsArgs {
   readonly manifesto: CreditManifesto;
   readonly marketBenchmarks: MarketBenchmarks;
   readonly analysisAsOfDate: ISODateTime;
+  /**
+   * Optional typed rent roll. When present, the bank-NOI cascade can credit
+   * signed-but-not-commenced (PRELEASED) leases over the trailing T-12 (the
+   * signed-lease credit tier), so the income-catch cap learns signed leases.
+   * null/absent → current behavior (cap from T12_ACTUAL/SELLER_UW/IN_PLACE).
+   */
+  readonly rentRoll?: RentRoll | null;
 }
 
 /* ------------------------------- pre-conditions ----------------------------- */
@@ -435,7 +443,14 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
 
   /* ----------------------------- Phase 3: NOI Cap --------------------------- */
 
-  const bankNoi = pickFirstNonNull(bankNoiCascade(extraction)).value;
+  // Bank-NOI cascade now learns signed leases: when a rent roll is threaded, the
+  // T12_PRELEASED tier credits signed-but-not-commenced leases over the trailing
+  // T-12 (inert when absent → falls through to T12_ACTUAL). Capture the winning
+  // tier so the cap entry can disclose WHY the ceiling is what it is.
+  const bankSource = pickFirstNonNull(
+    bankNoiCascade(extraction, { rentRoll: args.rentRoll ?? null, expenseRatio }),
+  );
+  const bankNoi = bankSource.value;
   // Data-confidence axis (v1.9 — widened from v1.6 binary to 3-tier ordinal).
   // The three tiers distinguish "have-trailing-actual" from "have-projection-only":
   //   - validated      : t12Actual.noi present — engine has a trailing-12 ACTUAL.
@@ -452,7 +467,7 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
     extraction.t12Actual?.noi != null ? 'validated'
     : bankNoi === null ? 'unvalidated'
     : 'low_confidence';
-  const capResult = applyNoiCap({ derivedNoi: preCapNoi, bankNoi });
+  const capResult = applyNoiCap({ derivedNoi: preCapNoi, bankNoi, bankNoiTier: bankSource.tier });
   const finalNoi = capResult.capped;
   const noiCapAdjustments: AdjustmentEntry[] = capResult.entry ? [capResult.entry] : [];
 

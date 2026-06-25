@@ -275,6 +275,9 @@ export async function ingestExtractionResult(
     manifesto: creditManifesto,
     marketBenchmarks,
     analysisAsOfDate,
+    // Thread the rent roll so the bank-NOI cascade can credit signed (PRELEASED)
+    // leases — the income-catch cap learns signed leases. null → unchanged.
+    rentRoll,
   });
 
   /* PropertyMetadata resolution (deferred-persist variant):
