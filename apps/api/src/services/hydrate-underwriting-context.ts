@@ -374,6 +374,15 @@ export function hydrateUnderwritingContext(
     // Sources & Uses atoms — ASR S&U table for Property & Loan Summary
     // F28–F31 / K30. All-null when `analysis.sourcesAndUses` is absent.
     sourcesUses: buildSourcesUsesAtoms(s.analysis),
+    // ASR cash-flow ladder atoms (P4) — per-column blocks for Operating History
+    // historicals (B/D/F) + H/L income detail. Additive; existing t12/issuerUw
+    // atoms untouched. All-null when `analysis.underwrittenCashFlows` is absent.
+    y2021:       buildAsrCashFlowColumnAtoms(s.analysis, 'y2021'),
+    y2022:       buildAsrCashFlowColumnAtoms(s.analysis, 'y2022'),
+    y2023:       buildAsrCashFlowColumnAtoms(s.analysis, 'y2023'),
+    cfT12:       buildAsrCashFlowColumnAtoms(s.analysis, 't12'),
+    cfUw:        buildAsrCashFlowColumnAtoms(s.analysis, 'uw'),
+    cfAppraisal: buildAsrCashFlowColumnAtoms(s.analysis, 'appraisal'),
   };
 }
 
@@ -389,6 +398,40 @@ function buildSourcesUsesAtoms(analysis: Analysis): Record<string, number | null
     closingCosts:         su?.closingCosts ?? null,
     purchasePrice:        su?.purchasePrice ?? null,
     totalCostBasis:       su?.totalCostBasis ?? null,
+  };
+}
+
+/**
+ * ASR "Underwritten Cash Flows" per-column atoms (P4). One flat block per kept
+ * column (y2021/y2022/y2023 historicals + cfT12/cfUw/cfAppraisal). PURELY
+ * ADDITIVE — the existing t12/issuerUw atoms are untouched; P5 wires these into
+ * cells (B/D/F + the now-fillable H/L PGI). All-null when the table is absent.
+ */
+function buildAsrCashFlowColumnAtoms(
+  analysis: Analysis,
+  column: 'y2021' | 'y2022' | 'y2023' | 't12' | 'uw' | 'appraisal',
+): Record<string, number | null> {
+  const c = analysis.underwrittenCashFlows?.[column];
+  return {
+    baseRentalRevenue:              c?.baseRentalRevenue ?? null,
+    commercialReimbursementRevenue: c?.commercialReimbursementRevenue ?? null,
+    parkingIncome:                  c?.parkingIncome ?? null,
+    otherRevenue:                   c?.otherRevenue ?? null,
+    potentialGrossRevenue:          c?.potentialGrossRevenue ?? null,
+    vacancyLoss:                    c?.vacancyLoss ?? null,
+    effectiveGrossRevenue:          c?.effectiveGrossRevenue ?? null,
+    realEstateTaxes:                c?.realEstateTaxes ?? null,
+    insurance:                      c?.insurance ?? null,
+    utilities:                      c?.utilities ?? null,
+    repairsAndMaintenance:          c?.repairsAndMaintenance ?? null,
+    managementFee:                  c?.managementFee ?? null,
+    generalAndAdministrative:       c?.generalAndAdministrative ?? null,
+    totalExpenses:                  c?.totalExpenses ?? null,
+    netOperatingIncome:             c?.netOperatingIncome ?? null,
+    replacementReserves:            c?.replacementReserves ?? null,
+    tenantImprovements:             c?.tenantImprovements ?? null,
+    leasingCommissions:             c?.leasingCommissions ?? null,
+    netCashFlow:                    c?.netCashFlow ?? null,
   };
 }
 

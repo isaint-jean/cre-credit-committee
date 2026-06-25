@@ -61,6 +61,7 @@ import type {
   ConclusionAndEscrows,
   MissingDataSentinel,
   NarrativeValue,
+  ResolvedCashFlowColumn,
   ResolvedCellValue,
   ResolvedUnderwritingContext,
   RollUpAggregation,
@@ -221,6 +222,38 @@ const NARRATIVE_SECTION_KEYS: ReadonlyArray<keyof ResolvedUnderwritingContext> =
   'siteInspection',
   'comparables',
 ]);
+
+/**
+ * Shape-only passthrough of one ASR cash-flow column block (P4). Every field is
+ * a straight `ALLOWED_OPS.passthrough` — no logic, no aggregation, no branching
+ * (resolver-scope guardrail). Writes the 19-field ladder once so the six column
+ * blocks below stay DRY.
+ */
+function resolveCashFlowColumn(block: unknown): ResolvedCashFlowColumn {
+  const b = (block ?? {}) as Record<string, ResolvedCellValue>;
+  const p = (v: ResolvedCellValue) => ALLOWED_OPS.passthrough<ResolvedCellValue>(v ?? null);
+  return {
+    baseRentalRevenue:              p(b.baseRentalRevenue),
+    commercialReimbursementRevenue: p(b.commercialReimbursementRevenue),
+    parkingIncome:                  p(b.parkingIncome),
+    otherRevenue:                   p(b.otherRevenue),
+    potentialGrossRevenue:          p(b.potentialGrossRevenue),
+    vacancyLoss:                    p(b.vacancyLoss),
+    effectiveGrossRevenue:          p(b.effectiveGrossRevenue),
+    realEstateTaxes:                p(b.realEstateTaxes),
+    insurance:                      p(b.insurance),
+    utilities:                      p(b.utilities),
+    repairsAndMaintenance:          p(b.repairsAndMaintenance),
+    managementFee:                  p(b.managementFee),
+    generalAndAdministrative:       p(b.generalAndAdministrative),
+    totalExpenses:                  p(b.totalExpenses),
+    netOperatingIncome:             p(b.netOperatingIncome),
+    replacementReserves:            p(b.replacementReserves),
+    tenantImprovements:             p(b.tenantImprovements),
+    leasingCommissions:             p(b.leasingCommissions),
+    netCashFlow:                    p(b.netCashFlow),
+  };
+}
 
 function assertNarrativeDomain(out: ResolvedUnderwritingContext): void {
   for (const sectionKey of NARRATIVE_SECTION_KEYS) {
@@ -461,6 +494,14 @@ export function resolveUnderwritingContext(
       purchasePrice:        ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.purchasePrice        ?? null),
       totalCostBasis:       ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.totalCostBasis       ?? null),
     },
+    // ASR cash-flow column ladders (P4) — additive passthrough; existing
+    // t12/issuerUw blocks untouched.
+    y2021:       resolveCashFlowColumn((ctx as any).y2021),
+    y2022:       resolveCashFlowColumn((ctx as any).y2022),
+    y2023:       resolveCashFlowColumn((ctx as any).y2023),
+    cfT12:       resolveCashFlowColumn((ctx as any).cfT12),
+    cfUw:        resolveCashFlowColumn((ctx as any).cfUw),
+    cfAppraisal: resolveCashFlowColumn((ctx as any).cfAppraisal),
     comparablesLinkageRefs: ALLOWED_OPS.joinListAllowEmpty(ctx.comparablesLinkageRefs ?? []),
   };
 

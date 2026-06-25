@@ -235,6 +235,19 @@ export function projectLegacyAnalysisFromGraph(
     if (er?.asr?.sourcesAndUses) projectedSourcesAndUses = er.asr.sourcesAndUses;
   }
 
+  // ASR "Underwritten Cash Flows" ladder (P3 ingest) — lift off the graph-spine
+  // ExtractionResult to analysis.underwrittenCashFlows so the hydrate's
+  // buildAsrCashFlowColumnAtoms can surface y2021/y2022/y2023 + cfT12/cfUw/
+  // cfAppraisal blocks. NULL-only fill, mirrors sourcesAndUses.
+  let projectedUnderwrittenCashFlows = analysis.underwrittenCashFlows;
+  if (
+    (projectedUnderwrittenCashFlows === null || projectedUnderwrittenCashFlows === undefined) &&
+    doctrine !== null
+  ) {
+    const er = store.getExtractionResult(doctrine.extractionResultId);
+    if (er?.asr?.underwrittenCashFlows) projectedUnderwrittenCashFlows = er.asr.underwrittenCashFlows;
+  }
+
   // Sunroad appraisal-ingest: merge AppraisalExtraction identity fields into
   // PropertyMetadata where PM is null (NEVER overwrite the ASR-AI source per
   // Sprint-0 honest-blank discipline). Fills address/zip/county/yearBuilt
@@ -301,6 +314,7 @@ export function projectLegacyAnalysisFromGraph(
     appraisalExtraction: projectedAppraisalExtraction,
     partiesExtraction: projectedPartiesExtraction,
     sourcesAndUses: projectedSourcesAndUses,
+    underwrittenCashFlows: projectedUnderwrittenCashFlows,
   };
 }
 

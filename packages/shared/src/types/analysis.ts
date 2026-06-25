@@ -369,6 +369,12 @@ export interface Analysis {
   // Optional; mirrors appraisalExtraction / partiesExtraction semantics: pure
   // read-side reference; doctrine stays frozen. Refi → purchasePrice null.
   sourcesAndUses?: import('@cre/contracts').SourcesAndUses | null;
+  // ASR "Underwritten Cash Flows" ladder (deterministic parse, no LLM), lifted
+  // off the graph-spine ExtractionResult (er.asr.underwrittenCashFlows) so the
+  // hydrate can surface per-column cash-flow atoms for Operating History
+  // historicals (B/D/F) + H/L income detail. Optional; pure read-side; doctrine
+  // stays frozen. Honest-null when the table is absent.
+  underwrittenCashFlows?: import('@cre/contracts').AsrCashFlows | null;
   // Batch 0 traceability ledger. The merge layer pushes literal-string entries here
   // shaped 'merge-conflict[<field>] asr=... seller=... chosen=...'. Batch 1B extends
   // this with 'missing-support: <subject>' entries when an evidence-gated input is

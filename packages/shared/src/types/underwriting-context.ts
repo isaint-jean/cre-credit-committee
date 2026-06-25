@@ -264,6 +264,16 @@ export interface UnderwritingContext {
    *  `ResolvedUnderwritingContext.sourcesUses`. Distinct from the narrative
    *  `PropertyLoanSummary.sourcesAndUses` (a commentary string). */
   sourcesUses?: Readonly<Record<string, number | null>>;
+  /** ASR "Underwritten Cash Flows" per-column atoms (P4). Populated from
+   *  `analysis.underwrittenCashFlows`; absent otherwise. Read via the resolved
+   *  `y2021`/`y2022`/`y2023`/`cfT12`/`cfUw`/`cfAppraisal` blocks. Additive —
+   *  existing t12/issuerUw atoms untouched. */
+  y2021?: Readonly<Record<string, number | null>>;
+  y2022?: Readonly<Record<string, number | null>>;
+  y2023?: Readonly<Record<string, number | null>>;
+  cfT12?: Readonly<Record<string, number | null>>;
+  cfUw?: Readonly<Record<string, number | null>>;
+  cfAppraisal?: Readonly<Record<string, number | null>>;
 }
 
 /**
@@ -491,4 +501,36 @@ export interface ResolvedUnderwritingContext {
     purchasePrice:        ResolvedCellValue;  // K29 — null for refinance
     totalCostBasis:       ResolvedCellValue;  // K30 (Total Cost Basis)
   };
+  // ASR "Underwritten Cash Flows" per-column ladders (P4). Additive — feed
+  // Operating History historicals (B/D/F) + H/L income detail in P5. The
+  // existing t12/issuerUw atoms stay as-is.
+  readonly y2021: ResolvedCashFlowColumn;
+  readonly y2022: ResolvedCashFlowColumn;
+  readonly y2023: ResolvedCashFlowColumn;
+  readonly cfT12: ResolvedCashFlowColumn;
+  readonly cfUw: ResolvedCashFlowColumn;
+  readonly cfAppraisal: ResolvedCashFlowColumn;
+}
+
+/** One resolved ASR cash-flow column (the full income/expense/NOI ladder). */
+export interface ResolvedCashFlowColumn {
+  baseRentalRevenue:              ResolvedCellValue;
+  commercialReimbursementRevenue: ResolvedCellValue;
+  parkingIncome:                  ResolvedCellValue;
+  otherRevenue:                   ResolvedCellValue;
+  potentialGrossRevenue:          ResolvedCellValue;
+  vacancyLoss:                    ResolvedCellValue;
+  effectiveGrossRevenue:          ResolvedCellValue;
+  realEstateTaxes:                ResolvedCellValue;
+  insurance:                      ResolvedCellValue;
+  utilities:                      ResolvedCellValue;
+  repairsAndMaintenance:          ResolvedCellValue;
+  managementFee:                  ResolvedCellValue;
+  generalAndAdministrative:       ResolvedCellValue;
+  totalExpenses:                  ResolvedCellValue;
+  netOperatingIncome:             ResolvedCellValue;
+  replacementReserves:            ResolvedCellValue;
+  tenantImprovements:             ResolvedCellValue;
+  leasingCommissions:             ResolvedCellValue;
+  netCashFlow:                    ResolvedCellValue;
 }
