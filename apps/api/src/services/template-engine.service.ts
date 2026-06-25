@@ -1832,6 +1832,29 @@ async function sanitizeNonFiniteCachedValues(buffer: Buffer): Promise<Buffer> {
       zip.file(path, cleaned);
       touched++;
     }
+
+    // Force Excel to recompute on open by zeroing the workbook calcId. ExcelJS
+    // hardcodes calcId="171027" (a recognized engine stamp) AND preserves each
+    // formula cell's stale <v>0</v> carried from the template's 0-valued inputs.
+    // Excel sees a known calcId + present cached values, trusts the cached
+    // zeros, and SKIPS the recompute that fullCalcOnLoad="1" requested — so the
+    // NOI/total cells show 0 until F9. Rewriting calcId to "0" marks the
+    // workbook "never calculated by a known engine", forcing a full recalc on
+    // open that overwrites the stale <v>. We can't set calcId via the ExcelJS
+    // model (it's hardcoded), hence this byte rewrite. fullCalcOnLoad and every
+    // other calcPr attribute are preserved (only the calcId attr changes).
+    const wbFile = zip.file('xl/workbook.xml');
+    if (wbFile) {
+      const wbXml = await wbFile.async('text');
+      const rewritten = wbXml.replace(/<calcPr\b[^>]*>/i, (tag) =>
+        tag.replace(/calcId="\d+"/i, 'calcId="0"'),
+      );
+      if (rewritten !== wbXml) {
+        zip.file('xl/workbook.xml', rewritten);
+        touched++;
+      }
+    }
+
     if (touched === 0) return buffer;
     const out = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
     return Buffer.from(out as Buffer);
@@ -2390,6 +2413,15 @@ export async function applyRenderPayloadToTemplate(
   // re-emits the cached NaN regardless of cell.value / cell.model edits.
   // We rely on the byte-level sweep below at sanitizeNonFiniteCachedValues,
   // which runs against the serialized XML after writeBuffer.)
+
+  // Force a full recalculation when Excel opens the workbook. ExcelJS writes
+  // formula cells with their formula text but NO cached <v> result (it has no
+  // calc engine), so every derived cell (Operating History row-27/33 subtotals,
+  // row-35 NOI, the J/L/H column NOIs) would read 0/blank in any
+  // non-calculating reader until Excel recomputes. Setting
+  // calcProperties.fullCalcOnLoad emits <calcPr fullCalcOnLoad="1"/> in
+  // xl/workbook.xml, which tells Excel to recompute ALL formulas on open.
+  workbook.calcProperties.fullCalcOnLoad = true;
 
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
