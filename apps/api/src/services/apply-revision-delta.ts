@@ -123,7 +123,14 @@ export interface OverrideOp {
 }
 
 export type RevisionDelta =
-  | { readonly kind: 'adjusted-input-overrides'; readonly overrides: ReadonlyArray<OverrideOp> };
+  | { readonly kind: 'adjusted-input-overrides'; readonly overrides: ReadonlyArray<OverrideOp> }
+  // Re-score a child under a DOCTRINE CODE CHANGE with UNCHANGED inputs (e.g. the
+  // signed-lease credit, which moves the score from the scoring layer, not from
+  // AdjustedInputs). No overrides: childBody = parentBody, the body-equality
+  // short-circuit is bypassed, and the child gets a distinct revisionId purely
+  // from parentRevisionId (the locked 3-field hash). The reason rides
+  // args.adjustmentOrigin; provenance.inputDiff is empty.
+  | { readonly kind: 'doctrine-recompute' };
 
 /* -------------------------------- args/result ------------------------------ */
 
@@ -475,43 +482,57 @@ export async function applyRevisionDelta(
   }
 
   // c. Validate every override path before mutating anything.
-  for (const op of args.delta.overrides) {
-    if (!isEditablePath(op.path)) {
-      throw new InvalidDeltaError('NON_EDITABLE_PATH', op.path);
-    }
-    if (typeof op.value !== 'number' || !Number.isFinite(op.value)) {
-      throw new InvalidDeltaError('BAD_VALUE_TYPE', op.path, { value: op.value });
-    }
-    // Validation accepts the null-intermediate auto-construct case (§14.3 Delta X):
-    // if the path resolves to undefined because its parent (second-to-last segment)
-    // is null AND the leaf is `.adjusted`, applyOverride below will auto-construct
-    // the AdjustedLineItem parent — this is intentional, not a typo. For all
-    // other undefined-resolutions, treat as a path-not-found error.
-    if (getByPath(parentAdjustedInputs, op.path) === undefined) {
-      const parts = op.path.split('.');
-      const leaf = parts.pop();
-      const parentPath = parts.join('.');
-      const parentValue = parts.length > 0 ? getByPath(parentAdjustedInputs, parentPath) : undefined;
-      const isNullIntermediateAutoConstruct =
-        (leaf === 'adjusted' && parentValue === null) ||
-        // Display-only leasing struct: the parent `assumptions.leasing` may be
-        // null (no appraisal pre-fill) or absent (deal ingested before the field
-        // existed) — applyOverride auto-constructs the all-null struct, so accept
-        // it here too. (Leasing leaves are plain numbers, not `.adjusted`.)
-        (parentPath.endsWith('assumptions.leasing') && (parentValue === null || parentValue === undefined));
-      if (!isNullIntermediateAutoConstruct) {
-        throw new InvalidDeltaError('PATH_NOT_FOUND_ON_PARENT', op.path);
+  //    'doctrine-recompute' carries no overrides (childBody = parentBody), so the
+  //    validation loop is skipped — there is nothing to validate.
+  if (args.delta.kind === 'adjusted-input-overrides') {
+    for (const op of args.delta.overrides) {
+      if (!isEditablePath(op.path)) {
+        throw new InvalidDeltaError('NON_EDITABLE_PATH', op.path);
+      }
+      if (typeof op.value !== 'number' || !Number.isFinite(op.value)) {
+        throw new InvalidDeltaError('BAD_VALUE_TYPE', op.path, { value: op.value });
+      }
+      // Validation accepts the null-intermediate auto-construct case (§14.3 Delta X):
+      // if the path resolves to undefined because its parent (second-to-last segment)
+      // is null AND the leaf is `.adjusted`, applyOverride below will auto-construct
+      // the AdjustedLineItem parent — this is intentional, not a typo. For all
+      // other undefined-resolutions, treat as a path-not-found error.
+      if (getByPath(parentAdjustedInputs, op.path) === undefined) {
+        const parts = op.path.split('.');
+        const leaf = parts.pop();
+        const parentPath = parts.join('.');
+        const parentValue = parts.length > 0 ? getByPath(parentAdjustedInputs, parentPath) : undefined;
+        const isNullIntermediateAutoConstruct =
+          (leaf === 'adjusted' && parentValue === null) ||
+          // Display-only leasing struct: the parent `assumptions.leasing` may be
+          // null (no appraisal pre-fill) or absent (deal ingested before the field
+          // existed) — applyOverride auto-constructs the all-null struct, so accept
+          // it here too. (Leasing leaves are plain numbers, not `.adjusted`.)
+          (parentPath.endsWith('assumptions.leasing') && (parentValue === null || parentValue === undefined));
+        if (!isNullIntermediateAutoConstruct) {
+          throw new InvalidDeltaError('PATH_NOT_FOUND_ON_PARENT', op.path);
+        }
       }
     }
   }
 
   // d. Apply overrides to a clone, then recompute derived fields.
+  //    For 'doctrine-recompute' there are no overrides: childBody = parentBody
+  //    (byte-identical). The body-equality short-circuit below is bypassed for
+  //    this kind, so the recompute still mints a child (distinct revisionId from
+  //    parentRevisionId), re-running the scoring tail under the new doctrine code.
   const { id: _id, ...parentBody } = parentAdjustedInputs;
   let childBody: Omit<AdjustedInputs, 'id'> = parentBody;
-  for (const op of args.delta.overrides) {
-    childBody = applyOverride(childBody, op.path, op.value);
+  if (args.delta.kind === 'adjusted-input-overrides') {
+    for (const op of args.delta.overrides) {
+      childBody = applyOverride(childBody, op.path, op.value);
+    }
+    // Derived rollups must be recomputed AFTER overrides change line items.
+    // 'doctrine-recompute' applies no overrides, so childBody stays byte-identical
+    // to the parent (childAdjustedInputsId === parent's) → an EMPTY inputDiff,
+    // the honest record for an inputs-unchanged re-score.
+    childBody = recomputeDerivedFields(childBody, narrativeFacts);
   }
-  childBody = recomputeDerivedFields(childBody, narrativeFacts);
 
   // e. Compute child AdjustedInputs id and the would-be childRevisionId.
   //    `doctrineVersion` is a build-time constant (DOCTRINE_VERSION); the evaluator stamps the
@@ -528,7 +549,13 @@ export async function applyRevisionDelta(
   //     This is the route-level idempotency case: same body POSTed twice resolves latest=child1
   //     on the second call, applies override values that already match child1, and short-circuits
   //     here. Cf. test-revision-route.ts idempotency block.
-  if (childAdjustedInputsId === parentEnvelope.adjustedInputsId) {
+  //     ★ 'doctrine-recompute' BYPASSES this short-circuit by design: its body IS
+  //     byte-identical to the parent (no input change) — that's the point. It must
+  //     proceed to mint a child whose distinct revisionId comes from
+  //     parentRevisionId (the locked 3-field hash), re-scoring under the new
+  //     doctrine code. The idempotency check below (existing-childRevisionId)
+  //     still makes a repeated recompute a safe no-op.
+  if (args.delta.kind !== 'doctrine-recompute' && childAdjustedInputsId === parentEnvelope.adjustedInputsId) {
     const parentProvenance = store.getRevisionProvenance(args.parentRevisionId);
     if (parentProvenance === null) {
       throw new LineageCorruptionError(args.parentRevisionId, 'provenance');

@@ -161,6 +161,12 @@ export const REVISION_TRIGGERS = [
   // Re-ingest under an existing deal's lineage with an added source document
   // (append flow). Child revision; the inputDiff is parent-vs-child AdjustedInputs.
   'DOC_APPEND',
+  // Re-score an existing deal under a DOCTRINE CODE CHANGE with UNCHANGED inputs
+  // (the signed-lease credit and similar scoring-layer rules). Child revision;
+  // the inputDiff is EMPTY (parent === child AdjustedInputs) — the score moves
+  // because the scoring code changed, not the inputs. See apply-revision-delta's
+  // 'doctrine-recompute' delta-kind.
+  'DOCTRINE_RECOMPUTE',
 ] as const;
 export type RevisionTrigger = typeof REVISION_TRIGGERS[number];
 
