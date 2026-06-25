@@ -55,6 +55,7 @@ import type {
   PropertyMetadata,
   RentRoll,
   RevisionId,
+  RevisionTrigger,
   RevisionLineageEnvelope,
   RevisionProvenance,
 } from '@cre/contracts';
@@ -128,6 +129,16 @@ export interface IngestExtractionResultArgs {
    * no other behavior changes.
    */
   readonly parentRevisionId?: RevisionId;
+  /**
+   * Child-revision trigger label (CHILD branch only). Defaults to 'DOC_APPEND'
+   * (the original append-flow semantics) so every existing caller is unchanged.
+   * A re-judgment under a doctrine code change (e.g. the signed-lease cap tier)
+   * passes 'DOCTRINE_ADJUSTMENT' for honest provenance — no document is appended.
+   */
+  readonly triggerSource?: RevisionTrigger;
+  /** Optional child-provenance origin note (CHILD branch). Records WHY the
+   *  re-judgment ran (e.g. 'signed-lease cap tier (48f4cc2)'). Default []. */
+  readonly adjustmentOrigin?: readonly string[];
   readonly propertyType: AssetType;
   readonly marketLiquidityHint?: MarketLiquidity;
   readonly librarySnapshotId: LibrarySnapshotId;
@@ -394,9 +405,9 @@ export async function ingestExtractionResult(
     const childProvenance: RevisionProvenance = {
       revisionId: childRevisionId,
       inputDiff: diffAdjustedInputs(parentAdjustedInputs, adjustedInputs),
-      triggerSource: 'DOC_APPEND',
+      triggerSource: args.triggerSource ?? 'DOC_APPEND',
       appliedRuleIds: [],
-      adjustmentOrigin: [],
+      adjustmentOrigin: args.adjustmentOrigin ?? [],
       beforeHash: parentEnvelope.adjustedInputsId,
       afterHash: adjustedInputs.id,
     };
