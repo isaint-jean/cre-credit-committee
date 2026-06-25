@@ -145,6 +145,20 @@ export interface AdapterOptions {
    * stabilized deals).
    */
   readonly uwY1NoiOverride?: number | null;
+
+  /**
+   * Signed-lease-credited sustainable NOI (B-piece rule). When non-null, the
+   * adapter SUBSTITUTES this value for `t12Noi` — the sustainable-cashflow base.
+   * The figure is T-12 + contractual rent of PRELEASED (signed, not-yet-
+   * commenced) leases within the commencement window, net of operating
+   * expenses (see `judgment/signed-lease-credit.ts`). Mirrors `uwY1NoiOverride`:
+   * the production caller (which has the rent roll) computes it and feeds the
+   * scalar; the adapter performs no judgment-laden read.
+   *
+   * null/undefined → fall back to extraction.t12Actual.noi (unchanged behavior
+   * on deals with no signed-lease credit).
+   */
+  readonly t12NoiOverride?: number | null;
 }
 
 /* ---------------- raw-read pick helpers (pure data reduction) -------------- */
@@ -515,7 +529,13 @@ export function adaptExtractionToDealBag(
       ? options.uwY1NoiOverride
       : null;
   const uwY1Noi = uwY1NoiOverride !== null ? uwY1NoiOverride : pickIssuerNoi(extraction);
-  const t12Noi = extraction.t12Actual?.noi ?? null;
+  // Signed-lease-credited sustainable NOI override (B-piece rule). Mirrors
+  // uwY1NoiOverride: the caller supplies the scalar; the adapter substitutes it
+  // for the bare T-12. Falls back to extraction.t12Actual.noi when absent.
+  const t12Noi =
+    typeof options?.t12NoiOverride === 'number' && Number.isFinite(options.t12NoiOverride)
+      ? options.t12NoiOverride
+      : (extraction.t12Actual?.noi ?? null);
 
   // Occupancy.
   const underwrittenOccupancy = pickOccupancy(propertyMetadata, extraction);

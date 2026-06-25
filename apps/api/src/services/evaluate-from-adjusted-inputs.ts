@@ -59,6 +59,7 @@ import {
 } from '../doctrine-clean/index.js';
 import { detectLeaseUp } from '../doctrine-clean/normalization/lease-up-detection.js';
 import { computeContractedNoi } from './contracted-basis.js';
+import { computeSignedLeaseCreditedNoi } from './judgment/signed-lease-credit.js';
 import type {
   EvaluateDealResult,
   OperatorSuppliedValue,
@@ -366,10 +367,33 @@ export async function evaluateFromAdjustedInputs(
     adjustedInputs,
     isLeaseUpDeal: leaseUpTrace.isLeaseUp,
   });
+  // Signed-lease (PRELEASED) credit to the sustainable trailing NOI. Credits the
+  // contractual rent of signed-but-not-commenced leases (within the commencement
+  // window of the RENT ROLL's as-of date), net of opex, additive over T-12 →
+  // feeds dealBag.t12Noi. Inert when no PRELEASED leases apply (returns t12 NOI).
+  const t12NoiBase = extraction.t12Actual?.noi ?? null;
+  const expenseRatioForCredit =
+    typeof adjustedInputs.metrics.expenseRatio === 'number' ? adjustedInputs.metrics.expenseRatio : null;
+  const signedLeaseCredit =
+    t12NoiBase !== null && expenseRatioForCredit !== null
+      ? computeSignedLeaseCreditedNoi({
+          rentRoll,
+          t12Noi: t12NoiBase,
+          expenseRatio: expenseRatioForCredit,
+          asOfDate: rentRoll?.asOfDate ?? null,
+        })
+      : null;
+  // signedLeaseCredit.provenance is available locally for the memo/workbook —
+  // not yet persisted (mirrors the leaseUpTrace/contractedTrace pattern above; a
+  // later batch promotes it onto the DoctrineEvaluation record).
   const dealBag = adaptExtractionToDealBag(extraction, propertyMetadata, {
     explicitAssetType: assetProfile.propertyType,
     operatorSuppliedValue: args.operatorSuppliedValue,
     uwY1NoiOverride: contractedTrace.contractedNoi,
+    t12NoiOverride:
+      signedLeaseCredit !== null && signedLeaseCredit.creditedTenants.length > 0
+        ? signedLeaseCredit.noi
+        : undefined,
   });
   const dealResult = evaluateDeal(dealBag);
 
