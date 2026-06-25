@@ -72,8 +72,11 @@ import { projectToRentRollExtraction } from './rent-roll.adapter.js';
  *    0.1.0 — initial. DEFAULT_ASR_DEPS.extractAsr was a null-returning
  *            placeholder; the `asr` field was always null in production.
  *    0.2.0 — Ticket I (#6). DEFAULT_ASR_DEPS.extractAsr is now extractASR
- *            (AI-driven). Adapter coordination/contract unchanged. */
-export const ASR_ADAPTER_VERSION = '0.3.0';
+ *            (AI-driven). Adapter coordination/contract unchanged.
+ *    0.4.0 — ASR "Underwritten Cash Flows" table parse (extractAsrCashFlows)
+ *            added to extractASR → ASRExtraction.underwrittenCashFlows. Bumped
+ *            to cache-bust so a re-ingest re-extracts the new field. */
+export const ASR_ADAPTER_VERSION = '0.4.0';
 
 /**
  * One outcome value covers three ExtractionResult-relevant fields PLUS one

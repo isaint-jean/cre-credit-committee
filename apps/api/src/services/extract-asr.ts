@@ -38,6 +38,7 @@ import type { ASRExtraction, SourcesAndUses, EnvironmentalSummary, MarketRentSum
 import type { ParsedDocument } from '@cre/shared';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
 import { CLAUDE_MODEL } from '../config/llm-model.js';
+import { parseAsrCashFlowsFromText } from './extract-asr-cashflows.js';
 
 const EXTRACT_ASR_SYSTEM = `You extract ASR headline UW numbers from CRE documents and return ONLY a JSON object matching the requested schema. Missing fields must be null. Never add prose, commentary, or markdown.`;
 
@@ -303,8 +304,11 @@ export async function extractASR(document: ParsedDocument): Promise<ASRExtractio
   // M2M rollover (Build A bypassed that path). See contract comments.
   const environmentalSummary = parseEnvironmentalSummary(document.rawText ?? '');
   const marketRent = parseMarketRent(document.rawText ?? '');
+  // Deterministic "Underwritten Cash Flows" ladder (no LLM) — anchor-scoped to
+  // the heading. Honest-null on non-Sunroad ASRs that lack the table.
+  const underwrittenCashFlows = parseAsrCashFlowsFromText(document.rawText ?? '');
 
-  if (llm === null && sourcesAndUses === null && environmentalSummary === null && marketRent === null) return null;
+  if (llm === null && sourcesAndUses === null && environmentalSummary === null && marketRent === null && underwrittenCashFlows === null) return null;
   const base: ASRExtraction = llm ?? {
     impliedValue: null, impliedCapRate: null, underwrittenNOI: null, priorDebtPayoff: null,
   };
@@ -314,5 +318,6 @@ export async function extractASR(document: ParsedDocument): Promise<ASRExtractio
     sourcesAndUses,
     environmentalSummary,
     marketRent,
+    underwrittenCashFlows,
   };
 }

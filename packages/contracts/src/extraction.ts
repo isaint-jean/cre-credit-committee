@@ -573,6 +573,59 @@ export interface ASRExtraction {
    * market cross-check, not the projection. Additive widening.
    */
   readonly marketRent?: MarketRentSummary | null;
+
+  /**
+   * The ASR's "Underwritten Cash Flows" table (page 12 on the Sunroad ASR) —
+   * deterministic parse (no LLM). A per-column income/expense/NOI ladder for
+   * the historical years (2021/2022/2023), Trailing-12, Appraisal, and GS U/W.
+   * Source of the Operating History sheet's historical columns (B/D/F) and the
+   * H/L income detail (incl. PGI, which the operating statements lack). Honest-
+   * null when the table isn't present (non-Sunroad ASRs). Additive widening —
+   * older records persist with this absent; readers treat undefined = null.
+   *
+   * ★ Display/extraction only — NOT read by scoring (pickIssuerNoi reads
+   * sellerUw/t12, not this). The ASR's 2023 NOI (3,778,355) faithfully
+   * reproduces the source and differs ~$10K from the analyst key (3,768,059).
+   */
+  readonly underwrittenCashFlows?: AsrCashFlows | null;
+}
+
+/** One column of the ASR "Underwritten Cash Flows" ladder. Every field nullable (honest-blank). */
+export interface AsrCashFlowLadder {
+  readonly baseRentalRevenue: number | null;
+  readonly commercialReimbursementRevenue: number | null;
+  readonly parkingIncome: number | null;
+  readonly otherRevenue: number | null;
+  readonly potentialGrossRevenue: number | null;
+  readonly vacancyLoss: number | null;
+  readonly effectiveGrossRevenue: number | null;
+  readonly realEstateTaxes: number | null;
+  readonly insurance: number | null;
+  readonly utilities: number | null;
+  readonly repairsAndMaintenance: number | null;
+  readonly managementFee: number | null;
+  readonly generalAndAdministrative: number | null;
+  readonly totalExpenses: number | null;
+  readonly netOperatingIncome: number | null;
+  readonly replacementReserves: number | null;
+  readonly tenantImprovements: number | null;
+  readonly leasingCommissions: number | null;
+  readonly netCashFlow: number | null;
+}
+
+/**
+ * The ASR "Underwritten Cash Flows" table, per column. The 7 source columns are
+ * 2021/2022/2023/Trailing-12/Budget/Appraisal/GS-U-W; `Budget` is intentionally
+ * dropped (the workbook has no Budget column). `appraisal` is kept for cross-
+ * validation against the appraisal extractor.
+ */
+export interface AsrCashFlows {
+  readonly y2021: AsrCashFlowLadder;
+  readonly y2022: AsrCashFlowLadder;
+  readonly y2023: AsrCashFlowLadder;
+  readonly t12: AsrCashFlowLadder;
+  readonly appraisal: AsrCashFlowLadder;
+  readonly uw: AsrCashFlowLadder;
 }
 
 /**
