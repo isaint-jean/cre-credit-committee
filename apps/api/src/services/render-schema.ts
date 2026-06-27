@@ -2839,11 +2839,27 @@ const V24_SHARED_ENTRIES: SchemaEntry[] = [
   ...V24_OPERATING_ENTRIES,
 ];
 
+// ★ First ASSET-CLASS-SCOPED Property_Detail entry (Tier-1b, V24-only). C11/C12
+// = #buildings/#stories on the Comm (office/retail/industrial/mixed_use) AND
+// MF SS MHP (multifamily/self_storage/manufactured_housing) layouts — both carry
+// the labels. Hotel rows 11/12 are UNLABELED, so these are excluded for hotel
+// (scope `!== 'hotel'` below). Because the governance builds `observed` per
+// asset class, scoping the ENTRY confines the required field-states to the
+// Comm + MF sheets only (no Hotel) — and keeping it V24-only confines them to
+// FIELD_STATE_REGISTRY[24] (no v7-v24 spread). Atoms come from Tier-1a
+// (appraisal.numberOfBuildings / numberOfStories, resolver-passed).
+const V24_PROPERTY_DETAIL_SCOPED: SchemaEntry[] = [
+  { slot: 'Property_Detail', range: 'C11', selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.numberOfBuildings), cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'C12', selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.numberOfStories),  cellState: 'concluded', forceOverwrite: true },
+];
+
 function v24Definition(assetClass: AssetType): SchemaDefinition {
   return {
     underwritingModes: ['single_loan', 'roll_up'],
     visibleTabs: tabsFor(assetClass),
-    entries: V24_SHARED_ENTRIES,
+    entries: assetClass !== 'hotel'
+      ? [...V24_SHARED_ENTRIES, ...V24_PROPERTY_DETAIL_SCOPED]
+      : V24_SHARED_ENTRIES,
     tableLayouts: V6_TABLE_LAYOUTS,
     managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
   };

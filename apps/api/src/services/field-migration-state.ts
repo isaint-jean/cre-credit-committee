@@ -945,7 +945,21 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
       notes: 'New at v24. Column N "Actual Income In Place" — T12-mirror of H (cfT12 + t12 block).',
     })),
   ]);
-  return [...carryForward, ...v24Additions];
+  // Tier-1b — asset-class-SCOPED Property Detail C11 (#buildings) / C12 (#stories),
+  // V24-only. The render-schema entry is scoped `!== 'hotel'`, so it renders to the
+  // Comm (office/retail/industrial/mixed_use) AND MF SS MHP (multifamily/self_storage/
+  // manufactured_housing) sheets — NOT Hotel. Declare field-states on exactly those
+  // two sheets (no Hotel) to match the governance's per-asset-class `observed` set.
+  const propertyDetailSheets = ['Property Detail - Comm', 'Property Detail - MF SS MHP'];
+  const c11c12 = propertyDetailSheets.flatMap((sheet) =>
+    ['C11', 'C12'].map((cell): FieldStateDeclaration => ({
+      address: `${sheet}!${cell}`,
+      group: 'property' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v24. Tier-1b scoped (non-hotel): C11 #buildings / C12 #stories — resolvedContext.appraisal.{numberOfBuildings,numberOfStories}.',
+    })),
+  );
+  return [...carryForward, ...v24Additions, ...c11c12];
 })();
 
 // --- Legal cross-version transitions ---------------------------------------
