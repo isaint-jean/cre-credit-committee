@@ -2743,6 +2743,137 @@ const SCHEMA_V23: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v23DefsFor('manufactured_housing') },
 };
 
+// ── V24: Operating History prior-year columns (B/D/F) + H/L PGI/occupancy
+// rebind, all from the ASR cash-flow ladder (resolvedContext y2021/y2022/y2023/
+// cfT12/cfUw). P1 skeleton: empty mirror of V23. P2 fills V24_OPERATING_ENTRIES
+// (B/D/F full ladder + H9/L9/H6/L6/H14/L14 rebinds; totals stay as formulas;
+// vacancy formula left intact, driven by the bound r6 occupancy). Income-catch-safe.
+const V24_OPERATING_ENTRIES: SchemaEntry[] = (() => {
+  // ctx → resolvedContext cash-flow block (y2021/y2022/y2023/cfT12/cfUw).
+  const cf = (block: string, field: string): Selector =>
+    ctx((c) => (c as never as Record<string, Record<string, CellValue>>)[block][field]);
+  const e = (range: string, block: string, field: string): SchemaEntry => ({
+    slot: 'Operating_ProForma',
+    range,
+    selector: cf(block, field),
+    cellState: 'concluded',
+  });
+  // The 13 value cells per column → cash-flow field. Totals (r12/r17/r27/r33/
+  // r35/r44) stay as template formulas; r10 vacancy stays a formula driven by
+  // the bound r6 occupancy; r11/r21/r26 have no source (left blank).
+  const LADDER: ReadonlyArray<readonly [string, string]> = [
+    ['9', 'baseRentalRevenue'],
+    ['6', 'economicOccupancy'],
+    ['14', 'otherIncomeCombined'],
+    ['15', 'commercialReimbursementRevenue'],
+    ['22', 'generalAndAdministrative'],
+    ['24', 'repairsAndMaintenance'],
+    ['25', 'utilities'],
+    ['30', 'managementFee'],
+    ['31', 'realEstateTaxes'],
+    ['32', 'insurance'],
+    ['38', 'replacementReserves'],
+    ['39', 'tenantImprovements'],
+    ['40', 'leasingCommissions'],
+  ];
+  // Prior-year columns B/D/F (2021/2022/2023) — full ladder, all new cells.
+  const bdf = ([['B', 'y2021'], ['D', 'y2022'], ['F', 'y2023']] as ReadonlyArray<readonly [string, string]>)
+    .flatMap(([col, block]) => LADDER.map(([row, field]) => e(col + row, block, field)));
+  // H/L coordinated rebind — r9 PGI, r6 occupancy, r14 other (the v17T12/issuerUw
+  // bindings for these 6 cells are filtered out of V24_SHARED below). Expenses +
+  // reimb stay on v17T12/issuerUw (already correct). r10 vacancy NEVER bound.
+  const hl = [
+    e('H9', 'cfT12', 'baseRentalRevenue'),
+    e('L9', 'cfUw', 'baseRentalRevenue'),
+    e('H6', 'cfT12', 'economicOccupancy'),
+    e('L6', 'cfUw', 'economicOccupancy'),
+    e('H14', 'cfT12', 'otherIncomeCombined'),
+    e('L14', 'cfUw', 'otherIncomeCombined'),
+  ];
+  // PHYSICAL occupancy (row 7) — new at V24, from the physicalOccupancy block
+  // (rent-roll leased SF ÷ total SF). Stabilized (occ + PRELEASED) for forward
+  // columns P7 (Year-1) + L7 (Issuer UW); in-place (occ only) for trailing H7.
+  // forceOverwrite replaces unbound template content: P7's =J96/B96 (#DIV/0!
+  // when total-SF=0), L7's static 0 (0%), H7's static 1 (100%).
+  const physOcc = (variant: 'stabilized' | 'inPlace'): Selector =>
+    ctx((c) => (c as never as { physicalOccupancy: Record<string, CellValue> }).physicalOccupancy[variant]);
+  const phys: SchemaEntry[] = [
+    { slot: 'Operating_ProForma', range: 'P7', selector: physOcc('stabilized'), cellState: 'concluded', forceOverwrite: true },
+    { slot: 'Operating_ProForma', range: 'L7', selector: physOcc('stabilized'), cellState: 'concluded', forceOverwrite: true },
+    { slot: 'Operating_ProForma', range: 'H7', selector: physOcc('inPlace'),    cellState: 'concluded', forceOverwrite: true },
+  ];
+  // ── Column N "Actual Income In Place" — a full T12-MIRROR. ──
+  // N had NO bindings: its native template formulas reference unresolved
+  // workbook globals → blank income, while its expenses borrowed from the P
+  // (Year-1) column → a Frankenstein NOI of −$3.89M. Bind N's FULL cash-flow
+  // ladder from cfT12 (the SAME ASR-T12 source the B/D/F historicals + H9/H6/H14
+  // use — income AND expenses), forceOverwrite to replace N's native formulas.
+  // cfT12 carries the whole ladder (baseRentalRevenue … leasingCommissions), so
+  // N income + expenses are both true T12 → N NOI = the real T12 ~$3.86M (the
+  // N17/N33/N35 subtotals stay template formulas driven by the bound leaves,
+  // exactly as the B/D/F columns do). N7 physical occ = in-place (like H7).
+  const nCf = (row: string, field: string): SchemaEntry => ({
+    slot: 'Operating_ProForma', range: 'N' + row, selector: cf('cfT12', field),
+    cellState: 'concluded', forceOverwrite: true,
+  });
+  const colN: SchemaEntry[] = [
+    ...LADDER.map(([row, field]) => nCf(row, field)),
+    { slot: 'Operating_ProForma', range: 'N7', selector: physOcc('inPlace'), cellState: 'concluded', forceOverwrite: true },
+  ];
+  return [...bdf, ...hl, ...phys, ...colN];
+})();
+
+// The H/L rebind replaces 6 existing Operating_ProForma bindings (v17T12 H9/H6/
+// H14 + issuerUw L9/L6/L14). Filter them out of V23's entries for V24 ONLY
+// (V23_SHARED_ENTRIES is untouched — the filter copies) so the new cash-flow
+// bindings don't collide (SCHEMA_DUPLICATE_ADDRESS).
+const V24_REBOUND_RANGES = new Set(['H9', 'H6', 'H14', 'L9', 'L6', 'L14']);
+const V24_SHARED_ENTRIES: SchemaEntry[] = [
+  ...V23_SHARED_ENTRIES.filter(
+    (entry) => !(entry.slot === 'Operating_ProForma' && V24_REBOUND_RANGES.has(entry.range)),
+  ),
+  ...V24_OPERATING_ENTRIES,
+];
+
+function v24Definition(assetClass: AssetType): SchemaDefinition {
+  return {
+    underwritingModes: ['single_loan', 'roll_up'],
+    visibleTabs: tabsFor(assetClass),
+    entries: V24_SHARED_ENTRIES,
+    tableLayouts: V6_TABLE_LAYOUTS,
+    managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
+  };
+}
+
+function v24DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return [v24Definition(assetClass)];
+}
+
+const SCHEMA_V24: ContractSchema = {
+  office: {
+    office_core:       v24DefsFor('office'),
+    office_trophy:     v24DefsFor('office'),
+    office_value_add:  v24DefsFor('office'),
+    office_distressed: v24DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v24DefsFor('multifamily'),
+    mf_large_scale: v24DefsFor('multifamily'),
+    mf_workforce:   v24DefsFor('multifamily'),
+    mf_value_add:   v24DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v24DefsFor('industrial'),
+    ind_logistics: v24DefsFor('industrial'),
+    ind_light:     v24DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v24DefsFor('retail') },
+  hotel:                { hotel_core:                v24DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v24DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v24DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v24DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -2798,6 +2929,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   21: SCHEMA_V21,
   22: SCHEMA_V22,
   23: SCHEMA_V23,
+  24: SCHEMA_V24,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -3087,6 +3219,7 @@ function assertSchemaWellFormed(): void {
     21: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     22: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     23: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    24: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{

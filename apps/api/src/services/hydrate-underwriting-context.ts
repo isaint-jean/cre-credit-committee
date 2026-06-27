@@ -37,7 +37,7 @@
  *   AdjustedInputs as a precedence input for the loan atoms; it does not
  *   modify or replace it.
  */
-import type { AssetProfile } from '@cre/contracts';
+import type { AssetProfile, RentRoll } from '@cre/contracts';
 import { ASSET_TYPE_LABELS } from '@cre/contracts';
 import type {
   AdjustedInputs,
@@ -73,6 +73,13 @@ export interface HydrationSources {
   analysis: Analysis;
   adjustedInputs: AdjustedInputs;
   mode: UnderwritingMode;
+  /**
+   * Optional typed rent roll. When supplied, physical-occupancy atoms (leased
+   * SF ÷ total SF) are computed from the lines — stabilized (occupied +
+   * PRELEASED) and in-place (occupied only). null/absent → physical-occupancy
+   * atoms stay null (cells render blank, no #DIV/0!).
+   */
+  rentRoll?: RentRoll | null;
   /**
    * Optional field-authority registry. When supplied, the hydrator runs the
    * registry resolver alongside the existing atomic-block flow and surfaces
@@ -383,6 +390,39 @@ export function hydrateUnderwritingContext(
     cfT12:       buildAsrCashFlowColumnAtoms(s.analysis, 't12'),
     cfUw:        buildAsrCashFlowColumnAtoms(s.analysis, 'uw'),
     cfAppraisal: buildAsrCashFlowColumnAtoms(s.analysis, 'appraisal'),
+    // Physical-occupancy atoms (Operating History row 7) from the rent-roll SF.
+    physicalOccupancy: buildPhysicalOccupancy(s.rentRoll),
+  };
+}
+
+/**
+ * Physical-occupancy atoms (Operating History row 7) = leased SF ÷ total SF,
+ * computed from the rent-roll lines. Two variants:
+ *   - stabilized: (occupied + PRELEASED signed leases) ÷ total → forward
+ *     columns P7 (Year-1 Pro Forma) + L7 (Issuer UW), where the signed lease
+ *     is in place.
+ *   - inPlace:    occupied only ÷ total → trailing-actual column H7, where a
+ *     not-yet-commenced (PRELEASED) lease is correctly excluded.
+ * Guards total SF = 0 / no rent roll → null (cell renders blank, NOT #DIV/0!).
+ */
+function buildPhysicalOccupancy(
+  rentRoll: RentRoll | null | undefined,
+): { stabilized: number | null; inPlace: number | null } {
+  if (rentRoll == null) return { stabilized: null, inPlace: null };
+  let totalSf = 0;
+  let occupiedSf = 0;
+  let preleasedSf = 0;
+  for (const line of rentRoll.lines) {
+    const sf = (line as { squareFeet?: number | null }).squareFeet;
+    if (typeof sf !== 'number' || !Number.isFinite(sf)) continue;
+    totalSf += sf;
+    if (line.status === 'OCCUPIED' || line.status === 'HOLDOVER') occupiedSf += sf;
+    else if (line.status === 'PRELEASED') preleasedSf += sf;
+  }
+  if (totalSf <= 0) return { stabilized: null, inPlace: null };
+  return {
+    stabilized: (occupiedSf + preleasedSf) / totalSf,
+    inPlace: occupiedSf / totalSf,
   };
 }
 
@@ -412,6 +452,18 @@ function buildAsrCashFlowColumnAtoms(
   column: 'y2021' | 'y2022' | 'y2023' | 't12' | 'uw' | 'appraisal',
 ): Record<string, number | null> {
   const c = analysis.underwrittenCashFlows?.[column];
+  // P5 derived atoms. economicOccupancy reproduces the template's r6 (so the
+  // r10 vacancy formula -PGI*(1-occ) computes the source's vacancy): for UW
+  // vacancyLoss −507,278 / PGI 12,997,217 → occ 0.961 (matches key L6); for
+  // B/D/F (vacancyLoss 0) → 1.0; for T12 (+3,078) → 1.0004 (so H10 = +3,078).
+  const pgi = c?.baseRentalRevenue ?? null;
+  const vac = c?.vacancyLoss ?? null;
+  const economicOccupancy =
+    typeof pgi === 'number' && pgi > 0 && typeof vac === 'number' ? 1 - (-vac / pgi) : null;
+  // r14 "Other Income" = Parking + Other Revenue (per the key). null+null → null.
+  const park = c?.parkingIncome ?? null;
+  const oth = c?.otherRevenue ?? null;
+  const otherIncomeCombined = park === null && oth === null ? null : (park ?? 0) + (oth ?? 0);
   return {
     baseRentalRevenue:              c?.baseRentalRevenue ?? null,
     commercialReimbursementRevenue: c?.commercialReimbursementRevenue ?? null,
@@ -432,6 +484,8 @@ function buildAsrCashFlowColumnAtoms(
     tenantImprovements:             c?.tenantImprovements ?? null,
     leasingCommissions:             c?.leasingCommissions ?? null,
     netCashFlow:                    c?.netCashFlow ?? null,
+    economicOccupancy,
+    otherIncomeCombined,
   };
 }
 

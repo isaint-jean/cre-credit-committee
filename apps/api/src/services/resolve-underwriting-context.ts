@@ -252,6 +252,8 @@ function resolveCashFlowColumn(block: unknown): ResolvedCashFlowColumn {
     tenantImprovements:             p(b.tenantImprovements),
     leasingCommissions:             p(b.leasingCommissions),
     netCashFlow:                    p(b.netCashFlow),
+    economicOccupancy:              p(b.economicOccupancy),
+    otherIncomeCombined:            p(b.otherIncomeCombined),
   };
 }
 
@@ -502,6 +504,14 @@ export function resolveUnderwritingContext(
     cfT12:       resolveCashFlowColumn((ctx as any).cfT12),
     cfUw:        resolveCashFlowColumn((ctx as any).cfUw),
     cfAppraisal: resolveCashFlowColumn((ctx as any).cfAppraisal),
+    // Physical-occupancy atoms (row 7) — shape-only passthrough, mirrors the
+    // economicOccupancy path. null when no rent roll → cell renders blank.
+    physicalOccupancy: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stabilized: ALLOWED_OPS.passthrough<ResolvedCellValue>(((ctx as any).physicalOccupancy?.stabilized ?? null) as ResolvedCellValue),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      inPlace: ALLOWED_OPS.passthrough<ResolvedCellValue>(((ctx as any).physicalOccupancy?.inPlace ?? null) as ResolvedCellValue),
+    },
     comparablesLinkageRefs: ALLOWED_OPS.joinListAllowEmpty(ctx.comparablesLinkageRefs ?? []),
   };
 

@@ -274,6 +274,10 @@ export interface UnderwritingContext {
   cfT12?: Readonly<Record<string, number | null>>;
   cfUw?: Readonly<Record<string, number | null>>;
   cfAppraisal?: Readonly<Record<string, number | null>>;
+  /** Physical-occupancy atoms (Operating History row 7) from the rent-roll SF.
+   *  stabilized = (occupied+PRELEASED)/total → P7/L7; inPlace = occupied/total
+   *  → H7. Absent / null fields when no rent roll. */
+  physicalOccupancy?: Readonly<{ stabilized: number | null; inPlace: number | null }>;
 }
 
 /**
@@ -510,6 +514,12 @@ export interface ResolvedUnderwritingContext {
   readonly cfT12: ResolvedCashFlowColumn;
   readonly cfUw: ResolvedCashFlowColumn;
   readonly cfAppraisal: ResolvedCashFlowColumn;
+  /** Physical-occupancy atoms (Operating History row 7) from the rent-roll SF.
+   *  stabilized (occupied+PRELEASED)/total → P7/L7; inPlace occupied/total → H7. */
+  readonly physicalOccupancy: {
+    readonly stabilized: ResolvedCellValue;
+    readonly inPlace: ResolvedCellValue;
+  };
 }
 
 /** One resolved ASR cash-flow column (the full income/expense/NOI ladder). */
@@ -533,4 +543,6 @@ export interface ResolvedCashFlowColumn {
   tenantImprovements:             ResolvedCellValue;
   leasingCommissions:             ResolvedCellValue;
   netCashFlow:                    ResolvedCellValue;
+  economicOccupancy:              ResolvedCellValue;  // P5 — derived 1-(-vacancyLoss/PGI) for the r6 occupancy bind
+  otherIncomeCombined:            ResolvedCellValue;  // P5 — parkingIncome + otherRevenue for the r14 other-income bind
 }

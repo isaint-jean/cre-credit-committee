@@ -122,7 +122,7 @@ import type { RentRoll } from '@cre/contracts';
  * feedback, no underwriting-value mutation. The v18 slice is carried forward
  * byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 23;
+export const RENDER_CONTRACT_VERSION = 24;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,

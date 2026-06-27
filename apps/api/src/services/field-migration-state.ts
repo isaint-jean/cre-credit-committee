@@ -902,6 +902,48 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v23Additions];
 })();
 
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[24] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[23] ?? [];
+  // v24: prior-year columns B/D/F (2021/2022/2023) full ladder — new cells from
+  // resolvedContext.{y2021/y2022/y2023} → FULL_MODERN, both sheets. The H/L
+  // rebinds (H9/H6/H14/L9/L6/L14) reuse their carried-forward [23] declarations
+  // (FULL_MODERN/resolvedContext — unchanged source surface, just a new block).
+  const sheets = ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'];
+  const bdfCells = ['B', 'D', 'F'].flatMap((col) =>
+    ['9', '6', '14', '15', '22', '24', '25', '30', '31', '32', '38', '39', '40'].map((r) => col + r),
+  );
+  // Physical occupancy (row 7) — new at v24, FULL_MODERN from
+  // resolvedContext.physicalOccupancy (rent-roll leased SF ÷ total). P7/L7 =
+  // stabilized (occ + PRELEASED); H7 = in-place (occ only).
+  const physOccCells = ['P7', 'L7', 'H7'];
+  // Column N "Actual Income In Place" — new at v24, FULL_MODERN T12-mirror.
+  // Full cfT12 ladder (income+expenses) + physical occ N7. Matches the LADDER
+  // rows bound in render-schema's V24 colN block.
+  const colNCells = ['N9', 'N6', 'N14', 'N15', 'N22', 'N24', 'N25', 'N30',
+    'N31', 'N32', 'N38', 'N39', 'N40', 'N7'];
+  const v24Additions: FieldStateDeclaration[] = sheets.flatMap((sheet) => [
+    ...bdfCells.map((cell): FieldStateDeclaration => ({
+      address: `${sheet}!${cell}`,
+      group: 'financial_core' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v24. Operating History prior-year column — resolvedContext.{y2021/y2022/y2023}.',
+    })),
+    ...physOccCells.map((cell): FieldStateDeclaration => ({
+      address: `${sheet}!${cell}`,
+      group: 'financial_core' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v24. Physical occupancy (row 7) — resolvedContext.physicalOccupancy (leased SF ÷ total).',
+    })),
+    ...colNCells.map((cell): FieldStateDeclaration => ({
+      address: `${sheet}!${cell}`,
+      group: 'financial_core' as const,
+      state: 'FULL_MODERN' as const,
+      notes: 'New at v24. Column N "Actual Income In Place" — T12-mirror of H (cfT12 + t12 block).',
+    })),
+  ]);
+  return [...carryForward, ...v24Additions];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

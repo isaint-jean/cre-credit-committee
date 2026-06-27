@@ -329,6 +329,8 @@ function composeRenderPayloadFromQuery(
       analysis,
       adjustedInputs,
       mode: underwritingMode,
+      // Physical-occupancy atoms (row 7) need the rent-roll SF.
+      rentRoll,
     }),
     drivers: analysis.crossCheckFindings ?? [],
     conservatismStatus: buildConservatismStatus(analysis, adjustedInputs),

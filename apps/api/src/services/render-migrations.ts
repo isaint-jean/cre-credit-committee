@@ -1059,6 +1059,35 @@ const MIGRATIONS: RenderContractMigration[] = [
     notes:
       'v23 is additive (1 cell × 2 sheets): L17 total revenues. Mirrors v22 H17.',
   },
+  {
+    fromVersion: 23,
+    toVersion: 24,
+    description:
+      'Operating History prior-year columns + H/L income detail (SCHEMA_V24) from ' +
+      'the ASR cash-flow ladder. P1 lands the empty mirror (zero address changes) ' +
+      'to validate the cascade before any binding. P2 binds B/D/F (2021/2022/2023) ' +
+      'full ladder + rebinds H9/L9 PGI, H6/L6 occupancy, H14/L14 other-income to ' +
+      'resolvedContext.{y2021/y2022/y2023/cfT12/cfUw}. Totals stay as formulas; the ' +
+      'vacancy formula is left intact (driven by the bound r6 occupancy). Display-' +
+      'only; no new SheetSlot (Operating_ProForma exists), no source surface change.',
+    autoApplicable: true,
+    addresses: ['Operating History and Pro Forma', 'Hotel Op History and Pro Forma'].flatMap((sheet) =>
+      ['B', 'D', 'F'].flatMap((col) =>
+        ['9', '6', '14', '15', '22', '24', '25', '30', '31', '32', '38', '39', '40'].map(
+          (r) => ({ kind: 'address-added' as const, address: `${sheet}!${col}${r}` }),
+        ),
+      ),
+    ),
+    tables: [],
+    managedNamespace: [],
+    visibility: [],
+    wire: [],
+    notes:
+      'v24 is additive: B/D/F prior-year ladder (13 cells × 3 cols × 2 sheets = 78 ' +
+      'address-added). The H/L rebinds (H9/H6/H14/L9/L6/L14) are selector changes ' +
+      'on existing addresses (not address-added) — re-sourced from v17T12/issuerUw ' +
+      'to the ASR cash-flow blocks. Totals + vacancy stay as formulas.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------
