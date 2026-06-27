@@ -1816,19 +1816,29 @@ async function sanitizeNonFiniteCachedValues(buffer: Buffer): Promise<Buffer> {
   try {
     const JSZip = (await import('jszip')).default;
     const zip = await JSZip.loadAsync(buffer as any);
-    // Matches <v>NaN</v>, <v>Infinity</v>, <v>-Infinity</v> (anywhere in
-    // the cell element). Cell shape: <c ...><f>...</f><v>NaN</v></c> — we
-    // strip just the <v> element, the <f> formula stays.
-    const RE = /<v>(?:NaN|Infinity|-Infinity)<\/v>/gi;
+    // ★ Strip the cached <v> from EVERY formula cell (any <c> carrying an <f>),
+    // regardless of value — the <f> formula stays. ExcelJS has no calc engine,
+    // so it ships each formula cell with a STALE cached <v> (e.g. <v>0</v>
+    // carried from the template's 0-valued inputs; a finite-but-wrong number).
+    // A finite cache is honored by Excel on open until F9 DESPITE
+    // fullCalcOnLoad/calcId=0 (those flags are advisory) — so e.g. the NOI
+    // subtotals (H33/H35/col-35) show a wrong 0/negative. Removing the <v>
+    // leaves nothing wrong to trust → Excel computes on open; LibreOffice
+    // recalcs. Non-formula LITERALS (a <v> with NO sibling <f> — e.g. H17 total
+    // revenues) are UNTOUCHED. Handles content (<f>…</f><v>…</v>), self-closing
+    // shared-ref (<f …/><v>…</v>), and array/shared (<f t="array|shared">…).
+    const RE_FORMULA_CACHE = /(<f\b[^>]*(?:\/>|>[^<]*<\/f>))<v>[^<]*<\/v>/gi;
+    // Belt-and-suspenders: any residual non-finite <v> (e.g. on a non-formula
+    // cell, if ever produced) — the original NaN/Infinity sweep.
+    const RE_NONFINITE = /<v>(?:NaN|Infinity|-Infinity)<\/v>/gi;
     let touched = 0;
     for (const path of Object.keys(zip.files)) {
       if (!/^xl\/worksheets\/sheet[^/]*\.xml$/i.test(path)) continue;
       const file = zip.file(path);
       if (!file) continue;
       const xml = await file.async('text');
-      if (!RE.test(xml)) continue;
-      RE.lastIndex = 0;
-      const cleaned = xml.replace(RE, '');
+      const cleaned = xml.replace(RE_FORMULA_CACHE, '$1').replace(RE_NONFINITE, '');
+      if (cleaned === xml) continue;
       zip.file(path, cleaned);
       touched++;
     }
