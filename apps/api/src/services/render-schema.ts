@@ -757,24 +757,16 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   { slot: 'Borrower',              range: 'Borrower',            selector: ctx((c) => c.parties.borrowerName),       cellState: 'concluded' },
   { slot: 'Borrower',              range: 'Sponsor',             selector: ctx((c) => c.parties.sponsorName),        cellState: 'concluded' },
 
-  // ----- Sprint-0: Property Detail tab (Property Detail - Comm for office) -
-  // 8 cells fed by propertyMetadata. A1 addresses verified by openpyxl scan
-  // of Blank_UW_Template_v2.xlsm. Per Sprint-0 corrections, B3 (Gross
-  // Building Area; GBA ≠ NRA, no PM source) and F10 (Property Rights;
-  // appraisal-derived, no appraisal for Sunroad) are NOT mapped — they stay
-  // honest-blank.
-  // Appraisal-ingest: B3 (Gross Building Area) now has a source via
-  // resolvedContext.appraisal.grossBuildingArea (CBRE Sunroad p.12: 285,085 SF).
-  // Sprint-0 left this honest-blank (GBA ≠ NRA; no PM source).
-  { slot: 'Property_Detail',       range: 'B3',                  selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.grossBuildingArea),  cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'B4',                  selector: ctx((c) => c.property.totalSquareFeet),    cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'F3',                  selector: ctx((c) => c.property.type),               cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'F4',                  selector: ctx((c) => c.property.yearBuilt),          cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'F5',                  selector: ctx((c) => c.property.yearRenovated),      cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'B9',                  selector: ctx((c) => c.property.totalSquareFeet),    cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'B11',                 selector: ctx((c) => c.property.numberOfBuildings),  cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'F11',                 selector: ctx((c) => c.property.ownershipInterest),  cellState: 'concluded' },
-  { slot: 'Property_Detail',       range: 'B15',                 selector: ctx((c) => c.property.buildingClass),      cellState: 'concluded' },
+  // ----- Sprint-0 Property Detail B/F bindings: REMOVED -------------------
+  // The 9 shared B/F cells (B3/B4/B9/B11/B15, F3/F4/F5/F11) targeted ABSENT
+  // office cells (offset junk, one column left of the real C/H inputs) AND,
+  // because they're shared + have no forceOverwrite, OVERWROTE the real LABEL
+  // cells on the MF SS MHP / Hotel layouts (F3="Property Subtype", F4="Year
+  // Built", F11="Convenience Store", …) on any MF/Hotel render — latent label
+  // corruption. The data they carried is now bound correctly elsewhere:
+  // Tier-1a (Year_Built / Ownership_Interest / Measure on the P&L named ranges)
+  // + Tier-1b (C11/C12 asset-class-scoped). Removed with their field-states on
+  // all three Property Detail sheets in lockstep.
 
   // ----- Sprint-0: Site Inspection tab ------------------------------------
   // Only C6 is a true input cell. The other property-identity cells on this

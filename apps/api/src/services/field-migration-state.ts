@@ -320,42 +320,10 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     // no V9 entry. New at v9-sprint-0 with FULL_MODERN state (resolvedContext-only).
     { address: 'Property & Loan Summary!MSA',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.msa; sourced from propertyMetadata.msa.' },
     { address: 'Property & Loan Summary!Year_Renovated',        group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.yearRenovated; sourced from propertyMetadata.yearRenovated.' },
-    // Property Detail tab — slot 'Property_Detail' translates to one of
-    // three sheet names (Property Detail - Comm for office/retail/
-    // industrial/mixed_use; -MF SS MHP for multifamily / self-storage /
-    // manufactured-housing; -Hotel for hotel). Each schema entry needs a
-    // declaration per resolved sheet name.
-    { address: 'Property Detail - Comm!B3',                     group: 'property', state: 'FULL_MODERN', notes: 'Appraisal-ingest. resolvedContext.appraisal.grossBuildingArea (Sunroad CBRE p.12 285,085 SF).' },
-    { address: 'Property Detail - Comm!B4',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.totalSquareFeet (commercial assets).' },
-    { address: 'Property Detail - Comm!F3',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.type.' },
-    { address: 'Property Detail - Comm!F4',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.yearBuilt.' },
-    { address: 'Property Detail - Comm!F5',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.yearRenovated.' },
-    { address: 'Property Detail - Comm!B9',                     group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.totalSquareFeet (Total NRA summary row).' },
-    { address: 'Property Detail - Comm!B11',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.numberOfBuildings.' },
-    { address: 'Property Detail - Comm!F11',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.ownershipInterest.' },
-    { address: 'Property Detail - Comm!B15',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. resolvedContext.property.buildingClass.' },
-    // Property Detail - MF SS MHP variant (multifamily / self-storage / MHP).
-    // Layout matches the Comm tab at these row positions; schema entries
-    // resolve to these addresses via the asset-class slot translation.
-    { address: 'Property Detail - MF SS MHP!B3',                group: 'property', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Multifamily-asset variant of Property Detail B3.' },
-    { address: 'Property Detail - MF SS MHP!B4',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B4.' },
-    { address: 'Property Detail - MF SS MHP!F3',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F3.' },
-    { address: 'Property Detail - MF SS MHP!F4',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F4.' },
-    { address: 'Property Detail - MF SS MHP!F5',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F5.' },
-    { address: 'Property Detail - MF SS MHP!B9',                group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B9.' },
-    { address: 'Property Detail - MF SS MHP!B11',               group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B11.' },
-    { address: 'Property Detail - MF SS MHP!F11',               group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail F11.' },
-    { address: 'Property Detail - MF SS MHP!B15',               group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Multifamily-asset variant of Property Detail B15.' },
-    // Property Detail - Hotel variant.
-    { address: 'Property Detail - Hotel!B3',                    group: 'property', state: 'FULL_MODERN', notes: 'Appraisal-ingest. Hotel-asset variant of Property Detail B3.' },
-    { address: 'Property Detail - Hotel!B4',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B4.' },
-    { address: 'Property Detail - Hotel!F3',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F3.' },
-    { address: 'Property Detail - Hotel!F4',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F4.' },
-    { address: 'Property Detail - Hotel!F5',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F5.' },
-    { address: 'Property Detail - Hotel!B9',                    group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B9.' },
-    { address: 'Property Detail - Hotel!B11',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B11.' },
-    { address: 'Property Detail - Hotel!F11',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail F11.' },
-    { address: 'Property Detail - Hotel!B15',                   group: 'property', state: 'FULL_MODERN', notes: 'Sprint-0. Hotel-asset variant of Property Detail B15.' },
+    // Property Detail B/F bindings (B3/B4/B9/B11/B15, F3/F4/F5/F11) REMOVED on
+    // all three sheets — they wrote offset junk on office (absent cells) and
+    // overwrote real LABEL cells on MF SS MHP / Hotel. Data now bound via Tier-1a
+    // (P&L named ranges) + Tier-1b (scoped C11/C12). See render-schema.ts.
     // Site Inspection — only C6 is a true input cell; the other Property-
     // identity cells (C4/C5/E4/E5) are template formulas that auto-cascade
     // from P&L Summary named ranges, so they get no schema entry.
@@ -543,33 +511,8 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
       { address: 'Hotel Op History and Pro Forma!P49',            group: 'financial_core', state: 'LEGACY' },
       { address: 'Property & Loan Summary!MSA',                   group: 'property', state: 'FULL_MODERN' },
       { address: 'Property & Loan Summary!Year_Renovated',        group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!B3',                     group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!B4',                     group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!F3',                     group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!F4',                     group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!F5',                     group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!B9',                     group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!B11',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!F11',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Comm!B15',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!B3',                group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!B4',                group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!F3',                group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!F4',                group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!F5',                group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!B9',                group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!B11',               group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!F11',               group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - MF SS MHP!B15',               group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!B3',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!B4',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!F3',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!F4',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!F5',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!B9',                    group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!B11',                   group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!F11',                   group: 'property', state: 'FULL_MODERN' },
-      { address: 'Property Detail - Hotel!B15',                   group: 'property', state: 'FULL_MODERN' },
+      // Property Detail B/F bindings REMOVED (all 3 sheets) — see the [9] section
+      // note above + render-schema.ts. Data now via Tier-1a + Tier-1b.
       { address: 'Site Inspection!C6',                            group: 'property', state: 'FULL_MODERN' },
       { address: 'Operating History and Pro Forma!J9',            group: 'financial_core', state: 'FULL_MODERN' },
       { address: 'Operating History and Pro Forma!J6',            group: 'financial_core', state: 'FULL_MODERN' },
