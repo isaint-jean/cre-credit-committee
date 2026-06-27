@@ -552,6 +552,14 @@ function buildAppraisalAtoms(analysis: Analysis): Record<string, number | string
     yearBuilt:                      apx.yearBuilt ?? null,
     interestAppraised:              apx.interestAppraised ?? null,
     netRentableArea:                apx.netRentableArea ?? null,
+    // Tier-2b property-detail atoms (Property Detail - Comm inputs). Parking is
+    // surface/covered (the doc's deck+garage are BOTH covered → surface 0); land
+    // in acres; zoning code; building class.
+    parkingSurface:                 apx.parking?.surfaceSpaces ?? null,
+    parkingCovered:                 apx.parking?.coveredSpaces ?? null,
+    landAreaAcres:                  apx.landAreaAcres ?? null,
+    zoningCode:                     apx.zoning?.code ?? null,
+    buildingClass:                  apx.buildingClass ?? null,
     // Per-Appraisal escrow recommendation (Conclusions & Escrows D49). CBRE
     // does not break out replacement-reserves as a stabilized pro-forma line
     // ($0 there); the appraiser's capex equivalent is the Nonreimbursable

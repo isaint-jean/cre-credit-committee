@@ -433,6 +433,11 @@ export interface ResolvedUnderwritingContext {
     interestAppraised:              ResolvedCellValue;  // P&L Summary Ownership_Interest (K8); normalized "Leased Fee Interest"→"Fee"
     netRentableArea:                ResolvedCellValue;  // P&L Summary Measure (K5); analyst uses NRA not GBA
     numberOfBuildings:              ResolvedCellValue;  // staged for Tier-1b (Property Detail C11)
+    parkingSurface:                 ResolvedCellValue;  // Tier-2b: Property Detail L3 (0 — covered subject)
+    parkingCovered:                 ResolvedCellValue;  // Tier-2b: Property Detail L4 (deck+garage = 1,670)
+    landAreaAcres:                  ResolvedCellValue;  // Tier-2b: Property Detail L11 (3.48 ac)
+    zoningCode:                     ResolvedCellValue;  // Tier-2b: Property Detail H7 ("CC-3-8")
+    buildingClass:                  ResolvedCellValue;  // Tier-2b: Property Detail C15 ("A"); non-hotel
   };
   // Sprint-2 PCA. Two values surfaced for Third Party Reports Summary
   // (Engineering/PCR section) and Conclusions & Escrows D50.

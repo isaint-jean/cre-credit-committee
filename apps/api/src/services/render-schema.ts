@@ -2840,18 +2840,41 @@ const V24_SHARED_ENTRIES: SchemaEntry[] = [
 // Comm + MF sheets only (no Hotel) — and keeping it V24-only confines them to
 // FIELD_STATE_REGISTRY[24] (no v7-v24 spread). Atoms come from Tier-1a
 // (appraisal.numberOfBuildings / numberOfStories, resolver-passed).
+const apxSel = (field: string) =>
+  ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal[field]);
+
+// GROUP B — NON-HOTEL (Comm + MF SS MHP; both layouts carry the label). Tier-1b
+// C11/C12 (#buildings/#stories) + Tier-2b C15 (Building Class — "Building Class"
+// on both Comm & MF; Hotel's C15 is "Number of Outparcels", so excluded).
 const V24_PROPERTY_DETAIL_SCOPED: SchemaEntry[] = [
-  { slot: 'Property_Detail', range: 'C11', selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.numberOfBuildings), cellState: 'concluded', forceOverwrite: true },
-  { slot: 'Property_Detail', range: 'C12', selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.numberOfStories),  cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'C11', selector: apxSel('numberOfBuildings'), cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'C12', selector: apxSel('numberOfStories'),   cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'C15', selector: apxSel('buildingClass'),     cellState: 'concluded', forceOverwrite: true },
+];
+
+// GROUP A — COMM-ONLY (office/retail/industrial/mixed_use → 'Property Detail -
+// Comm'). Tier-2b parking/land/zoning: these labels exist ONLY on the Comm
+// layout — MF lacks them and HOTEL's L4 is a `Year_Built` FORMULA, so scoping to
+// the Comm sheet protects Hotel's L4 from a B/F-style overwrite. L3/L4/L11 are
+// VAL=0 inputs (forceOverwrite); H7 is a blank input (the "Zoning" value cell,
+// E7-labeled). L5 (total) / L7 (ratio) / K11 (SF) stay template formulas.
+const V24_PROPERTY_DETAIL_COMM_ONLY: SchemaEntry[] = [
+  { slot: 'Property_Detail', range: 'L3',  selector: apxSel('parkingSurface'), cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'L4',  selector: apxSel('parkingCovered'), cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'L11', selector: apxSel('landAreaAcres'),  cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'H7',  selector: apxSel('zoningCode'),     cellState: 'concluded', forceOverwrite: true },
 ];
 
 function v24Definition(assetClass: AssetType): SchemaDefinition {
+  const isComm = SHEET_MAPPING_PROPERTY_DETAIL[assetClass] === 'Property Detail - Comm';
   return {
     underwritingModes: ['single_loan', 'roll_up'],
     visibleTabs: tabsFor(assetClass),
-    entries: assetClass !== 'hotel'
-      ? [...V24_SHARED_ENTRIES, ...V24_PROPERTY_DETAIL_SCOPED]
-      : V24_SHARED_ENTRIES,
+    entries: [
+      ...V24_SHARED_ENTRIES,
+      ...(assetClass !== 'hotel' ? V24_PROPERTY_DETAIL_SCOPED : []),
+      ...(isComm ? V24_PROPERTY_DETAIL_COMM_ONLY : []),
+    ],
     tableLayouts: V6_TABLE_LAYOUTS,
     managedNamespace: V11_MANAGED_NAMESPACE, // unchanged
   };

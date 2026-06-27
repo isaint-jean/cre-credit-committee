@@ -442,6 +442,12 @@ export function resolveUnderwritingContext(
       interestAppraised:              ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.interestAppraised ?? null),
       netRentableArea:                ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.netRentableArea ?? null),
       numberOfBuildings:              ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.numberOfBuildings ?? null),
+      // Tier-2b property-detail atoms (Property Detail - Comm inputs).
+      parkingSurface:                 ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.parkingSurface ?? null),
+      parkingCovered:                 ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.parkingCovered ?? null),
+      landAreaAcres:                  ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.landAreaAcres ?? null),
+      zoningCode:                     ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.zoningCode ?? null),
+      buildingClass:                  ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.buildingClass ?? null),
     },
     pca: {
       replacementReservesPerSfPerYearInflated: ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).pca?.replacementReservesPerSfPerYearInflated ?? null),

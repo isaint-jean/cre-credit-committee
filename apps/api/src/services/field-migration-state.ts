@@ -893,16 +893,28 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   // Comm (office/retail/industrial/mixed_use) AND MF SS MHP (multifamily/self_storage/
   // manufactured_housing) sheets — NOT Hotel. Declare field-states on exactly those
   // two sheets (no Hotel) to match the governance's per-asset-class `observed` set.
-  const propertyDetailSheets = ['Property Detail - Comm', 'Property Detail - MF SS MHP'];
-  const c11c12 = propertyDetailSheets.flatMap((sheet) =>
-    ['C11', 'C12'].map((cell): FieldStateDeclaration => ({
+  // GROUP B — non-hotel (Comm + MF SS MHP): C11/C12 (Tier-1b) + C15 (Tier-2b
+  // Building Class — both layouts carry "Building Class"; Hotel excluded).
+  const nonHotelSheets = ['Property Detail - Comm', 'Property Detail - MF SS MHP'];
+  const scopedNonHotel = nonHotelSheets.flatMap((sheet) =>
+    ['C11', 'C12', 'C15'].map((cell): FieldStateDeclaration => ({
       address: `${sheet}!${cell}`,
       group: 'property' as const,
       state: 'FULL_MODERN' as const,
-      notes: 'New at v24. Tier-1b scoped (non-hotel): C11 #buildings / C12 #stories — resolvedContext.appraisal.{numberOfBuildings,numberOfStories}.',
+      notes: 'New at v24. Scoped (non-hotel): C11 #buildings / C12 #stories (Tier-1b) / C15 building class (Tier-2b).',
     })),
   );
-  return [...carryForward, ...v24Additions, ...c11c12];
+  // GROUP A — Comm-only (parking L3/L4, land L11, zoning H7). These labels exist
+  // only on the Comm layout; the render-schema entry is scoped to the Comm-sheet
+  // classes, so declare field-states on the Comm sheet ONLY (no MF/Hotel) to match
+  // the governance's per-asset-class `observed` set.
+  const commOnly = ['L3', 'L4', 'L11', 'H7'].map((cell): FieldStateDeclaration => ({
+    address: `Property Detail - Comm!${cell}`,
+    group: 'property' as const,
+    state: 'FULL_MODERN' as const,
+    notes: 'New at v24. Tier-2b Comm-only: L3 surface parking / L4 covered parking / L11 land area / H7 zoning — resolvedContext.appraisal.*.',
+  }));
+  return [...carryForward, ...v24Additions, ...scopedNonHotel, ...commOnly];
 })();
 
 // --- Legal cross-version transitions ---------------------------------------
