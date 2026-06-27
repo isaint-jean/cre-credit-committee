@@ -238,16 +238,31 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
   const p42 = text(42);
   const parkingMatch = p42.match(/Above\s*Grade\s*([\d,]+)/);
   const parkingTotal = parkingMatch ? Number(parkingMatch[1].replace(/,/g, '')) : null;
-  const parking = parkingTotal !== null
+  // Tier-2a: deck/garage split — "(1,637 in structure, 33 in subt. garage)".
+  // BOTH are covered (structured deck + subterranean garage); this subject has
+  // NO surface parking, so surface = 0 (honest). deck + garage = covered.
+  const parkingSplitMatch = p42.match(/\(([\d,]+)\s+in\s+structure,\s*([\d,]+)\s+in\s+subt/i);
+  const parkingDeck   = parkingSplitMatch ? Number(parkingSplitMatch[1].replace(/,/g, '')) : null;
+  const parkingGarage = parkingSplitMatch ? Number(parkingSplitMatch[2].replace(/,/g, '')) : null;
+  const parkingCovered = parkingDeck !== null && parkingGarage !== null ? parkingDeck + parkingGarage : null;
+  const parkingTotalFinal = parkingTotal ?? parkingCovered;
+  const parking = (parkingTotalFinal !== null)
     ? {
-        totalSpaces: parkingTotal,
+        totalSpaces: parkingTotalFinal,
         // Full precision (matches the analyst's stored 6.078075…; display
         // rounding to 6.08 is the render's job).
-        ratioPer1000: nraVal !== null && nraVal > 0 ? (parkingTotal / nraVal) * 1000 : null,
-        surfaceSpaces: null,
-        coveredSpaces: null,
+        ratioPer1000: nraVal !== null && nraVal > 0 ? (parkingTotalFinal / nraVal) * 1000 : null,
+        // Covered subject (deck + garage) → surface honestly 0 once the split
+        // is found; otherwise honest-blank.
+        surfaceSpaces: parkingCovered !== null ? 0 : null,
+        coveredSpaces: parkingCovered,
+        deckSpaces: parkingDeck,
+        garageSpaces: parkingGarage,
       }
     : null;
+  // Building class — prose only ("11-story class A office building", p2/p42).
+  const buildingClassMatch = text(2).match(/class\s+([ABC])\s+office/i) ?? p42.match(/class\s+([ABC])\s+office/i);
+  const buildingClass = buildingClassMatch ? buildingClassMatch[1].toUpperCase() : null;
   // NRA-by-use — single-use office building: office = NRA, rest 0. Derived from
   // the extracted NRA + the appraisal's office classification (p2). Honest-blank
   // (null) for non-office subjects, where the real per-use split is needed.
@@ -435,6 +450,7 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
     parking,
     landAreaSf,
     landAreaAcres,
+    buildingClass,
     nraByUse,
     propertyRights,
 

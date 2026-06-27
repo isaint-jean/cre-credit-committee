@@ -395,11 +395,18 @@ export interface AppraisalExtraction {
   readonly parking?: {
     readonly totalSpaces: number | null;
     readonly ratioPer1000: number | null;
-    readonly surfaceSpaces?: number | null;   // not in appraisal → null
-    readonly coveredSpaces?: number | null;   // not in appraisal → null
+    // Tier-2a: the appraisal states the split as a structured deck + a
+    // subterranean garage (both COVERED) — surface = 0 for this subject. The
+    // analyst-key "surface" label was a transcription error (the doc is
+    // authoritative). deck + garage = covered = total.
+    readonly surfaceSpaces?: number | null;   // 0 — none stated
+    readonly coveredSpaces?: number | null;   // deck + garage
+    readonly deckSpaces?: number | null;      // structured deck ("in structure")
+    readonly garageSpaces?: number | null;    // subterranean garage ("in subt. garage")
   } | null;
   readonly landAreaSf?: number | null;
   readonly landAreaAcres?: number | null;
+  readonly buildingClass?: string | null;    // Tier-2a: 'A' (prose: "class A office")
   readonly nraByUse?: {
     readonly office: number | null;
     readonly retail: number | null;
