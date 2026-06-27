@@ -490,9 +490,12 @@ const V7_SHARED_ENTRIES: SchemaEntry[] = [
   { slot: 'Property_Loan_Summary', range: 'ZIP',               selector: ctx((c) => c.property.zip),                 cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'County',            selector: ctx((c) => c.property.county),              cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Property_Type',     selector: ctx((c) => c.property.type),                cellState: 'concluded' },
-  { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => c.property.yearBuilt),           cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.yearBuilt ?? c.property.yearBuilt), cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Occupancy',         selector: ctx((c) => c.property.occupancy),           cellState: 'concluded' },
-  { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => c.property.ownershipInterest),   cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => { const ia = (c as never as { appraisal: Record<string, CellValue> }).appraisal.interestAppraised; const norm = typeof ia === 'string' ? (/leasehold/i.test(ia) ? 'Leasehold' : /fee/i.test(ia) ? 'Fee' : ia) : null; return norm ?? c.property.ownershipInterest; }), cellState: 'concluded' },
+  // Measure (P&L!K5) — Property Detail C3 "Gross Building Area" echoes this named
+  // range. Analyst uses NRA (274,758) here, not GBA (285,085) — bind NRA.
+  { slot: 'Property_Loan_Summary', range: 'Measure',           selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.netRentableArea ?? c.property.totalSquareFeet), cellState: 'concluded' },
 
   // --- Loan block (hybrid authority — single-sourced per cell) ---
   // adjustedInputs-authoritative cells (carried over from v6):
@@ -736,9 +739,10 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
   { slot: 'Property_Loan_Summary', range: 'ZIP',               selector: ctx((c) => c.property.zip),                 cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'County',            selector: ctx((c) => c.property.county),              cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Property_Type',     selector: ctx((c) => c.property.type),                cellState: 'concluded' },
-  { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => c.property.yearBuilt),           cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Year_Built',        selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.yearBuilt ?? c.property.yearBuilt), cellState: 'concluded' },
   { slot: 'Property_Loan_Summary', range: 'Occupancy',         selector: ctx((c) => c.property.occupancy),           cellState: 'concluded' },
-  { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => c.property.ownershipInterest),   cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Ownership_Interest',selector: ctx((c) => { const ia = (c as never as { appraisal: Record<string, CellValue> }).appraisal.interestAppraised; const norm = typeof ia === 'string' ? (/leasehold/i.test(ia) ? 'Leasehold' : /fee/i.test(ia) ? 'Fee' : ia) : null; return norm ?? c.property.ownershipInterest; }), cellState: 'concluded' },
+  { slot: 'Property_Loan_Summary', range: 'Measure',           selector: ctx((c) => (c as never as { appraisal: Record<string, CellValue> }).appraisal.netRentableArea ?? c.property.totalSquareFeet), cellState: 'concluded' },
   // Sprint-0 additions — named ranges that exist in the template but had no
   // V9 entry. propertyMetadata-only sources.
   { slot: 'Property_Loan_Summary', range: 'MSA',               selector: ctx((c) => c.property.msa),                 cellState: 'concluded' },

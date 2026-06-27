@@ -544,6 +544,14 @@ function buildAppraisalAtoms(analysis: Analysis): Record<string, number | string
     stabilizationMonths:            apx.stabilizationMonths ?? null,
     grossBuildingArea:              apx.grossBuildingArea ?? null,
     numberOfStories:                apx.numberOfStories ?? null,
+    // Property-detail atoms (Tier-1) — physical/rights facts the appraisal is
+    // authoritative for (no PCA for Sunroad). Feed the P&L-Summary named-range
+    // inputs (Year_Built / Ownership_Interest / Measure), appraisal-first over
+    // propertyMetadata. (numberOfBuildings is staged for Tier-1b; unbound here.)
+    numberOfBuildings:              apx.numberOfBuildings ?? null,
+    yearBuilt:                      apx.yearBuilt ?? null,
+    interestAppraised:              apx.interestAppraised ?? null,
+    netRentableArea:                apx.netRentableArea ?? null,
     // Per-Appraisal escrow recommendation (Conclusions & Escrows D49). CBRE
     // does not break out replacement-reserves as a stabilized pro-forma line
     // ($0 there); the appraiser's capex equivalent is the Nonreimbursable

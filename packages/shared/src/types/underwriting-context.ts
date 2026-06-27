@@ -429,6 +429,10 @@ export interface ResolvedUnderwritingContext {
     asIsValueDate:                  ResolvedCellValue;  // Third Party Reports Summary E4 (Excel date serial → mm-dd-yy)
     asStabilizedValueDate:          ResolvedCellValue;  // Third Party Reports Summary E7 (Excel date serial → mm-dd-yy)
     insurableValue:                 ResolvedCellValue;  // Third Party Reports Summary E8 ($)
+    yearBuilt:                      ResolvedCellValue;  // P&L Summary Year_Built (J7); appraisal-first over property
+    interestAppraised:              ResolvedCellValue;  // P&L Summary Ownership_Interest (K8); normalized "Leased Fee Interest"→"Fee"
+    netRentableArea:                ResolvedCellValue;  // P&L Summary Measure (K5); analyst uses NRA not GBA
+    numberOfBuildings:              ResolvedCellValue;  // staged for Tier-1b (Property Detail C11)
   };
   // Sprint-2 PCA. Two values surfaced for Third Party Reports Summary
   // (Engineering/PCR section) and Conclusions & Escrows D50.

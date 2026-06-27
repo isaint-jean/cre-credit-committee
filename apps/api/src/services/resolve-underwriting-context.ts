@@ -436,6 +436,12 @@ export function resolveUnderwritingContext(
       asIsValueDate:                  ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.asIsValueDate ?? null),
       asStabilizedValueDate:          ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.asStabilizedValueDate ?? null),
       insurableValue:                 ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.insurableValue ?? null),
+      // Property-detail atoms (Tier-1) — appraisal-authoritative physical/rights
+      // facts feeding the P&L-Summary named ranges. Pure shape passthrough.
+      yearBuilt:                      ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.yearBuilt ?? null),
+      interestAppraised:              ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.interestAppraised ?? null),
+      netRentableArea:                ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.netRentableArea ?? null),
+      numberOfBuildings:              ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).appraisal?.numberOfBuildings ?? null),
     },
     pca: {
       replacementReservesPerSfPerYearInflated: ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).pca?.replacementReservesPerSfPerYearInflated ?? null),
