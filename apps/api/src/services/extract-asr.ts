@@ -125,15 +125,23 @@ export function parseSourcesAndUses(rawText: string): SourcesAndUses | null {
     return Number.isFinite(n) ? Math.round(n * 1_000_000) : null;
   };
 
+  // Footnote-tolerant: ASR S&U lines carry superscripts that unpdf renders as
+  // "(1)" / "1" / "" — `\s*\(?\d*\)?` absorbs all three before the dollar value.
   const su: SourcesAndUses = {
     loanAmount:           dollars(/Loan Amount\s+\$([\d,]+)/i),
-    loanPayoff:           dollars(/Loan Payoff\d*\s+\$([\d,]+)/i),
-    returnOfEquity:       dollars(/Return of Equity\s+\$([\d,]+)/i),
-    unfundedObligations:  dollars(/Unfunded Obligations\d*\s+\$([\d,]+)/i),
+    loanPayoff:           dollars(/Loan Payoff\s*\(?\d*\)?\s+\$([\d,]+)/i),
+    // Final ASR labels it "Equity Return"; prelim "Return of Equity".
+    returnOfEquity:       dollars(/(?:Equity Return|Return of Equity)\s*\(?\d*\)?\s+\$([\d,]+)/i),
+    unfundedObligations:  dollars(/Unfunded Obligations\s*\(?\d*\)?\s+\$([\d,]+)/i),
     capitalExpenditures:  dollars(/Capital Expenditures\s+\$([\d,]+)/i),
     closingCosts:         dollars(/Closing Costs\s+\$([\d,]+)/i),
     purchasePrice:        dollars(/Purchase Price\s+\$([\d,]+)/i),
     totalCostBasis:       millions(/total cost basis of \$([\d.]+)\s*million/i),
+    // Final-ASR DISTINCT use-lines (6 uses; the binding layer compresses to the
+    // template's 5 cells). Kept faithful to the doc.
+    gsaRentReserve:       dollars(/GSA Rent Reserve\s+\$([\d,]+)/i),
+    llObligationsGapRent: dollars(/LL Obligations.{0,6}Gap Rent\s*\(?\d*\)?\s+\$([\d,]+)/i),
+    closingReservesCapex: dollars(/Closing Reserves.{0,6}Capex\s+\$([\d,]+)/i),
   };
 
   const anyPresent = Object.values(su).some((v) => v !== null);

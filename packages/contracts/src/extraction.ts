@@ -696,6 +696,14 @@ export interface SourcesAndUses {
   readonly purchasePrice: number | null;
   /** Total cost basis (land + building + improvements + TIs), if stated. */
   readonly totalCostBasis: number | null;
+  // Final-ASR S&U use-lines, kept DISTINCT (the doc states 6 uses; the template
+  // compresses to 5 in the binding layer). Nullable / additive.
+  /** Uses: GSA rent reserve (final ASR — distinct from unfunded obligations). */
+  readonly gsaRentReserve?: number | null;
+  /** Uses: landlord obligations & gap rent (final ASR label for the unfunded reserve). */
+  readonly llObligationsGapRent?: number | null;
+  /** Uses: closing reserves and capex (final ASR label). */
+  readonly closingReservesCapex?: number | null;
 }
 
 /* -------------------------------- loan terms -------------------------------- */

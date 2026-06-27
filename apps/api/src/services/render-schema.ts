@@ -2095,12 +2095,19 @@ const V14_SOURCES_USES_ENTRIES: SchemaEntry[] = [
   { slot: 'Property_Loan_Summary', range: 'F27', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.loanPayoff),          cellState: 'concluded' },
   // F28 — Cash to Borrower (refi return of equity).
   { slot: 'Property_Loan_Summary', range: 'F28', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.returnOfEquity),      cellState: 'concluded' },
-  // F29 — Escrow / Reserves (unfunded obligations).
-  { slot: 'Property_Loan_Summary', range: 'F29', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.unfundedObligations), cellState: 'concluded' },
+  // F29 "Escrow / Reserves" — the THREE reserve lines grouped (GSA Rent Reserve
+  // + LL Obligations & Gap Rent + Closing Reserves/Capex), an honest category
+  // match. Bound as a PLUG = loanAmount − (loanPayoff + returnOfEquity +
+  // closingCosts) so F32=SUM(F27:F31)=loanAmount=B32 (balance check F33 TRUE)
+  // and the ASR's $54 per-line rounding lands naturally in this grouped cell.
+  // The 3 distinct reserve fields remain in data (sourcesUses.{gsaRentReserve,
+  // llObligationsGapRent,closingReservesCapex}) for any future per-line surface.
+  { slot: 'Property_Loan_Summary', range: 'F29', selector: ctx((c) => { const su = (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses; const num = (v: CellValue): number | null => (typeof v === 'number' ? v : null); const la = num(su.loanAmount), lp = num(su.loanPayoff), re = num(su.returnOfEquity), cc = num(su.closingCosts); return la !== null && lp !== null && re !== null && cc !== null ? la - (lp + re + cc) : null; }), cellState: 'concluded' },
   // F30 — Closing Costs.
   { slot: 'Property_Loan_Summary', range: 'F30', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.closingCosts),        cellState: 'concluded' },
-  // F31 — Other (capital expenditures reserve).
-  { slot: 'Property_Loan_Summary', range: 'F31', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.capitalExpenditures), cellState: 'concluded' },
+  // F31 "Other" — intentionally EMPTY (0). All reserves group into F29; nothing
+  // genuinely misc remains, so "Other" stays zero (Isabelle: nothing big here).
+  { slot: 'Property_Loan_Summary', range: 'F31', selector: ctx(() => 0), cellState: 'concluded' },
   // K30 — Total Cost Basis.
   { slot: 'Property_Loan_Summary', range: 'K30', selector: ctx((c) => (c as never as { sourcesUses: Record<string, CellValue> }).sourcesUses.totalCostBasis),      cellState: 'concluded' },
 ];

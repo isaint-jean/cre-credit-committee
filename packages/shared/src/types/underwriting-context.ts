@@ -513,6 +513,9 @@ export interface ResolvedUnderwritingContext {
     closingCosts:         ResolvedCellValue;  // F30 (Closing Costs)
     purchasePrice:        ResolvedCellValue;  // K29 — null for refinance
     totalCostBasis:       ResolvedCellValue;  // K30 (Total Cost Basis)
+    gsaRentReserve:       ResolvedCellValue;  // S&U Phase 2: F29 (final ASR — GSA rent reserve, distinct)
+    llObligationsGapRent: ResolvedCellValue;  // S&U Phase 2: feeds the F31 plug
+    closingReservesCapex: ResolvedCellValue;  // S&U Phase 2: feeds the F31 plug
   };
   // ASR "Underwritten Cash Flows" per-column ladders (P4). Additive — feed
   // Operating History historicals (B/D/F) + H/L income detail in P5. The

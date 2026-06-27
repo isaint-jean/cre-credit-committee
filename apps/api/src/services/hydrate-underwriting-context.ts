@@ -438,6 +438,11 @@ function buildSourcesUsesAtoms(analysis: Analysis): Record<string, number | null
     closingCosts:         su?.closingCosts ?? null,
     purchasePrice:        su?.purchasePrice ?? null,
     totalCostBasis:       su?.totalCostBasis ?? null,
+    // Final-ASR distinct use-lines (S&U Phase 2). F29 ← gsaRentReserve; F31 is a
+    // PLUG computed in the binding selector (absorbs the ASR's $54 line-rounding).
+    gsaRentReserve:       su?.gsaRentReserve ?? null,
+    llObligationsGapRent: su?.llObligationsGapRent ?? null,
+    closingReservesCapex: su?.closingReservesCapex ?? null,
   };
 }
 

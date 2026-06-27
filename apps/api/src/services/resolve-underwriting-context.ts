@@ -507,6 +507,10 @@ export function resolveUnderwritingContext(
       closingCosts:         ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.closingCosts         ?? null),
       purchasePrice:        ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.purchasePrice        ?? null),
       totalCostBasis:       ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.totalCostBasis       ?? null),
+      // Final-ASR distinct use-lines (S&U Phase 2). Pure shape passthrough.
+      gsaRentReserve:       ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.gsaRentReserve       ?? null),
+      llObligationsGapRent: ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.llObligationsGapRent ?? null),
+      closingReservesCapex: ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).sourcesUses?.closingReservesCapex ?? null),
     },
     // ASR cash-flow column ladders (P4) — additive passthrough; existing
     // t12/issuerUw blocks untouched.
