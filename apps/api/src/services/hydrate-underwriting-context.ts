@@ -373,6 +373,9 @@ export function hydrateUnderwritingContext(
     // Sprint-2 PCA atoms — two values surfaced for Third Party Reports
     // Summary E24/E25 and Conclusions & Escrows D50 escrow row.
     pca: buildPcaAtoms(s.analysis),
+    // Phase A — Environmental atoms for Third Party Reports Summary E33-E37 +
+    // the G provenance note. All-null when analysis.environmentalSummary absent.
+    environmental: buildEnvironmentalAtoms(s.analysis),
     // Sprint-1 Column L issuer-UW atoms — seller GS U/W column for
     // Operating ProForma L9–L40.
     issuerUw: buildIssuerUwAtoms(s.analysis),
@@ -708,6 +711,47 @@ function buildPcaAtoms(analysis: Analysis): Record<string, number | string | nul
   return {
     replacementReservesPerSfPerYearInflated: pca.replacementReservesPerSfPerYearInflated ?? null,
     immediateRepairs:                        pca.immediateRepairs ?? null,
+  };
+}
+
+/**
+ * Phase A — Environmental atoms for the Third Party Reports Summary section
+ * (E33-E37 + the G provenance note). Sourced from the ASR's environmental
+ * SUMMARY (a secondary read of the primary Phase I report), so the provenance
+ * note labels it as such. The Status line folds firm + Phase-I date + finding;
+ * `findingsAcceptable: true` (a clean Phase I) drives "Acceptable"/"None".
+ * remediation/reserve $0 are MEANINGFUL clean zeros (a real "no reserve"
+ * finding), NOT honest-blank — passed through as 0.
+ */
+function buildEnvironmentalAtoms(analysis: Analysis): Record<string, number | string | null> {
+  const env = analysis.environmentalSummary;
+  if (!env) {
+    return {
+      statusLine: null, phaseIIRequired: null, existingRec: null,
+      remediation: null, reserve: null, provenanceNote: null,
+    };
+  }
+  const firm = env.firm ?? 'Environmental';
+  const date = env.phaseIReportDate ?? '';
+  const finding =
+    env.findingsAcceptable === true ? 'Acceptable'
+      : env.findingsAcceptable === false ? 'See discussion'
+        : '';
+  const statusLine = [`${firm} Phase I${date ? ` (${date})` : ''}`, finding]
+    .filter((p) => p.length > 0)
+    .join(', ');
+  return {
+    statusLine: statusLine.length > 0 ? statusLine : null,
+    phaseIIRequired:
+      env.phaseIIRecommended === true ? 'Yes'
+        : env.phaseIIRecommended === false ? 'No'
+          : null,
+    existingRec: env.findingsAcceptable === true ? 'None' : null,
+    remediation: env.remediationEstimate ?? null,
+    reserve: env.reserveAmount ?? null,
+    provenanceNote: date
+      ? `Source: ASR summary of ${firm} Phase I (${date}); primary report not independently reviewed.`
+      : null,
   };
 }
 

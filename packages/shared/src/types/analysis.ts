@@ -341,6 +341,11 @@ export interface Analysis {
   // Escrows D50) via the c.pca.* atom block. Mirrors appraisalExtraction
   // semantics: pure read-side reference; doctrine stays frozen.
   pcaExtraction?: import('@cre/contracts').PCAExtraction | null;
+  // Phase A (Third Party Reports — Environmental) — the ASR's environmental
+  // summary surfaced off the graph ExtractionResult.asr so the c.environmental.*
+  // atoms can bind the Environmental section (E33-E37 + G provenance note).
+  // Mirrors pcaExtraction semantics: pure read-side reference; doctrine frozen.
+  environmentalSummary?: import('@cre/contracts').EnvironmentalSummary | null;
   // Sprint-1 (Column L issuer-UW ticket) — the seller's GS U/W operating-
   // statement column lifted off the graph-spine ExtractionResult so the
   // render path can wire L9–L40 without crossing the legacy/graph boundary.

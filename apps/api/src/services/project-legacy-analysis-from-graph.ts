@@ -276,10 +276,14 @@ export function projectLegacyAnalysisFromGraph(
   // T12 historical overlay — analysis.t12Extraction PRIMARY (stamped on the
   // analyses row), fallback er.t12Actual. Mirrors the issuer-UW seam.
   let projectedT12Extraction = analysis.t12Extraction;
+  // Phase A — Environmental summary from er.asr.environmentalSummary (mirrors
+  // the pcaExtraction / sourcesAndUses read-side projections).
+  let projectedEnvironmentalSummary = analysis.environmentalSummary;
   if (
     (projectedPcaExtraction === null || projectedPcaExtraction === undefined ||
      projectedIssuerUwExtraction === null || projectedIssuerUwExtraction === undefined ||
-     projectedT12Extraction === null || projectedT12Extraction === undefined) &&
+     projectedT12Extraction === null || projectedT12Extraction === undefined ||
+     projectedEnvironmentalSummary === null || projectedEnvironmentalSummary === undefined) &&
     doctrine !== null
   ) {
     const er = store.getExtractionResult(doctrine.extractionResultId);
@@ -291,6 +295,9 @@ export function projectLegacyAnalysisFromGraph(
     }
     if (er?.t12Actual && (projectedT12Extraction === null || projectedT12Extraction === undefined)) {
       projectedT12Extraction = er.t12Actual;
+    }
+    if (er?.asr?.environmentalSummary && (projectedEnvironmentalSummary === null || projectedEnvironmentalSummary === undefined)) {
+      projectedEnvironmentalSummary = er.asr.environmentalSummary;
     }
   }
 
@@ -310,6 +317,7 @@ export function projectLegacyAnalysisFromGraph(
     pcaExtraction: projectedPcaExtraction,
     issuerUwExtraction: projectedIssuerUwExtraction,
     t12Extraction: projectedT12Extraction,
+    environmentalSummary: projectedEnvironmentalSummary,
     t12Notes: analysis.t12Notes ?? null,
     appraisalExtraction: projectedAppraisalExtraction,
     partiesExtraction: projectedPartiesExtraction,

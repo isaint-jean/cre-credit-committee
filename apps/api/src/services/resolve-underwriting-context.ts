@@ -453,6 +453,15 @@ export function resolveUnderwritingContext(
       replacementReservesPerSfPerYearInflated: ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).pca?.replacementReservesPerSfPerYearInflated ?? null),
       immediateRepairs:                        ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).pca?.immediateRepairs ?? null),
     },
+    // Phase A — Environmental section (Third Party Reports Summary E33-E37 + G).
+    environmental: {
+      statusLine:      ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).environmental?.statusLine ?? null),
+      phaseIIRequired: ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).environmental?.phaseIIRequired ?? null),
+      existingRec:     ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).environmental?.existingRec ?? null),
+      remediation:     ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).environmental?.remediation ?? null),
+      reserve:         ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).environmental?.reserve ?? null),
+      provenanceNote:  ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).environmental?.provenanceNote ?? null),
+    },
     issuerUw: {
       pgr:                            ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).issuerUw?.pgr ?? null),
       economicOccupancy:              ALLOWED_OPS.passthrough<ResolvedCellValue>((ctx as any).issuerUw?.economicOccupancy ?? null),

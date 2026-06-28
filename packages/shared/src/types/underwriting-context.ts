@@ -250,6 +250,10 @@ export interface UnderwritingContext {
    *  `analysis.extractionResult.pca` when present; absent otherwise. Schema
    *  selectors read this via `ResolvedUnderwritingContext.pca`. */
   pca?: Readonly<Record<string, number | string | null>>;
+  /** Environmental atoms (Phase A). Populated from
+   *  `analysis.environmentalSummary` (the ASR's summary of the Phase I).
+   *  Schema selectors read via `ResolvedUnderwritingContext.environmental`. */
+  environmental?: Readonly<Record<string, number | string | null>>;
   /** Issuer-UW (GS U/W column) atoms (Sprint-1). Populated from
    *  `analysis.issuerUwExtraction` when present; absent otherwise. Schema
    *  selectors read this via `ResolvedUnderwritingContext.issuerUw`. */
@@ -444,6 +448,15 @@ export interface ResolvedUnderwritingContext {
   readonly pca: {
     replacementReservesPerSfPerYearInflated: ResolvedCellValue;  // Third Party Reports Summary E24 ($/SF/yr)
     immediateRepairs:                        ResolvedCellValue;  // Third Party Reports Summary E25 + Conclusions & Escrows D50
+  };
+  // Phase A — Environmental section (Third Party Reports Summary, ASR-summary basis).
+  readonly environmental: {
+    statusLine:      ResolvedCellValue;  // E33 — firm + Phase-I date + finding
+    phaseIIRequired: ResolvedCellValue;  // E34 — "No"/"Yes"
+    existingRec:     ResolvedCellValue;  // E35 — "None" when findings acceptable
+    remediation:     ResolvedCellValue;  // E36 — meaningful $0 (clean)
+    reserve:         ResolvedCellValue;  // E37 — meaningful $0 (clean)
+    provenanceNote:  ResolvedCellValue;  // G  — "Source: ASR summary of … Phase I"
   };
   // Sprint-1 Issuer-UW (GS U/W column from seller cash-flow extraction).
   // Wires Operating ProForma column L for the issuer-underwriting view —

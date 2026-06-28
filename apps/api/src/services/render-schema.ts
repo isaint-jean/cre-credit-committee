@@ -1327,6 +1327,39 @@ const V9_SHARED_ENTRIES: SchemaEntry[] = [
     selector: ctx((c) => (c as never as { pca: Record<string, CellValue> }).pca.immediateRepairs),
     cellState: 'concluded',
   },
+  // Phase A — Environmental section (rows 33-37 + G provenance). Sourced from
+  // the ASR's summary of the Partner Phase I; remediation/reserve $0 are
+  // MEANINGFUL clean zeros (a Phase I with no REC, no remediation, no reserve).
+  {
+    slot: 'Third_Party_Reports', range: 'E33',
+    selector: ctx((c) => (c as never as { environmental: Record<string, CellValue> }).environmental.statusLine),
+    cellState: 'concluded', forceOverwrite: true,
+  },
+  {
+    slot: 'Third_Party_Reports', range: 'E34',
+    selector: ctx((c) => (c as never as { environmental: Record<string, CellValue> }).environmental.phaseIIRequired),
+    cellState: 'concluded', forceOverwrite: true,
+  },
+  {
+    slot: 'Third_Party_Reports', range: 'E35',
+    selector: ctx((c) => (c as never as { environmental: Record<string, CellValue> }).environmental.existingRec),
+    cellState: 'concluded', forceOverwrite: true,
+  },
+  {
+    slot: 'Third_Party_Reports', range: 'E36',
+    selector: ctx((c) => (c as never as { environmental: Record<string, CellValue> }).environmental.remediation),
+    cellState: 'concluded', forceOverwrite: true,
+  },
+  {
+    slot: 'Third_Party_Reports', range: 'E37',
+    selector: ctx((c) => (c as never as { environmental: Record<string, CellValue> }).environmental.reserve),
+    cellState: 'concluded', forceOverwrite: true,
+  },
+  {
+    slot: 'Third_Party_Reports', range: 'G33',
+    selector: ctx((c) => (c as never as { environmental: Record<string, CellValue> }).environmental.provenanceNote),
+    cellState: 'concluded', forceOverwrite: true,
+  },
   {
     slot: 'Conclusion_Escrows',
     range: 'D50',
