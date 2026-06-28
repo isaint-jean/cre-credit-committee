@@ -636,6 +636,98 @@ export interface AsrCashFlows {
 }
 
 /**
+ * One account line from a borrower's GL-style operating statement (account code
+ * + label + period total). RAW MIRROR — the dollar `total` is the value as
+ * reported in the statement's Total column, never normalized. Section-header
+ * rows (e.g. "410000 REVENUE") that carry no figures are not emitted.
+ */
+export interface BorrowerOperatingStatementLine {
+  /** 6-digit GL account code as printed (e.g. "420625"). */
+  readonly accountCode: string;
+  /** Account label as printed (e.g. "Lease Termination"). */
+  readonly label: string;
+  /** The Total-column figure (period total). Negatives preserved. */
+  readonly total: number;
+}
+
+/**
+ * Raw extraction of a borrower-supplied GL operating statement (e.g. Centrum's
+ * 12-month statement, Mar 2023–Feb 2024). PURE MIRROR — the full account ladder
+ * (including below-NOI / non-operating lines, which a downstream normalization
+ * layer needs for reclassification) plus the statement's own subtotal lines.
+ * NO normalization here: `netOperatingIncome` is the statement's reported NOI
+ * line, INCLUDING any one-time items (e.g. a lease-termination fee). The
+ * raw→normalized adjustment is a separate judgment layer, not extraction.
+ */
+export interface BorrowerOperatingStatementExtraction {
+  /** Statement period as printed (e.g. "Mar 2023-Feb 2024"); null if absent. */
+  readonly period: string | null;
+  /** Reporting entity as printed (e.g. "Centrum Office One Partners LP"); null if absent. */
+  readonly entity: string | null;
+  /** Every account line carrying a Total figure, in document order. */
+  readonly lines: ReadonlyArray<BorrowerOperatingStatementLine>;
+  /** TOTAL REVENUE subtotal (acct 499999). */
+  readonly totalRevenue: number | null;
+  /** TOTAL OPERATING EXPENSES subtotal (acct 665899). */
+  readonly totalOperatingExpenses: number | null;
+  /** TOTAL NET OPERATING INCOME (acct 665999) — RAW, as reported. */
+  readonly netOperatingIncome: number | null;
+}
+
+/**
+ * The four normalization-adjustment TYPES — the underwriting taxonomy for moving
+ * a borrower's reported NOI to a recurring, comparable basis. (Validated against
+ * Centrum's T-12; reusable across deals.)
+ *   · non_recurring_income_strip      — a one-time income line removed (e.g. a
+ *                                       lease-termination fee). NOI − amount.
+ *   · below_noi_opex_reclass          — an operating-type expense the GL booked
+ *                                       below NOI, moved up into opex. NOI − amount.
+ *   · non_operating_income_exclusion  — non-operating income (e.g. interest)
+ *                                       removed from operating revenue. NOI − amount.
+ *   · net_zero_bucket_move            — a line re-categorised within opex (e.g.
+ *                                       taxes→G&A); documented, NOI effect 0.
+ */
+export type NormalizationAdjustmentType =
+  | 'non_recurring_income_strip'
+  | 'below_noi_opex_reclass'
+  | 'non_operating_income_exclusion'
+  | 'net_zero_bucket_move';
+
+/**
+ * One typed adjustment from the borrower's reported NOI toward recurring NOI.
+ * JUDGMENT — not extraction. Each carries its own provenance (the source account
+ * line) and a signed `noiEffect` so the ledger reconciles arithmetically.
+ */
+export interface NormalizationAdjustment {
+  readonly type: NormalizationAdjustmentType;
+  /** Source GL account this adjustment keys on (ties back to the raw ladder). */
+  readonly accountCode: string;
+  /** Source line label (provenance). */
+  readonly label: string;
+  /** The line's own dollar amount, as printed (positive). */
+  readonly amount: number;
+  /** Signed effect on NOI: strips/reclasses/exclusions = −amount; bucket-move = 0. */
+  readonly noiEffect: number;
+  /** Why this line is adjusted (the underwriting rationale). */
+  readonly rationale: string;
+}
+
+/**
+ * A borrower operating statement's RAW NOI carried to NORMALIZED recurring NOI
+ * via a typed adjustment list. RAW stays a pure mirror (the
+ * `BorrowerOperatingStatementExtraction`); this is a SEPARATE layer on top:
+ * `normalizedNoi = rawNoi + Σ adjustments.noiEffect`. `reconciles` is true only
+ * when every adjustment ties to an actual raw line and its noiEffect matches its
+ * type — the integrity gate that the judgment list is grounded in the source.
+ */
+export interface NormalizedOperatingStatement {
+  readonly rawNoi: number | null;
+  readonly adjustments: ReadonlyArray<NormalizationAdjustment>;
+  readonly normalizedNoi: number | null;
+  readonly reconciles: boolean;
+}
+
+/**
  * Environmental summary lifted from the ASR's "Third Party Reports –
  * Environmental" table. Every field nullable; honest-blank — a label genuinely
  * absent is `null`, never fabricated. A stated "$0" (remediation/reserve) is a
