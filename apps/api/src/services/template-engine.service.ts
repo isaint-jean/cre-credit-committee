@@ -2149,21 +2149,86 @@ function clearAbsentOperatingHistoryZeros(
   }
 }
 
-// ── CMBS Comps CoStar-card scaffolding cleanup (v25) ──
-// The 'CMBS Comps' tab ships as a manual-entry CoStar comp-CARD template: 6 card
-// slots (2 per band × 3 bands, rows ~13–56) of placeholder LABEL text ("Comp 1"
-// … "Comp 6", "MAP", "Comp Map") with no producer. v25 rebuilds the comp area as
-// a clean TABLE (one row per comp, r13–r18) via the cmbsComps layout. Before the
-// table writes, retire the orphaned placeholder text so no card artifacts remain
-// beside / below the new grid. Guards: (1) only the 'CMBS Comps' sheet; (2) never
-// touch a formula cell; (3) never touch row 6 (the header) or row 12 (the subject
-// formulas); (4) only null cells whose STRING value matches a known placeholder
-// pattern (Comp <n> / MAP / Comp Map) — leave every other value untouched. Range
-// rows 13–56 covers all three card bands.
+// ── House-style "Comments:" box helpers (v25 · FIX-4) ──
+// Replicates the template's own bordered-comment-box pattern (reference: the
+// Conclusions & Escrows sheet's "Comments:" box at A21). Thin black borders,
+// drawn as ONE clean rectangle: the header row carries top+bottom across the full
+// width with left on the first column + right on the last; the body rows carry
+// left on the first column + right on the last (sides run down); the last body
+// row carries a bottom to close the box. This is purely cosmetic (borders /
+// merges / alignment / heights) — no value or schema touch. argb FF000000 (black)
+// is the rendered equivalent of the template's indexed-64 "automatic" border.
+const THIN: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: 'FF000000' } };
+
+/**
+ * Draw a thin-bordered rectangle from (firstRow,firstCol) to (lastRow,lastCol)
+ * on `ws`. The header (firstRow) gets top+bottom across the width; the body rows
+ * carry left on the first column + right on the last (sides run down); the final
+ * row carries a bottom to close the box. Writes no value and does not merge — the
+ * caller owns content, merges, alignment and heights — but it MUST be invoked
+ * AFTER the rows are merged.
+ *
+ * Implementation notes (ExcelJS 4.4.0 quirks, learned the hard way):
+ *   • Assign borders via `cell.style = { ...cell.style, border }`, NOT
+ *     `cell.border = …`. The `.border` setter shares a single mutable border
+ *     object across cells that dedupe to the same style entry, so a later
+ *     edge-write (e.g. the closing bottom) silently mutates earlier rows back to
+ *     blank. `.style` clones, sidestepping the aliasing bug.
+ *   • Apply a border to EVERY physical cell in [firstCol..lastCol] (and the two
+ *     bounding rows), not just the merged master. This (a) lands the right edge
+ *     on the lastCol cell, (b) overwrites the template's CoStar card-box borders
+ *     that ran through these cells, and (c) blanks the rows directly above/below
+ *     so the result reads as ONE clean rectangle, not a stack of loose lines.
+ *     Interior / bounding cells get an empty border (card lines wiped).
+ */
+function drawCommentsBoxBorders(
+  ws: ExcelJS.Worksheet,
+  firstRow: number,
+  lastRow: number,
+  firstCol: number,
+  lastCol: number,
+): void {
+  const t = () => ({ ...THIN });
+  // Sweep the box rows plus one bounding row above and below, so stray card
+  // borders on the neighbours are cleared too.
+  const sweepFirst = Math.max(1, firstRow - 1);
+  const sweepLast = lastRow + 1;
+  for (let row = sweepFirst; row <= sweepLast; row++) {
+    const inBox = row >= firstRow && row <= lastRow;
+    for (let col = firstCol; col <= lastCol; col++) {
+      const cell = ws.getCell(row, col);
+      if (cell.formula) continue; // never restyle a formula cell
+      const border: Partial<ExcelJS.Borders> = {};
+      if (inBox) {
+        if (row === firstRow) {
+          border.top = t();
+          border.bottom = t(); // header carries top+bottom across the full width
+        }
+        if (row === lastRow) border.bottom = t(); // close the box at the last row
+        if (col === firstCol) border.left = t();
+        if (col === lastCol) border.right = t();
+      }
+      // `.style` (not `.border`) to avoid ExcelJS's shared-border aliasing bug.
+      cell.style = { ...cell.style, border };
+    }
+  }
+}
+
+// ── CMBS / Sales / Lease Comps CoStar-card scaffolding cleanup (v25) ──
+// The comp tabs ship as a manual-entry CoStar comp-CARD template: card slots
+// (rows ~13–56) of placeholder LABEL text ("Comp 1" … "Comp 4", "MAP",
+// "Comp Map") with no producer. CMBS rebuilds the comp area as a clean TABLE
+// (r7–r10) via the cmbsComps layout; Sales/Lease stay a framed intentional-blank.
+// Either way, retire the orphaned placeholder text so no card artifacts remain.
+// Guards: (1) named sheet only; (2) never touch a formula cell; (3) never touch
+// row 6 (the header) or row 12 (the subject); (4) only null cells whose STRING
+// value matches a known placeholder pattern (Comp <n> / MAP / Comp Map) — leave
+// every other value untouched. Range rows 13–56 covers all card bands.
 const CMBS_COMPS_TAB = 'CMBS Comps';
+const COMP_CARD_TABS = ['CMBS Comps', 'Sales Comps', 'Lease Comps'] as const;
 const CMBS_CARD_PLACEHOLDER = /^\s*(comp\s*map|comp\s*\d+|map)\s*$/i;
-function clearCmbsCompCardScaffolding(workbook: ExcelJS.Workbook): void {
-  const ws = workbook.getWorksheet(CMBS_COMPS_TAB);
+function clearCompCardScaffolding(workbook: ExcelJS.Workbook, sheetName: string): void {
+  const ws = workbook.getWorksheet(sheetName);
   if (!ws) return; // tab absent → no-op
   for (let row = 13; row <= 56; row++) {
     if (row === 6 || row === 12) continue; // header + subject preserved (defensive)
@@ -2177,24 +2242,59 @@ function clearCmbsCompCardScaffolding(workbook: ExcelJS.Workbook): void {
     });
   }
 }
+function clearCmbsCompCardScaffolding(workbook: ExcelJS.Workbook): void {
+  for (const sheetName of COMP_CARD_TABS) clearCompCardScaffolding(workbook, sheetName);
+}
 
-// ── Sales / Lease Comps intentional-blank note (v25) ──
+// ── Sales / Lease Comps intentional-blank box (v25 · FIX-4) ──
 // SEC EX-102 carries LOAN comps only — sale/lease comps require an appraisal or
-// broker source not present in the filings. Surface that as a single labeled note
-// on each of the Sales Comps + Lease Comps tabs so the empty tabs read as a
-// deliberate scoped-blank, not an oversight. Picks a safe empty cell well below
-// the header band (A60); never overwrites a formula or a non-empty cell, and
-// never touches either sheet's header rows.
+// broker source not present in the filings. Surface that as a small house-style
+// framed box (header + one body line) in the cleared card zone (B14:Q14 header,
+// B15:Q15 body) so each empty tab reads as a deliberate scoped-blank, not
+// abandoned scaffolding. Same thin-border pattern as the CMBS commentary box.
+// Runs AFTER the card clear-pass. Guards: named sheet only; never overwrite a
+// formula; never touch the r6 header / r7–r12 subject region.
+const COMPS_BLANK_BOX_LABEL = 'SEC Comps';
 const COMPS_BLANK_NOTE =
   'SEC EX-102 carries loan comps only — sale/lease comps require an appraisal/broker source.';
+const COMPS_BOX_FIRST_COL = 2;  // B
+const COMPS_BOX_LAST_COL = 17;  // Q
+const COMPS_BLANK_BOX_HEADER_ROW = 14;
+const COMPS_BLANK_BOX_BODY_ROW = 15;
 function writeSalesLeaseCompsNote(workbook: ExcelJS.Workbook): void {
   for (const sheetName of ['Sales Comps', 'Lease Comps']) {
     const ws = workbook.getWorksheet(sheetName);
     if (!ws) continue;
-    const cell = ws.getCell('A60');
-    if (cell.formula) continue;            // never overwrite a formula
-    if (cell.value !== null && cell.value !== undefined && cell.value !== '') continue; // only an empty cell
-    cell.value = COMPS_BLANK_NOTE;
+
+    // Header B14:Q14 — bold label.
+    const headerCell = ws.getCell(COMPS_BLANK_BOX_HEADER_ROW, COMPS_BOX_FIRST_COL);
+    if (!headerCell.formula) {
+      ws.mergeCells(COMPS_BLANK_BOX_HEADER_ROW, COMPS_BOX_FIRST_COL, COMPS_BLANK_BOX_HEADER_ROW, COMPS_BOX_LAST_COL);
+      headerCell.value = COMPS_BLANK_BOX_LABEL;
+      headerCell.font = { ...(headerCell.font ?? {}), bold: true };
+      headerCell.alignment = { ...(headerCell.alignment ?? {}), wrapText: true, vertical: 'top', horizontal: 'left' };
+    }
+    ws.getRow(COMPS_BLANK_BOX_HEADER_ROW).height = 18;
+
+    // Body B15:Q15 — the note text, wrapped (not bold).
+    const bodyCell = ws.getCell(COMPS_BLANK_BOX_BODY_ROW, COMPS_BOX_FIRST_COL);
+    if (!bodyCell.formula) {
+      ws.mergeCells(COMPS_BLANK_BOX_BODY_ROW, COMPS_BOX_FIRST_COL, COMPS_BLANK_BOX_BODY_ROW, COMPS_BOX_LAST_COL);
+      bodyCell.value = COMPS_BLANK_NOTE;
+      bodyCell.font = { ...(bodyCell.font ?? {}), bold: false };
+      bodyCell.alignment = { ...(bodyCell.alignment ?? {}), wrapText: true, vertical: 'top', horizontal: 'left' };
+    }
+    ws.getRow(COMPS_BLANK_BOX_BODY_ROW).height = 30;
+
+    // Frame the 2-row box (header top+bottom; sides down; bottom closes at body).
+    // drawCommentsBoxBorders also wipes the template card borders + neighbour rows.
+    drawCommentsBoxBorders(
+      ws,
+      COMPS_BLANK_BOX_HEADER_ROW,
+      COMPS_BLANK_BOX_BODY_ROW,
+      COMPS_BOX_FIRST_COL,
+      COMPS_BOX_LAST_COL,
+    );
   }
 }
 
@@ -2207,25 +2307,66 @@ function writeSalesLeaseCompsNote(workbook: ExcelJS.Workbook): void {
 // overwrite a formula cell; (3) clamp to B14–B22 (8 lines max) so it can't spill
 // into the card zone the clear-pass retired. Wrap is enabled so a long line is
 // readable instead of overflowing.
-const CMBS_COMMENTARY_LABEL_CELL = 'B14';
-const CMBS_COMMENTARY_FIRST_ROW = 15; // B15..B22 (8 lines)
+const CMBS_COMMENTARY_HEADER_ROW = 14;     // B14:Q14 bold label
+const CMBS_COMMENTARY_FIRST_ROW = 15;      // B15:Q15 .. B22:Q22 (8 body lines)
 const CMBS_COMMENTARY_MAX_LINES = 8;
+const CMBS_COMMENTARY_LABEL = 'SEC Comp-Set Analysis';
+// Approx character capacity of the merged B–Q body row at the template's column
+// widths, used only to estimate wrapped-line count → row height. ~140 chars fit
+// on a line at this width; we round up and clamp so a long line never clips.
+const CMBS_COMMENTARY_CHARS_PER_LINE = 140;
+const CMBS_COMMENTARY_PT_PER_LINE = 15;    // ~one wrapped text line
+const CMBS_COMMENTARY_MIN_BODY_HEIGHT = 18;
+const CMBS_COMMENTARY_MAX_BODY_HEIGHT = 60;
+
+/**
+ * Render the SEC comp-set commentary as ONE house-style "Comments:" box spanning
+ * the comp-table width B–Q (cols 2–17): a bold header row (B14:Q14) + up to 8
+ * wrapped body rows (B15:Q15 … B22:Q22), each merged across the box width, with
+ * a single thin-border frame (top/bottom/left/right) and per-row heights sized so
+ * the wrapped lines don't clip. Text content + line composition are UNCHANGED —
+ * formatting only. Guards: only the CMBS Comps sheet; never overwrite a formula.
+ */
 function writeCmbsCommentary(workbook: ExcelJS.Workbook, commentary: string[] | undefined): void {
   if (!commentary || commentary.length === 0) return;
   const ws = workbook.getWorksheet(CMBS_COMPS_TAB);
   if (!ws) return; // tab absent → no-op
-  const label = ws.getCell(CMBS_COMMENTARY_LABEL_CELL);
-  if (!label.formula) {
-    label.value = 'SEC Comp-Set Analysis';
-    label.font = { ...(label.font ?? {}), bold: true };
-  }
+
   const lines = commentary.slice(0, CMBS_COMMENTARY_MAX_LINES);
+  const lastRow = CMBS_COMMENTARY_FIRST_ROW + lines.length - 1;
+
+  // Header B14:Q14 — bold label, merged across the box width.
+  const header = ws.getCell(CMBS_COMMENTARY_HEADER_ROW, COMPS_BOX_FIRST_COL);
+  if (!header.formula) {
+    ws.mergeCells(CMBS_COMMENTARY_HEADER_ROW, COMPS_BOX_FIRST_COL, CMBS_COMMENTARY_HEADER_ROW, COMPS_BOX_LAST_COL);
+    header.value = CMBS_COMMENTARY_LABEL;
+    header.font = { ...(header.font ?? {}), bold: true };
+    header.alignment = { ...(header.alignment ?? {}), wrapText: true, vertical: 'top', horizontal: 'left' };
+  }
+  ws.getRow(CMBS_COMMENTARY_HEADER_ROW).height = 18;
+
+  // Body B15:Q15 … — one wrapped, merged line per row, height sized to the text.
   lines.forEach((line, i) => {
-    const cell = ws.getCell(`B${CMBS_COMMENTARY_FIRST_ROW + i}`);
+    const row = CMBS_COMMENTARY_FIRST_ROW + i;
+    const cell = ws.getCell(row, COMPS_BOX_FIRST_COL);
     if (cell.formula) return; // never overwrite a formula
+    ws.mergeCells(row, COMPS_BOX_FIRST_COL, row, COMPS_BOX_LAST_COL);
     cell.value = line;
-    cell.alignment = { ...(cell.alignment ?? {}), wrapText: true, vertical: 'top' };
+    // Body is NOT bold (B14 header is the only bold cell). Clear any bold the
+    // retired card-placeholder cell carried.
+    cell.font = { ...(cell.font ?? {}), bold: false };
+    cell.alignment = { ...(cell.alignment ?? {}), wrapText: true, vertical: 'top', horizontal: 'left' };
+    const wrapped = Math.max(1, Math.ceil(line.length / CMBS_COMMENTARY_CHARS_PER_LINE));
+    const h = Math.min(
+      CMBS_COMMENTARY_MAX_BODY_HEIGHT,
+      Math.max(CMBS_COMMENTARY_MIN_BODY_HEIGHT, wrapped * CMBS_COMMENTARY_PT_PER_LINE + 3),
+    );
+    ws.getRow(row).height = h;
   });
+
+  // One clean thin-border frame around the whole box (header + body rows). Drawn
+  // after the merges; also wipes the template card borders + the neighbour rows.
+  drawCommentsBoxBorders(ws, CMBS_COMMENTARY_HEADER_ROW, lastRow, COMPS_BOX_FIRST_COL, COMPS_BOX_LAST_COL);
 }
 
 // Asset class (case-insensitive) → the canonical 'Controls' table key the
