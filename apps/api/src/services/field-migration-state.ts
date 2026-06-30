@@ -929,6 +929,16 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
   return [...carryForward, ...v24Additions, ...scopedNonHotel, ...commOnly];
 })();
 
+// v25: CMBS office-comps TABLE layout (cmbsComps). The table cells (CMBS Comps
+// r13–r18) are NOT schema cell-addresses — they're written via the TablePayload
+// path (writeTable), not cellBindings — so the field-state registry needs NO new
+// declarations. v25's cell-binding surface is identical to v24; carry forward
+// verbatim.
+(FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[25] = (() => {
+  const carryForward = FIELD_STATE_REGISTRY[24] ?? [];
+  return [...carryForward];
+})();
+
 // --- Legal cross-version transitions ---------------------------------------
 
 /**

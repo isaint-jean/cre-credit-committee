@@ -2072,16 +2072,33 @@ function writeCellValue(
 function writeTable(workbook: ExcelJS.Workbook, table: TablePayload): boolean {
   const ws = workbook.getWorksheet(table.layout.sheetName);
   if (!ws) return false;
-  table.layout.columns.forEach((col, i) => {
-    ws.getCell(table.layout.headerRow, i + 1).value = col.header;
-  });
+  // Header pass — skipped when the layout opts out (writeHeaders=false). The
+  // CMBS Comps tab's r6 header is format/formula-bearing and must be preserved;
+  // the drivers table (and any legacy layout) still writes headers (default).
+  if (table.layout.writeHeaders !== false) {
+    table.layout.columns.forEach((col, i) => {
+      ws.getCell(table.layout.headerRow, col.column ?? i + 1).value = col.header;
+    });
+  }
   table.rows.forEach((row, rIdx) => {
+    // Per-row null flags (CompsTableRow.nulls) → MISSING_DATA_FILL. Absent for
+    // legacy/driver tables (concluded-only). A field listed here renders as a
+    // null awaiting_input cell (red fill); every other field is concluded.
+    const nullFields: ReadonlySet<string> = Array.isArray((row as Record<string, unknown>).nulls)
+      ? new Set((row as unknown as { nulls: string[] }).nulls)
+      : new Set<string>();
     table.layout.columns.forEach((col, cIdx) => {
       const v = row[col.sourceField];
-      // Tables are concluded-only today. Driver tables never use the
-      // HITL or AWAITING_INPUT visual semantics — they list cross-check
-      // findings the engine produced.
-      writeCellValue(ws.getCell(table.layout.dataStartRow + rIdx, cIdx + 1), v ?? null, 'concluded', null);
+      const isNull = nullFields.has(col.sourceField) || v === undefined || v === null;
+      const state: CellState = isNull ? 'awaiting_input' : 'concluded';
+      // Target column = explicit 1-indexed layout column (non-contiguous CMBS
+      // grid) when present, else the sequential position (legacy contiguous).
+      writeCellValue(
+        ws.getCell(table.layout.dataStartRow + rIdx, col.column ?? cIdx + 1),
+        isNull ? null : (v ?? null),
+        state,
+        null,
+      );
     });
   });
   return true;
@@ -2130,6 +2147,85 @@ function clearAbsentOperatingHistoryZeros(
       if (cell.value === 0) cell.value = null; // strip the misleading default 0 only
     }
   }
+}
+
+// ── CMBS Comps CoStar-card scaffolding cleanup (v25) ──
+// The 'CMBS Comps' tab ships as a manual-entry CoStar comp-CARD template: 6 card
+// slots (2 per band × 3 bands, rows ~13–56) of placeholder LABEL text ("Comp 1"
+// … "Comp 6", "MAP", "Comp Map") with no producer. v25 rebuilds the comp area as
+// a clean TABLE (one row per comp, r13–r18) via the cmbsComps layout. Before the
+// table writes, retire the orphaned placeholder text so no card artifacts remain
+// beside / below the new grid. Guards: (1) only the 'CMBS Comps' sheet; (2) never
+// touch a formula cell; (3) never touch row 6 (the header) or row 12 (the subject
+// formulas); (4) only null cells whose STRING value matches a known placeholder
+// pattern (Comp <n> / MAP / Comp Map) — leave every other value untouched. Range
+// rows 13–56 covers all three card bands.
+const CMBS_COMPS_TAB = 'CMBS Comps';
+const CMBS_CARD_PLACEHOLDER = /^\s*(comp\s*map|comp\s*\d+|map)\s*$/i;
+function clearCmbsCompCardScaffolding(workbook: ExcelJS.Workbook): void {
+  const ws = workbook.getWorksheet(CMBS_COMPS_TAB);
+  if (!ws) return; // tab absent → no-op
+  for (let row = 13; row <= 56; row++) {
+    if (row === 6 || row === 12) continue; // header + subject preserved (defensive)
+    const r = ws.getRow(row);
+    r.eachCell({ includeEmpty: false }, (cell) => {
+      if (cell.formula) return;                  // never null a formula
+      const v = cell.value;
+      if (typeof v === 'string' && CMBS_CARD_PLACEHOLDER.test(v)) {
+        cell.value = null;
+      }
+    });
+  }
+}
+
+// ── Sales / Lease Comps intentional-blank note (v25) ──
+// SEC EX-102 carries LOAN comps only — sale/lease comps require an appraisal or
+// broker source not present in the filings. Surface that as a single labeled note
+// on each of the Sales Comps + Lease Comps tabs so the empty tabs read as a
+// deliberate scoped-blank, not an oversight. Picks a safe empty cell well below
+// the header band (A60); never overwrites a formula or a non-empty cell, and
+// never touches either sheet's header rows.
+const COMPS_BLANK_NOTE =
+  'SEC EX-102 carries loan comps only — sale/lease comps require an appraisal/broker source.';
+function writeSalesLeaseCompsNote(workbook: ExcelJS.Workbook): void {
+  for (const sheetName of ['Sales Comps', 'Lease Comps']) {
+    const ws = workbook.getWorksheet(sheetName);
+    if (!ws) continue;
+    const cell = ws.getCell('A60');
+    if (cell.formula) continue;            // never overwrite a formula
+    if (cell.value !== null && cell.value !== undefined && cell.value !== '') continue; // only an empty cell
+    cell.value = COMPS_BLANK_NOTE;
+  }
+}
+
+// ── SEC Comp-Set Analysis commentary block (v25 · FIX-3) ──
+// Deterministic commentary (composed in the render route from the subject +
+// top-4 comps; NO LLM) written as a labeled note block in the cleared zone
+// BELOW the subject row: B14 = bold label, B15… = one commentary line per row.
+// No schema address — same direct note-write precedent as the Sales/Lease
+// intentional-blank note. Guards: (1) only the 'CMBS Comps' sheet; (2) never
+// overwrite a formula cell; (3) clamp to B14–B22 (8 lines max) so it can't spill
+// into the card zone the clear-pass retired. Wrap is enabled so a long line is
+// readable instead of overflowing.
+const CMBS_COMMENTARY_LABEL_CELL = 'B14';
+const CMBS_COMMENTARY_FIRST_ROW = 15; // B15..B22 (8 lines)
+const CMBS_COMMENTARY_MAX_LINES = 8;
+function writeCmbsCommentary(workbook: ExcelJS.Workbook, commentary: string[] | undefined): void {
+  if (!commentary || commentary.length === 0) return;
+  const ws = workbook.getWorksheet(CMBS_COMPS_TAB);
+  if (!ws) return; // tab absent → no-op
+  const label = ws.getCell(CMBS_COMMENTARY_LABEL_CELL);
+  if (!label.formula) {
+    label.value = 'SEC Comp-Set Analysis';
+    label.font = { ...(label.font ?? {}), bold: true };
+  }
+  const lines = commentary.slice(0, CMBS_COMMENTARY_MAX_LINES);
+  lines.forEach((line, i) => {
+    const cell = ws.getCell(`B${CMBS_COMMENTARY_FIRST_ROW + i}`);
+    if (cell.formula) return; // never overwrite a formula
+    cell.value = line;
+    cell.alignment = { ...(cell.alignment ?? {}), wrapText: true, vertical: 'top' };
+  });
 }
 
 // Asset class (case-insensitive) → the canonical 'Controls' table key the
@@ -2376,10 +2472,23 @@ export async function applyRenderPayloadToTemplate(
     }
   });
 
+  // ── CMBS Comps card-scaffolding cleanup + Sales/Lease intentional-blank note ──
+  // (v25; render-layer workbook polish, no schema address — same precedent as
+  // clearAbsentOperatingHistoryZeros). Run BEFORE writeTable so the cmbsComps
+  // grid writes into clean cells. Both are guarded no-ops when their sheets are
+  // absent or the cells aren't placeholder/empty.
+  clearCmbsCompCardScaffolding(workbook);
+  writeSalesLeaseCompsNote(workbook);
+
   const tablesWritten: string[] = [];
   for (const t of payload.tables) {
     if (writeTable(workbook, t)) tablesWritten.push(t.layout.name);
   }
+
+  // SEC Comp-Set Analysis commentary block (v25). Written AFTER the clear-pass
+  // (which emptied r13–56) and the table (r7–r10) — into B14–B22 in the cleared
+  // zone below the subject. Non-structural note; no schema address.
+  writeCmbsCommentary(workbook, payload.compsCommentary);
 
   // ExcelJS write-path bug: cf-rule-xform.renderExpression / renderCellIs /
   // renderTop10 / renderAboveAverage / renderText / renderTimePeriod all

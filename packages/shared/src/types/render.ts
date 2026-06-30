@@ -121,8 +121,21 @@ import type { RentRoll } from '@cre/contracts';
  * "actually-blank-in-render" sanity gate. Pure derived display — no projection
  * feedback, no underwriting-value mutation. The v18 slice is carried forward
  * byte-for-byte.
+ *
+ * v25 (2026-06): additive — CMBS office-comps table. The "CMBS Comps" sheet
+ * (previously empty CoStar-card scaffolding below the formula-wired subject
+ * row r12) now renders the ranked top-6 SEC EX-102 office comps as one row
+ * per comp (r13–r18) via a NEW table layout `cmbsComps`. The layout uses the
+ * extended TableColumn.column (1-indexed, NON-CONTIGUOUS spreadsheet columns
+ * C/F/G/H/I/K/L/M/N/O/P/Q) and TableLayout.writeHeaders=false (the r6 header
+ * is preserved). NEW input surface: RenderInput.compsTable (CompsTableRow[]),
+ * composed in the route from the relevance-ranked comp corpus — the pure
+ * engine never opens a db. Per-field null flags drive MISSING_DATA_FILL.
+ * Subject r12 + header r6 are PRESERVED; the CoStar card placeholder text
+ * (Comp N / MAP / Comp Map, rows 13–56) is retired by a render-time clear
+ * pass. The v24 slice is carried forward byte-for-byte.
  */
-export const RENDER_CONTRACT_VERSION = 24;
+export const RENDER_CONTRACT_VERSION = 25;
 
 /**
  * Controlled structural variance within an asset class. Each (assetClass,
@@ -309,6 +322,25 @@ export interface RenderInput {
    * paths ignore this field — it's additive-optional at the contract level.
    */
   rentRoll?: RentRoll | null;
+  /**
+   * Ranked CMBS office comps for the "CMBS Comps" sheet (v25+). Composed in
+   * the render route from the relevance-ranked comp corpus (data/comps/comps.db
+   * + EX-102 raw re-parse); the pure engine never opens a db. Absent / empty
+   * when the corpus is missing or no comps cleared the relevance floor — the
+   * cmbsComps table then renders zero rows (subject + header untouched).
+   * Additive-optional; pre-v25 render paths ignore it.
+   */
+  compsTable?: CompsTableRow[];
+  /**
+   * Deterministic SEC comp-set commentary lines (v25+), one point per row,
+   * written as a labeled note block (B14–B22) on the "CMBS Comps" sheet below
+   * the subject. Composed in the render route from the subject + top-4 comps
+   * (same securitization basis). ADDITIVE INPUT field only — NOT a schema /
+   * output / structural-identity surface (no version bump, not fingerprinted);
+   * the engine writes it via the same direct note-write path as the Sales/Lease
+   * intentional-blank notes. Absent / empty → no commentary block.
+   */
+  compsCommentary?: string[];
 }
 
 /**
@@ -333,6 +365,14 @@ export interface ManagedNamespacePolicy {
 export interface TableColumn {
   header: string;
   sourceField: string;  // key into the row object the backend ships
+  /**
+   * Optional 1-indexed spreadsheet column (A=1, B=2, …). When present the
+   * writer targets THIS column instead of the sequential position in the
+   * `columns` array — required for non-contiguous layouts (e.g. the CMBS
+   * Comps grid: C/F/G/H/I/K/L/M/N/O/P/Q). When absent the writer falls back
+   * to the sequential index (cIdx+1), preserving the v2 drivers-table layout.
+   */
+  column?: number;
 }
 export interface TableLayout {
   name: string;
@@ -340,6 +380,38 @@ export interface TableLayout {
   headerRow: number;       // 1-indexed row where headers are written
   dataStartRow: number;    // 1-indexed row where the first data row goes
   columns: TableColumn[];
+  /**
+   * When false, the writer SKIPS the header-writing loop and leaves the
+   * template's existing headerRow intact (e.g. the CMBS Comps r6 header is
+   * formula/format-bearing and must be preserved). Defaults to true — the
+   * drivers table and any legacy layout continue to write headers.
+   */
+  writeHeaders?: boolean;
+}
+
+/**
+ * One rendered CMBS office-comp row (v25). Mirrors the CMBS Comps grid's
+ * non-contiguous columns. Every display field is `string | number | null`;
+ * a parallel `nulls` array names the sourceFields that are genuinely null so
+ * the writer applies MISSING_DATA_FILL (awaiting_input state) on exactly
+ * those cells and leaves the rest 'concluded'. The route composes these from
+ * the relevance-ranked comp corpus + EX-102 raw re-parse.
+ */
+export interface CompsTableRow {
+  loanName: string | number | null;
+  address: string | number | null;
+  cityState: string | number | null;
+  distance: string | number | null;
+  loanStatus: string | number | null;
+  totalSf: number | null;
+  yearBuilt: string | number | null;
+  yearRenov: string | number | null;
+  occup: string | number | null;
+  dealNote: string | number | null;
+  balance: string | number | null;
+  debtYield: string | number | null;
+  /** sourceFields (keys above) that are genuinely null → MISSING_DATA_FILL. */
+  nulls: string[];
 }
 export interface TablePayload {
   layout: TableLayout;
@@ -438,5 +510,15 @@ export interface RenderPayload {
    * surface these to the user before applying any structural action.
    */
   migrationsFromClient?: MigrationManifest;
+  /**
+   * Deterministic SEC comp-set commentary lines (v25+) carried from
+   * RenderInput.compsCommentary so the template-engine can write the B14–B22
+   * note block on the "CMBS Comps" sheet. NON-STRUCTURAL transport: this field
+   * is NOT part of the structural fingerprint (visibleTabs / schemaAddresses /
+   * managedNamespace / tableLayouts) and carries no schema address — adding it
+   * is additive-optional and requires no contract-version bump. Absent / empty
+   * → no commentary block.
+   */
+  compsCommentary?: string[];
   generatedAt: string;
 }

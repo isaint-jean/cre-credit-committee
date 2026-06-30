@@ -2949,6 +2949,80 @@ const SCHEMA_V24: ContractSchema = {
   manufactured_housing: { manufactured_housing_core: v24DefsFor('manufactured_housing') },
 };
 
+// --- v25: CMBS office-comps table -------------------------------------------
+// Renders the ranked top-4 SEC EX-102 office comps as one row per comp into the
+// 'CMBS Comps' sheet's light-blue box (data rows r7–r10, ABOVE the formula-wired
+// subject r12; capacity = 4 slots — see docs/recon/2026-06-29-bluebox-cellmap.md).
+// The columns are NON-CONTIGUOUS (the subject-row layout: C/F/G/H/I/J/K/L/M/N/O/
+// P), so each TableColumn carries an explicit 1-indexed `column`. writeHeaders
+// is false — the template's r6 header is preserved verbatim. The row data comes
+// from input.compsTable (composed in the route from the ranked corpus); the pure
+// engine NEVER opens a db.
+//   Column letters → 1-indexed: A=1, B=2, C=3, F=6, G=7, H=8, I=9, J=10, K=11,
+//   L=12, M=13, N=14, O=15, P=16.
+//   B (Comp #) and Q ($/SF = =O/J) are FORMULA-driven by the template — NOT
+//   bound here (binding Q would clobber the template's $/SF formula).
+const V25_TABLE_LAYOUTS: TableLayout[] = [
+  {
+    name: 'cmbsComps',
+    sheetName: 'CMBS Comps',
+    headerRow: 6,
+    dataStartRow: 7,
+    writeHeaders: false,
+    columns: [
+      { header: 'Loan Name',          sourceField: 'loanName',    column: 3 },
+      { header: 'Address',            sourceField: 'address',     column: 6 },
+      { header: 'City/State',         sourceField: 'cityState',   column: 7 },
+      { header: 'Distance',           sourceField: 'distance',    column: 8 },
+      { header: 'Loan Status',        sourceField: 'loanStatus',  column: 9 },
+      { header: 'Total sf',           sourceField: 'totalSf',     column: 10 },
+      { header: 'Year Built',         sourceField: 'yearBuilt',   column: 11 },
+      { header: 'Year Renov',         sourceField: 'yearRenov',   column: 12 },
+      { header: 'Occup',              sourceField: 'occup',       column: 13 },
+      { header: 'Deal',               sourceField: 'dealNote',    column: 14 },
+      { header: 'Original Balance',   sourceField: 'balance',     column: 15 },
+      { header: 'Current Debt Yield', sourceField: 'debtYield',   column: 16 },
+    ],
+  },
+];
+
+// SCHEMA_V25 = SCHEMA_V24 cell-for-cell (v24 entries carry forward byte-for-byte)
+// but with the cmbsComps table layout attached to every (asset-class, variant)
+// definition. The cell-binding surface is IDENTICAL to v24 — the only structural
+// change is the added table layout. We clone each v24 SchemaDefinition and swap
+// its tableLayouts (which were V6_TABLE_LAYOUTS = []).
+function v25DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  return v24DefsFor(assetClass).map((def) => ({
+    ...def,
+    tableLayouts: V25_TABLE_LAYOUTS,
+  }));
+}
+
+const SCHEMA_V25: ContractSchema = {
+  office: {
+    office_core:       v25DefsFor('office'),
+    office_trophy:     v25DefsFor('office'),
+    office_value_add:  v25DefsFor('office'),
+    office_distressed: v25DefsFor('office'),
+  },
+  multifamily: {
+    mf_core:        v25DefsFor('multifamily'),
+    mf_large_scale: v25DefsFor('multifamily'),
+    mf_workforce:   v25DefsFor('multifamily'),
+    mf_value_add:   v25DefsFor('multifamily'),
+  },
+  industrial: {
+    ind_core:      v25DefsFor('industrial'),
+    ind_logistics: v25DefsFor('industrial'),
+    ind_light:     v25DefsFor('industrial'),
+  },
+  retail:               { retail_core:               v25DefsFor('retail') },
+  hotel:                { hotel_core:                v25DefsFor('hotel') },
+  self_storage:         { self_storage_core:         v25DefsFor('self_storage') },
+  mixed_use:            { mixed_use_core:            v25DefsFor('mixed_use') },
+  manufactured_housing: { manufactured_housing_core: v25DefsFor('manufactured_housing') },
+};
+
 /**
  * The complete contract-version → schema map. Older versions stay queryable
  * so templates registered against them keep rendering. RENDER_CONTRACT_VERSION
@@ -3005,6 +3079,7 @@ const SCHEMA_BY_CONTRACT_VERSION: Readonly<Record<number, ContractSchema>> = {
   22: SCHEMA_V22,
   23: SCHEMA_V23,
   24: SCHEMA_V24,
+  25: SCHEMA_V25,
 };
 
 // --- Hard-error type ---------------------------------------------------------
@@ -3295,6 +3370,12 @@ function assertSchemaWellFormed(): void {
     22: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     23: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
     24: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
+    // v25 ADDS no new selector source surface — the cmbsComps table reads from
+    // RenderInput.compsTable (composed in the route), not from a TaggedSelector,
+    // so the source-policy allowlist is unchanged. Every v25 cell-binding entry
+    // carries forward verbatim from v24. The only structural change is the added
+    // table layout.
+    25: new Set<SourceSurface>(['adjustedInputs', 'resolvedContext', 'meta', 'rentRoll']),
   };
 
   const sourceViolations: Array<{
@@ -3650,19 +3731,37 @@ export function buildTables(
     contractVersion,
   ).tableLayouts;
   return layouts.map((layout) => {
-    const rows = layout.name === 'drivers'
-      ? input.drivers.map((d) => {
-          const row: Record<string, CellValue> = {};
-          for (const col of layout.columns) {
-            const v = (d as unknown as Record<string, unknown>)[col.sourceField];
-            row[col.sourceField] =
-              v === undefined || v === null ? null :
-              typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' ? v :
-              String(v);
-          }
-          return row;
-        })
-      : [];
+    let rows: Array<Record<string, CellValue>> = [];
+    if (layout.name === 'drivers') {
+      rows = input.drivers.map((d) => {
+        const row: Record<string, CellValue> = {};
+        for (const col of layout.columns) {
+          const v = (d as unknown as Record<string, unknown>)[col.sourceField];
+          row[col.sourceField] =
+            v === undefined || v === null ? null :
+            typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' ? v :
+            String(v);
+        }
+        return row;
+      });
+    } else if (layout.name === 'cmbsComps') {
+      // CMBS office-comps. Each CompsTableRow is keyed by the column
+      // sourceFields already (loanName, address, …). We project only the
+      // declared columns into a flat row; the per-row `nulls` flag travels
+      // through unchanged so the writer can apply MISSING_DATA_FILL. The route
+      // composes input.compsTable from the ranked corpus; absent → zero rows.
+      rows = (input.compsTable ?? []).map((c) => {
+        const src = c as unknown as Record<string, CellValue>;
+        const row: Record<string, CellValue> = {};
+        for (const col of layout.columns) {
+          const v = src[col.sourceField];
+          row[col.sourceField] = v === undefined ? null : v;
+        }
+        // Carry the null-flag list so writeTable can map field → MISSING_DATA_FILL.
+        (row as Record<string, unknown>).nulls = c.nulls ?? [];
+        return row;
+      });
+    }
     return { layout, rows };
   });
 }

@@ -144,6 +144,9 @@ export function buildRenderPayload(
     tables: buildTables(input, contractVersion),
     conservatismStatus: input.conservatismStatus,
     libraryBaselineMeta: input.libraryBaselineMeta,
+    // Non-structural passthrough (v25): SEC comp-set commentary lines for the
+    // CMBS Comps note block. Not fingerprinted, no schema address.
+    compsCommentary: input.compsCommentary,
     generatedAt: input.meta.generatedAt,
   };
 

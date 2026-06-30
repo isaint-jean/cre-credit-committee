@@ -38,6 +38,7 @@ export interface CompRecord {
   readonly propertyTypeCodeRaw: string | null;   // raw code (pass-through if unmapped)
   readonly netRentableSF: number | null;
   readonly yearBuilt: number | null;
+  readonly yearLastRenovated: number | null;   // EX-102 yearLastRenovated
 
   // — valuation —
   readonly value: number | null;                 // valuationSecuritizationAmount
@@ -63,6 +64,7 @@ export interface CompRecord {
 
   // — loan (PIECE — pari-passu caveat) —
   readonly loanPieceAmount: number | null;       // this deal's piece, NOT whole-loan
+  readonly loanStatus: string | null;            // EX-102 paymentStatusLoanCode (default 'Current')
   readonly ltvPiece: number | null;              // loanPieceAmount / value (NOT reliable)
   readonly ltvBasis: 'piece_only';
   readonly ltvReliable: false;                   // always false — piece, not whole-loan

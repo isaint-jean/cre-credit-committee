@@ -1088,6 +1088,51 @@ const MIGRATIONS: RenderContractMigration[] = [
       'on existing addresses (not address-added) — re-sourced from v17T12/issuerUw ' +
       'to the ASR cash-flow blocks. Totals + vacancy stay as formulas.',
   },
+  {
+    fromVersion: 24,
+    toVersion: 25,
+    description:
+      'CMBS office-comps table. The "CMBS Comps" sheet (an existing VISIBLE tab ' +
+      'since v6, previously empty CoStar-card scaffolding below the formula-wired ' +
+      'subject row r12) gains a NEW table layout `cmbsComps` that renders the ' +
+      'relevance-ranked top-6 SEC EX-102 office comps as one row per comp into ' +
+      'data rows r13–r18. The layout uses the extended TableColumn.column ' +
+      '(1-indexed, NON-CONTIGUOUS spreadsheet columns C/F/G/H/I/K/L/M/N/O/P/Q ' +
+      'matching the subject-row attribute map) and TableLayout.writeHeaders=false ' +
+      '(the r6 header is preserved). NEW input surface RenderInput.compsTable ' +
+      '(CompsTableRow[]) is composed in the render route from the ranked comp ' +
+      'corpus (data/comps/comps.db + EX-102 raw re-parse) — the pure engine never ' +
+      'opens a db; a missing corpus is a clean skip (zero rows). Per-field null ' +
+      'flags drive MISSING_DATA_FILL on genuinely-blank comp cells. The CompRecord ' +
+      'contract gains yearLastRenovated + loanStatus (EX-102 yearLastRenovated / ' +
+      'paymentStatusLoanCode, the latter defaulting to "Current" at issuance ' +
+      'vintage). The v24 cell-binding surface is carried forward byte-for-byte — ' +
+      'this is a TABLE-layout addition, not a cell-address change. A render-time ' +
+      'clear pass retires the CoStar card placeholder text (Comp N / MAP / Comp ' +
+      'Map, rows 13–56) BEFORE the table writes; subject r12 + header r6 are ' +
+      'PRESERVED. The Sales/Lease Comps sheets get a single labeled-blank note ' +
+      '("SEC EX-102 carries loan comps only — sale/lease comps require an ' +
+      'appraisal/broker source"). xlsm artifact unchanged.',
+    autoApplicable: true,
+    addresses: [],
+    tables: [
+      { kind: 'table-added', name: 'cmbsComps' },
+    ],
+    managedNamespace: [],
+    visibility: [],
+    wire: [
+      { kind: 'payload-field-added', field: 'RenderInput.compsTable' },
+    ],
+    notes:
+      'v25 is additive: one new table layout (cmbsComps) on the CMBS Comps tab — ' +
+      'no cell-address changes, no namespace changes, no source-surface changes ' +
+      '(the table reads RenderInput.compsTable, not a schema selector). v24-pinned ' +
+      'templates keep rendering identically (they ignore the new layout); v25 ' +
+      'becomes the default for new exports. Existing V24 payloads forward-migrate ' +
+      'cleanly with no comps table (compsTable absent → zero rows). The clear pass ' +
+      'and the Sales/Lease note are render-time workbook polish (no schema address, ' +
+      'same precedent as clearAbsentOperatingHistoryZeros) and preserve r6 + r12.',
+  },
 ];
 
 // --- Boot-time chain validation ---------------------------------------------

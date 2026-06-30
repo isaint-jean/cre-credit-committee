@@ -72,6 +72,9 @@ export function parseCmbsComps(
     const interestRate = num(loan, 'originalInterestRatePercentage');
     const originationDate = isoDate(loan, 'originationDate');
     const originatorName = text(loan, 'originatorName');
+    // paymentStatusLoanCode: EX-102 loan payment status. Absent/blank at
+    // issuance vintage = performing → default 'Current'.
+    const loanStatus = text(loan, 'paymentStatusLoanCode') ?? 'Current';
 
     const properties = loan.getElementsByTagName('property');
     for (let j = 0; j < properties.length; j++) {
@@ -96,6 +99,7 @@ export function parseCmbsComps(
         propertyTypeCodeRaw: typeCodeRaw,
         netRentableSF: num(p, 'netRentableSquareFeetSecuritizationNumber') ?? num(p, 'netRentableSquareFeetNumber'),
         yearBuilt: num(p, 'yearBuiltNumber'),
+        yearLastRenovated: num(p, 'yearLastRenovated'),
         value,
         valuationDate: isoDate(p, 'valuationSecuritizationDate'),
         valuationSource: valSrcRaw ? (VALUATION_SOURCE_MAP[valSrcRaw.toUpperCase()] ?? valSrcRaw) : null,
@@ -109,6 +113,7 @@ export function parseCmbsComps(
         dscr: num(p, 'debtServiceCoverageNetOperatingIncomeSecuritizationPercentage'),
         capRate: noi !== null && value !== null && value > 0 ? Math.round((noi / value) * 1e6) / 1e6 : null,
         loanPieceAmount,
+        loanStatus,
         ltvPiece: loanPieceAmount !== null && value !== null && value > 0
           ? Math.round((loanPieceAmount / value) * 1e4) / 1e4 : null,
         ltvBasis: 'piece_only',
