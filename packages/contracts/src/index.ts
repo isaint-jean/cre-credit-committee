@@ -32,6 +32,7 @@ export * from './adjusted-inputs.js';
 export * from './library-snapshot.js';
 export * from './cross-check.js';
 export * from './stress.js';
+export * from './comps.js';
 export * from './valuation.js';
 export * from './extraction.js';
 export * from './market-benchmarks.js';
