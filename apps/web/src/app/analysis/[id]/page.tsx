@@ -65,6 +65,7 @@ export default function AnalysisDashboard() {
     return (
       <RenderedAnalysisView
         data={rendered}
+        analysisId={id}
         workflow={workflow ?? undefined}
         timeline={timeline ?? undefined}
         handbookEvaluation={handbookEvaluation}

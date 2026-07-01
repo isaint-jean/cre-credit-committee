@@ -45,6 +45,39 @@ export interface AuditReplayResponse {
   readonly chains: { readonly [overlayId: string]: ReadonlyArray<unknown> };
 }
 
+// P3b — field-level intake completeness (ADVISORY). Mirrors the API service
+// shape (apps/api/src/services/intake-completeness.service.ts). The panel that
+// consumes it NEVER blocks export.
+export type IntakeState =
+  | 'populated'
+  | 'in-PDF-not-extracted'
+  | 'not-in-any-doc'
+  | 'decision-blank';
+export interface IntakeFieldResult {
+  readonly id: string;
+  readonly section: string;
+  readonly field: string;
+  readonly state: IntakeState;
+  readonly feeds: string;
+  readonly blocks: string;
+  readonly sources: readonly string[];
+  readonly criticality: string;
+  readonly tier: string;
+}
+export interface IntakeCompleteness {
+  readonly fields: readonly IntakeFieldResult[];
+  readonly summary: {
+    readonly sourced: number;
+    readonly total: number;
+    readonly needs: readonly IntakeFieldResult[];
+    readonly decisionBlanks: readonly IntakeFieldResult[];
+    readonly requiredMissing: readonly IntakeFieldResult[];
+  };
+  // Route-echoed export params (the panel's always-on "Create workbook" CTA).
+  readonly dealId: string;
+  readonly assetClass: string;
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // Discriminated union for GET /api/analyses/:id (post-6.8 unified read endpoint).
@@ -151,6 +184,12 @@ export const api = {
   },
   getAnalysisStatus: (id: string) => request<any>(`/analyses/${id}/status`),
   deleteAnalysis: (id: string) => request<any>(`/analyses/${id}`, { method: 'DELETE' }),
+
+  // P3b — field-level intake completeness (ADVISORY read-only). Returns the
+  // 4-state ceiling per intake field + a summary. NEVER gates export; the panel
+  // that consumes this always keeps "Create workbook" enabled.
+  getIntakeCompleteness: (id: string) =>
+    request<IntakeCompleteness>(`/analyses/${id}/intake-completeness`),
 
   /**
    * Funnel PR — GET /api/analyses/lookup?dealRef=X

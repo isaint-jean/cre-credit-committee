@@ -39,6 +39,7 @@ import { CommitteeTimelinePanel } from './CommitteeTimelinePanel';
 import { CommitteeActionButtons } from './CommitteeActionButtons';
 import { AuditViewToggle } from './AuditViewToggle';
 import { SnapshotViewer } from './SnapshotViewer';
+import { WorkbookReadiness } from './WorkbookReadiness';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api-client';
 import {
@@ -80,6 +81,10 @@ interface Props {
   // exists but no eval was produced (pre-Commit-2 deals); undefined = prop not
   // passed (fetch hasn't completed). Both render to "no section."
   readonly handbookEvaluation?: HandbookEvaluation | null;
+  // P3b — the URL analysis id (deal id). When present, the WorkbookReadiness
+  // panel (advisory intake completeness + always-on Create-workbook CTA) mounts.
+  // Absent in contexts that lack the routed id (backward compatible).
+  readonly analysisId?: string;
 }
 
 function userCanRevise(role: string | undefined): boolean {
@@ -679,7 +684,7 @@ function EditCell(
   );
 }
 
-export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChanged, onRevisionSaved, handbookEvaluation }: Props): React.ReactElement {
+export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChanged, onRevisionSaved, handbookEvaluation, analysisId }: Props): React.ReactElement {
   const { user } = useAuth();
   const canRevise = userCanRevise(user?.role);
   const editAvailable = canRevise && onRevisionSaved !== undefined;
@@ -928,6 +933,11 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
           </div>
         </section>
       ) : null}
+
+      {/* P3b — advisory intake-completeness readiness + always-on Create-workbook
+        CTA (wired to the real /underwriting/export). Never blocks. Mounts only
+        when the routed analysis id is available. */}
+      {analysisId !== undefined ? <WorkbookReadiness analysisId={analysisId} /> : null}
 
       <section className="space-y-3">
         <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Summary</h2>
