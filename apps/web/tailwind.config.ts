@@ -64,6 +64,34 @@ const config: Config = {
           new:  '#48B0C9', // --new   (cyan, "just-arrived" loans on a tape)
           call: '#8093E6', // --call  (lavender, "request a call" / in-negotiation)
         },
+
+        // ── Two-facing port (P1) — one source of truth for the two-door /
+        // side-identity system, ported from docs/mockups/cre-two-facing-mockup.jsx
+        // token object `C` (lines 8-23). Teal `accent` above stays the
+        // PLATFORM / neutral color (chrome ground, deal-room); these carry SIDE
+        // identity + the mockup's ink/paper/cleared/warn names so P2–P4 can
+        // reach them as Tailwind classes.
+
+        // Originator — warm ochre (advocacy, winning the borrower).
+        originator: {
+          DEFAULT: '#A8742A',
+          soft:    '#F4EAD6',
+        },
+        // B-piece buyer — cool steel (skeptical, conservative, first-loss).
+        buyer: {
+          DEFAULT: '#2F5E86',
+          soft:    '#E0E9F1',
+        },
+
+        // Mockup surface + semantic names (C.ink/paper/card/line/cleared/warn).
+        // `card` (#FFFFFF) already equals bg.secondary; `paper`/`line` map onto
+        // the light surface but are named here so the mockup port reads 1:1.
+        ink:     { DEFAULT: '#111A26', soft: '#1B2838' },
+        paper:   '#EEF1F4', // mockup canvas (≈ bg.primary)
+        card:    '#FFFFFF', // mockup surface (= bg.secondary)
+        line:    '#D3DAE2', // mockup hairline (≈ border.primary)
+        cleared: '#2E7D57', // convergence / agreed
+        warn:    '#B5532B', // last-resort / caution
       },
       fontFamily: {
         // Body — Plex Sans. Headers default to serif (override at component
@@ -72,6 +100,12 @@ const config: Config = {
         sans:  ['"IBM Plex Sans"',  'system-ui', 'sans-serif'],
         serif: ['"IBM Plex Serif"', 'Georgia', 'serif'],
         mono:  ['"IBM Plex Mono"',  'ui-monospace', 'Menlo', 'monospace'],
+
+        // ── Two-facing port (P1) type roles (mockup lines 24-26).
+        // `display` = Space Grotesk (h1/wordmark), `body` = Inter, `mono` above
+        // doubles as the mockup MONO. Fonts imported in globals.css.
+        display: ['"Space Grotesk"', '"IBM Plex Serif"', 'sans-serif'],
+        body:    ['"Inter"', '"IBM Plex Sans"', 'system-ui', 'sans-serif'],
       },
       borderRadius: {
         // Prototype uses 11px panels, 7px small. Add named tokens so

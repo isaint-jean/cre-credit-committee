@@ -6,6 +6,11 @@
  * per the prototype (~/Downloads/cre-pool-rail.html). Was Inter + JetBrains Mono. */
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+/* Two-facing port (P1) — Space Grotesk (display) + Inter (body) per the mockup
+ * (docs/mockups/cre-two-facing-mockup.jsx line 57). IBM Plex Mono is already
+ * loaded above and doubles as the mockup MONO role. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+
 @layer base {
   html, body { margin: 0; padding: 0; }
 
