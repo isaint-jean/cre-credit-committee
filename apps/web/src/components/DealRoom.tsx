@@ -25,8 +25,9 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/api-client';
 import { AddDocumentControl } from '@/components/AddDocumentControl';
 import { formatCurrencyFull, formatDecimalPercent, formatMultipleSafe, formatPercent } from '@/lib/format';
-import type { Analysis, Finding, Comment, UnderwritingModel } from '@cre/shared';
+import type { Analysis, Finding, Comment, UnderwritingModel, MitigationStrategy } from '@cre/shared';
 import { recalculateFullModel } from '@cre/shared';
+import { useSide, type Side } from '@/lib/side-context';
 
 type Role = 'bp_spire' | 'originator';
 type WSTab = 'adjust' | 'criteria' | 'score' | 'crosscheck' | 'research' | 'decision' | 'stress' | 'schedule' | 'handbook';
@@ -74,6 +75,78 @@ function deriveContestedPoints(findings: ReadonlyArray<Finding>): ContestedPoint
   });
 }
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * P4b — the 7-lever agreement ledger (re-skin of the mockup's LEVERS).
+ *
+ * ★ NO TOY SCORE. The mockup adds a fixed weight to a rising `SCORE_BASE` per
+ * cleared lever; that has NO correspondence to the real doctrine blend
+ * (recon §2). Here the doctrine score renders AS-IS from analysis.creditScore
+ * and NEVER moves when a lever is agreed. The ONLY thing "agree" moves is the
+ * flag state (clears it) + the ratified-mitigant CONVERGENCE count. `proceeds`
+ * is the sole lever that re-scores for real (reduce_proceeds re-runs the deal);
+ * that write path is graph-format only and unreachable from this legacy surface,
+ * so proceeds is surfaced as a labeled "re-scores — run via revision" affordance
+ * rather than faking a score move.
+ * ─────────────────────────────────────────────────────────────────────────── */
+interface LeverDef {
+  readonly id: string;
+  readonly name: string;
+  /** Keyword matchers to bind this lever to a REAL mitigant (strategy text / structuralChanges). */
+  readonly match: ReadonlyArray<string>;
+  readonly orig: string;
+  readonly buyer: string;
+  readonly buyerWhy: string;
+  /** proceeds is the last-resort economic lever — the ONLY one that really re-scores. */
+  readonly lastResort?: boolean;
+}
+const LEVERS: ReadonlyArray<LeverDef> = [
+  { id: 'reserve', name: 'Lease-up reserve', match: ['reserve', 'escrow', 'ti/lc', 'tilc', 'fund_reserve'],
+    orig: 'Minimal reserve', buyer: 'Fund a lease-up / carry reserve', buyerWhy: 'Funds carry the asset through stabilization' },
+  { id: 'cash', name: 'Cash management', match: ['cash management', 'lockbox', 'cash sweep', 'sweep', 'cash trap', 'springing_cash'],
+    orig: 'No lockbox', buyer: 'Springing lockbox / cash trap', buyerWhy: 'Traps cash if lease-up stalls' },
+  { id: 'guaranty', name: 'Recourse / guaranty', match: ['guaranty', 'recourse', 'guarantee'],
+    orig: 'Non-recourse', buyer: 'Springing recourse on milestones', buyerWhy: 'Recourse triggers if lease-up misses' },
+  { id: 'amort', name: 'Amortization', match: ['amort', 'paydown', 'deleverage', 'require_amortization'],
+    orig: 'Full-term interest-only', buyer: 'Amortize after stabilization', buyerWhy: 'Builds equity once stabilized' },
+  { id: 'cp', name: 'Conditions precedent', match: ['condition precedent', 'condition_precedent', 'estoppel', 'closing condition', 'cp '],
+    orig: 'None at close', buyer: 'Estoppel + lease-up evidence at close', buyerWhy: 'Verifies the anchor before funding' },
+  { id: 'proceeds', name: 'Loan proceeds', match: ['reduce_proceeds', 'proceeds', 'haircut', 'reduce loan', 'loan from'], lastResort: true,
+    orig: 'Full request', buyer: 'Reduce proceeds (lower basis)', buyerWhy: 'De-risks by lowering basis' },
+];
+
+/** A lever bound to its real mitigant (or null = "not modeled" — shown honestly). */
+interface LeverBinding {
+  readonly def: LeverDef;
+  readonly mitigant: MitigationStrategy | null;
+  readonly finding: ContestedPoint | null;
+  /** commentary key for the real comments table (finding id when bound, else lever id). */
+  readonly commentKey: string;
+}
+function bindLevers(
+  mitigations: ReadonlyArray<MitigationStrategy>,
+  points: ReadonlyArray<ContestedPoint>,
+): LeverBinding[] {
+  const used = new Set<string>();
+  return LEVERS.map((def) => {
+    // Match a real mitigant by keyword against its strategy text + structural changes.
+    const mitigant = mitigations.find((m) => {
+      if (used.has(m.id)) return false;
+      const hay = `${m.strategy} ${(m.structuralChanges ?? []).join(' ')} ${m.description ?? ''}`.toLowerCase();
+      return def.match.some((k) => hay.includes(k));
+    }) ?? null;
+    if (mitigant) used.add(mitigant.id);
+    const finding = mitigant ? (points.find((p) => p.id === mitigant.findingId) ?? null) : null;
+    return { def, mitigant, finding, commentKey: mitigant?.findingId ?? `lever:${def.id}` };
+  });
+}
+
+/** Map the active URL `?side` onto the DealRoom's explicit C palette (ochre / steel / neutral teal). */
+function sideAccentC(side: Side | null): { accent: string; soft: string; label: string } {
+  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Originator' };
+  if (side === 'buyer') return { accent: C.contested, soft: '#EAF0F8', label: 'B-piece buyer' };
+  return { accent: C.teal, soft: C.tealSoft, label: 'Platform' };
+}
+
 /** ★ THE SINGLE ROLE SEAM — a 3-tier access object future server authz plugs into.
  *  workbook: buyer-only (the one private artifact) · memo: shared · points: shared. */
 function roleView(role: Role) {
@@ -89,6 +162,8 @@ function roleView(role: Role) {
 }
 
 export function DealRoom({ id }: { id: string }) {
+  const side = useSide();                                   // P1/P2/P3 — carried via `?side`
+  const [ratified, setRatified] = useState<Set<string>>(new Set()); // lever ids agreed (convergence state)
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [unsupported, setUnsupported] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -189,10 +264,40 @@ export function DealRoom({ id }: { id: string }) {
   if (!analysis) return null;
 
   const view = roleView(role);
+  const sideC = sideAccentC(side);
   const findings = analysis.findings ?? [];
   const points = deriveContestedPoints(findings);
   const comments = analysis.comments ?? [];
   const score = analysis.creditScore;
+
+  // ── P4b lever ledger — REAL bindings, no toy score ─────────────────────────
+  const leverBindings = bindLevers(analysis.mitigations ?? [], points);
+  // Structural (non-proceeds) levers with a REAL mitigant behind them are the
+  // universe of the CONVERGENCE indicator. Levers with no real backing are
+  // "not modeled" and never counted toward convergence.
+  const structuralBound = leverBindings.filter((b) => !b.def.lastResort && b.mitigant);
+  const ratifiedCount = structuralBound.filter((b) => ratified.has(b.def.id)).length;
+  const convergenceTotal = structuralBound.length;                     // N of M ratified — NOT the score
+  // ★ Cleared = DERIVED read-only predicate (recon §Decision 2): no open
+  //   fatal/disqualifying flag + rating band better than Decline + every backed
+  //   structural mitigant ratified. Never a stored status, never a rising number.
+  const hasFatalFlag = findings.some((f) => {
+    const sev = String(f.severity ?? '').toLowerCase();
+    return sev === 'critical' || sev === 'fatal' || sev === 'disqualifying';
+  });
+  const bandOk = score != null && score.riskTier !== 'high_risk' && score.riskTier !== 'insufficient_data'
+    && (score.recommendation ?? '').toLowerCase() !== 'decline';
+  const structuralAllRatified = convergenceTotal > 0 && ratifiedCount === convergenceTotal;
+  const derivedCleared = !hasFatalFlag && bandOk && (convergenceTotal === 0 || structuralAllRatified);
+
+  const ratifyLever = (b: LeverBinding) => {
+    setRatified((p) => { const n = new Set(p); if (n.has(b.def.id)) n.delete(b.def.id); else n.add(b.def.id); return n; });
+    // Record the ratification as a real "agree" comment on the finding the lever maps to
+    // (the OVERRIDE_DECISION overlay write is graph-format only and unreachable here).
+    if (b.finding && !ratified.has(b.def.id)) {
+      postComment(b.finding.id, 'agree', `Agreed structural mitigant — ${b.def.name}: ${b.mitigant?.strategy ?? b.def.buyer}.`).catch(() => {});
+    }
+  };
   const uw = analysis.uwModel;
   const effUw = scenario ?? uw;                 // what the rail shows: the what-if if active, else the actual UW
   const scenarioActive = scenario !== null;
@@ -377,6 +482,19 @@ export function DealRoom({ id }: { id: string }) {
           </div>
         </div>
 
+        {/* ── Convergence + Cleared (derived; NOT the score) ──────
+            Convergence = N of M REAL structural mitigants ratified (override
+            state), clearly distinct from the doctrine score. Cleared = the
+            derived predicate. Neither fabricates a rising number. */}
+        <ConvergenceBar
+          ratified={ratifiedCount} total={convergenceTotal}
+          cleared={derivedCleared} hasFatalFlag={hasFatalFlag} bandOk={bandOk}
+          accent={sideC.accent} soft={sideC.soft}
+        />
+
+        {/* ── DispositionBar — LABELED PREVIEW (no write; taxonomy is P4c) ── */}
+        <DispositionBarPreview cleared={derivedCleared} hasFatalFlag={hasFatalFlag} />
+
         {/* ── Originator banner (originator view only) ─────────── */}
         {role === 'originator' && (
           <div style={{ background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.amber}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#6e4a1d' }}>
@@ -476,6 +594,27 @@ export function DealRoom({ id }: { id: string }) {
                 })}
               </div>
             )}
+
+            {/* ── 4b. Agreement ledger — the 7 levers, bound to REAL mitigants ──
+                Each structural lever ratifies its real mitigant (clears the flag,
+                records an "agree" comment) — the doctrine score does NOT move.
+                Levers with no real mitigant behind them are shown honestly as
+                "not modeled". Proceeds re-scores for real (labeled). */}
+            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3, margin: '18px 0 8px' }}>
+              Agreement ledger <span style={{ textTransform: 'none', letterSpacing: 0, color: C.ink3 }}>— structural levers ratify a mitigant; the score stays put</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {leverBindings.map((b) => (
+                <LeverRow
+                  key={b.def.id} binding={b}
+                  ratified={ratified.has(b.def.id)} onRatify={() => ratifyLever(b)}
+                  thread={comments.filter((c) => c.findingId === b.commentKey)}
+                  canComment={view.canComment}
+                  onPost={(stance, text) => postComment(b.commentKey, stance, text)}
+                  accent={sideC.accent}
+                />
+              ))}
+            </div>
 
             {/* User-added flags — local/preview, visually DISTINCT from engine flags */}
             {localFlags.length > 0 && (
@@ -930,3 +1069,194 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+/* ── Convergence indicator — ratified-mitigant COUNT (never the score) + derived Cleared ── */
+function ConvergenceBar({ ratified, total, cleared, hasFatalFlag, bandOk, accent, soft }: {
+  ratified: number; total: number; cleared: boolean; hasFatalFlag: boolean; bandOk: boolean; accent: string; soft: string;
+}) {
+  const pct = total > 0 ? Math.round((ratified / total) * 100) : (cleared ? 100 : 0);
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, padding: '12px 16px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3 }}>Structural convergence</span>
+          <span style={{ ...num(C.ink), fontSize: 15, fontWeight: 700 }}>{ratified}<span style={{ color: C.ink3, fontWeight: 400 }}> of {total}</span></span>
+          <span style={{ fontSize: 11, color: C.ink3 }}>mitigants ratified — not the credit score</span>
+        </div>
+        {cleared ? (
+          <span style={{ fontSize: 12, fontWeight: 600, color: C.resolved, background: '#F0F6F2', border: `1px solid ${C.resolved}`, borderRadius: 999, padding: '3px 12px' }}>Cleared (derived)</span>
+        ) : hasFatalFlag ? (
+          <span style={{ fontSize: 12, fontWeight: 600, color: C.kicked, background: '#FBECEB', border: `1px solid ${C.kicked}`, borderRadius: 999, padding: '3px 12px' }}>Disqualifying flag — no structure cures it</span>
+        ) : (
+          <span style={{ fontSize: 12, fontWeight: 500, color: C.ink3 }}>{!bandOk ? 'Rating below the desk bar' : `${total - ratified} to ratify to clear`}</span>
+        )}
+      </div>
+      <div style={{ height: 6, borderRadius: 3, background: C.border, marginTop: 10, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: cleared ? C.resolved : accent, transition: 'width .25s' }} />
+      </div>
+      <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 6 }}>
+        Cleared ⟺ no open disqualifying flag · rating band better than Decline · every backed structural mitigant ratified. Derived read — no status is written.
+      </div>
+    </div>
+  );
+}
+
+/* ── DispositionBar — LABELED PREVIEW. Renders the mockup's 4 reason categories.
+      No write: the `reasonCategory` taxonomy + the disposition write are P4c. ── */
+const DISPOSITION_REASONS: ReadonlyArray<{ id: string; label: string; hint: string }> = [
+  { id: 'disqualifying', label: 'Disqualifying', hint: 'Sponsor character / fatal credit' },
+  { id: 'couldnt_structure', label: "Couldn't structure", hint: "Economics won't pencil even maxing levers" },
+  { id: 'expired', label: 'Expired', hint: 'Missed the pool cutoff / ran out of time' },
+  { id: 'withdrawn', label: 'Withdrawn', hint: 'Borrower took a competing term sheet' },
+];
+function DispositionBarPreview({ cleared, hasFatalFlag }: { cleared: boolean; hasFatalFlag: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface2, padding: '12px 16px', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3 }}>Outcome</span>
+          <span style={{ fontSize: 13, color: C.ink2 }}>
+            {hasFatalFlag ? 'A disqualifying flag is raised.' : cleared ? 'Structure cleared — approvable, or still walk.' : 'In negotiation.'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button disabled title="Preview — Closed status is P4c (needs the status write path)"
+            style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, color: C.ink3, cursor: 'not-allowed' }}>
+            Approve &amp; close (preview)
+          </button>
+          <button onClick={() => setOpen((o) => !o)}
+            style={{ fontSize: 12, fontWeight: 500, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.borderStrong}`, background: C.surface, color: C.ink2, cursor: 'pointer' }}>
+            Reject / withdraw (preview)
+          </button>
+        </div>
+      </div>
+      {open && (
+        <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 12, paddingTop: 12 }}>
+          <div style={{ fontSize: 10.5, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 8 }}>Why didn&apos;t it close? — preview taxonomy, nothing is written</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
+            {DISPOSITION_REASONS.map((r) => (
+              <div key={r.id} style={{ border: `1px solid ${C.border}`, borderRadius: 9, background: C.surface, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{r.label}</div>
+                <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>{r.hint}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 8 }}>
+            The <code>reasonCategory</code> write + disposition record are P4c. Existing disposition data is untouched.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── LeverRow — one lever, bound to its REAL mitigant (or "not modeled"). ──
+      Agree ratifies the mitigant (clears the flag + records an "agree" comment)
+      WITHOUT moving the doctrine score. Per-lever commentary posts to the real
+      comments table keyed on the mapped finding (or the lever id when unbacked). */
+function LeverRow({ binding, ratified, onRatify, thread, canComment, onPost, accent }: {
+  binding: LeverBinding; ratified: boolean; onRatify: () => void;
+  thread: ReadonlyArray<Comment>; canComment: boolean;
+  onPost: (stance: string, text: string) => Promise<void>; accent: string;
+}) {
+  const [showThread, setShowThread] = useState(false);
+  const { def, mitigant, finding } = binding;
+  const notModeled = !mitigant && !def.lastResort;
+  const isProceeds = !!def.lastResort;
+  const done = ratified && !isProceeds;
+  const border = done ? C.resolved : notModeled ? C.border : C.borderStrong;
+  return (
+    <div style={{ border: `1px solid ${border}`, borderRadius: 11, background: done ? '#F5FAF7' : C.surface, padding: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontFamily: DISP_FALLBACK, fontSize: 15, fontWeight: 600, color: C.ink }}>{def.name}</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {thread.length > 0 && <button onClick={() => setShowThread((s) => !s)} style={{ ...num(accent), fontSize: 11, background: 'none', border: 'none', cursor: 'pointer' }}>{thread.length} 💬</button>}
+          {isProceeds && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: C.amber }}>re-scores — run via revision</span>
+          )}
+          {notModeled && <span style={{ fontSize: 10, fontWeight: 600, color: C.ink3, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 5, padding: '2px 7px' }}>not modeled</span>}
+          {done && <span style={{ fontSize: 11, fontWeight: 600, color: C.resolved }}>✓ agreed</span>}
+        </div>
+      </div>
+
+      {/* Flag line — the real finding this lever ratifies (or the honest gap). */}
+      <div style={{ fontSize: 10.5, color: done ? C.resolved : notModeled ? C.ink3 : C.flagged, marginTop: 4 }}>
+        {finding
+          ? (done ? `flag cleared: ${finding.title}` : `red flag: ${finding.title}`)
+          : isProceeds
+            ? 'economic lever — only reduce_proceeds actually re-runs the doctrine score'
+            : 'no matching mitigant produced by the engine for this deal'}
+      </div>
+
+      {!done && !notModeled && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8, margin: '10px 0' }}>
+            <LeverPosition accent={C.amber} who="Originator proposes" term={def.orig} />
+            <LeverPosition accent={accent} who="Buyer requires" term={mitigant?.strategy ?? def.buyer} why={def.buyerWhy} />
+          </div>
+          {mitigant && (mitigant.structuralChanges?.length ?? 0) > 0 && (
+            <ul style={{ margin: '0 0 10px', paddingLeft: 16 }}>
+              {mitigant.structuralChanges.map((sc, i) => <li key={i} style={{ fontSize: 12, color: C.ink2, lineHeight: 1.4 }}>{sc}</li>)}
+            </ul>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {isProceeds ? (
+              <button disabled title="reduce_proceeds re-runs the deal — create a revision (graph path); not written from the deal room"
+                style={{ fontSize: 12, fontWeight: 600, padding: '7px 13px', borderRadius: 7, border: `1px solid ${C.amber}`, background: C.amberSoft, color: C.amber, cursor: 'not-allowed' }}>
+                Reduce proceeds — re-scores (last resort)
+              </button>
+            ) : (
+              <button onClick={onRatify}
+                style={{ fontSize: 12, fontWeight: 600, padding: '7px 13px', borderRadius: 7, border: 'none', background: accent, color: '#fff', cursor: 'pointer' }}>
+                Agree structure — clears the flag (score holds)
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      {done && (
+        <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 8 }}>
+          {mitigant?.strategy ?? def.buyer}<span style={{ color: C.ink3 }}> — ratified; the doctrine score is unchanged.</span>
+          <button onClick={onRatify} style={{ marginLeft: 8, fontSize: 11, color: accent, background: 'none', border: 'none', cursor: 'pointer' }}>undo</button>
+        </div>
+      )}
+      {notModeled && (
+        <div style={{ fontSize: 12, color: C.ink3, fontStyle: 'italic', marginTop: 6 }}>
+          The engine produced no mitigant for this lever on this deal — shown honestly rather than faking agreement. Buyer ask: {def.buyer}.
+        </div>
+      )}
+
+      {/* Per-lever commentary → the REAL comments table (keyed on the mapped finding). */}
+      {showThread && thread.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+          {thread.map((c) => (
+            <div key={c.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface2, padding: '8px 10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: '#fff', borderRadius: 4, padding: '1px 6px', background: c.stance === 'agree' ? C.resolved : c.stance === 'disagree' ? C.kicked : C.conceded }}>{c.stance}</span>
+                <span style={{ fontSize: 11, color: C.ink2 }}>{c.author}</span>
+                <span style={{ ...num(C.ink3), fontSize: 10, marginLeft: 'auto' }}>{new Date(c.createdAt).toLocaleDateString()}</span>
+              </div>
+              <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.45 }}>{c.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {canComment ? (
+        <div style={{ marginTop: 10 }}>
+          <PointComposer onPost={onPost} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+function LeverPosition({ accent, who, term, why }: { accent: string; who: string; term: string; why?: string }) {
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderLeft: `3px solid ${accent}`, borderRadius: 8, background: C.surface2, padding: '9px 11px' }}>
+      <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: accent, fontWeight: 600 }}>{who}</div>
+      <div style={{ fontSize: 12.5, color: C.ink, marginTop: 3 }}>{term}</div>
+      {why && <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>{why}</div>}
+    </div>
+  );
+}
+const DISP_FALLBACK = SANS;
