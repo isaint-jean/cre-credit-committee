@@ -31,10 +31,14 @@ import { api } from '@/lib/api-client';
 import type { Pool } from '@cre/contracts';
 import { DealCard } from '@/components/PoolRail/DealCard';
 import { DisabledAffordance } from '@/components/PoolRail/DisabledAffordance';
+import { useSide } from '@/lib/side-context';
+import { sideAccent } from '@/lib/side-accent';
 
 type LoadState = 'loading' | 'loaded' | 'error';
 
 export default function PoolHomeBasePage() {
+  const side = useSide();
+  const accent = sideAccent(side);
   const [pools, setPools] = useState<Pool[]>([]);
   const [load, setLoad] = useState<LoadState>('loading');
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -75,7 +79,12 @@ export default function PoolHomeBasePage() {
     <div className="max-w-7xl mx-auto px-6 py-10">
       <header className="flex items-start justify-between gap-6 mb-8">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary mb-1">Your deals</h1>
+          {side !== null && (
+            <div className={`font-mono text-[11px] tracking-[0.14em] uppercase mb-1.5 ${accent.text}`}>
+              {accent.label}
+            </div>
+          )}
+          <h1 className="font-display text-2xl font-semibold text-text-primary mb-1">Your deals</h1>
           <p className="text-sm text-text-secondary">
             Pick a deal to open its pool rail.
             {load === 'loaded' && active.length > 0 && (
