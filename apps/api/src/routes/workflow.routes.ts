@@ -23,19 +23,28 @@ import {
   RENDER_VERSION,
   type AuditEvent,
   type AuditOverlayCreatedPayload,
+  type AuditPatchAddedPayload,
   type CommitteeActionEvent,
   type CommitteeActionId,
   type CommitteeActionKind,
   type CommitteeActionPayload,
   type CommitteeSnapshotId,
   type DoctrineEvaluationId,
+  type OverlayCommentPatch,
   type OverlayId,
+  type OverlayPatchId,
   type RenderedAnalysisId,
 } from '@cre/contracts';
-import { computeAuditEventId, computeCommitteeActionId, computeContentHash } from '../util/content-hash.js';
+import {
+  computeAuditEventId,
+  computeCommitteeActionId,
+  computeContentHash,
+  computeOverlayPatchId,
+} from '../util/content-hash.js';
 import { CommitteeActionsStore } from '../storage/committee-actions-store.js';
 import { AuditEventsStore } from '../storage/audit-events-store.js';
 import { CommitteeSnapshotsStore } from '../storage/committee-snapshots-store.js';
+import { OverlayPatchesStore } from '../storage/overlay-patches-store.js';
 import { computeDealWorkflowState } from '../services/compute-deal-workflow-state.js';
 import { buildCommitteeTimeline } from '../services/build-committee-timeline.js';
 import { rebuildAuditChain } from '../services/replay-overlays.js';
@@ -60,6 +69,11 @@ let _snapshotStore: CommitteeSnapshotsStore | null = null;
 function snapshotStore(): CommitteeSnapshotsStore {
   if (_snapshotStore === null) _snapshotStore = new CommitteeSnapshotsStore();
   return _snapshotStore;
+}
+let _patchesStore: OverlayPatchesStore | null = null;
+function patchesStore(): OverlayPatchesStore {
+  if (_patchesStore === null) _patchesStore = new OverlayPatchesStore();
+  return _patchesStore;
 }
 
 /* --------- Permission map: which permission gates which kind ---------- */
@@ -343,6 +357,179 @@ workflowRoutes.post('/overlays', requireAuth, (req: Request, res: Response) => {
   res.locals.observability = { cacheHit: false, renderVersion: 'overlay-created' };
   return res.status(201).json({ overlayId, inserted });
 });
+
+/* ------------------------- POST /overlay-comments ---------------------- */
+//
+// Thin, graph-native comment-patch WRITE route. Mirrors POST /overlays: it appends
+// to the EXISTING stores (overlayPatchesStore + auditEventsStore) — NOT a second
+// store — and mints the same-shape audit event.
+//
+// Body shape:
+//   {
+//     overlayId: OverlayId,                    // the anchor minted by POST /overlays
+//     path: string,                            // the lever/finding this comment is "re:"
+//     text: string,                            // the comment body
+//     side?: 'originator' | 'buyer'            // negotiation-view attribution (hash-EXCLUDED)
+//   }
+//
+// The overlay's binding (rootId, renderVersion, renderedAnalysisId) is read from its
+// overlay-created event — the client never supplies rooting fields, matching the
+// OVERRIDE_DECISION discipline.
+//
+// DESIGN:
+//   - Build the OverlayCommentPatch BODY (kind:'comment', path, author, text, createdAt).
+//     `side` is NOT in the body → NOT in the content hash. The id hashes the body only.
+//   - computeOverlayPatchId(body) → the patch id (recompute-verified again by the store).
+//   - overlayPatchesStore.insert(patch, { overlayId, rootId, renderVersion, side }):
+//     `side` rides the hash-excluded column.
+//   - Mint a `comment-added` audit event (previousEventId = the overlay's chain head)
+//     so the write shows on the committee timeline. Same content-hash + chain pattern
+//     as the test scripts and POST /overlays.
+//   - Gated by 'workflow:override' — identical to the anchor (POST /overlays); a
+//     comment rides the same overlay the override does.
+//
+// Returns { patchId, inserted }.
+
+interface PostOverlayCommentBody {
+  overlayId?: unknown;
+  path?: unknown;
+  text?: unknown;
+  side?: unknown;
+}
+
+workflowRoutes.post('/overlay-comments', requireAuth, (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as PostOverlayCommentBody;
+
+  // Shape validation only.
+  if (typeof body.overlayId !== 'string' || body.overlayId.length === 0) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'overlayId required' });
+  }
+  if (typeof body.path !== 'string' || body.path.length === 0) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'path required' });
+  }
+  if (typeof body.text !== 'string' || body.text.length === 0) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'text required' });
+  }
+  // `side` is optional and stored verbatim (hash-excluded). Only accept the known
+  // negotiation sides; anything else is treated as absent (stored NULL).
+  const side =
+    body.side === 'originator' || body.side === 'buyer' ? (body.side as string) : null;
+
+  // Permission: a comment rides the same overlay an override does; gate identically.
+  if (!enforcePermission(req, res, 'workflow:override' as never)) return;
+
+  const overlayId = body.overlayId as OverlayId;
+
+  // Resolve the overlay's binding from its overlay-created event. The client never
+  // supplies rooting fields (same discipline as OVERRIDE_DECISION).
+  const binding = auditStore().getOverlayBinding(overlayId);
+  if (binding === null) {
+    return res.status(400).json({
+      error: 'OVERLAY_NOT_FOUND',
+      message: 'overlay has no overlay-created event recorded',
+    });
+  }
+  const { rootId, renderVersion } = binding;
+
+  const author = req.user?.email ?? 'unknown';
+  const createdAt = new Date().toISOString();
+
+  // Build the patch BODY — `side` is deliberately NOT here (hash-excluded).
+  const patchBody = {
+    kind: 'comment' as const,
+    path: body.path,
+    author,
+    text: body.text,
+    createdAt,
+  };
+  const patchId = computeOverlayPatchId(patchBody);
+  const patch: OverlayCommentPatch = { id: patchId, ...patchBody };
+
+  let patchInserted: boolean;
+  try {
+    const result = patchesStore().insert(patch, { overlayId, rootId, renderVersion, side });
+    patchInserted = result.inserted;
+  } catch (e) {
+    const err = e as Error;
+    return res.status(400).json({ error: err?.name ?? 'INSERT_ERROR', message: err?.message });
+  }
+
+  // Mint the `comment-added` audit event so the write surfaces on the timeline.
+  // previousEventId = the overlay's current chain head (its most recent event).
+  const chain = auditStore().getByOverlay(overlayId);
+  const previousEventId = chain.length > 0 ? chain[chain.length - 1].id : null;
+  const auditPayload: AuditPatchAddedPayload = {
+    kind: 'comment-added',
+    patchId: patchId as OverlayPatchId,
+    summary: oneLineSummary(body.path, body.text),
+  };
+  const eventBody = {
+    previousEventId,
+    overlayId,
+    kind: 'comment-added' as const,
+    payload: auditPayload,
+    author,
+    occurredAt: createdAt,
+  };
+  const event: AuditEvent = { id: computeAuditEventId(eventBody), ...eventBody };
+  try {
+    auditStore().insert(event, { rootId, renderVersion });
+  } catch (e) {
+    const err = e as Error;
+    return res.status(400).json({ error: err?.name ?? 'INSERT_ERROR', message: err?.message });
+  }
+
+  res.locals.observability = { cacheHit: false, renderVersion: 'comment-added' };
+  return res.status(201).json({ patchId, inserted: patchInserted });
+});
+
+// Compact, deterministic audit summary for a comment ('re:<path> — <text head>').
+function oneLineSummary(path: string, text: string): string {
+  const head = text.replace(/\s+/g, ' ').trim();
+  const clipped = head.length > 80 ? head.slice(0, 79) + '…' : head;
+  return 're:' + path + ' — ' + clipped;
+}
+
+/* ------------------------- GET /overlay-comments ----------------------- */
+//
+// Query: ?rootId=<DoctrineEvaluationId>
+// Returns: { rootId, comments: [{ patchId, path, author, text, createdAt, side }] }
+//
+// Reads the persisted comment patches for a root (via overlayPatchesStore.getByRootWithSide)
+// and returns them WITH the hash-excluded `side` so NegotiationSurface can render them
+// side-tagged. Comment kind only; overrides/tags are surfaced via other paths.
+//
+// Chosen over enriching the committee timeline: TimelineEntry is a locked pure
+// projection (no text/path/side fields, TL3 "no synthesis"), so a thin read route that
+// joins the patch text + side is the cleaner surface. audit:read gates it (a read of
+// persisted overlay state).
+
+workflowRoutes.get(
+  '/overlay-comments',
+  requireAuth,
+  requirePermission('audit:read'),
+  (req: Request, res: Response) => {
+    const rootId = req.query.rootId;
+    if (typeof rootId !== 'string' || rootId.length === 0) {
+      return res.status(400).json({ error: 'BAD_REQUEST', message: 'rootId required' });
+    }
+    const rows = patchesStore().getByRootWithSide(rootId as DoctrineEvaluationId);
+    const comments = rows
+      .filter((r) => r.patch.kind === 'comment')
+      .map((r) => {
+        const c = r.patch as OverlayCommentPatch;
+        return {
+          patchId: c.id,
+          path: c.path,
+          author: c.author,
+          text: c.text,
+          createdAt: c.createdAt,
+          side: r.side,
+        };
+      });
+    return res.status(200).json({ rootId, comments });
+  },
+);
 
 /* ----------------------- GET /workflow-state --------------------------- */
 //

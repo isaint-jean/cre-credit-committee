@@ -32,14 +32,28 @@ interface PatchRow {
   readonly payload: string;
 }
 
+// A patch read back with its hash-EXCLUDED denormalized `side` column. `side` is
+// NOT part of the patch body / identity hash — it is a negotiation-view attribution
+// tag written alongside `created_at`, read back joined onto the patch here.
+export interface OverlayPatchWithSide {
+  readonly patch: OverlayPatch;
+  readonly side: string | null;
+}
+
 // Context required at insert time. The patch body itself does NOT carry overlayId
 // or rooting fields; the caller supplies them so the store can index correctly.
 // rootId here is the DoctrineEvaluationId (the analysis root); the rendered-analysis
 // anchor is captured via the audit log's overlay-created event.
+//
+// `side` (optional): a hash-EXCLUDED denormalized column — the negotiation-view
+// attribution ('originator' | 'buyer'). It is written to the `side` column exactly
+// like `created_at`, and MUST NOT appear in the patch body (which is the hashed
+// identity). Omitting it stores NULL.
 export interface OverlayPatchInsertCtx {
   readonly overlayId: OverlayId;
   readonly rootId: DoctrineEvaluationId;
   readonly renderVersion: RenderVersion;
+  readonly side?: string | null;
 }
 
 export class OverlayPatchesStore {
@@ -65,12 +79,22 @@ export class OverlayPatchesStore {
         render_version TEXT NOT NULL,
         kind TEXT NOT NULL,
         payload TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        side TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_overlay_patches_overlay ON overlay_patches(overlay_id);
       CREATE INDEX IF NOT EXISTS idx_overlay_patches_root ON overlay_patches(root_id);
       CREATE INDEX IF NOT EXISTS idx_overlay_patches_root_version ON overlay_patches(root_id, render_version);
     `);
+    // Defensive, idempotent: if a pre-existing lazy table was created before the
+    // hash-excluded `side` column existed, add it. New tables already carry it via
+    // the CREATE above; on those this is a no-op that we swallow.
+    const hasSide = this.db
+      .prepare(`SELECT 1 FROM pragma_table_info('overlay_patches') WHERE name = 'side'`)
+      .get();
+    if (!hasSide) {
+      this.db.exec(`ALTER TABLE overlay_patches ADD COLUMN side TEXT`);
+    }
   }
 
   insert(patch: OverlayPatch, ctx: OverlayPatchInsertCtx): { inserted: boolean } {
@@ -84,8 +108,8 @@ export class OverlayPatchesStore {
     const result = this.db
       .prepare(
         `INSERT INTO overlay_patches
-         (id, overlay_id, root_id, render_version, kind, payload, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+         (id, overlay_id, root_id, render_version, kind, payload, created_at, side)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING`,
       )
       .run(
@@ -96,6 +120,9 @@ export class OverlayPatchesStore {
         patch.kind,
         payload,
         new Date().toISOString(),
+        // `side` is a hash-excluded denormalized column written exactly like
+        // `created_at` — it never enters the body/id. NULL when the caller omits it.
+        ctx.side ?? null,
       );
     return { inserted: result.changes > 0 };
   }
@@ -126,6 +153,35 @@ export class OverlayPatchesStore {
     return rows.map((r) => {
       const body = JSON.parse(r.payload) as Record<string, unknown>;
       return { id: r.id, ...body } as OverlayPatch;
+    });
+  }
+
+  // ── side-carrying reads ────────────────────────────────────────────────────
+  // Same rows as getByOverlay/getByRoot, but join the hash-excluded `side` column
+  // so the negotiation surface can render the attribution tag. The patch body
+  // (JSON.parse(payload)) is UNCHANGED — `side` rides alongside, never inside it.
+
+  getByOverlayWithSide(overlayId: OverlayId): readonly OverlayPatchWithSide[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, payload, side FROM overlay_patches WHERE overlay_id = ? ORDER BY created_at`,
+      )
+      .all(overlayId) as Array<{ readonly id: string; readonly payload: string; readonly side: string | null }>;
+    return rows.map((r) => {
+      const body = JSON.parse(r.payload) as Record<string, unknown>;
+      return { patch: { id: r.id, ...body } as OverlayPatch, side: r.side ?? null };
+    });
+  }
+
+  getByRootWithSide(rootId: DoctrineEvaluationId): readonly OverlayPatchWithSide[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, payload, side FROM overlay_patches WHERE root_id = ? ORDER BY created_at`,
+      )
+      .all(rootId) as Array<{ readonly id: string; readonly payload: string; readonly side: string | null }>;
+    return rows.map((r) => {
+      const body = JSON.parse(r.payload) as Record<string, unknown>;
+      return { patch: { id: r.id, ...body } as OverlayPatch, side: r.side ?? null };
     });
   }
 
