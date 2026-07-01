@@ -266,7 +266,13 @@ analysisRoutes.get('/lookup', (req: Request, res: Response) => {
   const head = matches[0]!;
   res.json({
     found: true,
-    analysisId: head.legacyId ?? head.graphId,
+    // Converge phase i — prefer the graph id (lineage_root_id, present for every
+    // analysis with a graph spine, which is every analysis post-6.8) so pool
+    // "Open underwriting" links land on RenderedAnalysisView. GET /:id still accepts
+    // either format (dispatch-by-id-format); this only flips the default entry point
+    // away from the legacy uuid / DealRoom. Falls back to legacyId only if a row has
+    // no graphId (none today, but the branch stays honest).
+    analysisId: head.graphId ?? head.legacyId,
     status: head.status,
     workflowState: null,
     ...(matches.length > 1 ? { multipleFound: true, count: matches.length } : {}),
@@ -489,7 +495,18 @@ analysisRoutes.get('/:id', (req: Request, res: Response) => {
   // overlay substrate fields (executiveSummary in this phase) from the linked
   // graph records. Null-link / missing-graph cases pass through unchanged.
   const projected = projectLegacyAnalysisFromGraph(analysis, recordGraphStore);
-  res.json({ analysis: applyCreditPolicyBandsToAnalysis(projected) });
+
+  // Converge phase i — expose the graph-spine LINEAGE ROOT (64-hex) so the web page
+  // can redirect a uuid URL onto RenderedAnalysisView. This is NOT analysis.graphRevisionId
+  // (a specific RevisionId, which for a revised deal is NOT the lineage root and would
+  // fail getLatestRevisionByLineageRoot). We resolve the true root via the revision
+  // envelope. Read-only, additive; null when the analysis has no graph spine (none today).
+  let graphLineageRootId: string | null = null;
+  if (typeof projected.graphRevisionId === 'string' && projected.graphRevisionId.length > 0) {
+    const envelope = recordGraphStore.getRevisionEnvelope(projected.graphRevisionId as never);
+    graphLineageRootId = envelope?.lineageRootId ?? null;
+  }
+  res.json({ analysis: applyCreditPolicyBandsToAnalysis(projected), graphLineageRootId });
 });
 
 // GET /api/analyses/:id/handbook-evaluation — Sibling endpoint for the handbook

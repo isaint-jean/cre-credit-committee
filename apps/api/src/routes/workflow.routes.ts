@@ -20,6 +20,9 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import {
   COMMITTEE_ACTION_KINDS,
+  RENDER_VERSION,
+  type AuditEvent,
+  type AuditOverlayCreatedPayload,
   type CommitteeActionEvent,
   type CommitteeActionId,
   type CommitteeActionKind,
@@ -29,7 +32,7 @@ import {
   type OverlayId,
   type RenderedAnalysisId,
 } from '@cre/contracts';
-import { computeCommitteeActionId } from '../util/content-hash.js';
+import { computeAuditEventId, computeCommitteeActionId, computeContentHash } from '../util/content-hash.js';
 import { CommitteeActionsStore } from '../storage/committee-actions-store.js';
 import { AuditEventsStore } from '../storage/audit-events-store.js';
 import { CommitteeSnapshotsStore } from '../storage/committee-snapshots-store.js';
@@ -229,6 +232,116 @@ workflowRoutes.post('/committee-actions', requireAuth, (req: Request, res: Respo
   };
 
   return res.status(201).json({ action: event });
+});
+
+/* ------------------------------ POST /overlays ------------------------- */
+//
+// Net-new (converge phase i). Mints the `overlay-created` audit event that is the
+// PRECONDITION for an OVERRIDE_DECISION committee action. Prior to this route the
+// only writer of `overlay-created` was the test scripts, so the override path was
+// unreachable from the running app (see docs/recon/2026-07-01-converge-plan.md §2).
+//
+// Body shape:
+//   {
+//     rootId: DoctrineEvaluationId,          // the RenderedAnalysis's own rootId
+//     renderedAnalysisId: RenderedAnalysisId, // the RenderedAnalysis's own id
+//     overlayKey?: string                     // stable per-lever namespace (default 'default')
+//   }
+//
+// DESIGN — sound append-only chain anchor:
+//   - The overlayId is DETERMINISTIC over (rootId, renderedAnalysisId, overlayKey):
+//     `ov-<contentHash>`. This makes create idempotent per binding — one overlay per
+//     (deal, lever), so re-ratifying a lever reuses the same overlay rather than
+//     minting a fresh chain. The client re-derives the same id, so it never has to
+//     remember an opaque server-issued id.
+//   - The `overlay-created` event is the chain ROOT: previousEventId = null, payload
+//     carries { renderedAnalysisId, renderVersion } (self-describing for replay).
+//   - The event id is content-hashed and inserted ON CONFLICT DO NOTHING, so a second
+//     POST for the same binding + author + timestamp is a structural no-op; a second
+//     POST at a different time still resolves to the SAME overlayId (its distinct
+//     overlay-created event is idempotently skipped by getOverlayBinding LIMIT 1).
+//   - Author from req.user (authenticated). Shape validation only; no business logic.
+//   - Gated by 'workflow:override' — the same permission as the OVERRIDE_DECISION it
+//     anchors. Minting an overlay is meaningless without the ability to override it.
+//
+// Returns { overlayId, inserted }.
+
+interface PostOverlayBody {
+  rootId?: unknown;
+  renderedAnalysisId?: unknown;
+  overlayKey?: unknown;
+  occurredAt?: unknown;
+}
+
+workflowRoutes.post('/overlays', requireAuth, (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as PostOverlayBody;
+
+  // Shape validation only.
+  if (typeof body.rootId !== 'string' || body.rootId.length === 0) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'rootId required' });
+  }
+  if (typeof body.renderedAnalysisId !== 'string' || body.renderedAnalysisId.length === 0) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'renderedAnalysisId required' });
+  }
+  const overlayKey =
+    typeof body.overlayKey === 'string' && body.overlayKey.length > 0 ? body.overlayKey : 'default';
+
+  // Permission: minting an overlay is the anchor for OVERRIDE_DECISION; gate identically.
+  if (!enforcePermission(req, res, 'workflow:override' as never)) return;
+
+  const rootId = body.rootId as DoctrineEvaluationId;
+  const renderedAnalysisId = body.renderedAnalysisId as RenderedAnalysisId;
+  const renderVersion = RENDER_VERSION;
+
+  // Deterministic overlayId per (deal, overlayKey). Same binding -> same id, always.
+  // The sanitized overlayKey is embedded in the id so downstream consumers (e.g. the
+  // committee-action summary, which is 'registered for overlay <overlayId>') carry a
+  // stable, human-legible marker of WHICH binding was acted upon — the client re-reads
+  // ratification from the persisted timeline by matching this marker, no hash recompute.
+  const keyToken = overlayKey.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const overlayId = ('ov-' + keyToken + '-' +
+    computeContentHash({ rootId, renderedAnalysisId, overlayKey, renderVersion }).slice(0, 24)) as OverlayId;
+
+  // Idempotent short-circuit: if this overlay already has an overlay-created event,
+  // return it without minting a second chain-root event.
+  const existing = auditStore().getOverlayBinding(overlayId);
+  if (existing !== null) {
+    res.locals.observability = { cacheHit: true, renderVersion: 'overlay-created' };
+    return res.status(200).json({ overlayId, inserted: false });
+  }
+
+  const author = req.user?.email ?? 'unknown';
+  const occurredAt =
+    typeof body.occurredAt === 'string' && body.occurredAt.length > 0
+      ? body.occurredAt
+      : new Date().toISOString();
+
+  const payload: AuditOverlayCreatedPayload = {
+    kind: 'overlay-created',
+    renderedAnalysisId,
+    renderVersion,
+  };
+  const eventBody = {
+    previousEventId: null,
+    overlayId,
+    kind: 'overlay-created' as const,
+    payload,
+    author,
+    occurredAt,
+  };
+  const event: AuditEvent = { id: computeAuditEventId(eventBody), ...eventBody };
+
+  let inserted: boolean;
+  try {
+    const result = auditStore().insert(event, { rootId, renderVersion });
+    inserted = result.inserted;
+  } catch (e) {
+    const err = e as Error;
+    return res.status(400).json({ error: err?.name ?? 'INSERT_ERROR', message: err?.message });
+  }
+
+  res.locals.observability = { cacheHit: false, renderVersion: 'overlay-created' };
+  return res.status(201).json({ overlayId, inserted });
 });
 
 /* ----------------------- GET /workflow-state --------------------------- */
