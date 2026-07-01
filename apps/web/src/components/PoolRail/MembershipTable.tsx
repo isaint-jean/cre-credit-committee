@@ -26,21 +26,29 @@ import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import type { LoanMembership, OnTapeStatus, PoolId } from '@cre/contracts';
 import { DisabledAffordance } from './DisabledAffordance';
+import type { Side } from '@/lib/side-context';
+import { withSide } from '@/lib/side-accent';
 
+/**
+ * Real-state status chips. The ONLY membership status present in the data is
+ * `under-review`, which the prototype renders as "On tape". The other three
+ * statuses (clean / conditioned / kick-flagged) are part of the contract but not
+ * yet in data; the chip renders them faithfully if/when they appear — no invented
+ * vocabulary, no seeds.
+ */
 const STATUS_TONE: Record<OnTapeStatus, string> = {
   'clean':         'bg-score-strong/15 text-score-strong border-score-strong/30',
   'conditioned':   'bg-accent/15 text-accent border-accent/30',
   'kick-flagged':  'bg-risk-high/15 text-risk-high border-risk-high/30',
-  'under-review':  'bg-text-muted/15 text-text-secondary border-border-secondary',
+  'under-review':  'bg-buyer-soft text-buyer border-buyer/30',
 };
 
-const STATUS_FILTERS: ReadonlyArray<{ label: string; value: OnTapeStatus | 'all' }> = [
-  { label: 'All',          value: 'all' },
-  { label: 'Clean',        value: 'clean' },
-  { label: 'Conditioned',  value: 'conditioned' },
-  { label: 'Kick-flagged', value: 'kick-flagged' },
-  { label: 'Under review', value: 'under-review' },
-];
+const STATUS_LABEL: Record<OnTapeStatus, string> = {
+  'clean':         'Clean',
+  'conditioned':   'Conditioned',
+  'kick-flagged':  'Kick-flagged',
+  'under-review':  'On tape',
+};
 
 /**
  * Per-dealRef lookup state. Exported alongside the table so the branch logic
@@ -92,11 +100,12 @@ export function branchForLookup(dealRef: string, state: LookupState | undefined)
 export function MembershipTable({
   poolId,
   membership,
+  side = null,
 }: {
   readonly poolId: PoolId;
   readonly membership: readonly LoanMembership[];
+  readonly side?: Side | null;
 }) {
-  const [statusFilter, setStatusFilter] = useState<OnTapeStatus | 'all'>('all');
   const [search, setSearch] = useState('');
 
   // Per-dealRef lookup state. Initialized 'loading' for every unique dealRef
@@ -149,7 +158,6 @@ export function MembershipTable({
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return membership.filter(m => {
-      if (statusFilter !== 'all' && m.status !== statusFilter) return false;
       if (term.length > 0) {
         // Reseed PR B — search hits propertyName + city + dealRef + notes.
         const hay = `${m.propertyName ?? ''} ${m.city ?? ''} ${m.state ?? ''} ${m.dealRef} ${m.loanInPoolId} ${m.notes ?? ''}`.toLowerCase();
@@ -157,7 +165,7 @@ export function MembershipTable({
       }
       return true;
     });
-  }, [membership, statusFilter, search]);
+  }, [membership, search]);
 
   return (
     <section className="mb-6">
@@ -177,22 +185,6 @@ export function MembershipTable({
           className="bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-text-primary text-sm
                      focus:outline-none focus:border-accent placeholder-text-muted flex-1 max-w-xs"
         />
-        <div className="flex items-center gap-1">
-          {STATUS_FILTERS.map(f => (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => setStatusFilter(f.value)}
-              className={`px-3 py-1.5 text-xs rounded border transition-colors ${
-                statusFilter === f.value
-                  ? 'bg-accent text-bg-primary border-accent font-medium'
-                  : 'bg-bg-tertiary text-text-secondary border-border-secondary hover:border-accent/60'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="border border-border-primary rounded overflow-hidden">
@@ -242,7 +234,7 @@ export function MembershipTable({
                   </td>
                   <td className="px-3 py-2 align-top">
                     <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_TONE[m.status]}`}>
-                      {m.status}
+                      {STATUS_LABEL[m.status]}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-xs align-top">
@@ -250,7 +242,7 @@ export function MembershipTable({
                   </td>
                   <td className="px-3 py-2 text-right align-top">
                     <Link
-                      href={`/pools/${poolId}/loans/${m.loanInPoolId}`}
+                      href={withSide(`/pools/${poolId}/loans/${m.loanInPoolId}`, side)}
                       className="text-accent hover:text-accent-hover text-xs"
                     >
                       Trajectory →

@@ -18,6 +18,8 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import type { Disposition, LoanInPool, LoanMembership, OnTapeStatus } from '@cre/contracts';
+import { useSide } from '@/lib/side-context';
+import { withSide } from '@/lib/side-accent';
 
 type LoadState = 'loading' | 'loaded' | 'error';
 
@@ -36,6 +38,7 @@ const STATUS_TONE: Record<OnTapeStatus, string> = {
 
 export default function LoanTrajectoryPage() {
   const { poolId, loanInPoolId } = useParams<{ poolId: string; loanInPoolId: string }>();
+  const side = useSide();
   const [data, setData] = useState<TrajectoryData | null>(null);
   const [load, setLoad] = useState<LoadState>('loading');
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -67,7 +70,7 @@ export default function LoanTrajectoryPage() {
   if (load === 'error') {
     return (
       <div className="max-w-5xl mx-auto px-6 py-10">
-        <Link href={`/pools/${poolId}`} className="text-accent hover:text-accent-hover text-sm">← Pool rail</Link>
+        <Link href={withSide(`/pools/${poolId}`, side)} className="text-accent hover:text-accent-hover text-sm">← Pool rail</Link>
         <div className="bg-risk-high/10 border border-risk-high/30 rounded p-4 text-risk-high text-sm mt-4">
           Could not load loan: {errMsg}
         </div>
@@ -80,7 +83,7 @@ export default function LoanTrajectoryPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
-      <Link href={`/pools/${poolId}`} className="text-accent hover:text-accent-hover text-sm">← Pool rail</Link>
+      <Link href={withSide(`/pools/${poolId}`, side)} className="text-accent hover:text-accent-hover text-sm">← Pool rail</Link>
 
       <header className="border-b border-border-primary pb-6 mt-3 mb-6">
         <div className="flex items-start justify-between gap-6">
