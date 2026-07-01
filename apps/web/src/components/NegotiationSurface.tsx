@@ -14,7 +14,7 @@
  *   - the P4b 7-lever agreement ledger (LEVERS), bound to `data.mitigations`
  *   - ConvergenceBar (ratified-mitigant COUNT — never the credit score)
  *   - DispositionBar shell (4 reason-category preview)
- *   - the per-point / per-lever comment composer (preview — see note below)
+ *   - the per-point / per-lever comment composer (LIVE — graph-native, see note below)
  *
  * ★ REAL OVERRIDE (net-new vs DealRoom's session Set):
  *   lever "agree" → api.createOverlay (mints/fetches the deterministic overlay-created
@@ -23,13 +23,19 @@
  *   not a session Set. Each lever gets a stable overlayId (overlayKey = `lever:<id>`),
  *   so a persisted OVERRIDE whose summary carries that overlayId = that lever ratified.
  *
+ * ★ GRAPH-NATIVE COMMENT COMPOSER (LIVE): the composer posts a `comment-added` overlay
+ *   patch — api.createOverlay mints/fetches a deterministic anchor per "re:" path
+ *   (overlayKey = `comment:<path>`), then api.postOverlayComment writes the patch body
+ *   (kind:'comment', path, author, text, createdAt) + a hash-EXCLUDED `side` column.
+ *   Posted comments read back via api.getOverlayComments, side-tagged ochre (originator)
+ *   / steel (buyer) via the P1 tokens with the "re:" path shown. This retires the legacy
+ *   per-point transport (`api.addComment`, which keyed on the uuid analysis id).
+ *
  * ★ BANKED as legacy-only parity follow-up (NOT ported — they don't exist on
  *   RenderedAnalysis): the DealRoom workspace-drawer tabs criteriaEvaluations /
- *   crossCheckFindings / research / bPieceDecision, and the legacy per-point comment
- *   TRANSPORT (`api.addComment`, which keys on the uuid analysis id). The composer UI
- *   ports as an honest disabled preview; the graph-native target is a `comment-added`
- *   overlay patch (deferred). RA's own sections (stress / handbook / doctrine / score /
- *   findings / mitigants / narrative) stay in RenderedAnalysisView, untouched.
+ *   crossCheckFindings / research / bPieceDecision. request-a-call stays a labeled
+ *   preview. RA's own sections (stress / handbook / doctrine / score / findings /
+ *   mitigants / narrative) stay in RenderedAnalysisView, untouched.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -41,7 +47,7 @@ import type {
   RenderedMitigationProposal,
   RenderBadgeSeverity,
 } from '@cre/contracts';
-import { api } from '@/lib/api-client';
+import { api, type OverlayCommentView } from '@/lib/api-client';
 import { useSide, type Side } from '@/lib/side-context';
 
 type Role = 'bp_spire' | 'originator';
@@ -160,6 +166,17 @@ function sideAccentC(side: Side | null): { accent: string; soft: string; label: 
   return { accent: C.teal, soft: C.tealSoft, label: 'Platform' };
 }
 
+/**
+ * P1 side tokens applied to a POSTED comment's stored `side` (ochre = originator,
+ * steel = buyer). A comment with no stored side falls back to neutral. This is the
+ * READ-BACK tag — distinct from the viewer's own `?side` chip.
+ */
+function commentSideTag(side: OverlayCommentView['side']): { accent: string; soft: string; label: string } {
+  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Originator' };
+  if (side === 'buyer') return { accent: C.contested, soft: '#EAF0F8', label: 'B-piece buyer' };
+  return { accent: C.conceded, soft: C.surface2, label: 'Unattributed' };
+}
+
 /** ★ THE SINGLE ROLE SEAM — a 3-tier access object future server authz plugs into.
  *  workbook: buyer-only · memo: shared · points: shared. Presentation preview only. */
 function roleView(role: Role) {
@@ -220,6 +237,59 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   // Ratified levers, seeded from persisted timeline + optimistically extended on agree
   // (the page refetch collapses the optimistic set back into the derived read).
   const [ratifiedOptimistic, setRatifiedOptimistic] = useState<Set<string>>(new Set());
+  // Posted comments (graph-native overlay-comment patches), keyed by their "re:" path
+  // for per-point / per-lever rendering. Fetched on mount + refetched after each post.
+  const [comments, setComments] = useState<readonly OverlayCommentView[]>([]);
+  const [busyComposer, setBusyComposer] = useState<string | null>(null);
+
+  const refetchComments = React.useCallback(async () => {
+    try {
+      const res = await api.getOverlayComments(data.rootId);
+      setComments(res.comments);
+    } catch {
+      /* read is advisory; a fetch failure leaves the last-known set in place */
+    }
+  }, [data.rootId]);
+
+  useEffect(() => {
+    void refetchComments();
+  }, [refetchComments]);
+
+  const commentsByPath = React.useMemo(() => {
+    const m = new Map<string, OverlayCommentView[]>();
+    for (const c of comments) {
+      const arr = m.get(c.path) ?? [];
+      arr.push(c);
+      m.set(c.path, arr);
+    }
+    return m;
+  }, [comments]);
+
+  // ★ Post a comment — graph-native. Mints/fetches the deterministic overlay anchor for
+  // this path (overlayKey = the "re:" path), then writes the comment-added patch carrying
+  // the path + the viewer's ?side. The overlayKey namespace is the path itself so each
+  // point/lever thread rides its own stable overlay chain.
+  const postComment = async (path: string, text: string): Promise<boolean> => {
+    if (busyComposer !== null || text.trim().length === 0) return false;
+    setBusyComposer(path);
+    setError(null);
+    try {
+      const overlayKey = `comment:${path}`;
+      const { overlayId } = await api.createOverlay({
+        rootId: data.rootId,
+        renderedAnalysisId: data.id,
+        overlayKey,
+      });
+      await api.postOverlayComment({ overlayId, path, text: text.trim(), side });
+      await refetchComments();
+      return true;
+    } catch (e) {
+      setError((e as Error).message || 'Could not post the comment.');
+      return false;
+    } finally {
+      setBusyComposer(null);
+    }
+  };
 
   const persistedRatified = ratifiedLeverIds(timeline);
   useEffect(() => {
@@ -372,8 +442,14 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
                         {m.description && <div style={{ fontSize: 12, color: C.ink2, marginTop: 2, lineHeight: 1.4 }}>{m.description}</div>}
                       </div>
                     ))}
+                    <CommentThread comments={commentsByPath.get(p.id) ?? []} />
                     {view.canComment ? (
-                      <PointComposerPreview />
+                      <PointComposer
+                        path={p.id}
+                        side={side}
+                        busy={busyComposer === p.id}
+                        onPost={(t) => postComment(p.id, t)}
+                      />
                     ) : (
                       <div style={{ borderLeft: `3px solid ${C.amber}`, background: C.amberSoft, borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
                         <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 3 }}>Originator — response</div>
@@ -411,6 +487,10 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
             onRatify={() => { void ratifyLever(b); }}
             canComment={view.canComment}
             accent={sideC.accent}
+            side={side}
+            comments={commentsByPath.get(`lever:${b.def.id}`) ?? []}
+            composerBusy={busyComposer === `lever:${b.def.id}`}
+            onPostComment={(t) => postComment(`lever:${b.def.id}`, t)}
           />
         ))}
       </div>
@@ -500,8 +580,9 @@ function DispositionBarPreview({ cleared, hasFatalFlag }: { cleared: boolean; ha
 }
 
 /* ── LeverRow — one lever, bound to its REAL mitigant (or "not modeled"). ── */
-function LeverRow({ binding, ratified, busy, onRatify, canComment, accent }: {
+function LeverRow({ binding, ratified, busy, onRatify, canComment, accent, side, comments, composerBusy, onPostComment }: {
   binding: LeverBinding; ratified: boolean; busy: boolean; onRatify: () => void; canComment: boolean; accent: string;
+  side: Side | null; comments: readonly OverlayCommentView[]; composerBusy: boolean; onPostComment: (text: string) => Promise<boolean>;
 }) {
   const { def, mitigant } = binding;
   const notModeled = !mitigant && !def.lastResort;
@@ -564,8 +645,13 @@ function LeverRow({ binding, ratified, busy, onRatify, canComment, accent }: {
         </div>
       )}
 
+      {comments.length > 0 && (
+        <div style={{ marginTop: 10 }}><CommentThread comments={comments} /></div>
+      )}
       {canComment && !done && !notModeled ? (
-        <div style={{ marginTop: 10 }}><PointComposerPreview /></div>
+        <div style={{ marginTop: 10 }}>
+          <PointComposer path={`lever:${def.id}`} side={side} busy={composerBusy} onPost={onPostComment} />
+        </div>
       ) : null}
     </div>
   );
@@ -581,28 +667,64 @@ function LeverPosition({ accent, who, term, why }: { accent: string; who: string
 }
 
 /**
- * Comment composer — ported UI, HONEST PREVIEW. The legacy per-point comment transport
- * (api.addComment) keys on the uuid analysis id and writes to legacy Analysis.comments,
- * which the graph surface deliberately does not depend on. The graph-native target is a
- * `comment-added` overlay patch (banked as a phase-i+ follow-up). Rendered disabled so
- * the interaction is visible without a misleading write.
+ * CommentThread — READ-BACK of posted graph-native comment patches for one "re:" path.
+ * Each posted comment is side-tagged with the P1 tokens (ochre = originator, steel =
+ * buyer), shows its "re:" path, author, and text. Empty threads render nothing.
  */
-function PointComposerPreview() {
+function CommentThread({ comments }: { comments: readonly OverlayCommentView[] }) {
+  if (comments.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {comments.map((c) => {
+        const tag = commentSideTag(c.side);
+        return (
+          <div key={c.patchId} style={{ border: `1px solid ${C.border}`, borderLeft: `3px solid ${tag.accent}`, background: tag.soft, borderRadius: '0 8px 8px 0', padding: '9px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: '#fff', background: tag.accent, borderRadius: 5, padding: '2px 7px' }}>{tag.label}</span>
+              <span style={{ fontSize: 11, color: C.ink3, fontFamily: MONO }}>re: {c.path}</span>
+              <span style={{ fontSize: 11, color: C.ink3, marginLeft: 'auto' }}>{c.author}</span>
+            </div>
+            <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{c.text}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Comment composer — LIVE (converge phase i+). Posts a graph-native `comment-added`
+ * overlay patch carrying the "re:" path + the viewer's ?side. The overlay anchor is
+ * minted (or fetched) per path by the parent's postComment. The legacy per-point
+ * transport (api.addComment, keyed on the uuid analysis id) is retired here.
+ */
+function PointComposer({ path, side, busy, onPost }: {
+  path: string; side: Side | null; busy: boolean; onPost: (text: string) => Promise<boolean>;
+}) {
   const [text, setText] = useState('');
+  const tag = commentSideTag(side);
+  const submit = async () => {
+    const ok = await onPost(text);
+    if (ok) setText('');
+  };
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface2, padding: 10 }}>
-      <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.tealDeep, fontWeight: 600, marginBottom: 6 }}>Add to thread — BP Spire (preview)</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.tealDeep, fontWeight: 600 }}>Add to thread</span>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: '#fff', background: tag.accent, borderRadius: 5, padding: '2px 7px' }}>{tag.label}</span>
+        <span style={{ fontSize: 11, color: C.ink3, fontFamily: MONO }}>re: {path}</span>
+      </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <select disabled style={{ fontSize: 12, padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.ink3 }}>
-          <option>Note</option>
-        </select>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Comment thread lands on the overlay patch (graph-native transport — follow-up)…" rows={2}
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Comment lands on the overlay patch (graph-native, side-tagged)…" rows={2}
           style={{ flex: 1, fontSize: 13, padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.ink, resize: 'vertical', fontFamily: SANS }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-        <span style={{ fontSize: 10, color: C.ink3 }}>Preview — graph-native comment-added overlay patch is a follow-up.</span>
-        <button disabled title="Comment transport migrates to the overlay patch (graph-native); not wired in phase i"
-          style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'not-allowed', background: C.border, color: '#fff' }}>Post</button>
+        <span style={{ fontSize: 10, color: C.ink3 }}>Posts a persisted comment-added overlay patch (hash-excluded side).</span>
+        <button onClick={() => { void submit(); }} disabled={busy || text.trim().length === 0}
+          title="Post a graph-native comment patch onto this point/lever"
+          style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 6, border: 'none', cursor: busy || text.trim().length === 0 ? 'not-allowed' : 'pointer', background: busy || text.trim().length === 0 ? C.border : tag.accent, color: '#fff' }}>
+          {busy ? 'Posting…' : 'Post'}
+        </button>
       </div>
     </div>
   );

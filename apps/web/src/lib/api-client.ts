@@ -14,6 +14,7 @@ import type {
   LoanMembership,
   MarketBenchmarks,
   OverlayId,
+  OverlayPatchId,
   HandbookEvaluation,
   Pool,
   PoolId,
@@ -43,6 +44,21 @@ export interface PostCommitteeActionResponse {
 export interface AuditReplayResponse {
   readonly rootId: string;
   readonly chains: { readonly [overlayId: string]: ReadonlyArray<unknown> };
+}
+
+// Graph-native comment read (converge phase i+). One entry per persisted comment
+// patch, carrying the "re:" path + the hash-excluded negotiation `side`.
+export interface OverlayCommentView {
+  readonly patchId: OverlayPatchId;
+  readonly path: string;
+  readonly author: string;
+  readonly text: string;
+  readonly createdAt: string;
+  readonly side: 'originator' | 'buyer' | null;
+}
+export interface OverlayCommentsResponse {
+  readonly rootId: string;
+  readonly comments: readonly OverlayCommentView[];
 }
 
 // P3b — field-level intake completeness (ADVISORY). Mirrors the API service
@@ -678,6 +694,31 @@ export const api = {
     request<DealWorkflowState>(`/workflow-state?rootId=${encodeURIComponent(rootId)}`),
   getCommitteeTimeline: (rootId: DoctrineEvaluationId) =>
     request<CommitteeTimeline>(`/committee-timeline?rootId=${encodeURIComponent(rootId)}`),
+  // Graph-native comment composer (converge phase i+). Post a comment patch onto an
+  // overlay: server builds the OverlayCommentPatch body (kind:'comment', path, author,
+  // text, createdAt), content-hashes the id, persists it, and mints a comment-added
+  // audit event. `side` is a hash-EXCLUDED attribution tag (originator/buyer) stored on
+  // a denormalized column — it never enters the patch identity. Mirrors POST /overlays.
+  postOverlayComment: (args: {
+    overlayId: OverlayId;
+    path: string;
+    text: string;
+    side?: 'originator' | 'buyer' | null;
+  }) =>
+    request<{ patchId: OverlayPatchId; inserted: boolean }>('/overlay-comments', {
+      method: 'POST',
+      body: JSON.stringify({
+        overlayId: args.overlayId,
+        path: args.path,
+        text: args.text,
+        ...(args.side ? { side: args.side } : {}),
+      }),
+    }),
+  // Read the persisted comment patches for a root, WITH their hash-excluded `side`.
+  getOverlayComments: (rootId: DoctrineEvaluationId) =>
+    request<OverlayCommentsResponse>(
+      `/overlay-comments?rootId=${encodeURIComponent(rootId)}`,
+    ),
   getAuditReplay: (rootId: DoctrineEvaluationId) =>
     request<AuditReplayResponse>(`/audit-replay?rootId=${encodeURIComponent(rootId)}`),
 
