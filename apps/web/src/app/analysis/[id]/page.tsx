@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import type { Analysis } from '@cre/shared';
 import type { CommitteeTimeline, DealWorkflowState, HandbookEvaluation, RenderedAnalysis } from '@cre/contracts';
@@ -16,12 +16,17 @@ import { DealRoom } from '@/components/DealRoom';
  */
 export default function AnalysisDashboard() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [rendered, setRendered] = useState<RenderedAnalysis | null>(null);
   const [workflow, setWorkflow] = useState<DealWorkflowState | null>(null);
   const [timeline, setTimeline] = useState<CommitteeTimeline | null>(null);
   const [handbookEvaluation, setHandbookEvaluation] = useState<HandbookEvaluation | null>(null);
   const [loading, setLoading] = useState(true);
+  // Converge phase i — set true while redirecting a uuid URL onto its graph id, so we
+  // render a spinner instead of momentarily flashing the dormant DealRoom.
+  const [redirecting, setRedirecting] = useState(false);
 
   // Poll for status while processing. Rendered (content-hashed) roots are immutable —
   // we stop polling once seen. Legacy analyses poll until complete/error.
@@ -40,6 +45,19 @@ export default function AnalysisDashboard() {
           try { setHandbookEvaluation(await api.getHandbookEvaluation(rootId)); } catch {}
           return;
         }
+        // Converge phase i — a uuid URL that has a graph spine redirects onto its
+        // graph id so it lands on RenderedAnalysisView (the negotiation surface + the
+        // committee write path). The DealRoom branch below stays a DORMANT fallback for
+        // a pure-legacy row with no graph spine (none exist today, but the branch is
+        // honest). `?side` is preserved across the redirect.
+        const graphRoot = response.body.graphLineageRootId;
+        if (typeof graphRoot === 'string' && graphRoot.length > 0 && graphRoot !== id) {
+          clearInterval(interval);
+          setRedirecting(true);
+          const qs = searchParams.toString();
+          router.replace(`/analysis/${graphRoot}${qs ? `?${qs}` : ''}`);
+          return;
+        }
         const legacy = response.body.analysis as Analysis;
         setAnalysis(legacy);
         if (legacy.status === 'complete' || legacy.status === 'error') clearInterval(interval);
@@ -50,7 +68,7 @@ export default function AnalysisDashboard() {
     fetchAnalysis();
     interval = setInterval(fetchAnalysis, 2000);
     return () => clearInterval(interval);
-  }, [id]);
+  }, [id, router, searchParams]);
 
   // Committee actions on the rendered surface refetch the workflow/timeline projections.
   const refetchWorkflow = useCallback(async () => {
@@ -86,7 +104,7 @@ export default function AnalysisDashboard() {
     );
   }
 
-  if (loading) {
+  if (loading || redirecting) {
     return (
       <div className="flex items-center justify-center h-[80vh]">
         <div className="text-center">
