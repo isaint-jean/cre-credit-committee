@@ -90,13 +90,15 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 //   - 'legacy':   the historical { analysis: Analysis } envelope (uuid analyses)
 export type GetAnalysisResponse =
   | { readonly kind: 'rendered'; readonly body: RenderedAnalysis }
-  | { readonly kind: 'legacy'; readonly body: { readonly analysis: any } };
+  // graphLineageRootId (converge phase i): the 64-hex graph-spine lineage root the page
+  // uses to redirect a uuid URL onto RenderedAnalysisView. null when no graph spine.
+  | { readonly kind: 'legacy'; readonly body: { readonly analysis: any; readonly graphLineageRootId?: string | null } };
 
 function classifyAnalysisResponse(raw: unknown): GetAnalysisResponse {
   if (isRenderedAnalysis(raw)) {
     return { kind: 'rendered', body: raw };
   }
-  return { kind: 'legacy', body: raw as { analysis: any } };
+  return { kind: 'legacy', body: raw as { analysis: any; graphLineageRootId?: string | null } };
 }
 
 function getAuthHeader(): Record<string, string> {
@@ -642,6 +644,22 @@ export const api = {
   // OVERRIDE_DECISION-only entry point (Phase 4 directive). Client sends a
   // minimal body; the server constructs the canonical payload after looking up
   // the overlay binding. NO summary, NO occurredAt, NO payload from the client.
+  // Converge phase i — mint (or fetch) the deterministic overlay-created anchor that
+  // OVERRIDE_DECISION requires. Server derives a stable overlayId per (rootId,
+  // renderedAnalysisId, overlayKey); idempotent, append-only. See POST /overlays.
+  createOverlay: (args: {
+    rootId: DoctrineEvaluationId;
+    renderedAnalysisId: RenderedAnalysisId;
+    overlayKey?: string;
+  }) =>
+    request<{ overlayId: OverlayId; inserted: boolean }>('/overlays', {
+      method: 'POST',
+      body: JSON.stringify({
+        rootId: args.rootId,
+        renderedAnalysisId: args.renderedAnalysisId,
+        ...(args.overlayKey !== undefined ? { overlayKey: args.overlayKey } : {}),
+      }),
+    }),
   submitOverrideDecision: (args: {
     rootId: DoctrineEvaluationId;
     renderedAnalysisId: RenderedAnalysisId;

@@ -40,6 +40,7 @@ import { CommitteeActionButtons } from './CommitteeActionButtons';
 import { AuditViewToggle } from './AuditViewToggle';
 import { SnapshotViewer } from './SnapshotViewer';
 import { WorkbookReadiness } from './WorkbookReadiness';
+import { NegotiationSurface } from './NegotiationSurface';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api-client';
 import {
@@ -938,6 +939,20 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         CTA (wired to the real /underwriting/export). Never blocks. Mounts only
         when the routed analysis id is available. */}
       {analysisId !== undefined ? <WorkbookReadiness analysisId={analysisId} /> : null}
+
+      {/* Converge phase i — the deal-room negotiation surface, ported onto the graph
+        view. Additive: it reads only RenderedAnalysis fields + the committee projection
+        (workflow/timeline) the page already fetched; every analytics section below stays
+        intact. Mounts only in the committee/graph context (workflow present) and out of
+        edit mode (so the ratify buttons don't compete with the underwriting editor). */}
+      {workflow !== undefined && !editMode ? (
+        <NegotiationSurface
+          data={data}
+          workflow={workflow}
+          timeline={timeline}
+          onWorkflowChanged={onWorkflowChanged}
+        />
+      ) : null}
 
       <section className="space-y-3">
         <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Summary</h2>
