@@ -48,7 +48,9 @@ import type {
   TapeOriginatorSummary,
   WorkingTapeId,
 } from '@cre/contracts';
-import { ON_TAPE_STATUSES, DISPOSITION_KINDS } from '@cre/contracts';
+import { ON_TAPE_STATUSES, DISPOSITION_KINDS, REASON_CATEGORIES } from '@cre/contracts';
+import { isReasonCategoryValidForOutcome } from '@cre/contracts';
+import type { ReasonCategory } from '@cre/contracts';
 
 import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } from '../storage/pool-store.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
@@ -131,6 +133,9 @@ function isDispositionKind(v: unknown): v is DispositionKind {
 function isStrArr(v: unknown): v is readonly string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');
 }
+function isReasonCategory(v: unknown): v is ReasonCategory {
+  return typeof v === 'string' && (REASON_CATEGORIES as readonly string[]).indexOf(v) >= 0;
+}
 
 function validateRow(v: unknown, idx: number): IncomingTapeRow | string {
   if (typeof v !== 'object' || v === null) return `rows[${idx}]: must be an object`;
@@ -187,12 +192,26 @@ function validateDeparture(v: unknown, idx: number): DepartureLabel | string {
   if (!isDispositionKind(d['buyerLabel'])) return `departures[${idx}].buyerLabel: 'dropped'|'kicked'`;
   if (!isStrArr(d['reasons'])) return `departures[${idx}].reasons: string[]`;
   if (!isStr(d['recordedAt'])) return `departures[${idx}].recordedAt: ISODateTime`;
+  // OPTIONAL refinement. Absent/null is allowed; when present it must be a known
+  // category AND valid under the authoritative outcome (buyerLabel).
+  const rawReasonCategory = d['reasonCategory'];
+  let reasonCategory: ReasonCategory | null = null;
+  if (rawReasonCategory !== undefined && rawReasonCategory !== null) {
+    if (!isReasonCategory(rawReasonCategory)) {
+      return `departures[${idx}].reasonCategory: 'disqualifying'|'couldnt_structure'|'expired'|'withdrawn'`;
+    }
+    if (!isReasonCategoryValidForOutcome(rawReasonCategory, d['buyerLabel'] as DispositionKind)) {
+      return `departures[${idx}].reasonCategory '${rawReasonCategory}' is not valid for outcome '${d['buyerLabel'] as string}'`;
+    }
+    reasonCategory = rawReasonCategory;
+  }
   return {
     loanInPoolId: d['loanInPoolId'] as LoanInPoolId,
     originatorLabel: d['originatorLabel'] as DispositionKind,
     buyerLabel: d['buyerLabel'] as DispositionKind,
     reasons: d['reasons'] as readonly string[],
     recordedAt: d['recordedAt'] as string,
+    reasonCategory,
   };
 }
 

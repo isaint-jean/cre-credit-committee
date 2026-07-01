@@ -297,6 +297,49 @@ export const DISPOSITION_KINDS = ['dropped', 'kicked'] as const;
 export type DispositionKind = (typeof DISPOSITION_KINDS)[number];
 
 /**
+ * OPTIONAL refinement of the authoritative disposition outcome. Each category
+ * belongs to exactly ONE parent `DispositionKind` (the `authoritative`/`buyerLabel`):
+ *
+ *   - `kicked`  ← `disqualifying` | `couldnt_structure`
+ *   - `dropped` ← `expired`       | `withdrawn`
+ *
+ * This is a display/reporting refinement, NOT part of the mechanical outcome and
+ * NOT part of the `DispositionId` hash boundary. See `Disposition.reasonCategory`.
+ */
+export const REASON_CATEGORIES = [
+  'disqualifying',
+  'couldnt_structure',
+  'expired',
+  'withdrawn',
+] as const;
+export type ReasonCategory = (typeof REASON_CATEGORIES)[number];
+
+/**
+ * Which parent `DispositionKind` each `ReasonCategory` is valid under. The write
+ * path rejects any `(reasonCategory, outcome)` pair not in this map. Declared here
+ * (contract layer) so producer + reader agree on the refinement taxonomy.
+ */
+export const REASON_CATEGORY_OUTCOME: Readonly<Record<ReasonCategory, DispositionKind>> = {
+  disqualifying:     'kicked',
+  couldnt_structure: 'kicked',
+  expired:           'dropped',
+  withdrawn:         'dropped',
+} as const;
+
+/**
+ * A `reasonCategory` is valid iff it refines its parent authoritative outcome.
+ * `null`/`undefined` is always valid (the field is optional). Pure, no side effects
+ * — mirror in the write path to reject a mismatched pair before persistence.
+ */
+export function isReasonCategoryValidForOutcome(
+  category: ReasonCategory | null | undefined,
+  outcome: DispositionKind,
+): boolean {
+  if (category === null || category === undefined) return true;
+  return REASON_CATEGORY_OUTCOME[category] === outcome;
+}
+
+/**
  * Append-only departure record. One per loan-leaving-the-pool event. Corrections
  * to a recorded disposition do not mutate the record; they produce a NEW record
  * with `supersedes` pointing at the prior id (chain-link pattern, same as
@@ -331,6 +374,15 @@ export interface Disposition {
   readonly recordedBy: ActorRef;
   /** Observability only — NOT part of DispositionId hash boundary. */
   readonly recordedAt: ISODateTime;
+  /**
+   * OPTIONAL refinement of the authoritative outcome (see `ReasonCategory`).
+   * When present it MUST satisfy `isReasonCategoryValidForOutcome(reasonCategory,
+   * authoritative)`. Body field only — like `recordedAt`, it is NOT part of the
+   * `DispositionId` hash boundary (absent from `DispositionIdHashInput` and
+   * `makeDispositionIdHashInput`), so setting it never changes an id. Existing
+   * records that predate this field read back as `undefined`.
+   */
+  readonly reasonCategory?: ReasonCategory | null;
   /** Append-only correction chain. Null for the first disposition on this loan. */
   readonly supersedes: DispositionId | null;
 }

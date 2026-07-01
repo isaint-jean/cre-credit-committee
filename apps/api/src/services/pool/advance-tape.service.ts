@@ -48,12 +48,14 @@ import type {
   LoanMembership,
   PendingMembershipEntry,
   PoolId,
+  ReasonCategory,
   Tape,
   TapeId,
   TapeOriginatorSummary,
   WorkingTape,
   WorkingTapeId,
 } from '@cre/contracts';
+import { isReasonCategoryValidForOutcome } from '@cre/contracts';
 import {
   computeDispositionId,
   computeTapeId,
@@ -131,6 +133,12 @@ export interface DepartureLabel {
   readonly buyerLabel: DispositionKind;
   readonly reasons: readonly string[];
   readonly recordedAt: ISODateTime;
+  /**
+   * OPTIONAL refinement of the authoritative outcome. Must satisfy
+   * `isReasonCategoryValidForOutcome(reasonCategory, buyerLabel)` — validated in
+   * `recordDeparture`. Hash-excluded (persisted in the disposition payload only).
+   */
+  readonly reasonCategory?: ReasonCategory | null;
 }
 
 export interface AdvanceTapePhaseBInput {
@@ -611,6 +619,14 @@ function recordDeparture(
   recordedBy: { readonly userId: string; readonly displayName: string | null },
 ): DispositionId {
   const override = label.originatorLabel !== label.buyerLabel;
+  // reasonCategory is an OPTIONAL, hash-EXCLUDED refinement of the authoritative
+  // outcome. Reject a mismatched pair before we mint an id / persist.
+  if (!isReasonCategoryValidForOutcome(label.reasonCategory, label.buyerLabel)) {
+    throw new AdvanceTapeError(
+      `reasonCategory '${label.reasonCategory}' is not valid for outcome '${label.buyerLabel}' ` +
+        `(loan ${loanInPoolId})`,
+    );
+  }
   const hashInput = {
     poolId,
     loanInPoolId,
@@ -627,6 +643,9 @@ function recordDeparture(
   const id = computeDispositionId(hashInput);
   const disposition: Disposition = {
     id, ...hashInput, recordedAt: label.recordedAt,
+    // Body-only refinement — deliberately AFTER the id is computed and NOT in
+    // hashInput, so it can never enter the DispositionId hash boundary.
+    reasonCategory: label.reasonCategory ?? null,
   };
   store.recordDisposition(disposition);
   store.setCurrentDisposition(loanInPoolId, id);
