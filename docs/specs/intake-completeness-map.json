@@ -1,0 +1,581 @@
+{
+  "version": 1,
+  "source": "intake-completeness-map (locked 2026-07-01)",
+  "note": "Doctrine layer locked by Isabelle. extraction_key + source_doc_types to be bound in P3a recon and confirmed before build.",
+  "fields": [
+    {
+      "id": "gpr",
+      "section": "Income",
+      "field": "Gross potential rent (GPR)",
+      "feeds": "Income build; rent-roll reconciliation",
+      "blocks_if_missing": "Income section can't be built",
+      "likely_sources": [
+        "Rent roll (primary)",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "Sunroad: P9 GPR matched to extracted rent roll",
+      "extraction_key": "inPlace.income.grossPotentialRent",
+      "fallback_keys": [
+        "asr.underwrittenCashFlows.t12.potentialGrossRevenue",
+        "asr.underwrittenCashFlows.uw.potentialGrossRevenue",
+        "rentRoll.summary.grossPotentialRent",
+        "underwrittenCashFlows.t12.potentialGrossRevenue",
+        "underwrittenCashFlows.uw.potentialGrossRevenue"
+      ],
+      "source_doc_types": ["rent_roll", "asr", "seller_uw"]
+    },
+    {
+      "id": "in_place_noi",
+      "section": "Income",
+      "field": "In-place / T12 NOI",
+      "feeds": "DSCR, debt yield, in-place value",
+      "blocks_if_missing": "No in-place coverage metrics",
+      "likely_sources": [
+        "Operating statement (T12)",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "T12 normalization reconciled to the cent",
+      "extraction_key": "t12Actual.noi",
+      "fallback_keys": [
+        "inPlace.noi",
+        "t12Extraction.noi",
+        "asr.underwrittenCashFlows.t12.netOperatingIncome",
+        "underwrittenCashFlows.t12.netOperatingIncome"
+      ],
+      "source_doc_types": ["seller_uw", "t12", "in_place", "asr"]
+    },
+    {
+      "id": "vacancy_credit_loss",
+      "section": "Income",
+      "field": "Vacancy / credit loss",
+      "feeds": "Effective gross income",
+      "blocks_if_missing": "EGI over/understated",
+      "likely_sources": [
+        "Rent roll",
+        "appraisal",
+        "operating statement"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "",
+      "extraction_key": "inPlace.vacancyLoss",
+      "fallback_keys": [
+        "t12Actual.vacancyLoss",
+        "appraisalExtraction.stabilizedProForma.vacancyLoss",
+        "appraisalExtraction.stabilizedProForma.creditLoss"
+      ],
+      "source_doc_types": ["rent_roll", "appraisal", "seller_uw", "in_place"]
+    },
+    {
+      "id": "opex",
+      "section": "Income",
+      "field": "Operating expenses (by line)",
+      "feeds": "Expense ratio; NOI",
+      "blocks_if_missing": "NOI can't be computed",
+      "likely_sources": [
+        "Operating statement",
+        "appraisal"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "",
+      "extraction_key": "t12Actual.totalOperatingExpenses",
+      "fallback_keys": [
+        "sellerUwOperatingStatement.totalOperatingExpenses",
+        "inPlace.totalOperatingExpenses",
+        "appraisalExtraction.stabilizedProForma.totalOperatingExpenses"
+      ],
+      "source_doc_types": ["seller_uw", "t12", "in_place", "appraisal"]
+    },
+    {
+      "id": "reimbursements",
+      "section": "Income",
+      "field": "Reimbursements / recoveries",
+      "feeds": "Effective gross income",
+      "blocks_if_missing": "Recoveries missing \u2192 EGI off",
+      "likely_sources": [
+        "Leases",
+        "rent roll",
+        "operating statement"
+      ],
+      "criticality": "Enhancing",
+      "tier": "B",
+      "notes": "",
+      "extraction_key": "t12Actual.expenses.reimbursements",
+      "fallback_keys": [
+        "appraisalExtraction.stabilizedProForma.netEffectiveReimbursements"
+      ],
+      "source_doc_types": ["appraisal", "rent_roll", "seller_uw"]
+    },
+    {
+      "id": "stabilized_noi",
+      "section": "Income",
+      "field": "Stabilized pro-forma NOI",
+      "feeds": "Stabilized value; exit metrics",
+      "blocks_if_missing": "Stabilized metrics blank",
+      "likely_sources": [
+        "Appraisal",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "2nd value basis \u2014 label distinctly vs in-place",
+      "extraction_key": "appraisalExtraction.stabilizedProForma.netOperatingIncome",
+      "fallback_keys": [
+        "sellerUw.underwrittenNOI",
+        "asr.underwrittenCashFlows.uw.netOperatingIncome"
+      ],
+      "source_doc_types": ["appraisal", "asr", "seller_uw"]
+    },
+    {
+      "id": "as_is_value",
+      "section": "Value",
+      "field": "As-is appraised value",
+      "feeds": "LTV; value basis",
+      "blocks_if_missing": "Value defaults to loan-basis only",
+      "likely_sources": [
+        "Appraisal (primary)",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "",
+      "extraction_key": "appraisalExtraction.asIsValue",
+      "fallback_keys": [
+        "appraisalExtraction.valueConclusion",
+        "asr.impliedValue"
+      ],
+      "source_doc_types": ["appraisal", "asr"]
+    },
+    {
+      "id": "stabilized_value",
+      "section": "Value",
+      "field": "Stabilized / prospective value",
+      "feeds": "Stabilized LTV; exit",
+      "blocks_if_missing": "Stabilized LTV blank",
+      "likely_sources": [
+        "Appraisal",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "",
+      "extraction_key": "appraisalExtraction.asStabilizedValue",
+      "fallback_keys": [],
+      "source_doc_types": ["appraisal", "asr"]
+    },
+    {
+      "id": "cap_rate",
+      "section": "Value",
+      "field": "Cap rate (as-is & stabilized basis)",
+      "feeds": "Cap-rate comparison to comps",
+      "blocks_if_missing": "Cap-rate comparison blocked",
+      "likely_sources": [
+        "Appraisal income approach",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "Sunroad: confirm basis (as-is vs stabilized)",
+      "extraction_key": "appraisalExtraction.overallCapRate",
+      "fallback_keys": [
+        "appraisalExtraction.terminalCapRate",
+        "appraisalExtraction.capRate",
+        "asr.impliedCapRate"
+      ],
+      "source_doc_types": ["appraisal", "asr"]
+    },
+    {
+      "id": "extraordinary_assumptions",
+      "section": "Value",
+      "field": "Extraordinary assumptions / hypotheticals",
+      "feeds": "Value reliability caveat",
+      "blocks_if_missing": "Value read as unconditional",
+      "likely_sources": [
+        "Appraisal"
+      ],
+      "criticality": "Enhancing",
+      "tier": "B",
+      "notes": "",
+      "extraction_key": "none — not extracted today",
+      "fallback_keys": [],
+      "source_doc_types": ["appraisal"]
+    },
+    {
+      "id": "loan_amount",
+      "section": "Leverage & coverage",
+      "field": "Loan amount / proceeds",
+      "feeds": "LTV; debt yield; DSCR",
+      "blocks_if_missing": "Leverage metrics blank",
+      "likely_sources": [
+        "Term sheet",
+        "loan terms",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "Sunroad $82.46M",
+      "extraction_key": "loanTerms.loanAmount",
+      "fallback_keys": [
+        "asr.sourcesAndUses.loanAmount",
+        "sourcesAndUses.loanAmount",
+        "annexA.loanAmount"
+      ],
+      "source_doc_types": ["loan_terms", "asr"]
+    },
+    {
+      "id": "interest_rate",
+      "section": "Leverage & coverage",
+      "field": "Interest rate / coupon",
+      "feeds": "Debt service; DSCR",
+      "blocks_if_missing": "DSCR can't compute",
+      "likely_sources": [
+        "Loan terms",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "",
+      "extraction_key": "loanTerms.interestRate",
+      "fallback_keys": [
+        "annexA.coupon"
+      ],
+      "source_doc_types": ["loan_terms", "asr"]
+    },
+    {
+      "id": "amortization",
+      "section": "Leverage & coverage",
+      "field": "Amortization / IO terms",
+      "feeds": "Amortizing DSCR",
+      "blocks_if_missing": "Amort DSCR blank",
+      "likely_sources": [
+        "Loan terms",
+        "ASR"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "",
+      "extraction_key": "loanTerms.amortization",
+      "fallback_keys": [
+        "loanTerms.interestOnlyPeriod",
+        "annexA.amortMonths",
+        "annexA.ioYears"
+      ],
+      "source_doc_types": ["loan_terms", "asr"]
+    },
+    {
+      "id": "whole_loan_balance",
+      "section": "Leverage & coverage",
+      "field": "Whole-loan balance (if pari-passu)",
+      "feeds": "Whole-loan debt yield",
+      "blocks_if_missing": "Piece-level DY misleads",
+      "likely_sources": [
+        "Loan terms",
+        "prospectus"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "Sunroad: piece DY was non-comparable",
+      "extraction_key": "none — not extracted today",
+      "fallback_keys": [
+        "annexA.pariPassuCombination.combinedCutOffBalance"
+      ],
+      "source_doc_types": []
+    },
+    {
+      "id": "maturity",
+      "section": "Leverage & coverage",
+      "field": "Maturity / term",
+      "feeds": "Refi / exit analysis",
+      "blocks_if_missing": "Term metrics blank",
+      "likely_sources": [
+        "Loan terms",
+        "ASR"
+      ],
+      "criticality": "Enhancing",
+      "tier": "A",
+      "notes": "",
+      "extraction_key": "loanTerms.maturityDate",
+      "fallback_keys": [
+        "annexA.maturityDate"
+      ],
+      "source_doc_types": ["loan_terms", "asr"]
+    },
+    {
+      "id": "physical_occupancy",
+      "section": "Occupancy & rollover",
+      "field": "Physical occupancy (current)",
+      "feeds": "Occupancy basis; lease-up flag",
+      "blocks_if_missing": "Can't flag lease-up",
+      "likely_sources": [
+        "Rent roll",
+        "appraisal"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "Sunroad 46.8% \u2192 100% stabilized",
+      "extraction_key": "appraisalExtraction.currentOccupancyPhysical",
+      "fallback_keys": [
+        "rentRoll.summary.occupiedUnits",
+        "annexA.occupancyCurrent"
+      ],
+      "source_doc_types": ["rent_roll", "appraisal"]
+    },
+    {
+      "id": "anchor_tenant",
+      "section": "Occupancy & rollover",
+      "field": "Anchor tenant & % of NRA",
+      "feeds": "Tenant concentration",
+      "blocks_if_missing": "Concentration risk blank",
+      "likely_sources": [
+        "Rent roll",
+        "leases"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "GSA anchor",
+      "extraction_key": "rentRoll.units",
+      "fallback_keys": [
+        "annexA.largestTenant"
+      ],
+      "source_doc_types": ["rent_roll"]
+    },
+    {
+      "id": "lease_rollover",
+      "section": "Occupancy & rollover",
+      "field": "Lease expirations / rollover schedule",
+      "feeds": "Rollover analysis",
+      "blocks_if_missing": "Rollover risk blank",
+      "likely_sources": [
+        "Rent roll",
+        "leases"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "",
+      "extraction_key": "rentRoll.units",
+      "fallback_keys": [
+        "annexA.leaseExpirationLargest"
+      ],
+      "source_doc_types": ["rent_roll"]
+    },
+    {
+      "id": "gsa_lease_terms",
+      "section": "Occupancy & rollover",
+      "field": "GSA lease terms (renewal, termination)",
+      "feeds": "Anchor durability",
+      "blocks_if_missing": "Anchor rollover analysis blocked",
+      "likely_sources": [
+        "Leases",
+        "appraisal"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "Sunroad: in-doc, not extracted \u2192 confirm",
+      "extraction_key": "none \u2014 not extracted today",
+      "fallback_keys": [],
+      "source_doc_types": ["appraisal"]
+    },
+    {
+      "id": "walt",
+      "section": "Occupancy & rollover",
+      "field": "WALT (weighted avg lease term)",
+      "feeds": "Rollover / exit",
+      "blocks_if_missing": "WALT blank",
+      "likely_sources": [
+        "Rent roll",
+        "leases"
+      ],
+      "criticality": "Enhancing",
+      "tier": "B",
+      "notes": "",
+      "extraction_key": "rentRoll.units",
+      "fallback_keys": [
+        "appraisalExtraction.leasingAssumptions.avgLeaseTermMonths"
+      ],
+      "source_doc_types": ["rent_roll"]
+    },
+    {
+      "id": "pca_immediate_repairs",
+      "section": "Physical",
+      "field": "Immediate repairs (PCA)",
+      "feeds": "Immediate reserve sizing",
+      "blocks_if_missing": "Immediate reserve unsized",
+      "likely_sources": [
+        "PCA"
+      ],
+      "criticality": "Required",
+      "tier": "A",
+      "notes": "",
+      "extraction_key": "pcaExtraction.immediateRepairs",
+      "fallback_keys": [
+        "pca.immediateRepairs"
+      ],
+      "source_doc_types": ["pca"]
+    },
+    {
+      "id": "replacement_reserves",
+      "section": "Physical",
+      "field": "Replacement reserves",
+      "feeds": "Ongoing reserve line",
+      "blocks_if_missing": "Reserve line blank",
+      "likely_sources": [
+        "PCA",
+        "appraisal"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "",
+      "extraction_key": "pcaExtraction.replacementReservesPerSfPerYearInflated",
+      "fallback_keys": [
+        "pca.replacementReservesPerSfPerYearInflated",
+        "appraisalExtraction.perAppraisalReserves.replacementReserves"
+      ],
+      "source_doc_types": ["pca", "appraisal"]
+    },
+    {
+      "id": "year_built",
+      "section": "Physical",
+      "field": "Year built / renovated",
+      "feeds": "Age & condition context",
+      "blocks_if_missing": "Condition context missing",
+      "likely_sources": [
+        "Appraisal",
+        "PCA"
+      ],
+      "criticality": "Enhancing",
+      "tier": "A",
+      "notes": "Sunroad 2008",
+      "extraction_key": "appraisalExtraction.yearBuilt",
+      "fallback_keys": [
+        "propertyMetadata.yearBuilt"
+      ],
+      "source_doc_types": ["appraisal", "pca"]
+    },
+    {
+      "id": "environmental_status",
+      "section": "Environmental",
+      "field": "Environmental status (Phase I REC)",
+      "feeds": "Environmental risk line",
+      "blocks_if_missing": "Env risk line blank",
+      "likely_sources": [
+        "Phase I ESA"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "Sunroad: POPULATED via the ASR third-party-reports overlay (environmentalSummary lifted off asr.environmentalSummary, committed 25f3db3) \u2014 not not-in-any-doc. Earlier 'no-source-yet' assumption superseded.",
+      "extraction_key": "environmentalSummary.findingsAcceptable",
+      "fallback_keys": [
+        "environmentalSummary.firm",
+        "environmentalSummary.phaseIReportDate",
+        "environmentalSummary.phaseIIRecommended",
+        "asr.environmentalSummary.findingsAcceptable"
+      ],
+      "source_doc_types": ["asr"]
+    },
+    {
+      "id": "sponsor_net_worth",
+      "section": "Sponsor",
+      "field": "Sponsor net worth & liquidity",
+      "feeds": "Recourse / guaranty analysis",
+      "blocks_if_missing": "Guaranty analysis blocked",
+      "likely_sources": [
+        "Sponsor PFS",
+        "REO schedule"
+      ],
+      "criticality": "Required",
+      "tier": "B",
+      "notes": "Typically not-in-any-doc",
+      "extraction_key": "none — not extracted today",
+      "fallback_keys": [],
+      "source_doc_types": []
+    },
+    {
+      "id": "sponsor_track_record",
+      "section": "Sponsor",
+      "field": "Sponsor track record / prior defaults",
+      "feeds": "Disqualifying-flag review",
+      "blocks_if_missing": "Sponsor character unassessed",
+      "likely_sources": [
+        "Background check",
+        "OM",
+        "sponsor bio"
+      ],
+      "criticality": "Required (screen)",
+      "tier": "C",
+      "notes": "Fatal-flag territory (disqualifying)",
+      "extraction_key": "none — not extracted today",
+      "fallback_keys": [],
+      "source_doc_types": []
+    },
+    {
+      "id": "borrower_spe",
+      "section": "Sponsor",
+      "field": "Borrower / SPE structure",
+      "feeds": "Recourse enforceability",
+      "blocks_if_missing": "Structure risk blank",
+      "likely_sources": [
+        "Org docs",
+        "loan terms"
+      ],
+      "criticality": "Enhancing",
+      "tier": "B",
+      "notes": "",
+      "extraction_key": "none — not extracted today",
+      "fallback_keys": [],
+      "source_doc_types": []
+    },
+    {
+      "id": "final_reserves",
+      "section": "Structure (decision)",
+      "field": "Final underwritten reserves",
+      "feeds": "Reserve conclusions",
+      "blocks_if_missing": "\u2014 (not missing)",
+      "likely_sources": [
+        "Underwriter's call \u2014 deal room"
+      ],
+      "criticality": "Decision",
+      "tier": "C",
+      "notes": "decision-blank; never nags",
+      "extraction_key": "none — underwriter decision (deal room)",
+      "fallback_keys": [],
+      "source_doc_types": []
+    },
+    {
+      "id": "cash_management",
+      "section": "Structure (decision)",
+      "field": "Cash management / lockbox",
+      "feeds": "Structure conclusions",
+      "blocks_if_missing": "\u2014 (not missing)",
+      "likely_sources": [
+        "Underwriter's call \u2014 deal room"
+      ],
+      "criticality": "Decision",
+      "tier": "C",
+      "notes": "deal-room lever",
+      "extraction_key": "none — underwriter decision (deal room)",
+      "fallback_keys": [],
+      "source_doc_types": []
+    },
+    {
+      "id": "recourse_conclusion",
+      "section": "Structure (decision)",
+      "field": "Recourse / guaranty conclusion",
+      "feeds": "Structure conclusions",
+      "blocks_if_missing": "\u2014 (not missing)",
+      "likely_sources": [
+        "Underwriter's call \u2014 deal room"
+      ],
+      "criticality": "Decision",
+      "tier": "C",
+      "notes": "deal-room lever",
+      "extraction_key": "none — underwriter decision (deal room)",
+      "fallback_keys": [],
+      "source_doc_types": []
+    }
+  ]
+}

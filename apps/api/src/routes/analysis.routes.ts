@@ -63,6 +63,11 @@ import type { RentRoll, PropertyMetadata } from '@cre/contracts';
 import { extractPropertyMetadata } from '../services/extract-property-metadata.js';
 // Coverage / measurement tool — analyzer for the populated workbook's per-tab cell coverage.
 import { computeWorkbookCoverage } from '../services/compute-workbook-coverage.js';
+// P3b — field-level intake completeness (ADVISORY read-only meta-layer; never
+// blocks export). Sibling to document-completeness; the read route below is its
+// only surface.
+import { computeIntakeCompleteness } from '../services/intake-completeness.service.js';
+import type { RevisionId as GraphRevisionIdType } from '@cre/contracts';
 
 export const analysisRoutes = Router();
 
@@ -491,6 +496,59 @@ analysisRoutes.get('/:id', (req: Request, res: Response) => {
 // engine output (#31 Commit 3). Returns null when no evaluation exists.
 analysisRoutes.get('/:id/handbook-evaluation', (req: Request, res: Response) => {
   handleHandbookEvaluationRead(req, res, recordGraphStore);
+});
+
+// GET /api/analyses/:id/intake-completeness — field-level intake completeness
+// ledger (P3b). ADVISORY read-only meta-layer: returns the 4-state ceiling for
+// each of the 30 locked intake fields plus a summary. NEVER blocks export; the
+// governed compose pipeline is untouched (annexA stays null → whole_loan_balance
+// resolves the honest not-in-any-doc). Reuses the same PRESENCE derivation the
+// export route computes at render.routes.ts (sourceDocumentKinds ∪ overlays).
+analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => {
+  const stored = store.getAnalysis(req.params.id);
+  if (!stored) {
+    res.status(404).json({ error: 'Analysis not found' });
+    return;
+  }
+  // Read-time projection so overlays (appraisalExtraction, pcaExtraction,
+  // environmentalSummary, …) are present for the K resolver — identical to the
+  // export route's projectLegacyAnalysisFromGraph(stored, recordGraphStore).
+  const analysis = projectLegacyAnalysisFromGraph(stored, recordGraphStore);
+
+  // sourceDocumentKinds — the SAME derivation as render.routes.ts:871-889:
+  // graphRevisionId → envelope → doctrineEvaluation → ExtractionResult.sourceDocuments.
+  let sourceDocumentKinds: import('@cre/contracts').SourceDocumentKind[] = [];
+  try {
+    const envelope = analysis.graphRevisionId
+      ? recordGraphStore.getRevisionEnvelope(analysis.graphRevisionId as GraphRevisionIdType)
+      : null;
+    const doctrine = envelope
+      ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId)
+      : null;
+    const er = doctrine
+      ? recordGraphStore.getExtractionResult(doctrine.extractionResultId)
+      : null;
+    sourceDocumentKinds = (er?.sourceDocuments ?? []).map((d) => d.kind);
+  } catch {
+    // best-effort — a missing graph chain leaves kinds empty; overlays still count.
+  }
+
+  const result = computeIntakeCompleteness({
+    analysis,
+    sourceDocumentKinds,
+    overlayPresence: {
+      t12Extraction: !!analysis.t12Extraction,
+      issuerUwExtraction: !!analysis.issuerUwExtraction,
+      sourcesAndUses: !!analysis.sourcesAndUses,
+      pcaExtraction: !!analysis.pcaExtraction,
+      partiesExtraction: !!analysis.partiesExtraction,
+      appraisalExtraction: !!analysis.appraisalExtraction,
+    },
+  });
+  // Echo the export params the panel needs so its always-on "Create workbook"
+  // CTA can call /underwriting/export without a second round-trip. dealId is the
+  // stored analysis id (legacy uuid); assetClass drives the render schema.
+  res.json({ ...result, dealId: stored.id, assetClass: analysis.assetType });
 });
 
 // GET /api/analyses/:id/memo — Credit Committee Memorandum HTML.
