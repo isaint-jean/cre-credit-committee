@@ -42,15 +42,52 @@ import React, { useEffect, useState } from 'react';
 import type {
   CommitteeTimeline,
   DealWorkflowState,
+  DispositionKind,
   DoctrineEvaluationId,
+  ReasonCategory,
   RenderedAnalysis,
   RenderedMitigationProposal,
   RenderBadgeSeverity,
 } from '@cre/contracts';
-import { api, type OverlayCommentView } from '@/lib/api-client';
+import { REASON_CATEGORIES, REASON_CATEGORY_OUTCOME, isReasonCategoryValidForOutcome } from '@cre/contracts';
+import { api, type LoanForRootResolution, type OverlayCommentView } from '@/lib/api-client';
 import { useSide, type Side } from '@/lib/side-context';
 
 type Role = 'bp_spire' | 'originator';
+
+/* ─────────────────────── Phase B — terminal-action outcomes ──────────────────── */
+/*
+ * The graph-native DispositionBar goes LIVE for a DETERMINATE loan (the Phase-A
+ * forward resolver turned data.rootId into a single {poolId, loanInPoolId}). These
+ * mirror the pool-page CloseOutcome / DisposeOutcome exactly — honest, code-
+ * distinguished results; the ONLY green is a real close / disposition, every 409/422
+ * surfaces the server's specific reason (NO fake success).
+ */
+type CloseOutcome =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'closing' }
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'blocked'; readonly code: string; readonly message: string };
+
+type DisposeOutcome =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'submitting' }
+  | { readonly kind: 'disposed'; readonly outcome: DispositionKind }
+  | { readonly kind: 'blocked'; readonly code: string; readonly message: string };
+
+/** Human labels for the two authoritative disposition outcomes (mirrors pool page). */
+const OUTCOME_LABEL: Record<DispositionKind, string> = {
+  kicked: 'Reject (kicked)',
+  dropped: 'Withdraw (dropped)',
+};
+
+/** Human labels for the reason-category enum keys (§7 taxonomy; mirrors pool page). */
+const REASON_CATEGORY_LABEL: Record<ReasonCategory, string> = {
+  disqualifying: 'Disqualifying',
+  couldnt_structure: "Couldn't structure",
+  expired: 'Expired',
+  withdrawn: 'Withdrawn by originator',
+};
 
 // ── Wireframe palette (explicit; scoped to this surface) ───────────────────────
 const C = {
@@ -242,6 +279,14 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   const [comments, setComments] = useState<readonly OverlayCommentView[]>([]);
   const [busyComposer, setBusyComposer] = useState<string | null>(null);
 
+  // ── Phase B — forward root → loan resolution (pool identity for the terminal ──
+  // actions). Resolved ONCE on mount from data.rootId. `null` = still resolving;
+  // determinate (resolved:true) unlocks the LIVE close / reject / withdraw writes;
+  // ambiguous (resolved:false) keeps the bar an honest preview/deep-link.
+  const [resolution, setResolution] = useState<LoanForRootResolution | null>(null);
+  const [closeOutcome, setCloseOutcome] = useState<CloseOutcome>({ kind: 'idle' });
+  const [disposeOutcome, setDisposeOutcome] = useState<DisposeOutcome>({ kind: 'idle' });
+
   const refetchComments = React.useCallback(async () => {
     try {
       const res = await api.getOverlayComments(data.rootId);
@@ -254,6 +299,22 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   useEffect(() => {
     void refetchComments();
   }, [refetchComments]);
+
+  // ★ Phase B — resolve the pool identity ONCE from data.rootId. Read-only; never
+  // throws for the ambiguous case (the client returns a discriminated union). A
+  // resolution failure leaves `resolution` null → the bar stays a safe preview.
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const r = await api.getLoanForRoot(data.rootId);
+        if (live) setResolution(r);
+      } catch {
+        if (live) setResolution({ resolved: false, ambiguous: true, reason: 'ROOT_NOT_FOUND', matchCount: 0 });
+      }
+    })();
+    return () => { live = false; };
+  }, [data.rootId]);
 
   const commentsByPath = React.useMemo(() => {
     const m = new Map<string, OverlayCommentView[]>();
@@ -352,6 +413,43 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
     }
   };
 
+  // ★ Phase B — Approve & close, LIVE for a DETERMINATE loan. Same real write as the
+  // pool page (api.closeLoan against the resolved pool identity). The server owns
+  // legality (re-derives Cleared); we surface exactly what it returns — success, or
+  // the specific 422 NOT_CLEARED / 409 LOAN_ALREADY_DEPARTED reason. NO fake green.
+  const onApproveAndClose = async (): Promise<void> => {
+    if (resolution === null || !resolution.resolved) return; // never write when ambiguous
+    if (closeOutcome.kind === 'closing') return;
+    setCloseOutcome({ kind: 'closing' });
+    const result = await api.closeLoan(resolution.poolId, resolution.loanInPoolId);
+    if (result.ok) {
+      setCloseOutcome({ kind: 'closed' });
+      onWorkflowChanged?.(); // let the page refetch workflow + timeline
+      return;
+    }
+    setCloseOutcome({ kind: 'blocked', code: result.code, message: result.message });
+  };
+
+  // ★ Phase B — reject/withdraw, LIVE for a DETERMINATE loan. Same real write as the
+  // pool page (api.dispositionLoan against the resolved pool identity). Actor is
+  // stamped server-side. Honest outcomes — success, or the specific 409/422 reason.
+  const onDispose = async (input: {
+    outcome: DispositionKind;
+    reasonCategory: ReasonCategory | null;
+    note: string | null;
+  }): Promise<void> => {
+    if (resolution === null || !resolution.resolved) return; // never write when ambiguous
+    if (disposeOutcome.kind === 'submitting') return;
+    setDisposeOutcome({ kind: 'submitting' });
+    const result = await api.dispositionLoan(resolution.poolId, resolution.loanInPoolId, input);
+    if (result.ok) {
+      setDisposeOutcome({ kind: 'disposed', outcome: result.disposition.authoritative });
+      onWorkflowChanged?.();
+      return;
+    }
+    setDisposeOutcome({ kind: 'blocked', code: result.code, message: result.message });
+  };
+
   return (
     <section style={{ background: C.bg, color: C.ink, fontFamily: SANS, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginTop: 8 }}>
       {/* ── Header: role seam + side chip ────────────────────────────────────── */}
@@ -393,8 +491,20 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
         accent={sideC.accent} workflowState={workflow?.state}
       />
 
-      {/* ── DispositionBar — LABELED PREVIEW (no write; taxonomy is phase ii) ──── */}
-      <DispositionBarPreview cleared={derivedCleared} hasFatalFlag={hasFatalFlag} />
+      {/* ── DispositionBar — Phase B. LIVE for a DETERMINATE loan (the forward
+         resolver turned data.rootId into a single pool identity); an honest
+         preview/deep-link when the resolution is ambiguous. Same real writes as
+         the pool page (api.closeLoan / api.dispositionLoan). ─────────────────── */}
+      <DispositionBar
+        resolution={resolution}
+        cleared={derivedCleared}
+        hasFatalFlag={hasFatalFlag}
+        side={side}
+        closeOutcome={closeOutcome}
+        disposeOutcome={disposeOutcome}
+        onApproveAndClose={() => { void onApproveAndClose(); }}
+        onDispose={(input) => { void onDispose(input); }}
+      />
 
       {role === 'originator' && (
         <div style={{ background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.amber}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#6e4a1d' }}>
@@ -530,54 +640,218 @@ function ConvergenceBar({ ratified, total, cleared, hasFatalFlag, bandOk, accent
   );
 }
 
-/* ── DispositionBar — LABELED PREVIEW. 4 reason categories; write is phase ii. ── */
-const DISPOSITION_REASONS: readonly { id: string; label: string; hint: string }[] = [
-  { id: 'disqualifying', label: 'Disqualifying', hint: 'Sponsor character / fatal credit' },
-  { id: 'couldnt_structure', label: "Couldn't structure", hint: "Economics won't pencil even maxing levers" },
-  { id: 'expired', label: 'Expired', hint: 'Missed the pool cutoff / ran out of time' },
-  { id: 'withdrawn', label: 'Withdrawn', hint: 'Borrower took a competing term sheet' },
-];
-function DispositionBarPreview({ cleared, hasFatalFlag }: { cleared: boolean; hasFatalFlag: boolean }) {
+/* ── DispositionBar (Phase B) — LIVE for a determinate loan, preview when ambiguous.
+ *
+ * When the forward resolver turned data.rootId into exactly ONE pool loan
+ * (resolution.resolved), "Approve & close" writes via api.closeLoan and
+ * reject/withdraw writes via api.dispositionLoan — the SAME real writes as the pool
+ * page, keyed on the resolved {poolId, loanInPoolId}. reasonCategory is
+ * OUTCOME-FILTERED via the contract taxonomy (REASON_CATEGORY_OUTCOME /
+ * isReasonCategoryValidForOutcome), identical to the pool-page DispositionBar.
+ * Honest outcomes only — the ONLY green is a real close / disposition; every 409/422
+ * surfaces the server's specific reason.
+ *
+ * When the resolution is ambiguous (NONE / MULTIPLE / ROOT_NOT_FOUND — un-pooled or
+ * name-less root, or a deal legitimately in >1 pool) the bar STAYS a preview/deep-
+ * link EXACTLY as before — no write is attempted; it points at the pool page. It
+ * never guesses a target. ── */
+function DispositionBar({
+  resolution,
+  cleared,
+  hasFatalFlag,
+  side,
+  closeOutcome,
+  disposeOutcome,
+  onApproveAndClose,
+  onDispose,
+}: {
+  resolution: LoanForRootResolution | null;
+  cleared: boolean;
+  hasFatalFlag: boolean;
+  side: Side | null;
+  closeOutcome: CloseOutcome;
+  disposeOutcome: DisposeOutcome;
+  onApproveAndClose: () => void;
+  onDispose: (input: { outcome: DispositionKind; reasonCategory: ReasonCategory | null; note: string | null }) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const accent = sideAccentC(side).accent;
+
+  // Disposition form state (only meaningful in the LIVE determinate path).
+  const [chosenOutcome, setChosenOutcome] = useState<DispositionKind>('kicked');
+  const [reasonCategory, setReasonCategory] = useState<ReasonCategory | null>(null);
+  const [note, setNote] = useState<string>('');
+
+  // Outcome-filtered categories — ONLY those valid for the chosen outcome.
+  const validCategories = REASON_CATEGORIES.filter((c) => REASON_CATEGORY_OUTCOME[c] === chosenOutcome);
+  const effectiveCategory =
+    reasonCategory !== null && isReasonCategoryValidForOutcome(reasonCategory, chosenOutcome) ? reasonCategory : null;
+  const onOutcomeChange = (next: DispositionKind) => {
+    setChosenOutcome(next);
+    if (!isReasonCategoryValidForOutcome(reasonCategory, next)) setReasonCategory(null);
+  };
+
+  const resolving = resolution === null;
+  const determinate = resolution !== null && resolution.resolved;
+  const closing = closeOutcome.kind === 'closing';
+  const submitting = disposeOutcome.kind === 'submitting';
+  const closed = closeOutcome.kind === 'closed';
+  const disposed = disposeOutcome.kind === 'disposed';
+  // Once a terminal write has succeeded on either arm the other is spent too.
+  const terminalReached = closed || disposed;
+
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface2, padding: '12px 16px', marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3 }}>Outcome</span>
           <span style={{ fontSize: 13, color: C.ink2 }}>
             {hasFatalFlag ? 'A disqualifying flag is raised.' : cleared ? 'Structure cleared — approvable, or still walk.' : 'In negotiation.'}
           </span>
+          {resolving ? (
+            <span style={{ fontSize: 10, color: C.ink3, fontFamily: MONO }}>· resolving pool identity…</span>
+          ) : determinate ? (
+            <span style={{ fontSize: 10, color: C.resolved, fontFamily: MONO }}>· live on this loan</span>
+          ) : (
+            <span style={{ fontSize: 10, color: C.amber, fontFamily: MONO }}>· preview (no unique pool loan)</span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {/* ★ Approve & close is the LIFECYCLE write (sets lifecycleStatus:'closed',
-             loan STAYS in the pool → final tape) — NOT the disposition path. It is
-             LIVE, but keyed on the loan's pool context (poolId/loanInPoolId), which
-             this graph-native surface does not carry. It lives on the per-loan pool
-             route (/pools/[poolId]/loans/[loanInPoolId]). Here it's an honest pointer. */}
-          <button disabled title="Approve & close (the lifecycle write) is LIVE on the loan's pool page — /pools/[poolId]/loans/[loanInPoolId]. This graph surface has no pool context."
-            style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, color: C.ink3, cursor: 'not-allowed' }}>
-            Approve &amp; close (on pool page)
-          </button>
+          {determinate ? (
+            // ★ LIVE close — api.closeLoan against the resolved pool identity.
+            <button onClick={onApproveAndClose} disabled={closing || terminalReached}
+              title="Approve & close — the lifecycle write (api.closeLoan). The server re-derives Cleared; NOT_CLEARED is surfaced honestly."
+              style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.resolved}`, background: closing || terminalReached ? C.surface2 : '#F0F6F2', color: closing || terminalReached ? C.ink3 : C.resolved, cursor: closing || terminalReached ? 'not-allowed' : 'pointer' }}>
+              {closing ? 'Closing…' : closed ? 'Closed' : 'Approve & close'}
+            </button>
+          ) : (
+            // Ambiguous — honest deep-link pointer, no write.
+            <button disabled title="Approve & close (the lifecycle write) is LIVE on the loan's pool page — /pools/[poolId]/loans/[loanInPoolId]. This root does not resolve to a unique pool loan, so it stays a pointer here."
+              style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, color: C.ink3, cursor: 'not-allowed' }}>
+              Approve &amp; close (on pool page)
+            </button>
+          )}
           <button onClick={() => setOpen((o) => !o)}
             style={{ fontSize: 12, fontWeight: 500, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.borderStrong}`, background: C.surface, color: C.ink2, cursor: 'pointer' }}>
-            Reject / withdraw (preview)
+            {determinate ? (open ? 'Reject / withdraw ▲' : 'Reject / withdraw') : 'Reject / withdraw (preview)'}
           </button>
         </div>
       </div>
+
+      {/* Honest close-outcome banner — the ONLY green is a real close. */}
+      {closeOutcome.kind === 'closed' && (
+        <div style={{ fontSize: 12, color: C.resolved, background: '#F0F6F2', border: `1px solid ${C.resolved}`, borderRadius: 8, padding: '8px 12px', marginTop: 10 }}>
+          Closed — funded to the final tape.
+        </div>
+      )}
+      {closeOutcome.kind === 'blocked' && (
+        <div style={{ fontSize: 12, color: C.kicked, background: '#FBECEB', border: `1px solid ${C.kicked}`, borderRadius: 8, padding: '8px 12px', marginTop: 10 }}>
+          {closeOutcome.code === 'LOAN_ALREADY_DEPARTED'
+            ? 'Already departed (rejected / withdrawn) — can’t close.'
+            : closeOutcome.code === 'NOT_CLEARED'
+              ? `Can’t close — not cleared. ${closeOutcome.message}`
+              : `Can’t close (${closeOutcome.code}). ${closeOutcome.message}`}
+        </div>
+      )}
+
       {open && (
         <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 12, paddingTop: 12 }}>
-          <div style={{ fontSize: 10.5, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 8 }}>Why didn&apos;t it close? — preview taxonomy, nothing is written</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
-            {DISPOSITION_REASONS.map((r) => (
-              <div key={r.id} style={{ border: `1px solid ${C.border}`, borderRadius: 9, background: C.surface, padding: '10px 12px' }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{r.label}</div>
-                <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>{r.hint}</div>
+          {determinate ? (
+            // ★ LIVE reject/withdraw form — api.dispositionLoan against the resolved
+            // pool identity, outcome-filtered reasonCategory, honest outcomes.
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ fontSize: 10.5, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3 }}>
+                Depart the pool — records a disposition directly (actor stamped server-side)
               </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 8 }}>
-            The <code>reasonCategory</code> write + disposition record are phase ii (ride the existing pool Disposition taxonomy). Existing disposition data is untouched.
-          </div>
+
+              {/* Outcome selector. */}
+              <div>
+                <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 6 }}>Outcome</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['kicked', 'dropped'] as const).map((o) => {
+                    const on = chosenOutcome === o;
+                    return (
+                      <button key={o} type="button" disabled={submitting || terminalReached} onClick={() => onOutcomeChange(o)}
+                        style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 12px', borderRadius: 6, cursor: submitting || terminalReached ? 'not-allowed' : 'pointer', border: `1px solid ${on ? accent : C.border}`, background: on ? sideAccentC(side).soft : C.surface, color: on ? accent : C.ink2 }}>
+                        {OUTCOME_LABEL[o]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* reasonCategory — outcome-filtered (only valid parents shown). */}
+              <div>
+                <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 6 }}>Reason category <span style={{ textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" disabled={submitting || terminalReached} onClick={() => setReasonCategory(null)}
+                    style={{ fontSize: 12, fontWeight: effectiveCategory === null ? 600 : 500, padding: '6px 12px', borderRadius: 6, cursor: submitting || terminalReached ? 'not-allowed' : 'pointer', border: `1px solid ${effectiveCategory === null ? accent : C.border}`, background: effectiveCategory === null ? sideAccentC(side).soft : C.surface, color: effectiveCategory === null ? accent : C.ink2 }}>
+                    Unspecified
+                  </button>
+                  {validCategories.map((c) => {
+                    const on = effectiveCategory === c;
+                    return (
+                      <button key={c} type="button" disabled={submitting || terminalReached} onClick={() => setReasonCategory(c)}
+                        style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 12px', borderRadius: 6, cursor: submitting || terminalReached ? 'not-allowed' : 'pointer', border: `1px solid ${on ? accent : C.border}`, background: on ? sideAccentC(side).soft : C.surface, color: on ? accent : C.ink2 }}>
+                        {REASON_CATEGORY_LABEL[c]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Optional note. */}
+              <div>
+                <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 6 }}>Note <span style={{ textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
+                <textarea value={note} disabled={submitting || terminalReached} onChange={(e) => setNote(e.target.value)} rows={2}
+                  placeholder="Free-form context for this departure…"
+                  style={{ width: '100%', fontSize: 13, padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.ink, resize: 'vertical', fontFamily: SANS }} />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button type="button" disabled={submitting || terminalReached}
+                  onClick={() => onDispose({ outcome: chosenOutcome, reasonCategory: effectiveCategory, note: note.trim() === '' ? null : note.trim() })}
+                  style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.kicked}`, background: submitting || terminalReached ? C.surface2 : '#FBECEB', color: submitting || terminalReached ? C.ink3 : C.kicked, cursor: submitting || terminalReached ? 'not-allowed' : 'pointer' }}>
+                  {submitting ? 'Recording…' : chosenOutcome === 'kicked' ? 'Reject loan' : 'Withdraw loan'}
+                </button>
+                <span style={{ fontSize: 10.5, color: C.ink3 }}>Records a buyer-authoritative disposition — the SAME write as the pool page.</span>
+              </div>
+
+              {/* Honest disposition-outcome banner. Success is the ONLY green. */}
+              {disposeOutcome.kind === 'disposed' && (
+                <div style={{ fontSize: 12, color: C.resolved, background: '#F0F6F2', border: `1px solid ${C.resolved}`, borderRadius: 8, padding: '8px 12px' }}>
+                  {disposeOutcome.outcome === 'kicked' ? 'Rejected — kicked from the tape.' : 'Withdrawn — dropped.'}
+                </div>
+              )}
+              {disposeOutcome.kind === 'blocked' && (
+                <div style={{ fontSize: 12, color: C.kicked, background: '#FBECEB', border: `1px solid ${C.kicked}`, borderRadius: 8, padding: '8px 12px' }}>
+                  {disposeOutcome.code === 'LOAN_ALREADY_CLOSED'
+                    ? 'Can’t reject — loan already closed.'
+                    : disposeOutcome.code === 'LOAN_ALREADY_DISPOSED'
+                      ? 'Already disposed.'
+                      : disposeOutcome.code === 'NO_CURRENT_TAPE'
+                        ? 'No current tape to depart from.'
+                        : `Couldn’t record disposition (${disposeOutcome.code}). ${disposeOutcome.message}`}
+                </div>
+              )}
+            </div>
+          ) : (
+            // Ambiguous — the honest preview taxonomy + deep-link pointer, unchanged.
+            <>
+              <div style={{ fontSize: 10.5, letterSpacing: 0.5, textTransform: 'uppercase', color: C.ink3, marginBottom: 8 }}>Why didn&apos;t it close? — preview taxonomy, nothing is written here</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
+                {REASON_CATEGORIES.map((c) => (
+                  <div key={c} style={{ border: `1px solid ${C.border}`, borderRadius: 9, background: C.surface, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{REASON_CATEGORY_LABEL[c]}</div>
+                    <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>{OUTCOME_LABEL[REASON_CATEGORY_OUTCOME[c]]}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 8 }}>
+                This root does not resolve to a unique pool loan{resolution !== null && !resolution.resolved ? ` (${resolution.reason.toLowerCase().replace(/_/g, ' ')})` : ''} — resolve on the pool page (<code>/pools/[poolId]/loans/[loanInPoolId]</code>). Existing disposition data is untouched.
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -1078,6 +1078,44 @@ export const api = {
     request<{ loans: LoanInPool[] }>(`/pools/${poolId}/final-tape`),
 
   /* ------------------------------------------------------------------ */
+  /* Phase B — forward `root → loan` resolver (read-only). Turns a graph */
+  /* lineage ROOT into the single pool loan it belongs to so the graph-  */
+  /* native NegotiationSurface DispositionBar / Approve-&-close can go    */
+  /* LIVE for a DETERMINATE loan. Wires the committed Phase-A backend     */
+  /* (2d4dd54): GET /api/pools/loan-for-root?rootId=<64-hex>, requireAuth,*/
+  /* always 200 — determinate vs ambiguous is carried in the body, NOT   */
+  /* the HTTP status. Returns the discriminated resolution so the surface */
+  /* can branch (LIVE for resolved, honest preview for ambiguous) WITHOUT */
+  /* a generic throw. A missing/blank rootId is the ONLY 400 (client shape*/
+  /* error) — surfaced as ambiguous ROOT_NOT_FOUND so the caller degrades */
+  /* to preview rather than crashing.                                     */
+  /* ------------------------------------------------------------------ */
+  getLoanForRoot: async (rootId: string): Promise<LoanForRootResolution> => {
+    const res = await fetch(
+      `${API_BASE}/pools/loan-for-root?rootId=${encodeURIComponent(rootId)}`,
+      { headers: { 'Content-Type': 'application/json', ...getAuthHeader() } },
+    );
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+    // The route answers 200 for BOTH determinate and ambiguous. Any non-200
+    // (e.g. 400 blank rootId, or a transport error) degrades to an honest
+    // ambiguous ROOT_NOT_FOUND so the surface never treats it as a live target.
+    if (res.ok && (body as { resolved?: unknown }).resolved === true) {
+      const b = body as { poolId: string; loanInPoolId: string; matchedBy: 'exact-deal-ref' | 'normalized-name-bridge' };
+      return { resolved: true, poolId: b.poolId, loanInPoolId: b.loanInPoolId, matchedBy: b.matchedBy };
+    }
+    if (res.ok && (body as { resolved?: unknown }).resolved === false) {
+      const b = body as { reason: 'NONE' | 'MULTIPLE' | 'ROOT_NOT_FOUND'; matchCount?: number };
+      return { resolved: false, ambiguous: true, reason: b.reason, matchCount: typeof b.matchCount === 'number' ? b.matchCount : 0 };
+    }
+    return { resolved: false, ambiguous: true, reason: 'ROOT_NOT_FOUND', matchCount: 0 };
+  },
+
+  /* ------------------------------------------------------------------ */
   /* Phase 4 — standalone disposition (write). The NEGATIVE TERMINAL:    */
   /* reject (kicked) / withdraw (dropped) recorded directly, no tape     */
   /* freeze. Wires the committed backend (Phases 1–3). Like closeLoan,   */
@@ -1148,3 +1186,27 @@ export type CloseLoanResult =
 export type DispositionLoanResult =
   | { readonly ok: true; readonly disposition: Disposition; readonly loan: LoanInPool }
   | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string };
+
+/**
+ * Phase B — the forward `root → loan` resolution. Mirrors the Phase-A backend
+ * `LoanForRootResolution` (resolve-loan-for-root.ts). `resolved:true` carries the
+ * single pool identity (poolId / loanInPoolId) the graph-native DispositionBar +
+ * Approve-&-close write against; `resolved:false` (ambiguous) carries the reason
+ * (NONE = un-pooled / name-less root · MULTIPLE = deal in >1 pool · ROOT_NOT_FOUND
+ * = unknown root) so the surface degrades to an honest preview/deep-link and NEVER
+ * guesses a target. A discriminated union, not a throw — the ambiguous case is a
+ * normal 200, not an error.
+ */
+export type LoanForRootResolution =
+  | {
+      readonly resolved: true;
+      readonly poolId: string;
+      readonly loanInPoolId: string;
+      readonly matchedBy: 'exact-deal-ref' | 'normalized-name-bridge';
+    }
+  | {
+      readonly resolved: false;
+      readonly ambiguous: true;
+      readonly reason: 'NONE' | 'MULTIPLE' | 'ROOT_NOT_FOUND';
+      readonly matchCount: number;
+    };
