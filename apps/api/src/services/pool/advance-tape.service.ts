@@ -570,8 +570,33 @@ export function advanceTapePhaseB(
     for (const d of input.departures) labelsByLoan.set(d.loanInPoolId, d);
 
     for (const departedId of departed) {
+      // ── Standalone-disposition double-count guard (Phase 1) ──────────────
+      // SKIP any departing loan that ALREADY carries a `currentDispositionId`:
+      // it was disposed out-of-band (by the forthcoming standalone-disposition
+      // write, or an earlier departure). WHY this is needed: a pre-freeze
+      // standalone disposition leaves the loan on the IMMUTABLE current tape
+      // (the tape isn't rewritten when a loan is disposed out-of-band), so the
+      // NEXT freeze still sees it in `priorIds \ thisIds` and would re-flag it
+      // as a departure. That second `recordDeparture` computes a DIFFERENT
+      // DispositionId — its hash includes `leftOnTape`, which now differs from
+      // the out-of-band disposition's `leftOnTape` — so it is NOT deduped by
+      // `recordDisposition`'s ON CONFLICT(id) DO NOTHING → a genuine
+      // DOUBLE-RECORD (two disposition rows for one loan). Reading the loan's
+      // `currentDispositionId` from the store and skipping when non-null is
+      // symmetric to the existing `assertNotClosedForDisposition` guard: a loan
+      // is on-tape XOR departed XOR closed — an already-disposed loan is spent.
+      const existingLoan = store.getLoanInPool(departedId);
+      if (existingLoan !== null && existingLoan.currentDispositionId !== null) {
+        // Already disposed → do not record a second departure. The prior
+        // DispositionId stands; nothing appended, nothing to push.
+        continue;
+      }
+
       const label = labelsByLoan.get(departedId);
       if (label === undefined) {
+        // Contract intact: a genuinely-new departure (no prior disposition)
+        // STILL requires its DepartureLabel. Only already-disposed loans are
+        // exempt (they `continue`d above); this reaches only real departures.
         throw new AdvanceTapeError(
           `departed loan ${departedId} requires a DepartureLabel — supply one`,
         );
