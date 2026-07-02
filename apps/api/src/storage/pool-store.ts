@@ -45,6 +45,7 @@ import type {
   DispositionId,
   LoanInPool,
   LoanInPoolId,
+  LoanLifecycleStatus,
   LoanMembership,
   Pool,
   PoolId,
@@ -166,6 +167,7 @@ export class PoolStore {
         property_name          TEXT,
         asset_type             TEXT,
         current_disposition_id TEXT,
+        lifecycle_status       TEXT,
         payload                TEXT NOT NULL,
         FOREIGN KEY (pool_id) REFERENCES pool(id)
       );
@@ -210,6 +212,20 @@ export class PoolStore {
       CREATE INDEX IF NOT EXISTS idx_disposition_loan      ON disposition(loan_in_pool_id);
       CREATE INDEX IF NOT EXISTS idx_disposition_overrides ON disposition(pool_id, override_flag);
     `);
+
+    // Defensive, idempotent lazy ALTER (P4c-status). `loan_in_pool` is eagerly
+    // created above with a fixed column list, so a pre-existing cre.db table does
+    // NOT auto-carry the pool-lifecycle `lifecycle_status` column. Add it if
+    // absent — mirrors the overlay_patches `side`-column pattern. Nullable, NO
+    // backfill: `null` is the correct "no positive terminal reached" state for
+    // every existing row. New tables already carry it via the CREATE above; on
+    // those this SELECT sees the column and the ALTER is skipped.
+    const hasLifecycleStatus = this.db
+      .prepare(`SELECT 1 FROM pragma_table_info('loan_in_pool') WHERE name = 'lifecycle_status'`)
+      .get();
+    if (!hasLifecycleStatus) {
+      this.db.exec(`ALTER TABLE loan_in_pool ADD COLUMN lifecycle_status TEXT`);
+    }
   }
 
   /* -------------------------- Pool ------------------------------------- */
@@ -478,28 +494,77 @@ export class PoolStore {
       .prepare(
         `INSERT INTO loan_in_pool
          (id, pool_id, deal_ref, added_on_tape, originator_loan_ref, property_name, asset_type,
-          current_disposition_id, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          current_disposition_id, lifecycle_status, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id, loan.poolId, loan.dealRef, loan.addedOnTape, loan.originatorLoanRef,
-        loan.propertyName, loan.assetType, loan.currentDispositionId, payload,
+        loan.propertyName, loan.assetType, loan.currentDispositionId,
+        loan.lifecycleStatus ?? null, payload,
       );
   }
 
   getLoanInPool(id: LoanInPoolId): LoanInPool | null {
     const row = this.db
-      .prepare(`SELECT payload, current_disposition_id FROM loan_in_pool WHERE id = ?`)
-      .get(id) as ({ readonly current_disposition_id: string | null } & PayloadRow) | undefined;
+      .prepare(`SELECT payload, current_disposition_id, lifecycle_status FROM loan_in_pool WHERE id = ?`)
+      .get(id) as
+      | ({ readonly current_disposition_id: string | null; readonly lifecycle_status: string | null } & PayloadRow)
+      | undefined;
     if (!row) return null;
     const body = JSON.parse(row.payload) as Record<string, unknown>;
-    return { id, ...body, currentDispositionId: row.current_disposition_id } as LoanInPool;
+    // Refresh both mutable columns from their canonical column source of truth
+    // (the payload is a stale identity-time copy for these two fields).
+    return {
+      id,
+      ...body,
+      currentDispositionId: row.current_disposition_id,
+      lifecycleStatus: (row.lifecycle_status as LoanLifecycleStatus | null),
+    } as LoanInPool;
   }
 
   setCurrentDisposition(loanInPoolId: LoanInPoolId, dispositionId: DispositionId): void {
     this.db
       .prepare(`UPDATE loan_in_pool SET current_disposition_id = ? WHERE id = ?`)
       .run(dispositionId, loanInPoolId);
+  }
+
+  /** P4c-status: set the per-loan positive-terminal lifecycle status. Mirrors
+   *  `setCurrentDisposition` — a one-line UPDATE on the mutable `loan_in_pool`.
+   *  Legality (Cleared re-derivation, departure-exclusion, idempotency) is the
+   *  route/service layer's job; the store just persists what it's given. The
+   *  `lifecycle_status` column is the canonical source `getLoanInPool` reads back
+   *  (the payload copy is not rewritten — same discipline as
+   *  `current_disposition_id`, which lives only in its column). */
+  setLifecycleStatus(loanInPoolId: LoanInPoolId, status: LoanLifecycleStatus): void {
+    this.db
+      .prepare(`UPDATE loan_in_pool SET lifecycle_status = ? WHERE id = ?`)
+      .run(status, loanInPoolId);
+  }
+
+  /** P4c-status: the final tape — every loan in the pool whose per-loan
+   *  lifecycle status is `'closed'`. This is the PER-LOAN Closed read, decoupled
+   *  from `pool.closed_at` (the pool-level seal). A pool accumulates Closed loans
+   *  before the pool itself seals. Ordered by `added_on_tape` for a stable view. */
+  getFinalTape(poolId: PoolId): readonly LoanInPool[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, payload, current_disposition_id, lifecycle_status
+         FROM loan_in_pool
+         WHERE pool_id = ? AND lifecycle_status = 'closed'
+         ORDER BY added_on_tape`,
+      )
+      .all(poolId) as ReadonlyArray<
+        { readonly id: string; readonly current_disposition_id: string | null; readonly lifecycle_status: string | null } & PayloadRow
+      >;
+    return rows.map((r) => {
+      const body = JSON.parse(r.payload) as Record<string, unknown>;
+      return {
+        id: r.id,
+        ...body,
+        currentDispositionId: r.current_disposition_id,
+        lifecycleStatus: (r.lifecycle_status as LoanLifecycleStatus | null),
+      } as LoanInPool;
+    });
   }
 
   /** PR3: when a buyer resolves a re-key (incoming originatorRef differs from

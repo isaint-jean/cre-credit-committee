@@ -609,6 +609,21 @@ function buildPriorLookup(store: PoolStore, priorTapeId: TapeId | null): PriorMe
   return { byLoanInPoolId };
 }
 
+/**
+ * P4c-status symmetric guard. A loan whose per-loan `lifecycleStatus === 'closed'`
+ * (positive terminal) cannot then be disposed — Closed XOR departed XOR on-tape.
+ * Throws `AdvanceTapeError` if the loan is closed; no-op otherwise. Exported so the
+ * gate harness exercises the EXACT guard the disposition write path uses.
+ */
+export function assertNotClosedForDisposition(store: PoolStore, loanInPoolId: LoanInPoolId): void {
+  const loan = store.getLoanInPool(loanInPoolId);
+  if (loan !== null && loan.lifecycleStatus === 'closed') {
+    throw new AdvanceTapeError(
+      `loan ${loanInPoolId} is closed (positive terminal) and cannot be disposed`,
+    );
+  }
+}
+
 function recordDeparture(
   store: PoolStore,
   poolId: PoolId,
@@ -618,6 +633,12 @@ function recordDeparture(
   label: DepartureLabel,
   recordedBy: { readonly userId: string; readonly displayName: string | null },
 ): DispositionId {
+  // P4c-status symmetric guard: a CLOSED loan (positive terminal) cannot then
+  // depart. Closed XOR departed XOR on-tape — mirror the /close route's rejection
+  // of a disposed loan. Extracted to an exported helper so the guard is the SAME
+  // code the test exercises.
+  assertNotClosedForDisposition(store, loanInPoolId);
+
   const override = label.originatorLabel !== label.buyerLabel;
   // reasonCategory is an OPTIONAL, hash-EXCLUDED refinement of the authoritative
   // outcome. Reject a mismatched pair before we mint an id / persist.

@@ -54,6 +54,7 @@ import type { ReasonCategory } from '@cre/contracts';
 
 import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } from '../storage/pool-store.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
+import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -373,6 +374,90 @@ poolRoutes.post('/:poolId/tapes/freeze', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/pools/:poolId/loans/:loanInPoolId/close — the POSITIVE TERMINAL.
+ *
+ * Sets the per-loan `LoanLifecycleStatus = 'closed'` on the mutable `loan_in_pool`.
+ * The loan STAYS in the pool and goes onto the final tape. This is NOT a
+ * disposition (that's the departure path) and NOT a stored Cleared flag (Cleared
+ * stays derived).
+ *
+ * Body: empty (no fields required). Actor is stamped SERVER-SIDE from req.user,
+ * never from the body (mirror the freeze handler's buyer-authoritative discipline).
+ *
+ * Legality (all enforced here, before the store write):
+ *   - 404 if the pool/loan doesn't exist or the loan isn't in this pool.
+ *   - 422 NOT_CLEARED if the server RE-DERIVES Cleared = false (never trusts the
+ *     client; re-computes the exact negotiation-surface predicate over persisted
+ *     state via deriveClearedForDealRef).
+ *   - 422 CLEARED_UNRESOLVABLE if the loan's dealRef can't map to a single graph
+ *     root (can't re-derive → refuse rather than fake a pass).
+ *   - 409 LOAN_ALREADY_DEPARTED if currentDispositionId != null (mutual exclusion).
+ *   - Idempotent no-op if already 'closed' (200, mirrors recordDisposition's
+ *     ON CONFLICT idempotency).
+ *
+ * Response 200: { loan: LoanInPool }  (with lifecycleStatus: 'closed').
+ */
+poolRoutes.post('/:poolId/loans/:loanInPoolId/close', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+
+  // Actor stamped server-side (not currently persisted on the status row, but
+  // read here to enforce the same "actor from req.user, never body" discipline as
+  // the buyer-authoritative writes; role gates deferred, matching this file).
+  void (req.user?.userId ?? 'anonymous');
+
+  try {
+    const loan = poolStore().getLoanInPool(loanInPoolId);
+    if (loan === null || loan.poolId !== poolId) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+    }
+
+    // Idempotent: already closed → no-op success (re-close is not an error).
+    if (loan.lifecycleStatus === 'closed') {
+      return res.json({ loan });
+    }
+
+    // Mutual exclusion with a departure — a disposed loan cannot close.
+    if (loan.currentDispositionId !== null && loan.currentDispositionId !== undefined) {
+      return res.status(409).json({
+        error: 'LOAN_ALREADY_DEPARTED',
+        message: `loan ${loanInPoolId} has a disposition (${loan.currentDispositionId}) and cannot be closed`,
+      });
+    }
+
+    // ★ Server RE-DERIVES Cleared from persisted state — never trusts the client.
+    const clearedResult = deriveClearedForDealRef(loan.dealRef);
+    if (!clearedResult.resolved) {
+      return res.status(422).json({
+        error: 'CLEARED_UNRESOLVABLE',
+        message: `cannot re-derive Cleared for loan ${loanInPoolId} (dealRef '${loan.dealRef}': ${clearedResult.reason})`,
+        reason: clearedResult.reason,
+      });
+    }
+    if (!clearedResult.cleared) {
+      return res.status(422).json({
+        error: 'NOT_CLEARED',
+        message: `loan ${loanInPoolId} is not cleared and cannot be closed`,
+        detail: {
+          hasFatalFlag: clearedResult.hasFatalFlag,
+          band: clearedResult.band,
+          bandOk: clearedResult.bandOk,
+          convergenceTotal: clearedResult.convergenceTotal,
+          ratifiedCount: clearedResult.ratifiedCount,
+          structuralAllRatified: clearedResult.structuralAllRatified,
+        },
+      });
+    }
+
+    poolStore().setLifecycleStatus(loanInPoolId, 'closed');
+    const updated = poolStore().getLoanInPool(loanInPoolId);
+    return res.json({ loan: updated });
+  } catch (e) {
+    return mapThrow(res, e);
+  }
+});
+
 /* =============================== READS =================================== */
 
 /** GET /api/pools — list, with ?vintage / ?seller filters. */
@@ -475,6 +560,21 @@ poolRoutes.get('/:poolId/dispositions', (req: Request, res: Response) => {
     if (pool === null) return res.status(404).json({ error: 'NOT_FOUND', message: `pool ${poolId} not found` });
     const dispositions = poolStore().getDispositions(poolId);
     return res.json({ dispositions });
+  } catch (e) { return mapThrow(res, e); }
+});
+
+/**
+ * GET /api/pools/:poolId/final-tape — the loans that have CLOSED (per-loan
+ * `LoanLifecycleStatus === 'closed'`). This is decoupled from `pool.closed_at`
+ * (the pool-level seal): a pool accumulates closed loans before it seals.
+ */
+poolRoutes.get('/:poolId/final-tape', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  try {
+    const pool = poolStore().getPool(poolId);
+    if (pool === null) return res.status(404).json({ error: 'NOT_FOUND', message: `pool ${poolId} not found` });
+    const loans = poolStore().getFinalTape(poolId);
+    return res.json({ loans });
   } catch (e) { return mapThrow(res, e); }
 });
 

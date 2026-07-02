@@ -287,7 +287,45 @@ export interface LoanInPool {
   readonly assetType: AssetType | null;
   /** Null while the loan is still active in the pool; set when departed. */
   readonly currentDispositionId: DispositionId | null;
+  /**
+   * Pool-lifecycle positive terminal (§6b). `null`/absent = no terminal reached
+   * (the default for every existing row — the backing column is a nullable ALTER
+   * with no backfill). `'closed'` = the loan cleared and closed; it STAYS in the
+   * pool and goes onto the final tape. Orthogonal to `OnTapeStatus` (membership /
+   * per-tape review) and mutually exclusive with `currentDispositionId` (the
+   * departure). Optional in the type so pre-existing records and fixtures read
+   * back cleanly as `undefined`/`null`.
+   */
+  readonly lifecycleStatus?: LoanLifecycleStatus | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* §6b. LoanLifecycleStatus — pool-lifecycle positive terminal                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Per-loan POSITIVE TERMINAL in the pool lifecycle. Orthogonal to both
+ * `OnTapeStatus` (per-tape buyer review, on `LoanMembership`) and the
+ * `Disposition` (departure — the loan LEAVES). A Closed loan STAYS in the pool
+ * and goes onto the final tape.
+ *
+ * SINGLE value — `'closed'`. There is deliberately no `'funded'`: no producer
+ * models a distinct fund event, and inventing one implies a funding-confirmation
+ * write path that does not exist (same discipline as never minting a state
+ * without a source). `null` (the default, absent column value) means "no
+ * positive terminal reached yet." Extending to a second value later is purely
+ * additive (append to the tuple).
+ *
+ * Legality (enforced in the write path, NOT structurally in this type):
+ *   - `→ closed` is legal ONLY IF the server re-derives Cleared = true AND the
+ *     loan has no disposition (`currentDispositionId == null`).
+ *   - `closed` is terminal + idempotent (re-close is a no-op, not an error).
+ *   - Symmetric mutual exclusion with the disposition: a disposed loan cannot
+ *     close; a closed loan blocks a later disposition. A loan is
+ *     Closed XOR departed XOR still-on-tape.
+ */
+export const LOAN_LIFECYCLE_STATUSES = ['closed'] as const;
+export type LoanLifecycleStatus = (typeof LOAN_LIFECYCLE_STATUSES)[number];
 
 /* -------------------------------------------------------------------------- */
 /* §7. Disposition — buyer-authoritative departure record                     */
