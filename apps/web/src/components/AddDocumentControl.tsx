@@ -20,6 +20,7 @@ const APPEND_SLOTS: ReadonlyArray<{ slot: string; label: string }> = [
   { slot: 'cf', label: 'Cash Flow (Seller CF)' },
   { slot: 'rent_roll', label: 'Rent Roll' },
   { slot: 'pca', label: 'PCA (Property Condition Assessment)' },
+  { slot: 'appraisal', label: 'Appraisal' },
 ];
 
 type Phase = 'idle' | 'uploading' | 'success' | 'error';

@@ -201,6 +201,22 @@ const DQ_DOCUMENT_LABEL: { readonly [code: string]: string } = {
   JE_APPRAISAL_MISSING: 'appraisal',
 };
 
+// ── DQ code → the append-document SLOT the originator uploads to answer the flag.
+//    Inverse of DQ_DOCUMENT_LABEL, keyed on SLOT_TO_INPUT (append-source-doc.service.ts):
+//      rent_roll / pca / appraisal re-extract directly; the T-12 / in-place statement
+//      arrives through the `cf` slot (there is no standalone extracting `t12` slot).
+//    ★ JE_LOAN_TERMS_MISSING is DELIBERATELY ABSENT — loan terms are reconstructed from
+//      the parent's AdjustedInputs, NOT an uploadable doc. A code missing here => the
+//      upload action hides (request-only), so we never offer an unanswerable upload.
+const DQ_UPLOAD_SLOT: { readonly [code: string]: string } = {
+  JE_RENT_ROLL_MISSING: 'rent_roll',
+  JE_RENT_ROLL_UNIT_INCOMPLETE: 'rent_roll',
+  JE_TRAILING_ACTUALS_MISSING: 'cf',
+  JE_IN_PLACE_MISSING: 'cf',
+  JE_PCA_MISSING: 'pca',
+  JE_APPRAISAL_MISSING: 'appraisal',
+};
+
 /** Humanize a DQ code (e.g. JE_PCA_MISSING → "PCA missing") for display. Falls back
  *  to a title-cased strip of the JE_ prefix so unknown codes still read cleanly. */
 function humanizeDqCode(code: string): string {
@@ -434,8 +450,152 @@ interface OpenFlag {
   readonly createdAt: string;
 }
 
+// ── Per-flag "Supply the document" action (BUILDs 1-3) ───────────────────────
+// The ORIGINATOR-side answer to a buyer's `dq:<code>` request. Reuses api.appendDocument
+// verbatim — POST /api/analyses/:id/append-document → re-ingest as a CHILD revision
+// (append-only, parent preserved). Frontend-only; no governed touch.
+//
+// PHASE 1: maps dq:<code> → append slot via DQ_UPLOAD_SLOT (JE_LOAN_TERMS_MISSING has
+//   no slot → this component is not rendered for it; the panel shows it request-only).
+// PHASE 2: append is fully SYNCHRONOUS (blocks through PDF parse + LLM). We show an
+//   HONEST blocking "Processing — this re-runs the underwriting…" state (no fake instant
+//   success), then on 201 call onAppended() → the page re-fetches GET /:id so the new
+//   child revision + re-derived flags surface.
+// PHASE 3: honest outcomes — the flag may re-fire on the child ("deal updated", never
+//   "resolved"); a no-op append (empty provenance diff) says "no change"; typed/500
+//   errors surface honestly (never green). The 201 body carries childRevisionId +
+//   revisionOrdinal as an audit breadcrumb.
+type UploadPhase = 'idle' | 'processing' | 'done' | 'error';
+
+function FlagUploadAction({
+  analysisId,
+  slot,
+  documentLabel,
+  onAppended,
+}: {
+  analysisId: string;
+  slot: string;
+  documentLabel: string;
+  onAppended: () => void | Promise<void>;
+}): React.ReactElement {
+  const [file, setFile] = useState<File | null>(null);
+  const [phase, setPhase] = useState<UploadPhase>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [outcome, setOutcome] = useState<{ ordinal: number; childId: string } | null>(null);
+
+  const submit = async (): Promise<void> => {
+    if (!file || phase === 'processing') return;
+    setPhase('processing');
+    setErrorMsg('');
+    setOutcome(null);
+    try {
+      const res = await api.appendDocument(analysisId, slot, file);
+      if (res.ok) {
+        // ★ 201: a NEW child revision exists. The flag does NOT auto-clear here — it
+        //   re-derives on the refetched revision. We say "deal updated," never "resolved."
+        setOutcome({ ordinal: res.revisionOrdinal, childId: res.childRevisionId });
+        setPhase('done');
+        setFile(null);
+        await onAppended(); // re-fetch GET /:id → advanced child revision + re-derived flags
+      } else if (
+        res.status === 422 &&
+        (res.error === 'no_eval_context' || res.error === 'parent_context_unresolvable')
+      ) {
+        setErrorMsg("This deal can't accept new documents (created before append support).");
+        setPhase('error');
+      } else if (res.status === 400 && res.error === 'invalid_slot') {
+        setErrorMsg('That document type is not accepted here.');
+        setPhase('error');
+      } else {
+        // 500 append_failed / 404 / other typed errors — honest, not green.
+        setErrorMsg('Upload failed — the document could not be processed. Retry.');
+        setPhase('error');
+      }
+    } catch {
+      setErrorMsg('Upload failed — the document could not be processed. Retry.');
+      setPhase('error');
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <label
+        style={{
+          fontSize: 11, fontWeight: 600, color: C.amber, cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        <span>{file ? 'Change file' : `Upload the ${documentLabel}`}</span>
+        <input
+          type="file"
+          disabled={phase === 'processing'}
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null);
+            if (phase === 'error' || phase === 'done') { setPhase('idle'); setErrorMsg(''); setOutcome(null); }
+          }}
+          style={{ display: 'none' }}
+        />
+      </label>
+
+      {file !== null && (
+        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: C.ink2, fontFamily: MONO, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+          <button
+            type="button"
+            onClick={() => { void submit(); }}
+            disabled={phase === 'processing'}
+            style={{
+              fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, cursor: phase === 'processing' ? 'default' : 'pointer',
+              background: C.amber, color: '#fff', border: 'none', opacity: phase === 'processing' ? 0.6 : 1,
+            }}
+          >
+            {phase === 'processing' ? 'Processing…' : 'Submit & re-underwrite'}
+          </button>
+        </div>
+      )}
+
+      {/* ★ Score-can-move disclosure — a CONFIDENT feature, not a warning. */}
+      <div style={{ fontSize: 10, color: C.ink3, marginTop: 6, lineHeight: 1.4 }}>
+        Uploading re-runs the underwriting on a new revision — the score and flags may
+        change as the analysis responds to new information. It is an auditable new child
+        revision, not a silent rewrite.
+      </div>
+
+      {phase === 'processing' && (
+        <div style={{ fontSize: 11, color: C.ink2, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="animate-spin" style={{ width: 12, height: 12, border: `2px solid ${C.amber}`, borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block' }} />
+          Processing — this re-runs the underwriting, may take a moment.
+        </div>
+      )}
+
+      {phase === 'done' && outcome !== null && (
+        <div style={{ fontSize: 11, color: C.resolved, marginTop: 6, lineHeight: 1.4 }}>
+          Document added — deal updated (revision #{outcome.ordinal}). The analysis was
+          re-underwritten; the flags above have been re-derived on the new revision. If a
+          flag remains, the document did not supply the expected field.
+          <div style={{ fontSize: 9.5, fontFamily: MONO, color: C.ink3, marginTop: 2 }}>
+            child {outcome.childId.slice(0, 8)}
+          </div>
+        </div>
+      )}
+
+      {phase === 'error' && (
+        <div style={{ fontSize: 11, color: C.kicked, marginTop: 6 }}>{errorMsg}</div>
+      )}
+    </div>
+  );
+}
+
 function OriginatorOpenFlagsPanel(
-  { rootId }: { rootId: DoctrineEvaluationId },
+  { rootId, analysisId, onAppended }: {
+    rootId: DoctrineEvaluationId;
+    // The routed deal id — required to call append-document. Absent in contexts without
+    // the routed id → upload actions hide (the panel stays read-only, backward compatible).
+    analysisId?: string;
+    // Page-level refetch (GET /:id) so the advanced child revision + re-derived flags
+    // surface after an append. Same callback the revision-save path uses.
+    onAppended?: () => void | Promise<void>;
+  },
 ): React.ReactElement {
   const [flags, setFlags] = useState<readonly OpenFlag[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -458,6 +618,8 @@ function OriginatorOpenFlagsPanel(
         if (!cancelled) setFailed(true);
       }
     })();
+    // Re-read the flags whenever the revision advances (rootId changes after an append),
+    // so the panel reflects the re-derived flag state on the child.
     return () => { cancelled = true; };
   }, [rootId]);
 
@@ -467,7 +629,8 @@ function OriginatorOpenFlagsPanel(
         <div style={{ ...eyebrow, color: C.amber }}>Open flags for this deal</div>
         <div style={{ fontSize: 11, color: C.ink2, marginTop: 2 }}>
           Data-quality flags and document requests logged by the buyer for you to address.
-          Append-only — there is no resolved state.
+          Supply the requested document to re-underwrite the deal. Append-only — there is
+          no resolved state; the flags re-derive on the new revision.
         </div>
       </div>
       <div style={{ padding: '12px 16px' }}>
@@ -479,16 +642,34 @@ function OriginatorOpenFlagsPanel(
           <div style={{ fontSize: 12, color: C.ink3 }}>No open flags. Nothing has been flagged for you on this deal.</div>
         ) : (
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {flags.map((f, i) => (
-              <li key={f.code + ':' + i} style={{ borderLeft: `3px solid ${C.amber}`, paddingLeft: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{humanizeDqCode(f.code)}</div>
-                <div style={{ fontSize: 9.5, fontFamily: MONO, color: C.ink3 }}>{f.code}</div>
-                <div style={{ fontSize: 12, color: C.ink2, marginTop: 3 }}>{f.text}</div>
-                <div style={{ fontSize: 10, color: C.ink3, marginTop: 3 }}>
-                  {(() => { const d = new Date(f.createdAt); return Number.isNaN(d.getTime()) ? f.createdAt : d.toLocaleString(); })()}
-                </div>
-              </li>
-            ))}
+            {flags.map((f, i) => {
+              const slot = DQ_UPLOAD_SLOT[f.code];
+              const documentLabel = DQ_DOCUMENT_LABEL[f.code] ?? humanizeDqCode(f.code);
+              const canUpload = slot !== undefined && analysisId !== undefined && onAppended !== undefined;
+              return (
+                <li key={f.code + ':' + i} style={{ borderLeft: `3px solid ${C.amber}`, paddingLeft: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{humanizeDqCode(f.code)}</div>
+                  <div style={{ fontSize: 9.5, fontFamily: MONO, color: C.ink3 }}>{f.code}</div>
+                  <div style={{ fontSize: 12, color: C.ink2, marginTop: 3 }}>{f.text}</div>
+                  <div style={{ fontSize: 10, color: C.ink3, marginTop: 3 }}>
+                    {(() => { const d = new Date(f.createdAt); return Number.isNaN(d.getTime()) ? f.createdAt : d.toLocaleString(); })()}
+                  </div>
+                  {canUpload ? (
+                    <FlagUploadAction
+                      analysisId={analysisId!}
+                      slot={slot!}
+                      documentLabel={documentLabel}
+                      onAppended={onAppended!}
+                    />
+                  ) : slot === undefined ? (
+                    // ★ JE_LOAN_TERMS_MISSING & any code with no uploadable slot — request-only.
+                    <div style={{ fontSize: 10, color: C.ink3, marginTop: 6, fontStyle: 'italic' }}>
+                      No document upload — this request is answered outside the document intake.
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -1541,7 +1722,9 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
                 "Flag to originator" / "Request document" writes. Shown when the viewer
                 entered the deal AS the originator (useSide()==='originator'), so it leads
                 the rail for the party the flags are addressed to. Read-only. */}
-            {side === 'originator' ? <OriginatorOpenFlagsPanel rootId={data.rootId} /> : null}
+            {side === 'originator'
+              ? <OriginatorOpenFlagsPanel rootId={data.rootId} analysisId={analysisId} onAppended={onRevisionSaved} />
+              : null}
             <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 16 }}>
               <div style={{ ...eyebrow, marginBottom: 12 }}>Credit summary</div>
               <ScoreDonut
