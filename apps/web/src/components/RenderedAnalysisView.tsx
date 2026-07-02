@@ -86,6 +86,12 @@ interface Props {
   // panel (advisory intake completeness + always-on Create-workbook CTA) mounts.
   // Absent in contexts that lack the routed id (backward compatible).
   readonly analysisId?: string;
+  // Synthetic-fixture guard. True iff this analysis is the seeded DEMO cleared-deal
+  // fixture (dealRef 'DEMO-CLEARED-MF-001'), resolved at the page layer via the
+  // dealRef→analysisId lookup (the RenderedAnalysis payload carries no dealRef/
+  // propertyName). Renders a prominent warning banner so the deal room cannot be
+  // screenshotted and mistaken for a real deal. Purely additive; false for real deals.
+  readonly synthetic?: boolean;
 }
 
 function userCanRevise(role: string | undefined): boolean {
@@ -685,7 +691,7 @@ function EditCell(
   );
 }
 
-export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChanged, onRevisionSaved, handbookEvaluation, analysisId }: Props): React.ReactElement {
+export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChanged, onRevisionSaved, handbookEvaluation, analysisId, synthetic }: Props): React.ReactElement {
   const { user } = useAuth();
   const canRevise = userCanRevise(user?.role);
   const editAvailable = canRevise && onRevisionSaved !== undefined;
@@ -770,6 +776,24 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
 
   return (
     <div className="space-y-6 p-6 max-w-5xl mx-auto">
+      {/* Synthetic-fixture banner. Renders ONLY for the seeded DEMO cleared-deal
+          fixture (never for a real deal — `synthetic` is resolved at the page layer
+          from the DEMO dealRef). Deliberately loud + sticky so a screenshot of the
+          deal room can never be mistaken for a real underwriting. */}
+      {synthetic ? (
+        <div
+          role="alert"
+          className="sticky top-0 z-20 border-2 border-red-600 bg-red-600 text-white px-4 py-3 rounded-md shadow-md flex items-center gap-3"
+        >
+          <span className="text-lg leading-none" aria-hidden="true">⚠</span>
+          <div className="text-sm font-bold uppercase tracking-wide">
+            DEMO — SYNTHETIC FIXTURE (not for underwriting)
+          </div>
+          <div className="text-xs font-normal opacity-90 ml-auto hidden sm:block">
+            This deal was generated to exercise the cleared→closed flow. It is not a real loan.
+          </div>
+        </div>
+      ) : null}
       <header className="space-y-2">
         <div className="text-xs text-gray-500 font-mono">
           rootId: {data.rootId} . renderVersion: {data.metadata.renderVersion}

@@ -27,6 +27,25 @@ export default function AnalysisDashboard() {
   // Converge phase i — set true while redirecting a uuid URL onto its graph id, so we
   // render a spinner instead of momentarily flashing the dormant DealRoom.
   const [redirecting, setRedirecting] = useState(false);
+  // Synthetic-fixture guard: true iff THIS analysis is the seeded DEMO cleared-deal
+  // fixture (dealRef 'DEMO-CLEARED-MF-001'). The RenderedAnalysis payload carries no
+  // dealRef/propertyName, so we resolve identity via the existing dealRef→analysisId
+  // lookup and compare it to the current graph root. Purely additive; false for every
+  // real deal (a real root can never equal the DEMO fixture's root).
+  const [synthetic, setSynthetic] = useState(false);
+
+  // Resolve the synthetic marker once per analysis id. If the DEMO fixture's dealRef
+  // resolves to the analysis currently on screen, this is the synthetic deal.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.lookupAnalysisByDealRef('DEMO-CLEARED-MF-001');
+        if (!cancelled && res.found && res.analysisId === id) setSynthetic(true);
+      } catch { /* lookup is best-effort; absence of the fixture is the common case */ }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
 
   // Poll for status while processing. Rendered (content-hashed) roots are immutable —
   // we stop polling once seen. Legacy analyses poll until complete/error.
@@ -84,6 +103,7 @@ export default function AnalysisDashboard() {
       <RenderedAnalysisView
         data={rendered}
         analysisId={id}
+        synthetic={synthetic}
         workflow={workflow ?? undefined}
         timeline={timeline ?? undefined}
         handbookEvaluation={handbookEvaluation}
