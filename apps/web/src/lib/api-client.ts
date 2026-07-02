@@ -7,6 +7,7 @@ import type {
   CreditManifesto,
   DealWorkflowState,
   Disposition,
+  DispositionKind,
   DoctrineEvaluationId,
   LibrarySnapshot,
   LoanInPool,
@@ -18,6 +19,7 @@ import type {
   HandbookEvaluation,
   Pool,
   PoolId,
+  ReasonCategory,
   RenderedAnalysis,
   RenderedAnalysisId,
   Tape,
@@ -1074,6 +1076,54 @@ export const api = {
   // (lifecycleStatus === 'closed'), decoupled from pool.closed_at.
   getFinalTape: (poolId: PoolId | string) =>
     request<{ loans: LoanInPool[] }>(`/pools/${poolId}/final-tape`),
+
+  /* ------------------------------------------------------------------ */
+  /* Phase 4 — standalone disposition (write). The NEGATIVE TERMINAL:    */
+  /* reject (kicked) / withdraw (dropped) recorded directly, no tape     */
+  /* freeze. Wires the committed backend (Phases 1–3). Like closeLoan,   */
+  /* returns the REAL outcome as a discriminated union so the UI can     */
+  /* distinguish the honest failures — 409 LOAN_ALREADY_CLOSED, 409      */
+  /* LOAN_ALREADY_DISPOSED, 422 NO_CURRENT_TAPE, 404 NOT_FOUND — WITHOUT */
+  /* collapsing them into a generic throw. Success carries { disposition,*/
+  /* loan } (the now-disposed loan, currentDispositionId set). Actor is   */
+  /* stamped SERVER-SIDE from req.user; the client never sends it. Auth   */
+  /* flows through getAuthHeader() + 401→login like every other write.    */
+  /* ------------------------------------------------------------------ */
+  dispositionLoan: async (
+    poolId: PoolId | string,
+    loanInPoolId: LoanInPoolId | string,
+    input: { outcome: DispositionKind; reasonCategory?: ReasonCategory | null; note?: string | null },
+  ): Promise<DispositionLoanResult> => {
+    const res = await fetch(`${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/disposition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({
+        outcome: input.outcome,
+        ...(input.reasonCategory ? { reasonCategory: input.reasonCategory } : {}),
+        ...(input.note ? { note: input.note } : {}),
+      }),
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+    if (res.ok) {
+      const b = body as { disposition: Disposition; loan: LoanInPool };
+      return { ok: true, disposition: b.disposition, loan: b.loan };
+    }
+    // Honest, code-distinguished failures. The three the UI reasons over are
+    // LOAN_ALREADY_CLOSED (409), LOAN_ALREADY_DISPOSED (409) and NO_CURRENT_TAPE
+    // (422); NOT_FOUND (404) surfaces as itself — never a fake success.
+    const code = typeof (body as { error?: unknown }).error === 'string'
+      ? (body as { error: string }).error
+      : `HTTP_${res.status}`;
+    const message = typeof (body as { message?: unknown }).message === 'string'
+      ? (body as { message: string }).message
+      : `Disposition failed (${res.status})`;
+    return { ok: false, status: res.status, code, message };
+  },
 };
 
 /**
@@ -1085,4 +1135,16 @@ export const api = {
  */
 export type CloseLoanResult =
   | { readonly ok: true; readonly loan: LoanInPool }
+  | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string };
+
+/**
+ * Phase 4 — the honest standalone-disposition outcome. `ok:true` carries the
+ * recorded `disposition` + the updated `loan` (now `currentDispositionId` set);
+ * `ok:false` carries the server `code` (LOAN_ALREADY_CLOSED | LOAN_ALREADY_DISPOSED
+ * | NO_CURRENT_TAPE | NOT_FOUND | HTTP_*) + human `message` so the UI shows the
+ * SPECIFIC reason (no green on a red result). A union, not a throw, so the three
+ * expected reasons never collapse into a generic Error.
+ */
+export type DispositionLoanResult =
+  | { readonly ok: true; readonly disposition: Disposition; readonly loan: LoanInPool }
   | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string };

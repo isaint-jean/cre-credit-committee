@@ -17,9 +17,10 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
-import type { Disposition, LoanInPool, LoanMembership, OnTapeStatus } from '@cre/contracts';
-import { useSide } from '@/lib/side-context';
-import { withSide } from '@/lib/side-accent';
+import type { Disposition, DispositionKind, LoanInPool, LoanMembership, OnTapeStatus, ReasonCategory } from '@cre/contracts';
+import { REASON_CATEGORIES, REASON_CATEGORY_OUTCOME, isReasonCategoryValidForOutcome } from '@cre/contracts';
+import { useSide, type Side } from '@/lib/side-context';
+import { sideAccent, withSide } from '@/lib/side-accent';
 
 type LoadState = 'loading' | 'loaded' | 'error';
 
@@ -47,6 +48,33 @@ type CloseOutcome =
   | { readonly kind: 'closed' }
   | { readonly kind: 'blocked'; readonly code: string; readonly message: string };
 
+/**
+ * Phase 4 — the outcome of a standalone reject/withdraw attempt, surfaced
+ * honestly (mirrors CloseOutcome). `idle` pre-click; `submitting` in-flight;
+ * `disposed` is the ONLY success (carries the authoritative outcome for the
+ * confirmation copy); `blocked` carries the server's specific reason
+ * (409 LOAN_ALREADY_CLOSED / 409 LOAN_ALREADY_DISPOSED / 422 NO_CURRENT_TAPE / …).
+ */
+type DisposeOutcome =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'submitting' }
+  | { readonly kind: 'disposed'; readonly outcome: DispositionKind }
+  | { readonly kind: 'blocked'; readonly code: string; readonly message: string };
+
+/** Human labels for the reason-category enum keys (§7 taxonomy). */
+const REASON_CATEGORY_LABEL: Record<ReasonCategory, string> = {
+  disqualifying:     'Disqualifying',
+  couldnt_structure: "Couldn't structure",
+  expired:           'Expired',
+  withdrawn:         'Withdrawn by originator',
+};
+
+/** Human labels for the two authoritative outcomes. */
+const OUTCOME_LABEL: Record<DispositionKind, string> = {
+  kicked:  'Reject (kicked)',
+  dropped: 'Withdraw (dropped)',
+};
+
 export default function LoanTrajectoryPage() {
   const { poolId, loanInPoolId } = useParams<{ poolId: string; loanInPoolId: string }>();
   const side = useSide();
@@ -54,6 +82,7 @@ export default function LoanTrajectoryPage() {
   const [load, setLoad] = useState<LoadState>('loading');
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [close, setClose] = useState<CloseOutcome>({ kind: 'idle' });
+  const [dispose, setDispose] = useState<DisposeOutcome>({ kind: 'idle' });
 
   const fetch = useCallback(async () => {
     setLoad('loading');
@@ -93,6 +122,28 @@ export default function LoanTrajectoryPage() {
     }
     setClose({ kind: 'blocked', code: result.code, message: result.message });
   }, [poolId, loanInPoolId, fetch]);
+
+  // ★ Phase 4 — standalone reject/withdraw (the pool-lifecycle NEGATIVE TERMINAL,
+  // now LIVE). Records a Disposition directly (no tape freeze). The server owns
+  // legality (mutual exclusion vs. Closed, already-disposed, no-current-tape); we
+  // surface exactly what it returns, honestly:
+  //   - success  → the loan comes back currentDispositionId set; refetch + confirm.
+  //   - 409 LOAN_ALREADY_CLOSED    → "can't reject — loan already closed".
+  //   - 409 LOAN_ALREADY_DISPOSED  → "already disposed".
+  //   - 422 NO_CURRENT_TAPE        → "no current tape to depart from".
+  const onDispose = useCallback(
+    async (input: { outcome: DispositionKind; reasonCategory: ReasonCategory | null; note: string | null }) => {
+      setDispose({ kind: 'submitting' });
+      const result = await api.dispositionLoan(poolId, loanInPoolId, input);
+      if (result.ok) {
+        setDispose({ kind: 'disposed', outcome: result.disposition.authoritative });
+        await fetch(); // pull the now-disposed loan (currentDispositionId) back into view.
+        return;
+      }
+      setDispose({ kind: 'blocked', code: result.code, message: result.message });
+    },
+    [poolId, loanInPoolId, fetch],
+  );
 
   if (load === 'loading') {
     return <div className="max-w-5xl mx-auto px-6 py-10 text-sm text-text-muted">Loading loan trajectory…</div>;
@@ -157,6 +208,21 @@ export default function LoanTrajectoryPage() {
         disposition={disposition}
         outcome={close}
         onApproveAndClose={onApproveAndClose}
+      />
+
+      {/* ★ Phase 4 — DispositionBar, sibling of CloseBar. The pool-lifecycle
+         NEGATIVE TERMINAL (reject/withdraw) is now a LIVE write here — NOT on the
+         graph-native NegotiationSurface (that DispositionBar stays a preview). It
+         lives here because the disposition write needs the loan's pool context
+         (poolId/loanInPoolId) which the graph surface lacks. Mutual exclusion:
+         disabled when the loan is closed; shows the existing disposition (not the
+         form) once departed. */}
+      <DispositionBar
+        loan={loan}
+        disposition={disposition}
+        outcome={dispose}
+        onDispose={onDispose}
+        side={side}
       />
 
       <section className="mb-6">
@@ -329,6 +395,238 @@ function CloseBar({
             ) : (
               <>
                 Can&apos;t close ({outcome.code}).{' '}
+                <span className="text-text-secondary">{outcome.message}</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* DispositionBar (Phase 4) — the pool-lifecycle NEGATIVE TERMINAL, LIVE.      */
+/* Sibling of CloseBar. Records a Disposition (kicked|dropped) directly via    */
+/* api.dispositionLoan — no tape freeze. The server owns legality (actor is    */
+/* stamped server-side, mutual exclusion + no-current-tape enforced there);    */
+/* this bar surfaces EXACTLY what it returns — success, or the specific        */
+/* 409/422 reason. NO fake success. Mutual exclusion in the UI:                */
+/*   - loan closed (lifecycleStatus==='closed') → disabled with a note.        */
+/*   - already disposed (currentDispositionId != null) → show the existing     */
+/*     disposition (rendered by the page's Departure section) instead of a     */
+/*     form; here we render a short pointer, not a re-entry form.              */
+/* The reasonCategory options are OUTCOME-FILTERED via the contract taxonomy   */
+/* (isReasonCategoryValidForOutcome / REASON_CATEGORY_OUTCOME).                */
+/* -------------------------------------------------------------------------- */
+function DispositionBar({
+  loan,
+  disposition,
+  outcome,
+  onDispose,
+  side,
+}: {
+  readonly loan: LoanInPool;
+  readonly disposition: Disposition | null;
+  readonly outcome: DisposeOutcome;
+  readonly onDispose: (input: {
+    outcome: DispositionKind;
+    reasonCategory: ReasonCategory | null;
+    note: string | null;
+  }) => void;
+  readonly side: Side | null;
+}) {
+  const accent = sideAccent(side);
+  const closed = loan.lifecycleStatus === 'closed';
+  const departed = disposition !== null;
+  const submitting = outcome.kind === 'submitting';
+
+  // Form state (only meaningful when the form is shown — i.e. neither closed nor
+  // departed). Default outcome 'kicked' (reject); reasonCategory null (optional).
+  const [chosenOutcome, setChosenOutcome] = useState<DispositionKind>('kicked');
+  const [reasonCategory, setReasonCategory] = useState<ReasonCategory | null>(null);
+  const [note, setNote] = useState<string>('');
+
+  // Outcome-filtered categories — ONLY those valid for the chosen outcome. If a
+  // previously-chosen category is no longer valid (outcome switched), drop it.
+  const validCategories = REASON_CATEGORIES.filter(
+    (c) => REASON_CATEGORY_OUTCOME[c] === chosenOutcome,
+  );
+  const effectiveCategory =
+    reasonCategory !== null && isReasonCategoryValidForOutcome(reasonCategory, chosenOutcome)
+      ? reasonCategory
+      : null;
+
+  const onOutcomeChange = (next: DispositionKind) => {
+    setChosenOutcome(next);
+    // Clear a now-invalid category so we never submit a mismatched pair.
+    if (!isReasonCategoryValidForOutcome(reasonCategory, next)) setReasonCategory(null);
+  };
+
+  const onSubmit = () => {
+    onDispose({
+      outcome: chosenOutcome,
+      reasonCategory: effectiveCategory,
+      note: note.trim() === '' ? null : note.trim(),
+    });
+  };
+
+  return (
+    <section className="mb-6">
+      <div className={`border ${accent.border} rounded-panel bg-bg-secondary p-4`}>
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-1">
+          <div>
+            <div className={`text-xs uppercase tracking-wide ${accent.text}`}>Departure</div>
+            <div className="text-sm text-text-secondary mt-0.5">
+              {closed
+                ? 'Closed — funded to the final tape. A closed loan cannot depart (mutual exclusion).'
+                : departed
+                  ? 'Departed the pool — the disposition is terminal (shown below).'
+                  : 'Reject or withdraw this loan out-of-band. Records a disposition directly — no tape freeze.'}
+            </div>
+          </div>
+        </div>
+
+        {/* Mutual exclusion — closed: disabled note. */}
+        {closed && (
+          <div className="mt-2 text-xs text-text-muted">
+            Reject / withdraw is disabled while the loan is closed.
+          </div>
+        )}
+
+        {/* Mutual exclusion — departed: point at the existing disposition (the
+            page's Departure section renders it in full). NO re-entry form. */}
+        {!closed && departed && (
+          <div className="mt-2 text-xs text-text-muted">
+            Already disposed —{' '}
+            <span className="text-text-secondary">
+              {disposition!.authoritative === 'kicked' ? 'rejected (kicked)' : 'withdrawn (dropped)'}
+            </span>
+            . See the departure record below.
+          </div>
+        )}
+
+        {/* The LIVE form — only when neither closed nor departed. */}
+        {!closed && !departed && (
+          <div className="mt-3 space-y-3">
+            {/* Outcome selector. */}
+            <div>
+              <label className="text-xs uppercase tracking-wide text-text-muted block mb-1">
+                Outcome
+              </label>
+              <div className="flex gap-2">
+                {(['kicked', 'dropped'] as const).map((o) => (
+                  <button
+                    key={o}
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => onOutcomeChange(o)}
+                    className={`text-sm px-3 py-1.5 rounded-sm2 border transition-colors ${
+                      chosenOutcome === o
+                        ? `${accent.border} ${accent.text} ${accent.softBg}`
+                        : 'border-border-primary text-text-secondary hover:border-border-secondary'
+                    } ${submitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {OUTCOME_LABEL[o]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* reasonCategory — outcome-filtered (only valid parents shown). */}
+            <div>
+              <label className="text-xs uppercase tracking-wide text-text-muted block mb-1">
+                Reason category <span className="text-text-muted">(optional)</span>
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setReasonCategory(null)}
+                  className={`text-sm px-3 py-1.5 rounded-sm2 border transition-colors ${
+                    effectiveCategory === null
+                      ? `${accent.border} ${accent.text} ${accent.softBg}`
+                      : 'border-border-primary text-text-secondary hover:border-border-secondary'
+                  } ${submitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Unspecified
+                </button>
+                {validCategories.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => setReasonCategory(c)}
+                    className={`text-sm px-3 py-1.5 rounded-sm2 border transition-colors ${
+                      effectiveCategory === c
+                        ? `${accent.border} ${accent.text} ${accent.softBg}`
+                        : 'border-border-primary text-text-secondary hover:border-border-secondary'
+                    } ${submitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {REASON_CATEGORY_LABEL[c]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Optional note. */}
+            <div>
+              <label className="text-xs uppercase tracking-wide text-text-muted block mb-1">
+                Note <span className="text-text-muted">(optional)</span>
+              </label>
+              <textarea
+                value={note}
+                disabled={submitting}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                placeholder="Free-form context for this departure…"
+                className="w-full text-sm bg-bg-tertiary border border-border-primary rounded-sm2 px-3 py-2 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-secondary disabled:opacity-50"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={onSubmit}
+                className={`text-sm font-semibold px-4 py-2 rounded-sm2 border transition-colors ${
+                  submitting
+                    ? 'border-border-primary text-text-muted cursor-not-allowed'
+                    : 'border-risk-high/40 text-risk-high hover:bg-risk-high/10'
+                }`}
+              >
+                {submitting
+                  ? 'Recording…'
+                  : chosenOutcome === 'kicked'
+                    ? 'Reject loan'
+                    : 'Withdraw loan'}
+              </button>
+              <span className="text-xs text-text-muted">
+                Records a buyer-authoritative disposition — actor stamped server-side.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Honest outcome banner. Success is the ONLY green. */}
+        {outcome.kind === 'disposed' && (
+          <div className="mt-3 bg-score-strong/10 border border-score-strong/30 rounded p-3 text-sm text-score-strong">
+            {outcome.outcome === 'kicked'
+              ? 'Rejected — kicked from the tape.'
+              : 'Withdrawn — dropped.'}
+          </div>
+        )}
+        {outcome.kind === 'blocked' && (
+          <div className="mt-3 bg-risk-high/10 border border-risk-high/30 rounded p-3 text-sm text-risk-high">
+            {outcome.code === 'LOAN_ALREADY_CLOSED' ? (
+              <>Can&apos;t reject — loan already closed.</>
+            ) : outcome.code === 'LOAN_ALREADY_DISPOSED' ? (
+              <>Already disposed.</>
+            ) : outcome.code === 'NO_CURRENT_TAPE' ? (
+              <>No current tape to depart from.</>
+            ) : (
+              <>
+                Couldn&apos;t record disposition ({outcome.code}).{' '}
                 <span className="text-text-secondary">{outcome.message}</span>
               </>
             )}
