@@ -27,12 +27,14 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import type {
   Disposition,
+  LoanInPool,
   LoanMembership,
   Pool,
   PoolId,
   Tape,
   TapeId,
 } from '@cre/contracts';
+import type { Side } from '@/lib/side-context';
 import { PoolHeader } from '@/components/PoolRail/PoolHeader';
 import { PoolHealthSummary } from '@/components/PoolRail/PoolHealthSummary';
 import { TapeHistoryPanel } from '@/components/PoolRail/TapeHistoryPanel';
@@ -122,8 +124,6 @@ export default function PoolRailPage() {
   }
   if (data === null) return null;
 
-  const isClosed = data.pool.closedAt !== null;
-
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
       <Link href={withSide('/pools', side)} className="text-accent hover:text-accent-hover text-sm">← Pools</Link>
@@ -176,7 +176,7 @@ export default function PoolRailPage() {
             )}
 
             {view === 'final' && (
-              <FinalTapeView isClosed={isClosed} />
+              <FinalTapeView poolId={data.pool.id as PoolId} side={side} />
             )}
 
             {view === 'dispositions' && (
@@ -235,23 +235,117 @@ function ViewTabs({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Final tape — closed loans only. Honest empty state (no pool closed yet).   */
+/* Final tape — the per-loan CLOSED loans (lifecycleStatus:'closed'), via      */
+/* GET /pools/:poolId/final-tape. This is DECOUPLED from pool.closed_at: a pool */
+/* accumulates closed loans before it seals. Until any loan closes, the view   */
+/* stays honestly EMPTY. Rows are side-accented and link to the per-loan       */
+/* route (carrying ?side).                                                     */
 /* -------------------------------------------------------------------------- */
 
-function FinalTapeView({ isClosed }: { readonly isClosed: boolean }) {
-  // Both pools' closed_at is null → this view is intentionally empty. When a pool
-  // closes (P4), the final sealed tape's membership renders here.
+type FinalTapeLoad = 'loading' | 'loaded' | 'error';
+
+function FinalTapeView({ poolId, side }: { readonly poolId: PoolId; readonly side: Side | null }) {
+  const [loans, setLoans] = useState<readonly LoanInPool[]>([]);
+  const [state, setState] = useState<FinalTapeLoad>('loading');
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState('loading');
+    api.getFinalTape(poolId)
+      .then(({ loans }) => {
+        if (cancelled) return;
+        setLoans(loans);
+        setState('loaded');
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setErr((e as Error).message);
+        setState('error');
+      });
+    return () => { cancelled = true; };
+  }, [poolId]);
+
   return (
     <section className="mb-6">
-      <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wide mb-3">Final tape</h2>
-      <div className="bg-bg-secondary border border-border-primary rounded-panel p-10 text-center">
-        <p className="text-text-primary mb-1 font-medium">
-          {isClosed ? 'No loans on the final tape.' : 'No pool closed yet.'}
-        </p>
-        <p className="text-text-muted text-xs">
-          The final tape appears once the pool is sealed — the definitive list of loans that made it in.
-        </p>
-      </div>
+      <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wide mb-3">
+        Final tape{state === 'loaded' && loans.length > 0 ? ` · ${loans.length} closed` : ''}
+      </h2>
+
+      {state === 'loading' && (
+        <div className="bg-bg-secondary border border-border-primary rounded-panel p-6 text-center text-text-muted text-sm">
+          Loading final tape…
+        </div>
+      )}
+
+      {state === 'error' && (
+        <div className="bg-risk-high/10 border border-risk-high/30 rounded-panel p-4 text-risk-high text-sm">
+          Could not load the final tape: {err}
+        </div>
+      )}
+
+      {state === 'loaded' && loans.length === 0 && (
+        <div className="bg-bg-secondary border border-border-primary rounded-panel p-10 text-center">
+          <p className="text-text-primary mb-1 font-medium">No loans have closed into the final tape yet.</p>
+          <p className="text-text-muted text-xs">
+            A loan appears here once it clears and is approved &amp; closed on its trajectory page — it stays in the pool and funds to the final tape.
+          </p>
+        </div>
+      )}
+
+      {state === 'loaded' && loans.length > 0 && (
+        <div className="border border-border-primary rounded overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-bg-tertiary">
+              <tr className="text-left text-text-secondary text-xs uppercase tracking-wide">
+                <th className="px-3 py-2 font-medium">Property</th>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Originator ref</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loans.map((loan) => {
+                // Side accent as a left rail — explicit literal classes so Tailwind's
+                // JIT keeps them (no template-computed class names).
+                const leftAccent = side === 'originator'
+                  ? 'border-l-originator'
+                  : side === 'buyer'
+                    ? 'border-l-buyer'
+                    : 'border-l-accent';
+                return (
+                  <tr key={loan.id} className={`border-t border-border-primary border-l-[3px] ${leftAccent}`}>
+                    <td className="px-3 py-2 align-top">
+                      <div className="font-sans text-text-primary font-medium">{loan.propertyName ?? loan.dealRef}</div>
+                      <div className="text-text-subtle text-[10px] font-mono mt-0.5 truncate" title={loan.dealRef}>{loan.dealRef}</div>
+                    </td>
+                    <td className="px-3 py-2 text-text-secondary text-xs align-top">
+                      {loan.assetType ?? <span className="text-text-muted">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-text-secondary text-xs font-mono align-top">
+                      {loan.originatorLoanRef ?? <span className="text-text-muted">—</span>}
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <span className="text-xs px-2 py-0.5 rounded border bg-score-strong/15 text-score-strong border-score-strong/30">
+                        Closed
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right align-top">
+                      <Link
+                        href={withSide(`/pools/${poolId}/loans/${loan.id}`, side)}
+                        className="text-accent hover:text-accent-hover text-xs"
+                      >
+                        Trajectory →
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

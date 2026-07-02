@@ -549,9 +549,14 @@ function DispositionBarPreview({ cleared, hasFatalFlag }: { cleared: boolean; ha
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button disabled title="Preview — Closed status is phase ii (needs the disposition write path)"
+          {/* ★ Approve & close is the LIFECYCLE write (sets lifecycleStatus:'closed',
+             loan STAYS in the pool → final tape) — NOT the disposition path. It is
+             LIVE, but keyed on the loan's pool context (poolId/loanInPoolId), which
+             this graph-native surface does not carry. It lives on the per-loan pool
+             route (/pools/[poolId]/loans/[loanInPoolId]). Here it's an honest pointer. */}
+          <button disabled title="Approve & close (the lifecycle write) is LIVE on the loan's pool page — /pools/[poolId]/loans/[loanInPoolId]. This graph surface has no pool context."
             style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, color: C.ink3, cursor: 'not-allowed' }}>
-            Approve &amp; close (preview)
+            Approve &amp; close (on pool page)
           </button>
           <button onClick={() => setOpen((o) => !o)}
             style={{ fontSize: 12, fontWeight: 500, padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.borderStrong}`, background: C.surface, color: C.ink2, cursor: 'pointer' }}>

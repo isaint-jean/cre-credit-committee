@@ -113,6 +113,22 @@ export function MembershipTable({
   // settle. Row reads via Map.get(dealRef); rest of the row renders immediately.
   const [lookups, setLookups] = useState<Map<string, LookupState>>(() => new Map());
 
+  // ★ P4c — Closed chip cross-reference. `lifecycleStatus` lives on `loan_in_pool`,
+  // NOT on the membership row we render, so we can't read it off `m`. Instead we
+  // fetch the pool's final tape (the per-loan CLOSED set) ONCE and mark any row
+  // whose loanInPoolId is in it as Closed. Frontend-only; endpoint that exists.
+  const [closedIds, setClosedIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let cancelled = false;
+    api.getFinalTape(poolId)
+      .then(({ loans }) => {
+        if (cancelled) return;
+        setClosedIds(new Set(loans.map(l => l.id)));
+      })
+      .catch(() => { /* advisory — no chip beats a wrong chip */ });
+    return () => { cancelled = true; };
+  }, [poolId]);
+
   // Unique dealRefs from the full membership (not the filtered view — filtering
   // is a UI-only concern; we don't want to re-fetch when the filter changes).
   const dealRefs = useMemo(() => {
@@ -233,9 +249,21 @@ export function MembershipTable({
                     {m.mortgageLoanSeller ?? <span className="text-text-muted">—</span>}
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_TONE[m.status]}`}>
-                      {STATUS_LABEL[m.status]}
-                    </span>
+                    {closedIds.has(m.loanInPoolId) ? (
+                      // ★ Closed cross-ref (getFinalTape). A closed loan STAYS in the
+                      // pool → still on this tape; the Closed terminal supersedes the
+                      // per-tape review chip, so we show Closed in its place.
+                      <span
+                        className="text-xs px-2 py-0.5 rounded border bg-score-strong/15 text-score-strong border-score-strong/30"
+                        title="Closed — funded to the final tape"
+                      >
+                        Closed
+                      </span>
+                    ) : (
+                      <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_TONE[m.status]}`}>
+                        {STATUS_LABEL[m.status]}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-xs align-top">
                     <LoanFunnelCell branch={branch} />

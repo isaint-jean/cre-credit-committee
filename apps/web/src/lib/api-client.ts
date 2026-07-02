@@ -1029,4 +1029,60 @@ export const api = {
     request<{ dispositions: Disposition[] }>(`/pools/${poolId}/dispositions`),
   getOverrides: (poolId: PoolId | string) =>
     request<{ overrides: Disposition[] }>(`/pools/${poolId}/overrides`),
+
+  /* ------------------------------------------------------------------ */
+  /* P4c — pool-lifecycle Closed status (write) + final tape (read).     */
+  /* Wires the committed backend (d88dcf4). closeLoan returns the REAL   */
+  /* outcome as a discriminated union so the UI can distinguish the two  */
+  /* honest failure reasons — 422 NOT_CLEARED (server re-derived Cleared */
+  /* = false) and 409 LOAN_ALREADY_DEPARTED (loan has a disposition) —   */
+  /* WITHOUT collapsing them into a generic throw. Success carries the   */
+  /* updated loan (now lifecycleStatus:'closed'). Auth flows through the */
+  /* same getAuthHeader() + 401→login handling as every other write.     */
+  /* ------------------------------------------------------------------ */
+  closeLoan: async (
+    poolId: PoolId | string,
+    loanInPoolId: LoanInPoolId | string,
+  ): Promise<CloseLoanResult> => {
+    const res = await fetch(`${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({}),
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+    if (res.ok) {
+      return { ok: true, loan: (body as { loan: LoanInPool }).loan };
+    }
+    // Honest, code-distinguished failures. The two the UI reasons over are
+    // NOT_CLEARED (422) and LOAN_ALREADY_DEPARTED (409); CLEARED_UNRESOLVABLE
+    // (422) and NOT_FOUND (404) surface as themselves — never a fake pass.
+    const code = typeof (body as { error?: unknown }).error === 'string'
+      ? (body as { error: string }).error
+      : `HTTP_${res.status}`;
+    const message = typeof (body as { message?: unknown }).message === 'string'
+      ? (body as { message: string }).message
+      : `Close failed (${res.status})`;
+    return { ok: false, status: res.status, code, message };
+  },
+
+  // GET /api/pools/:poolId/final-tape → the per-loan CLOSED loans
+  // (lifecycleStatus === 'closed'), decoupled from pool.closed_at.
+  getFinalTape: (poolId: PoolId | string) =>
+    request<{ loans: LoanInPool[] }>(`/pools/${poolId}/final-tape`),
 };
+
+/**
+ * P4c — the honest close outcome. `ok:true` carries the updated loan; `ok:false`
+ * carries the server `code` (NOT_CLEARED | LOAN_ALREADY_DEPARTED | CLEARED_UNRESOLVABLE
+ * | NOT_FOUND | HTTP_*) + human `message` so the UI can show the SPECIFIC reason
+ * (no green on a red result). Deliberately a union, not a throw, so the two
+ * expected reasons never collapse into a generic Error.
+ */
+export type CloseLoanResult =
+  | { readonly ok: true; readonly loan: LoanInPool }
+  | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string };
