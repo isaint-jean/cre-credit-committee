@@ -168,19 +168,49 @@ function Badge({ badge }: { badge: RenderBadge }): React.ReactElement {
   );
 }
 
-// ── Fix 5 — actionable Data-Quality chips ────────────────────────────────────
-// Each DQ flag chip becomes a button that opens an inline action popover with two
-// paths, per docs/recon/2026-07-02-dq-actions.md:
-//   (b) "Flag to originator" — a REAL persisted write. Mirrors NegotiationSurface's
-//       postComment EXACTLY: api.createOverlay({ rootId, renderedAnalysisId, overlayKey })
-//       then api.postOverlayComment({ overlayId, path, text, side }). We anchor the
-//       overlay at `comment:dq:<code>` and post with side:'originator'. It is persisted,
-//       content-hashed, audited and side-attributed — but there is NO notification
-//       endpoint, so the confirmation says "logged on the deal", NEVER "sent/notified".
-//   (a) "Add the data yourself" — the firing flags are MISSING DOCUMENTS (PCA / rent-
-//       roll / appraisal); supplying them is a re-ingest, which is net-new. So this is a
-//       clearly-labeled, DISABLED "coming soon" affordance — no fake write.
+// ── Fix 5 (+ Fix 6, 2026-07-02) — actionable Data-Quality chips ──────────────
+// Each DQ flag chip is a button opening an inline action popover with two paths.
+// BOTH paths write the SAME persisted `dq:<code>` overlay comment (side:'originator'),
+// mirroring NegotiationSurface's postComment EXACTLY:
+//   api.createOverlay({ rootId, renderedAnalysisId, overlayKey:'comment:dq:<code>' })
+//   → api.postOverlayComment({ overlayId, path:'dq:<code>', text, side:'originator' }).
+// The write is persisted, content-hashed, audited and side-attributed. There is NO
+// notification endpoint, so ALL confirmation copy says "logged" + "on the originator's
+// open-flags list" — NEVER "sent"/"notified"/"delivered"/"resolved".
+//   (b) "Flag to originator" — a general "this data is missing" flag.
+//   (a) "Request document from originator" — a STRUCTURED request naming the missing
+//       DOCUMENT (reframed from the old disabled "Add the data yourself"). It is a
+//       request routed to the same open-flags list, NOT a self-entry of a value: keying
+//       a scalar without the source document would fabricate an underwriting input.
+// The receiving side is BUILD 1's OriginatorOpenFlagsPanel, which reads these back with
+// the SAME filter (side==='originator' && path.startsWith('dq:')) — the round-trip.
 // The chip keeps its severity styling (P1 tokens). Only the DQ-quality chips get this.
+
+// ── DQ code → the document a missing-doc/incomplete-doc flag asks the originator to
+//    supply. Keyed on the missing-doc ledger (apply-judgment-adjustments.ts
+//    buildMissingDocLedger) + the incomplete-rent-roll flag. Used to (a) humanize the
+//    code for display and (b) name the document in the "Request document" action.
+//    A code absent from this map has no known document → the request action hides. ──
+const DQ_DOCUMENT_LABEL: { readonly [code: string]: string } = {
+  JE_RENT_ROLL_MISSING: 'rent roll',
+  JE_RENT_ROLL_UNIT_INCOMPLETE: 'complete rent roll (with per-unit in-place rent and concessions)',
+  JE_TRAILING_ACTUALS_MISSING: 'trailing-12 operating statement',
+  JE_IN_PLACE_MISSING: 'in-place operating statement',
+  JE_LOAN_TERMS_MISSING: 'loan terms / term sheet',
+  JE_PCA_MISSING: 'property condition assessment (PCA)',
+  JE_APPRAISAL_MISSING: 'appraisal',
+};
+
+/** Humanize a DQ code (e.g. JE_PCA_MISSING → "PCA missing") for display. Falls back
+ *  to a title-cased strip of the JE_ prefix so unknown codes still read cleanly. */
+function humanizeDqCode(code: string): string {
+  return code
+    .replace(/^JE_/, '')
+    .toLowerCase()
+    .split('_')
+    .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
 
 type DqFlagState = 'idle' | 'posting' | 'flagged' | 'error';
 
@@ -200,7 +230,13 @@ function DataQualityFlagChip({
   const [state, setState] = useState<DqFlagState>(alreadyFlagged ? 'flagged' : 'idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const flagToOriginator = async (): Promise<void> => {
+  const documentLabel = DQ_DOCUMENT_LABEL[badge.code];
+
+  // Shared writer — BOTH actions post the SAME `dq:<code>` overlay comment
+  // (side:'originator'), the exact shape the OriginatorOpenFlagsPanel reads back.
+  // `text` differs only in wording (a general flag vs. a document request); the
+  // anchor/path/side are identical, so both land on the originator open-flags list.
+  const postDqOverlay = async (text: string): Promise<void> => {
     if (state === 'posting') return;
     setState('posting');
     setErrorMsg(null);
@@ -216,7 +252,7 @@ function DataQualityFlagChip({
       await api.postOverlayComment({
         overlayId,
         path,
-        text: `Buyer flagged missing data (${badge.label}) — originator to supply.`,
+        text,
         side: 'originator',
       });
       setState('flagged');
@@ -225,6 +261,16 @@ function DataQualityFlagChip({
       setState('error');
     }
   };
+
+  const flagToOriginator = (): Promise<void> =>
+    postDqOverlay(`Buyer flagged missing data (${badge.label}) — originator to supply.`);
+
+  const requestDocument = (): Promise<void> =>
+    postDqOverlay(
+      documentLabel !== undefined
+        ? `Document request: please supply the ${documentLabel} (flag ${badge.code}).`
+        : `Document request for ${badge.label} (flag ${badge.code}).`,
+    );
 
   const chipLabel = state === 'flagged' ? `${badge.label} — flagged` : badge.label;
 
@@ -274,38 +320,49 @@ function DataQualityFlagChip({
             }}
           >
             {state === 'posting' ? 'Logging…'
-              : state === 'flagged' ? '✓ Logged on the deal — originator to supply'
+              : state === 'flagged' ? '✓ Logged — on the originator’s open-flags list'
               : 'Flag to originator'}
           </button>
           {state === 'flagged' ? (
             <div style={{ fontSize: 10, color: C.ink3, marginBottom: 8 }}>
-              Logged on the deal (persisted, attributable). Not a notification — the
-              originator sees it on the deal.
+              Logged (persisted, attributable) and now appears on the originator’s
+              open-flags list for this deal. Not a notification — nothing is sent or
+              delivered.
             </div>
           ) : null}
           {state === 'error' && errorMsg !== null ? (
             <div style={{ fontSize: 10, color: C.kicked, marginBottom: 8 }}>{errorMsg}</div>
           ) : null}
 
-          {/* Path (a) — labeled coming-soon (net-new re-ingest, no fake write) */}
-          <button
-            type="button"
-            disabled
-            title="Supplying missing documents is a re-ingest — coming soon"
-            style={{
-              width: '100%', textAlign: 'left', fontSize: 12, fontWeight: 600, padding: '7px 10px',
-              borderRadius: 6, border: `1px dashed ${C.borderStrong}`, background: C.surface2,
-              color: C.ink3, cursor: 'not-allowed',
-            }}
-          >
-            Add the data yourself
-            <span style={{ fontSize: 9, fontWeight: 700, marginLeft: 6, padding: '1px 5px', borderRadius: 4, background: C.border, color: C.ink2, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-              Coming soon
-            </span>
-          </button>
-          <div style={{ fontSize: 10, color: C.ink3, marginTop: 6 }}>
-            Supplying missing documents is a re-ingest — coming soon.
-          </div>
+          {/* Path (a) — REAL "Request document" write (reframed from the old disabled
+              "Add the data yourself"). Writes the SAME dq:<code> overlay as path (b);
+              it is a structured REQUEST for the missing document, NOT a value-entry.
+              Shown only when the code maps to a known document. */}
+          {documentLabel !== undefined ? (
+            <>
+              <button
+                type="button"
+                onClick={() => { void requestDocument(); }}
+                disabled={state === 'posting' || state === 'flagged'}
+                style={{
+                  width: '100%', textAlign: 'left', fontSize: 12, fontWeight: 600, padding: '7px 10px',
+                  borderRadius: 6, border: `1px solid ${C.borderStrong}`,
+                  background: state === 'flagged' ? C.surface2 : C.surface,
+                  color: C.ink, cursor: state === 'posting' || state === 'flagged' ? 'default' : 'pointer',
+                  opacity: state === 'posting' ? 0.5 : 1,
+                }}
+              >
+                {state === 'flagged'
+                  ? '✓ Document request logged'
+                  : `Request ${documentLabel} from originator`}
+              </button>
+              <div style={{ fontSize: 10, color: C.ink3, marginTop: 6 }}>
+                Logs a request for the {documentLabel} on the originator’s open-flags
+                list. A request, not a self-entry — nothing is keyed in, sent, or
+                delivered.
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </span>
@@ -355,6 +412,86 @@ function DataQualityFlags({
           alreadyFlagged={flaggedCodes.has(b.code)}
         />
       ))}
+    </div>
+  );
+}
+
+// ── BUILD 1 (2026-07-02) — originator-facing OPEN FLAGS panel (the receiving side).
+//    Reads back the buyer-written DQ overlays for this deal via getOverlayComments(rootId)
+//    and filters with the EXACT SAME shape the buyer action writes:
+//        side === 'originator' && path.startsWith('dq:')
+//    (the live filter at DataQualityFlags below). Every "Flag to originator" / "Request
+//    document" write lands here — this is what makes "the originator sees it" TRUE.
+//
+//    OPEN flags only. Overlay comments are append-only with NO resolution/status field,
+//    so there is no "resolved" state to show or imply. The panel lists open flags only.
+//
+//    Read-only. No write, no new route, no store. Reuses the existing overlay-comments
+//    read. Rendered when the viewer entered the deal as the originator (useSide()==='originator').
+interface OpenFlag {
+  readonly code: string;
+  readonly text: string;
+  readonly createdAt: string;
+}
+
+function OriginatorOpenFlagsPanel(
+  { rootId }: { rootId: DoctrineEvaluationId },
+): React.ReactElement {
+  const [flags, setFlags] = useState<readonly OpenFlag[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.getOverlayComments(rootId);
+        if (cancelled) return;
+        // ★ SAME filter shape as the buyer write (side:'originator', path:'dq:<code>').
+        const open: OpenFlag[] = [];
+        for (const c of res.comments) {
+          if (c.side === 'originator' && c.path.startsWith('dq:')) {
+            open.push({ code: c.path.slice('dq:'.length), text: c.text, createdAt: c.createdAt });
+          }
+        }
+        setFlags(open);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [rootId]);
+
+  return (
+    <div style={{ border: `1px solid ${C.amber}`, borderRadius: 12, background: C.amberSoft, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ ...eyebrow, color: C.amber }}>Open flags for this deal</div>
+        <div style={{ fontSize: 11, color: C.ink2, marginTop: 2 }}>
+          Data-quality flags and document requests logged by the buyer for you to address.
+          Append-only — there is no resolved state.
+        </div>
+      </div>
+      <div style={{ padding: '12px 16px' }}>
+        {failed ? (
+          <div style={{ fontSize: 12, color: C.ink3 }}>Could not load open flags.</div>
+        ) : flags === null ? (
+          <div style={{ fontSize: 12, color: C.ink3 }}>Loading…</div>
+        ) : flags.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.ink3 }}>No open flags. Nothing has been flagged for you on this deal.</div>
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {flags.map((f, i) => (
+              <li key={f.code + ':' + i} style={{ borderLeft: `3px solid ${C.amber}`, paddingLeft: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{humanizeDqCode(f.code)}</div>
+                <div style={{ fontSize: 9.5, fontFamily: MONO, color: C.ink3 }}>{f.code}</div>
+                <div style={{ fontSize: 12, color: C.ink2, marginTop: 3 }}>{f.text}</div>
+                <div style={{ fontSize: 10, color: C.ink3, marginTop: 3 }}>
+                  {(() => { const d = new Date(f.createdAt); return Number.isNaN(d.getTime()) ? f.createdAt : d.toLocaleString(); })()}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
@@ -1400,6 +1537,11 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
 
           {/* ── Sticky rail — score donut + headline metrics + status + memo ───── */}
           <aside style={{ position: 'sticky', top: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* BUILD 1 — originator open-flags panel. The RECEIVING side of the buyer's
+                "Flag to originator" / "Request document" writes. Shown when the viewer
+                entered the deal AS the originator (useSide()==='originator'), so it leads
+                the rail for the party the flags are addressed to. Read-only. */}
+            {side === 'originator' ? <OriginatorOpenFlagsPanel rootId={data.rootId} /> : null}
             <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 16 }}>
               <div style={{ ...eyebrow, marginBottom: 12 }}>Credit summary</div>
               <ScoreDonut
