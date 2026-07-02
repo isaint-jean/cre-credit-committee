@@ -43,6 +43,7 @@ import { WorkbookReadiness } from './WorkbookReadiness';
 import { NegotiationSurface } from './NegotiationSurface';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api-client';
+import { useSide, type Side } from '@/lib/side-context';
 import {
   buildPath,
   isEditablePath,
@@ -51,6 +52,56 @@ import {
   pathUnitLabel,
   uiUnitToBackend,
 } from '@/lib/uw-edit-utils';
+
+// ── P1 tokens (explicit hexes — the SAME palette NegotiationSurface uses, so the
+//    shell no longer clashes with the negotiation panel embedded in it). Stage 3/4:
+//    teal #0C6E78 (platform/neutral), ink/paper light ramp, ochre (originator) /
+//    steel (buyer) side accents, IBM Plex Sans / Mono with tabular-nums. ────────────
+const C = {
+  bg: '#F5F7F8', surface: '#FFFFFF', surface2: '#FBFCFC', border: '#E2E8EA', borderStrong: '#CCD6D9',
+  ink: '#15262C', ink2: '#4A5C62', ink3: '#8A979C',
+  teal: '#0C6E78', tealDeep: '#0A555D', tealSoft: '#E6F1F2',
+  amber: '#A9641F', amberSoft: '#F6ECDD',
+  flagged: '#A9641F', contested: '#345F9E', resolved: '#2E7D5B', conceded: '#6B7A80', kicked: '#AE3A33',
+} as const;
+const SANS = '"IBM Plex Sans", system-ui, sans-serif';
+const MONO = '"IBM Plex Mono", ui-monospace, monospace';
+const DISPLAY = '"Space Grotesk", "IBM Plex Sans", system-ui, sans-serif';
+const num = (color: string = C.ink): React.CSSProperties => ({ fontFamily: MONO, fontVariantNumeric: 'tabular-nums', color });
+
+/** Map the active `?side` onto the explicit C palette (ochre / steel / neutral teal). */
+function sideAccentC(side: Side | null): { accent: string; soft: string; label: string } {
+  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Originator' };
+  if (side === 'buyer') return { accent: C.contested, soft: '#EAF0F8', label: 'B-piece buyer' };
+  return { accent: C.teal, soft: C.tealSoft, label: 'Platform' };
+}
+
+// ── Workspace drawer tabs — the deep READ-ONLY sections behind tabs instead of a
+//    stacked scroll. Data-driven: a tab appears only when its data is non-empty
+//    (mirrors DealRoom's wsAvail/availableTabs pattern). 'adjust' carries the
+//    editable line-item tables (edit path rides in verbatim). ─────────────────────
+type WSTab = 'adjust' | 'stress' | 'valuation' | 'doctrine' | 'handbook' | 'mitigations' | 'narrative' | 'findings' | 'quality';
+type WSGroup = 'Financials' | 'Summary' | 'Data';
+// Grouped tab bar (Stage 3.1): the flat 9-tab strip is regrouped into three
+// labeled groups. Content per tab is unchanged — only ordering/labels/grouping.
+//   Financials: Adjust inputs · Valuation · Stress · Score detail (+ Handbook —
+//               the principle-band metrics read as financial evaluation)
+//   Summary:    Exec summary (narrative) · Mitigants · Findings
+//   Data:       Data quality
+const WS_TABS: ReadonlyArray<{ key: WSTab; label: string; group: WSGroup }> = [
+  { key: 'adjust',      label: 'Adjust inputs', group: 'Financials' },
+  { key: 'valuation',   label: 'Valuation',     group: 'Financials' },
+  { key: 'stress',      label: 'Stress',        group: 'Financials' },
+  { key: 'doctrine',    label: 'Score detail',  group: 'Financials' },
+  { key: 'handbook',    label: 'Handbook',      group: 'Financials' },
+  { key: 'narrative',   label: 'Exec summary',  group: 'Summary' },
+  { key: 'mitigations', label: 'Mitigants',     group: 'Summary' },
+  { key: 'findings',    label: 'Findings',      group: 'Summary' },
+  { key: 'quality',     label: 'Data quality',  group: 'Data' },
+];
+const WS_GROUP_ORDER: readonly WSGroup[] = ['Financials', 'Summary', 'Data'];
+
+const eyebrow: React.CSSProperties = { fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3 };
 
 // Server attaches lineageRootId + revisionOrdinal at the route layer (8.7); the
 // RenderedAnalysis contract type doesn't declare them yet (intentional: those are
@@ -100,16 +151,16 @@ function userCanRevise(role: string | undefined): boolean {
   return perms !== undefined && perms.indexOf('analysis:revise') >= 0;
 }
 
-const SEVERITY_TONE: { readonly [K in RenderBadgeSeverity]: string } = {
-  info: 'border-blue-300 text-blue-800 bg-blue-50',
-  warning: 'border-amber-300 text-amber-800 bg-amber-50',
-  critical: 'border-red-300 text-red-800 bg-red-50',
+const SEVERITY_TONE: { readonly [K in RenderBadgeSeverity]: { fg: string; bg: string } } = {
+  info: { fg: C.contested, bg: '#EAF0F8' },
+  warning: { fg: C.flagged, bg: C.amberSoft },
+  critical: { fg: C.kicked, bg: '#FBECEB' },
 };
 
 function Badge({ badge }: { badge: RenderBadge }): React.ReactElement {
   const tone = SEVERITY_TONE[badge.severity];
   return (
-    <span className={'inline-block px-2 py-0.5 text-xs border rounded ' + tone}>
+    <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5, border: `1px solid ${tone.fg}`, color: tone.fg, background: tone.bg }}>
       {badge.label}
     </span>
   );
@@ -117,9 +168,43 @@ function Badge({ badge }: { badge: RenderBadge }): React.ReactElement {
 
 function Cell({ label, displayValue }: { label: string; displayValue: string }): React.ReactElement {
   return (
-    <div className="flex flex-col gap-1 p-3 border border-gray-200 rounded bg-white">
-      <span className="text-xs uppercase tracking-wide text-gray-500">{label}</span>
-      <span className="text-lg font-semibold text-gray-900">{displayValue}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 12, border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface }}>
+      <span style={eyebrow}>{label}</span>
+      <span style={{ ...num(C.ink), fontSize: 18, fontWeight: 600 }}>{displayValue}</span>
+    </div>
+  );
+}
+
+/** Sticky-rail metric tile (compact, tabular-nums). */
+function RailMetric({ label, displayValue }: { label: string; displayValue: string }): React.ReactElement {
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface2, padding: '8px 10px' }}>
+      <div style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: C.ink3 }}>{label}</div>
+      <div style={{ ...num(C.ink), fontSize: 16, fontWeight: 600, marginTop: 2 }}>{displayValue}</div>
+    </div>
+  );
+}
+
+/** Score donut — reads the server's finalScore displayValue (never re-derives). The
+ *  ring fills to `pct` (finalScore value 0..100 when numeric; else an empty ring). The
+ *  center prints the server displayValue string verbatim so no re-formatting happens. */
+function ScoreDonut({ finalScoreValue, finalScoreDisplay, band, accent }: {
+  finalScoreValue: number | null; finalScoreDisplay: string; band: string; accent: string;
+}): React.ReactElement {
+  const pct = finalScoreValue != null && Number.isFinite(finalScoreValue)
+    ? Math.max(0, Math.min(100, finalScoreValue)) : 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+      <div style={{ width: 84, height: 84, borderRadius: '50%', flexShrink: 0, background: `conic-gradient(${accent} ${pct}%, ${C.border} ${pct}% 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.surface, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ ...num(C.ink), fontFamily: DISPLAY, fontSize: 19, fontWeight: 700, lineHeight: 1 }}>{finalScoreDisplay}</span>
+          <span style={{ fontSize: 9, color: C.ink3 }}>/ 100</span>
+        </div>
+      </div>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{band}</div>
+        <div style={{ fontSize: 11, color: C.ink3 }}>rating band</div>
+      </div>
     </div>
   );
 }
@@ -693,6 +778,8 @@ function EditCell(
 
 export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChanged, onRevisionSaved, handbookEvaluation, analysisId, synthetic }: Props): React.ReactElement {
   const { user } = useAuth();
+  const side = useSide();
+  const sideC = sideAccentC(side);
   const canRevise = userCanRevise(user?.role);
   const editAvailable = canRevise && onRevisionSaved !== undefined;
 
@@ -704,6 +791,13 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
   const [pendingEdits, setPendingEdits] = useState<Map<string, number>>(() => new Map());
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving'>('idle');
   const [saveError, setSaveError] = useState<{ message: string; code?: string; path?: string } | null>(null);
+  // Tabbed workspace drawer — the deep read-only sections behind tabs (Stage 3).
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<WSTab>('adjust');
+  // Fix 4 — inline exec summary on the main page (click-to-expand). Reads the SAME
+  // rendered narrative already on the page; the DEEP breakdown stays in the drawer's
+  // Exec-summary tab. Default-open so the story leads.
+  const [summaryOpen, setSummaryOpen] = useState(true);
 
   // beforeunload guard: prompt if the analyst tries to navigate away with unsaved edits.
   useEffect(() => {
@@ -723,6 +817,10 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
     setSaveError(null);
     setPendingEdits(new Map());
     setEditMode(true);
+    // The editable line-item tables now live in the workspace drawer's Adjust tab;
+    // open it (on that tab) so entering edit mode surfaces the editor immediately.
+    setWorkspaceTab('adjust');
+    setWorkspaceOpen(true);
   }, []);
 
   const handleCancel = useCallback((): void => {
@@ -774,228 +872,28 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
     }
   }, [pendingEdits, lineageRootId, onRevisionSaved]);
 
-  return (
-    <div className="space-y-6 p-6 max-w-5xl mx-auto">
-      {/* Synthetic-fixture banner. Renders ONLY for the seeded DEMO cleared-deal
-          fixture (never for a real deal — `synthetic` is resolved at the page layer
-          from the DEMO dealRef). Deliberately loud + sticky so a screenshot of the
-          deal room can never be mistaken for a real underwriting. */}
-      {synthetic ? (
-        <div
-          role="alert"
-          className="sticky top-0 z-20 border-2 border-red-600 bg-red-600 text-white px-4 py-3 rounded-md shadow-md flex items-center gap-3"
-        >
-          <span className="text-lg leading-none" aria-hidden="true">⚠</span>
-          <div className="text-sm font-bold uppercase tracking-wide">
-            DEMO — SYNTHETIC FIXTURE (not for underwriting)
-          </div>
-          <div className="text-xs font-normal opacity-90 ml-auto hidden sm:block">
-            This deal was generated to exercise the cleared→closed flow. It is not a real loan.
-          </div>
-        </div>
-      ) : null}
-      <header className="space-y-2">
-        <div className="text-xs text-gray-500 font-mono">
-          rootId: {data.rootId} . renderVersion: {data.metadata.renderVersion}
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Analysis</h1>
-            {/* 8.9 — revision-ordinal chip. Shown only when ordinal > 0; the root
-                revision (ordinal=0) is the unmodified initial state and warrants no
-                chip (chip's appearance itself signals "this has been revised").
-                "Revision N of M" is deferred to issue #21 (needs GET /:id/lineage). */}
-            {dataWithLineage.revisionOrdinal !== undefined && dataWithLineage.revisionOrdinal > 0 ? (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-300">
-                Revision {dataWithLineage.revisionOrdinal}
-              </span>
-            ) : null}
-          </div>
-          {editAvailable ? (
-            <div className="flex items-center gap-2">
-              {editMode ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleCancel}
-                    disabled={saveStatus === 'saving'}
-                    className="btn-secondary text-sm px-4 py-2 disabled:opacity-40"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { void handleSave(); }}
-                    disabled={saveStatus === 'saving'}
-                    className="btn-primary text-sm px-4 py-2 disabled:opacity-40"
-                  >
-                    {saveStatus === 'saving' ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleEditToggle}
-                  className="btn-secondary text-sm px-4 py-2"
-                >
-                  Edit Underwriting
-                </button>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </header>
+  // ── Data-driven tab availability (a tab shows only when its data is non-empty).
+  //    'adjust' is always available (the line-item/loan/assumptions tables + edit
+  //    path); the rest gate on their section content. ────────────────────────────
+  const wsAvail: Record<WSTab, boolean> = {
+    adjust: true,
+    stress: data.stress.scenarios.length > 0,
+    valuation: true,
+    doctrine: true,
+    handbook: handbookEvaluation !== undefined && handbookEvaluation !== null,
+    mitigations: data.mitigations.length > 0,
+    narrative: data.narrative !== null,
+    findings: data.findings.length > 0,
+    quality: data.dataQuality.flags.length > 0,
+  };
+  const availableTabs = WS_TABS.filter((t) => wsAvail[t.key]);
+  const effectiveTab: WSTab = availableTabs.some((t) => t.key === workspaceTab) ? workspaceTab : (availableTabs[0]?.key ?? 'adjust');
 
-      {saveError !== null ? (
-        <div className="border border-red-300 bg-red-50 text-red-900 rounded p-3 text-sm space-y-1">
-          <div className="font-semibold">Could not save changes</div>
-          {saveError.code !== undefined ? (
-            <div className="font-mono text-xs">{saveError.code}{saveError.path !== undefined ? ` @ ${saveError.path}` : ''}</div>
-          ) : null}
-          <div>{saveError.message}</div>
-        </div>
-      ) : null}
-
-      {workflow !== undefined ? (
-        <CommitteeStatusHeader workflow={workflow} />
-      ) : null}
-
-      {workflow !== undefined && onWorkflowChanged !== undefined && !editMode ? (
-        <CommitteeActionButtons
-          rootId={data.rootId}
-          renderedAnalysisId={data.id}
-          workflow={workflow}
-          onActionSubmitted={onWorkflowChanged}
-        />
-      ) : null}
-
-      {workflow !== undefined ? (
-        <SnapshotViewer workflow={workflow} />
-      ) : null}
-
-      {/* Render v7.14 — data-confidence banner (3-way). Mutually exclusive
-        slot. Order matters: unvalidated first (loudest), low_confidence
-        second (gentle note), validated → nothing.
-          unvalidated    — amber. Engine ran on conservative library fallbacks
-                           rather than an independent cash-flow source.
-                           Provisional figures; committee rec hard-gated
-                           upstream. Hardest signal.
-          low_confidence — blue. Deal has an in-place / underwriting source
-                           but no trailing-12 actual to validate against.
-                           Caveat about documentation depth, NOT a credit
-                           verdict. Committee rec is NOT gated; the band is
-                           NOT marked provisional. */}
-      {data.summary.dataConfidence.value === 'unvalidated' ? (
-        <section className="space-y-3">
-          <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
-            <div className="text-sm font-semibold text-amber-900 mb-1">
-              Insufficient data — provisional figures
-            </div>
-            <p className="text-sm text-amber-800">
-              The figures below are provisional, resting on conservative library fallbacks rather than validated cash flow. See the committee recommendation below.
-            </p>
-          </div>
-        </section>
-      ) : data.summary.dataConfidence.value === 'low_confidence' ? (
-        <section className="space-y-3">
-          <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
-            <div className="text-sm font-semibold text-blue-900 mb-1">
-              Low data confidence — underwriting on in-place / projected figures
-            </div>
-            <p className="text-sm text-blue-800">
-              Concluded on in-place / underwriting figures — no trailing-12 actuals were available to validate against. This reflects documentation depth, not credit quality; obtain trailing operating statements to raise data confidence.
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-      {/* Render v7.15 — doctrine coverage banner. Surfaces engine v1.3
-        graduated cap + v1.1 coverage-floor gate so the analyst sees the
-        band as data-limited, not a credit verdict. Echoes the
-        low_confidence framing ("documentation depth, not credit quality").
-        Precedence: gate beats cap (gate is the stronger signal — engine
-        abstains entirely). Server-built bannerCopy carries the prose so
-        the UI doesn't recompose. Hidden when neither cap nor gate fired. */}
-      {data.summary.coverage.insufficientCoverageGate.value === true ? (
-        <section className="space-y-3">
-          <div className="border-l-4 border-slate-500 bg-slate-50 p-4 rounded">
-            <div className="text-sm font-semibold text-slate-900 mb-1">
-              Insufficient coverage — engine abstained
-            </div>
-            <p className="text-sm text-slate-800">
-              {data.summary.coverage.bannerCopy.displayValue}
-            </p>
-          </div>
-        </section>
-      ) : data.summary.coverage.bandCapApplied.value === true ? (
-        <section className="space-y-3">
-          <div className="border-l-4 border-indigo-400 bg-indigo-50 p-4 rounded">
-            <div className="text-sm font-semibold text-indigo-900 mb-1">
-              Band capped — risk dimensions unevaluated
-            </div>
-            <p className="text-sm text-indigo-800">
-              {data.summary.coverage.bannerCopy.displayValue}
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-      {/* Render v7.13 — NOI divergence banner. Fires when the engine's
-        concluded NOI is ≥ 20% below the trailing-12 actual on the same
-        deal (JE_NOI_BELOW_TRAILING_ACTUAL). Distinct red styling so a
-        deal that is BOTH unvalidated AND flagged reads "provisional"
-        first (amber, above) then "divergence" (red, here). Hidden when
-        within band or no t12 reference. */}
-      {data.summary.noiDivergence?.status.value === 'flagged' ? (
-        <section className="space-y-3">
-          <div className="border-l-4 border-red-600 bg-red-50 p-4 rounded">
-            <div className="text-sm font-semibold text-red-900 mb-1">
-              NOI materially below trailing-twelve actual
-            </div>
-            <p className="text-sm text-red-800">
-              {data.summary.noiDivergence.caveat.displayValue}
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-      {/* P3b — advisory intake-completeness readiness + always-on Create-workbook
-        CTA (wired to the real /underwriting/export). Never blocks. Mounts only
-        when the routed analysis id is available. */}
-      {analysisId !== undefined ? <WorkbookReadiness analysisId={analysisId} /> : null}
-
-      {/* Converge phase i — the deal-room negotiation surface, ported onto the graph
-        view. Additive: it reads only RenderedAnalysis fields + the committee projection
-        (workflow/timeline) the page already fetched; every analytics section below stays
-        intact. Mounts only in the committee/graph context (workflow present) and out of
-        edit mode (so the ratify buttons don't compete with the underwriting editor). */}
-      {workflow !== undefined && !editMode ? (
-        <NegotiationSurface
-          data={data}
-          workflow={workflow}
-          timeline={timeline}
-          onWorkflowChanged={onWorkflowChanged}
-        />
-      ) : null}
-
-      <section className="space-y-3">
-        <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Summary</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Cell label="Rating Band" displayValue={data.summary.ratingBand.displayValue} />
-          <Cell label="Final Score" displayValue={data.summary.finalScore.displayValue} />
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Metrics</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Cell label="DSCR" displayValue={data.metrics.dscr.displayValue} />
-          <Cell label="LTV" displayValue={data.metrics.ltv.displayValue} />
-          <Cell label="Debt Yield" displayValue={data.metrics.debtYield.displayValue} />
-          <Cell label="NOI" displayValue={data.metrics.noi.displayValue} />
-        </div>
-      </section>
-
+  // The editable line-item tables (income / expenses / loan / assumptions) — moved
+  // WHOLE into the 'adjust' tab. Same component, same handleFieldChange / handleSave /
+  // edit-mode / api.createGraphRevision path (persistence rides in unchanged).
+  const adjustTables = (
+    <div className="space-y-6">
       <EditableLineItemTable
         section="income"
         title="Income Lines"
@@ -1012,14 +910,12 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         pendingEdits={pendingEdits}
         onFieldChange={handleFieldChange}
       />
-
       {/*
         Loan terms (D21 / render version 7.0). The contract is a named-field struct
         (not an array), so we hand-build the explicit list of items to render via the
         same table. This is NOT Object.keys iteration: the field order and identity
         are encoded in source per the locked invariant. maturityBalance + debtServiceAnnual
-        are derived fields (recomputed from loanAmount/interestRate/amortizationMonths);
-        they appear in the table but are NOT editable (see EDITABLE_PATHS).
+        are derived fields; they appear in the table but are NOT editable.
       */}
       <EditableLineItemTable
         section="loan"
@@ -1037,11 +933,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         pendingEdits={pendingEdits}
         onFieldChange={handleFieldChange}
       />
-
-      {/* Assumptions section — render version 7.3 (#24). Named-field struct on data.assumptions
-        mirrors AdjustedInputs.assumptions; 4 fields × RenderedLineItem. All four paths are
-        editable (capRate / terminalCapRate / rentGrowthPct / expenseGrowthPct), all 0..1
-        decimal so they classify as 'percent' input type per uw-edit-utils.ts. */}
+      {/* Assumptions section — render version 7.3 (#24). All four paths editable. */}
       <EditableLineItemTable
         section="assumptions"
         title="Assumptions"
@@ -1055,99 +947,402 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         pendingEdits={pendingEdits}
         onFieldChange={handleFieldChange}
       />
+    </div>
+  );
 
-      {data.stress.scenarios.length > 0 ? (
-        <StressScenarioTable method={data.stress.method} scenarios={data.stress.scenarios} />
+  const tabBody = (t: WSTab): React.ReactElement | null => {
+    switch (t) {
+      case 'adjust':
+        return adjustTables;
+      case 'stress':
+        return data.stress.scenarios.length > 0
+          ? <StressScenarioTable method={data.stress.method} scenarios={data.stress.scenarios} />
+          : null;
+      case 'valuation':
+        return (
+          <section className="space-y-3">
+            <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Valuation</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <Cell label="Final Value" displayValue={data.valuation.finalValue.displayValue} />
+              <Cell label="Anchor" displayValue={data.valuation.anchorUsed.displayValue} />
+            </div>
+          </section>
+        );
+      case 'doctrine':
+        return (
+          <div className="space-y-6">
+            <section className="space-y-3">
+              <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Doctrine</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Cell label="Mechanical Score" displayValue={data.doctrine.mechanicalScore.displayValue} />
+                <Cell label="Weighted Aggregate" displayValue={data.doctrine.weightedAggregate.displayValue} />
+              </div>
+              {data.doctrine.flags.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {data.doctrine.flags.map((b) => <Badge key={b.code} badge={b} />)}
+                </div>
+              ) : null}
+            </section>
+            {data.doctrine.components.length > 0 ? (
+              <section className="space-y-3">
+                <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Component Breakdown</h2>
+                <div className="overflow-x-auto border border-gray-200 rounded bg-white">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Component</th>
+                        <th className="px-3 py-2 text-left font-medium">Rule</th>
+                        <th className="px-3 py-2 text-right font-medium">Raw</th>
+                        <th className="px-3 py-2 text-right font-medium">Score</th>
+                        <th className="px-3 py-2 text-right font-medium">Weight</th>
+                        <th className="px-3 py-2 text-right font-medium">Contribution</th>
+                        <th className="px-3 py-2 text-left font-medium">Reasons</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.doctrine.components.map((c) => (
+                        <tr key={c.ruleId + ':' + c.name} className="border-t border-gray-100">
+                          <td className="px-3 py-2 font-medium text-gray-900">{c.name}</td>
+                          <td className="px-3 py-2 font-mono text-xs text-gray-600">{c.ruleId}</td>
+                          <td className="px-3 py-2 text-right text-gray-900">{c.rawValue.displayValue}</td>
+                          <td className="px-3 py-2 text-right text-gray-900">{c.score.displayValue}</td>
+                          <td className="px-3 py-2 text-right text-gray-900">{c.weight.displayValue}</td>
+                          <td className="px-3 py-2 text-right text-gray-900">{c.contribution.displayValue}</td>
+                          <td className="px-3 py-2">
+                            {c.reasonCodes.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {c.reasonCodes.map((b) => <Badge key={b.code} badge={b} />)}
+                              </div>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+          </div>
+        );
+      case 'handbook':
+        return handbookEvaluation !== undefined && handbookEvaluation !== null
+          ? <HandbookEvaluationSection evaluation={handbookEvaluation} />
+          : null;
+      case 'mitigations':
+        return <MitigationsSection proposals={data.mitigations} dataConfidence={data.summary.dataConfidence.value ?? 'validated'} />;
+      case 'narrative':
+        return <NarrativeSection narrative={data.narrative} />;
+      case 'findings':
+        return data.findings.length > 0 ? <FindingsList findings={data.findings} /> : null;
+      case 'quality':
+        return data.dataQuality.flags.length > 0 ? (
+          <section className="space-y-3">
+            <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Data Quality</h2>
+            <div className="flex flex-wrap gap-2">
+              {data.dataQuality.flags.map((b) => <Badge key={b.code} badge={b} />)}
+            </div>
+          </section>
+        ) : null;
+    }
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.ink, fontFamily: SANS }}>
+      {/* Synthetic-fixture banner. Renders ONLY for the seeded DEMO cleared-deal
+          fixture (never for a real deal — `synthetic` is resolved at the page layer
+          from the DEMO dealRef). Deliberately loud + sticky so a screenshot of the
+          deal room can never be mistaken for a real underwriting. Full-bleed, above
+          everything (survives the split-page re-layout). */}
+      {synthetic ? (
+        <div
+          role="alert"
+          className="sticky top-0 z-30 border-2 border-red-600 bg-red-600 text-white px-4 py-3 shadow-md flex items-center gap-3"
+        >
+          <span className="text-lg leading-none" aria-hidden="true">⚠</span>
+          <div className="text-sm font-bold uppercase tracking-wide">
+            DEMO — SYNTHETIC FIXTURE (not for underwriting)
+          </div>
+          <div className="text-xs font-normal opacity-90 ml-auto hidden sm:block">
+            This deal was generated to exercise the cleared→closed flow. It is not a real loan.
+          </div>
+        </div>
       ) : null}
 
-      <section className="space-y-3">
-        <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Valuation</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Cell label="Final Value" displayValue={data.valuation.finalValue.displayValue} />
-          <Cell label="Anchor" displayValue={data.valuation.anchorUsed.displayValue} />
+      {/* ── Header bar (full-bleed white, hairline bottom) ─────────────────────── */}
+      <header style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '14px 24px' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>Analysis</span>
+            <span style={{ fontSize: 11, color: C.ink3, fontFamily: MONO }}>#{data.rootId.slice(0, 8)}</span>
+            {dataWithLineage.revisionOrdinal !== undefined && dataWithLineage.revisionOrdinal > 0 ? (
+              <span style={{ fontSize: 11, fontWeight: 600, color: C.ink2, background: C.surface2, border: `1px solid ${C.borderStrong}`, borderRadius: 999, padding: '2px 10px' }}>
+                Revision {dataWithLineage.revisionOrdinal}
+              </span>
+            ) : null}
+            <span style={{ fontSize: 11, fontWeight: 600, color: sideC.accent, background: sideC.soft, border: `1px solid ${C.border}`, borderRadius: 999, padding: '2px 10px' }}>{sideC.label}</span>
+          </div>
+          {editAvailable ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {editMode ? (
+                <>
+                  <button type="button" onClick={handleCancel} disabled={saveStatus === 'saving'}
+                    style={{ fontSize: 13, fontWeight: 500, padding: '6px 14px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${C.borderStrong}`, background: C.surface, color: C.ink2, opacity: saveStatus === 'saving' ? 0.4 : 1 }}>
+                    Cancel
+                  </button>
+                  <button type="button" onClick={() => { void handleSave(); }} disabled={saveStatus === 'saving'}
+                    style={{ fontSize: 13, fontWeight: 600, padding: '6px 14px', borderRadius: 7, cursor: 'pointer', border: 'none', background: C.teal, color: '#fff', opacity: saveStatus === 'saving' ? 0.4 : 1 }}>
+                    {saveStatus === 'saving' ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={handleEditToggle}
+                  style={{ fontSize: 13, fontWeight: 600, padding: '6px 14px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${C.teal}`, background: C.surface, color: C.teal }}>
+                  Edit Underwriting
+                </button>
+              )}
+            </div>
+          ) : null}
         </div>
-      </section>
+        <div style={{ maxWidth: 1180, margin: '2px auto 0', fontSize: 10, color: C.ink3, fontFamily: MONO }}>
+          rootId: {data.rootId} · renderVersion: {data.metadata.renderVersion}
+        </div>
+      </header>
 
-      <section className="space-y-3">
-        <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Doctrine</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Cell label="Mechanical Score" displayValue={data.doctrine.mechanicalScore.displayValue} />
-          <Cell label="Weighted Aggregate" displayValue={data.doctrine.weightedAggregate.displayValue} />
-        </div>
-        {data.doctrine.flags.length > 0 ? (
-          <div className="flex flex-wrap gap-2 pt-2">
-            {data.doctrine.flags.map((b) => <Badge key={b.code} badge={b} />)}
+      <div style={{ maxWidth: 1180, margin: '0 auto', padding: '20px 24px' }}>
+        {saveError !== null ? (
+          <div style={{ border: `1px solid ${C.kicked}`, background: '#FBECEB', color: C.kicked, borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>
+            <div style={{ fontWeight: 600 }}>Could not save changes</div>
+            {saveError.code !== undefined ? (
+              <div style={{ fontFamily: MONO, fontSize: 11 }}>{saveError.code}{saveError.path !== undefined ? ` @ ${saveError.path}` : ''}</div>
+            ) : null}
+            <div>{saveError.message}</div>
           </div>
         ) : null}
-      </section>
 
-      {handbookEvaluation !== undefined && handbookEvaluation !== null && (
-        <HandbookEvaluationSection evaluation={handbookEvaluation} />
-      )}
-
-      <MitigationsSection proposals={data.mitigations} dataConfidence={data.summary.dataConfidence.value ?? 'validated'} />
-
-      <NarrativeSection narrative={data.narrative} />
-
-      {data.doctrine.components.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Component Breakdown</h2>
-          <div className="overflow-x-auto border border-gray-200 rounded bg-white">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium">Component</th>
-                  <th className="px-3 py-2 text-left font-medium">Rule</th>
-                  <th className="px-3 py-2 text-right font-medium">Raw</th>
-                  <th className="px-3 py-2 text-right font-medium">Score</th>
-                  <th className="px-3 py-2 text-right font-medium">Weight</th>
-                  <th className="px-3 py-2 text-right font-medium">Contribution</th>
-                  <th className="px-3 py-2 text-left font-medium">Reasons</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.doctrine.components.map((c) => (
-                  <tr key={c.ruleId + ':' + c.name} className="border-t border-gray-100">
-                    <td className="px-3 py-2 font-medium text-gray-900">{c.name}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-600">{c.ruleId}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{c.rawValue.displayValue}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{c.score.displayValue}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{c.weight.displayValue}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{c.contribution.displayValue}</td>
-                    <td className="px-3 py-2">
-                      {c.reasonCodes.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {c.reasonCodes.map((b) => <Badge key={b.code} badge={b} />)}
-                        </div>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Committee status + action buttons + snapshot — full-width above the split. */}
+        {workflow !== undefined ? <div style={{ marginBottom: 12 }}><CommitteeStatusHeader workflow={workflow} /></div> : null}
+        {workflow !== undefined && onWorkflowChanged !== undefined && !editMode ? (
+          <div style={{ marginBottom: 12 }}>
+            <CommitteeActionButtons
+              rootId={data.rootId}
+              renderedAnalysisId={data.id}
+              workflow={workflow}
+              onActionSubmitted={onWorkflowChanged}
+            />
           </div>
-        </section>
-      ) : null}
+        ) : null}
+        {workflow !== undefined ? <div style={{ marginBottom: 12 }}><SnapshotViewer workflow={workflow} /></div> : null}
 
-      {data.dataQuality.flags.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Data Quality</h2>
-          <div className="flex flex-wrap gap-2">
-            {data.dataQuality.flags.map((b) => <Badge key={b.code} badge={b} />)}
+        {/* ── Doctrine banners (full-bleed, above the split — unchanged logic) ──── */}
+        {data.summary.dataConfidence.value === 'unvalidated' ? (
+          <section className="space-y-3 mb-3">
+            <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
+              <div className="text-sm font-semibold text-amber-900 mb-1">Insufficient data — provisional figures</div>
+              <p className="text-sm text-amber-800">
+                The figures below are provisional, resting on conservative library fallbacks rather than validated cash flow. See the committee recommendation below.
+              </p>
+            </div>
+          </section>
+        ) : data.summary.dataConfidence.value === 'low_confidence' ? (
+          <section className="space-y-3 mb-3">
+            <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
+              <div className="text-sm font-semibold text-blue-900 mb-1">Low data confidence — underwriting on in-place / projected figures</div>
+              <p className="text-sm text-blue-800">
+                Concluded on in-place / underwriting figures — no trailing-12 actuals were available to validate against. This reflects documentation depth, not credit quality; obtain trailing operating statements to raise data confidence.
+              </p>
+            </div>
+          </section>
+        ) : null}
+
+        {data.summary.coverage.insufficientCoverageGate.value === true ? (
+          <section className="space-y-3 mb-3">
+            <div className="border-l-4 border-slate-500 bg-slate-50 p-4 rounded">
+              <div className="text-sm font-semibold text-slate-900 mb-1">Insufficient coverage — engine abstained</div>
+              <p className="text-sm text-slate-800">{data.summary.coverage.bannerCopy.displayValue}</p>
+            </div>
+          </section>
+        ) : data.summary.coverage.bandCapApplied.value === true ? (
+          <section className="space-y-3 mb-3">
+            <div className="border-l-4 border-indigo-400 bg-indigo-50 p-4 rounded">
+              <div className="text-sm font-semibold text-indigo-900 mb-1">Band capped — risk dimensions unevaluated</div>
+              <p className="text-sm text-indigo-800">{data.summary.coverage.bannerCopy.displayValue}</p>
+            </div>
+          </section>
+        ) : null}
+
+        {data.summary.noiDivergence?.status.value === 'flagged' ? (
+          <section className="space-y-3 mb-3">
+            <div className="border-l-4 border-red-600 bg-red-50 p-4 rounded">
+              <div className="text-sm font-semibold text-red-900 mb-1">NOI materially below trailing-twelve actual</div>
+              <p className="text-sm text-red-800">{data.summary.noiDivergence.caveat.displayValue}</p>
+            </div>
+          </section>
+        ) : null}
+
+        {/* P3b — advisory intake-completeness readiness + Create-workbook CTA. */}
+        {analysisId !== undefined ? <div style={{ marginBottom: 16 }}><WorkbookReadiness analysisId={analysisId} /></div> : null}
+
+        {/* ── ★ SPLIT PAGE: main (negotiation) + sticky rail (score/metrics) ────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, alignItems: 'start' }}>
+          {/* Main column — the NegotiationSurface as the PRIMARY panel. Moved WHOLE
+              with byte-identical props (data / workflow / timeline / onWorkflowChanged);
+              all persistence (createOverlay / submitOverrideDecision / postOverlayComment
+              / getOverlayComments) rides inside it, untouched. Mounts only in the
+              committee/graph context && out of edit mode (edit uses the drawer's Adjust
+              tab so the ratify buttons don't compete with the editor). */}
+          <main style={{ minWidth: 0 }}>
+            {workflow !== undefined && !editMode ? (
+              <NegotiationSurface
+                data={data}
+                workflow={workflow}
+                timeline={timeline}
+                onWorkflowChanged={onWorkflowChanged}
+              />
+            ) : (
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 20, color: C.ink2, fontSize: 13 }}>
+                {editMode
+                  ? 'Editing underwriting inputs — open the Underwriting workspace (Adjust inputs) below, then Save Changes. The negotiation surface returns when you exit edit mode.'
+                  : 'The negotiation surface mounts once the committee workflow is available for this deal. The underwriting detail is in the workspace drawer.'}
+              </div>
+            )}
+          </main>
+
+          {/* ── Sticky rail — score donut + headline metrics + status + memo ───── */}
+          <aside style={{ position: 'sticky', top: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 16 }}>
+              <div style={{ ...eyebrow, marginBottom: 12 }}>Credit summary</div>
+              <ScoreDonut
+                finalScoreValue={data.summary.finalScore.value}
+                finalScoreDisplay={data.summary.finalScore.displayValue}
+                band={data.summary.ratingBand.displayValue}
+                accent={sideC.accent}
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+                <RailMetric label="DSCR" displayValue={data.metrics.dscr.displayValue} />
+                <RailMetric label="LTV" displayValue={data.metrics.ltv.displayValue} />
+                <RailMetric label="Debt Yield" displayValue={data.metrics.debtYield.displayValue} />
+                <RailMetric label="NOI" displayValue={data.metrics.noi.displayValue} />
+                <RailMetric label="Value" displayValue={data.valuation.finalValue.displayValue} />
+                <RailMetric label="Weighted Agg." displayValue={data.doctrine.weightedAggregate.displayValue} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button onClick={() => setWorkspaceOpen(true)}
+                  style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, cursor: 'pointer', background: C.surface, color: C.teal, border: `1px solid ${C.teal}` }}>
+                  Underwriting workspace
+                </button>
+                {/* Download memo — the shared credit-memo artifact. Needs only the routed
+                    analysis id (server renders from the persisted graph chain, no LLM). */}
+                {analysisId !== undefined ? (
+                  <button onClick={() => api.downloadMemo(analysisId, 'Credit Committee Memo.html')}
+                    style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, cursor: 'pointer', background: C.teal, color: '#fff', border: 'none' }}>
+                    Download memo
+                  </button>
+                ) : null}
+              </div>
+              <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 8 }}>
+                Deep underwriting detail (income / expenses / loan / stress / doctrine / handbook) lives in the workspace drawer. The memo is shared.
+              </div>
+            </div>
+
+            {/* Fix 4 — inline exec summary (click-to-expand). Reads data.narrative
+                (executiveSummary + committeeRecommendation) — the SAME rendered
+                narrative the drawer's Exec-summary tab shows; NO new API call. A few
+                lines only (the story); the full four-slot breakdown stays in-drawer. */}
+            {data.narrative !== null ? (
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  onClick={() => setSummaryOpen((v) => !v)}
+                  aria-expanded={summaryOpen}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 16px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                >
+                  <span style={eyebrow}>Executive summary</span>
+                  <span style={{ fontSize: 12, color: C.ink3, transform: summaryOpen ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }} aria-hidden="true">▸</span>
+                </button>
+                {summaryOpen ? (
+                  <div style={{ padding: '0 16px 14px' }}>
+                    <p style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink2, whiteSpace: 'pre-line', margin: 0 }}>
+                      {data.narrative.executiveSummary}
+                    </p>
+                    {data.narrative.committeeRecommendation.trim().length > 0 ? (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                        <div style={{ ...eyebrow, marginBottom: 4 }}>Recommendation</div>
+                        <p style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink2, whiteSpace: 'pre-line', margin: 0 }}>
+                          {data.narrative.committeeRecommendation}
+                        </p>
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => { setWorkspaceTab('narrative'); setWorkspaceOpen(true); }}
+                      style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: C.teal, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                    >
+                      Full breakdown →
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </aside>
+        </div>
+
+        {/* ── Timeline + audit toggle (full-width below the split) ──────────────── */}
+        {timeline !== undefined ? <div style={{ marginTop: 20 }}><CommitteeTimelinePanel timeline={timeline} /></div> : null}
+        {workflow !== undefined ? <div style={{ marginTop: 12 }}><AuditViewToggle rootId={data.rootId} /></div> : null}
+      </div>
+
+      {/* ── Tabbed workspace drawer — deep READ-ONLY sections behind tabs (Stage 3).
+          Right-side overlay, opened from the rail. The 'Adjust inputs' tab carries the
+          editable line-item tables + the same edit path (handleFieldChange/handleSave /
+          api.createGraphRevision) — persistence untouched. ────────────────────────── */}
+      {workspaceOpen ? (
+        <div onClick={() => setWorkspaceOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(21,38,44,0.35)', zIndex: 50, display: 'flex', justifyContent: 'flex-end' }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(860px, 96vw)', height: '100%', background: C.bg, borderLeft: `1px solid ${C.borderStrong}`, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 24px rgba(0,0,0,0.12)' }}>
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, background: C.surface, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontFamily: DISPLAY, fontSize: 15, fontWeight: 700, color: C.ink }}>Underwriting workspace</div>
+                <div style={{ fontSize: 11, color: C.ink3 }}>Read-only detail · Adjust inputs carries the persisted edit path</div>
+              </div>
+              <button onClick={() => setWorkspaceOpen(false)} style={{ fontSize: 16, color: C.ink3, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+            </div>
+            {availableTabs.length > 0 ? (
+              <div style={{ display: 'flex', gap: 18, padding: '10px 12px', borderBottom: `1px solid ${C.border}`, background: C.surface, overflowX: 'auto' }}>
+                {WS_GROUP_ORDER.map((g) => {
+                  const groupTabs = availableTabs.filter((t) => t.group === g);
+                  if (groupTabs.length === 0) return null;
+                  return (
+                    <div key={g} style={{ display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9.5, letterSpacing: 0.7, textTransform: 'uppercase', fontWeight: 600, color: C.ink3, paddingLeft: 4 }}>{g}</span>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {groupTabs.map((t) => {
+                          const on = effectiveTab === t.key;
+                          return (
+                            <button key={t.key} onClick={() => setWorkspaceTab(t.key)}
+                              style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', background: on ? C.tealSoft : 'transparent', color: on ? C.tealDeep : C.ink2 }}>
+                              {t.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {/* Edit-mode banner inside the drawer so the analyst knows Save/Cancel live
+                in the header while editing the Adjust tables. */}
+            {editMode ? (
+              <div style={{ padding: '8px 18px', background: C.tealSoft, borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.tealDeep }}>
+                Edit mode — change values in <strong>Adjust inputs</strong>, then <strong>Save Changes</strong> (top header) to persist a revision. Cancel discards.
+              </div>
+            ) : null}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+              {tabBody(effectiveTab)}
+            </div>
           </div>
-        </section>
-      ) : null}
-
-      {data.findings.length > 0 ? (
-        <FindingsList findings={data.findings} />
-      ) : null}
-
-      {timeline !== undefined ? (
-        <CommitteeTimelinePanel timeline={timeline} />
-      ) : null}
-
-      {workflow !== undefined ? (
-        <AuditViewToggle rootId={data.rootId} />
+        </div>
       ) : null}
     </div>
   );

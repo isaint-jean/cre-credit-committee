@@ -25,6 +25,16 @@ import type {
 } from '@cre/contracts';
 import { api } from '@/lib/api-client';
 
+// ── P1 design-system tokens (same palette RenderedAnalysisView uses: teal platform
+//    primary, ink/paper light ramp, restrained red outline for destructive). Kept
+//    local so this component carries no Tailwind default-color rainbow. ─────────────
+const C = {
+  surface: '#FFFFFF', border: '#E2E8EA', borderStrong: '#CCD6D9',
+  ink: '#15262C', ink2: '#4A5C62', ink3: '#8A979C',
+  teal: '#0C6E78', tealDeep: '#0A555D',
+  red: '#AE3A33', redSoft: '#FBECEB',
+} as const;
+
 interface Props {
   readonly rootId: DoctrineEvaluationId;
   readonly renderedAnalysisId: RenderedAnalysisId;
@@ -32,19 +42,47 @@ interface Props {
   readonly onActionSubmitted: () => void;
 }
 
+// Weight of a button in the P1 hierarchy:
+//   primary   — one solid teal block (the main forward action)
+//   secondary — teal outline (alternate committee actions)
+//   tertiary  — ghost / low-emphasis text button
+//   danger    — restrained red OUTLINE (never a solid destructive block)
+type ActionWeight = 'primary' | 'secondary' | 'tertiary' | 'danger';
+
 interface ActionDef {
   readonly kind: CommitteeActionKind;
   readonly label: string;
-  readonly tone: string;
+  readonly weight: ActionWeight;
 }
 
+// APPROVE_DEAL is the single PRIMARY (the main affirmative committee action);
+// Submit is secondary (a forward step but not the decision), Request More Info /
+// Postpone are tertiary ghost buttons, Reject is a restrained red outline.
 const ACTIONS: readonly ActionDef[] = [
-  { kind: 'SUBMIT_TO_COMMITTEE', label: 'Submit to Committee', tone: 'bg-blue-600 hover:bg-blue-700 text-white' },
-  { kind: 'REQUEST_MORE_INFO',   label: 'Request More Info',   tone: 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300' },
-  { kind: 'APPROVE_DEAL',        label: 'Approve',             tone: 'bg-green-600 hover:bg-green-700 text-white' },
-  { kind: 'REJECT_DEAL',         label: 'Reject',              tone: 'bg-red-600 hover:bg-red-700 text-white' },
-  { kind: 'POSTPONE_DEAL',       label: 'Postpone',            tone: 'bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300' },
+  { kind: 'APPROVE_DEAL',        label: 'Approve',             weight: 'primary'   },
+  { kind: 'SUBMIT_TO_COMMITTEE', label: 'Submit to Committee', weight: 'secondary' },
+  { kind: 'REQUEST_MORE_INFO',   label: 'Request More Info',   weight: 'tertiary'  },
+  { kind: 'POSTPONE_DEAL',       label: 'Postpone',            weight: 'tertiary'  },
+  { kind: 'REJECT_DEAL',         label: 'Reject',              weight: 'danger'    },
 ];
+
+// Consistent height / spacing / weight per tier — no default-color blocks.
+function buttonStyle(weight: ActionWeight): React.CSSProperties {
+  const base: React.CSSProperties = {
+    height: 34, padding: '0 16px', fontSize: 13, borderRadius: 7,
+    cursor: 'pointer', lineHeight: 1, transition: 'background 120ms, border-color 120ms',
+  };
+  switch (weight) {
+    case 'primary':
+      return { ...base, fontWeight: 600, border: 'none', background: C.teal, color: '#fff' };
+    case 'secondary':
+      return { ...base, fontWeight: 600, border: `1px solid ${C.teal}`, background: C.surface, color: C.tealDeep };
+    case 'tertiary':
+      return { ...base, fontWeight: 500, border: `1px solid transparent`, background: 'transparent', color: C.ink2 };
+    case 'danger':
+      return { ...base, fontWeight: 600, border: `1px solid ${C.red}`, background: C.surface, color: C.red };
+  }
+}
 
 function buildDefaultPayload(kind: CommitteeActionKind): CommitteeActionPayload {
   switch (kind) {
@@ -94,33 +132,34 @@ export function CommitteeActionButtons({
     }
   }
 
+  const busy = pending !== null;
   return (
-    <section className="space-y-3 border border-gray-200 rounded p-4 bg-white">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">
+    <section style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, background: C.surface }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', fontWeight: 600, color: C.ink3 }}>
           Committee Actions
         </h2>
-        <span className="text-xs font-mono text-gray-500">state: {workflow.state}</span>
+        <span style={{ fontSize: 11, fontFamily: '"IBM Plex Mono", ui-monospace, monospace', color: C.ink3 }}>
+          state: {workflow.state}
+        </span>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         {ACTIONS.map((a) => (
           <button
             key={a.kind}
             type="button"
-            disabled={pending !== null}
+            disabled={busy}
             onClick={() => { void trigger(a.kind); }}
-            className={
-              'px-3 py-1.5 text-sm rounded transition ' +
-              (pending !== null ? 'opacity-50 cursor-not-allowed ' : '') +
-              a.tone
-            }
+            style={{ ...buttonStyle(a.weight), opacity: busy ? 0.5 : 1, cursor: busy ? 'not-allowed' : 'pointer' }}
           >
-            {pending === a.kind ? '...' : a.label}
+            {pending === a.kind ? '…' : a.label}
           </button>
         ))}
       </div>
       {error !== null ? (
-        <p className="text-xs text-red-700 font-mono">{error}</p>
+        <p style={{ marginTop: 10, fontSize: 12, fontFamily: '"IBM Plex Mono", ui-monospace, monospace', color: C.red, background: C.redSoft, borderRadius: 6, padding: '6px 10px' }}>
+          {error}
+        </p>
       ) : null}
     </section>
   );
