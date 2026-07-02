@@ -20,10 +20,12 @@ import type {
   CommitteeTimeline,
   DataConfidence,
   DealWorkflowState,
+  DoctrineEvaluationId,
   FieldValue,
   FiredFlag,
   HandbookEvaluation,
   RenderedAnalysis,
+  RenderedAnalysisId,
   RenderBadge,
   RenderBadgeSeverity,
   RenderedFinding,
@@ -163,6 +165,197 @@ function Badge({ badge }: { badge: RenderBadge }): React.ReactElement {
     <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5, border: `1px solid ${tone.fg}`, color: tone.fg, background: tone.bg }}>
       {badge.label}
     </span>
+  );
+}
+
+// ── Fix 5 — actionable Data-Quality chips ────────────────────────────────────
+// Each DQ flag chip becomes a button that opens an inline action popover with two
+// paths, per docs/recon/2026-07-02-dq-actions.md:
+//   (b) "Flag to originator" — a REAL persisted write. Mirrors NegotiationSurface's
+//       postComment EXACTLY: api.createOverlay({ rootId, renderedAnalysisId, overlayKey })
+//       then api.postOverlayComment({ overlayId, path, text, side }). We anchor the
+//       overlay at `comment:dq:<code>` and post with side:'originator'. It is persisted,
+//       content-hashed, audited and side-attributed — but there is NO notification
+//       endpoint, so the confirmation says "logged on the deal", NEVER "sent/notified".
+//   (a) "Add the data yourself" — the firing flags are MISSING DOCUMENTS (PCA / rent-
+//       roll / appraisal); supplying them is a re-ingest, which is net-new. So this is a
+//       clearly-labeled, DISABLED "coming soon" affordance — no fake write.
+// The chip keeps its severity styling (P1 tokens). Only the DQ-quality chips get this.
+
+type DqFlagState = 'idle' | 'posting' | 'flagged' | 'error';
+
+function DataQualityFlagChip({
+  badge,
+  rootId,
+  renderedAnalysisId,
+  alreadyFlagged,
+}: {
+  badge: RenderBadge;
+  rootId: DoctrineEvaluationId;
+  renderedAnalysisId: RenderedAnalysisId;
+  alreadyFlagged: boolean;
+}): React.ReactElement {
+  const tone = SEVERITY_TONE[badge.severity];
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<DqFlagState>(alreadyFlagged ? 'flagged' : 'idle');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const flagToOriginator = async (): Promise<void> => {
+    if (state === 'posting') return;
+    setState('posting');
+    setErrorMsg(null);
+    try {
+      // ── Mirror NegotiationSurface.postComment's exact call shape ──
+      const path = `dq:${badge.code}`;
+      const overlayKey = `comment:${path}`;
+      const { overlayId } = await api.createOverlay({
+        rootId,
+        renderedAnalysisId,
+        overlayKey,
+      });
+      await api.postOverlayComment({
+        overlayId,
+        path,
+        text: `Buyer flagged missing data (${badge.label}) — originator to supply.`,
+        side: 'originator',
+      });
+      setState('flagged');
+    } catch (e) {
+      setErrorMsg((e as Error).message || 'Could not log the flag.');
+      setState('error');
+    }
+  };
+
+  const chipLabel = state === 'flagged' ? `${badge.label} — flagged` : badge.label;
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        title="Data-quality flag — click for actions"
+        style={{
+          display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '2px 8px',
+          borderRadius: 5, border: `1px solid ${tone.fg}`, color: tone.fg, background: tone.bg,
+          cursor: 'pointer', font: 'inherit', lineHeight: 1.4,
+          textDecoration: state === 'flagged' ? 'none' : undefined,
+          opacity: state === 'flagged' ? 0.85 : 1,
+        }}
+      >
+        {state === 'flagged' ? '✓ ' : ''}{chipLabel}
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, width: 268,
+            background: C.surface, border: `1px solid ${C.borderStrong}`, borderRadius: 8,
+            boxShadow: '0 6px 20px rgba(21,38,44,0.14)', padding: 12, textAlign: 'left',
+          }}
+        >
+          <div style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: C.ink3, marginBottom: 2 }}>
+            Data quality
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, marginBottom: 2 }}>{badge.label}</div>
+          <div style={{ fontSize: 10, fontFamily: MONO, color: C.ink3, marginBottom: 10 }}>{badge.code}</div>
+
+          {/* Path (b) — REAL persisted write */}
+          <button
+            type="button"
+            onClick={() => { void flagToOriginator(); }}
+            disabled={state === 'posting' || state === 'flagged'}
+            style={{
+              width: '100%', textAlign: 'left', fontSize: 12, fontWeight: 600, padding: '7px 10px',
+              borderRadius: 6, border: `1px solid ${C.teal}`, marginBottom: 8,
+              background: state === 'flagged' ? C.tealSoft : C.surface,
+              color: C.teal, cursor: state === 'posting' || state === 'flagged' ? 'default' : 'pointer',
+              opacity: state === 'posting' ? 0.5 : 1,
+            }}
+          >
+            {state === 'posting' ? 'Logging…'
+              : state === 'flagged' ? '✓ Logged on the deal — originator to supply'
+              : 'Flag to originator'}
+          </button>
+          {state === 'flagged' ? (
+            <div style={{ fontSize: 10, color: C.ink3, marginBottom: 8 }}>
+              Logged on the deal (persisted, attributable). Not a notification — the
+              originator sees it on the deal.
+            </div>
+          ) : null}
+          {state === 'error' && errorMsg !== null ? (
+            <div style={{ fontSize: 10, color: C.kicked, marginBottom: 8 }}>{errorMsg}</div>
+          ) : null}
+
+          {/* Path (a) — labeled coming-soon (net-new re-ingest, no fake write) */}
+          <button
+            type="button"
+            disabled
+            title="Supplying missing documents is a re-ingest — coming soon"
+            style={{
+              width: '100%', textAlign: 'left', fontSize: 12, fontWeight: 600, padding: '7px 10px',
+              borderRadius: 6, border: `1px dashed ${C.borderStrong}`, background: C.surface2,
+              color: C.ink3, cursor: 'not-allowed',
+            }}
+          >
+            Add the data yourself
+            <span style={{ fontSize: 9, fontWeight: 700, marginLeft: 6, padding: '1px 5px', borderRadius: 4, background: C.border, color: C.ink2, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+              Coming soon
+            </span>
+          </button>
+          <div style={{ fontSize: 10, color: C.ink3, marginTop: 6 }}>
+            Supplying missing documents is a re-ingest — coming soon.
+          </div>
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
+function DataQualityFlags({
+  flags,
+  rootId,
+  renderedAnalysisId,
+}: {
+  flags: readonly RenderBadge[];
+  rootId: DoctrineEvaluationId;
+  renderedAnalysisId: RenderedAnalysisId;
+}): React.ReactElement {
+  // Optional (recon §4): reflect codes already flagged via an existing `comment:dq:<code>`
+  // overlay so a chip shows "flagged". Clean read: api.getOverlayComments returns every
+  // persisted comment with its `path` — our anchor path is `dq:<code>`. Best-effort;
+  // failure is silent (chips just start un-flagged).
+  const [flaggedCodes, setFlaggedCodes] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.getOverlayComments(rootId);
+        if (cancelled) return;
+        const codes = new Set<string>();
+        for (const c of res.comments) {
+          if (c.path.startsWith('dq:')) codes.add(c.path.slice('dq:'.length));
+        }
+        setFlaggedCodes(codes);
+      } catch {
+        /* best-effort read; leave chips un-flagged on failure */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [rootId]);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {flags.map((b) => (
+        <DataQualityFlagChip
+          key={b.code}
+          badge={b}
+          rootId={rootId}
+          renderedAnalysisId={renderedAnalysisId}
+          alreadyFlagged={flaggedCodes.has(b.code)}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1038,9 +1231,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         return data.dataQuality.flags.length > 0 ? (
           <section className="space-y-3">
             <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Data Quality</h2>
-            <div className="flex flex-wrap gap-2">
-              {data.dataQuality.flags.map((b) => <Badge key={b.code} badge={b} />)}
-            </div>
+            <DataQualityFlags flags={data.dataQuality.flags} rootId={data.rootId} renderedAnalysisId={data.id} />
           </section>
         ) : null;
     }
