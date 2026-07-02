@@ -62,7 +62,6 @@ import type {
 import { RENDER_VERSION } from '@cre/contracts';
 import type { AdjustedLineItem } from '@cre/contracts';
 import {
-  applyNumericSentinel,
   applyStringSentinel,
   badgeFromFlag,
   NULL_SENTINEL,
@@ -96,18 +95,50 @@ function renderNarrativeSection(
   };
 }
 
+// FIX 1 — unit-aware line-item formatting. `applyNumericSentinel` is unit-BLIND
+// (plain String()), but the UNIT is known at THIS builder from the field name.
+// This map routes each named line item to the right formatter so the raw-tier
+// tables render dollars with commas, rates with %, counts as integers, etc.
+// Null still routes through the formatter, which returns the NULL_SENTINEL —
+// preserving the missing-data semantics (never "0"). Fields not listed fall
+// back to fmtDollarsFull (income/expense/loan money are the overwhelming
+// majority and the sole callers here are the money/rate/count sections below).
+type NumFmt = (n: number | null) => string;
+const LINE_ITEM_FORMAT: Readonly<Record<string, NumFmt>> = {
+  // rate / percentage line items (values are 0..1 fractions)
+  vacancyPct:       fmtRate1,
+  concessionsPct:   fmtRate1,
+  interestRate:     fmtRate1,
+  capRate:          fmtRate1,
+  terminalCapRate:  fmtRate1,
+  concludedCapRate: fmtRate1,
+  rentGrowthPct:    fmtRate1,
+  expenseGrowthPct: fmtRate1,
+  // integer count line items (months)
+  termMonths:         fmtCount,
+  amortizationMonths: fmtCount,
+  ioPeriodMonths:     fmtCount,
+};
+function lineItemFmt(name: string): NumFmt {
+  return LINE_ITEM_FORMAT[name] ?? fmtDollarsFull;
+}
+
 // 6.9 D16/D17 helper - bijective passthrough of one AdjustedLineItem.
 // NOT a derivation: every numeric value is read directly from the producer's record;
 // the adjustments ledger is mapped 1:1 from AdjustmentEntry to RenderedAdjustment.
+// FIX 1: the displayValue strings are now unit-aware (dollars/rate/count) chosen
+// by field name; the underlying .value is untouched (machine/human split intact).
 function projectLineItem(name: string, item: AdjustedLineItem): RenderedLineItem {
+  const fmt = lineItemFmt(name);
   return {
     name,
-    raw: { value: item.raw, displayValue: applyNumericSentinel(item.raw) },
-    adjusted: { value: item.adjusted, displayValue: applyNumericSentinel(item.adjusted) },
+    raw: { value: item.raw, displayValue: fmt(item.raw) },
+    adjusted: { value: item.adjusted, displayValue: fmt(item.adjusted) },
     source: item.source,
     adjustments: item.adjustments.map((a): RenderedAdjustment => ({
       ruleId: a.ruleId,
-      delta: { value: a.delta, displayValue: applyNumericSentinel(a.delta) },
+      // Deltas carry the same unit as the line item they adjust.
+      delta: { value: a.delta, displayValue: fmt(a.delta) },
       reason: a.reason,
     })),
   };
@@ -126,14 +157,46 @@ function fmtDollarsCompact(n: number | null): string {
   return '$' + n.toFixed(0);
 }
 
+// FIX 1 — full-comma dollar form for line-item / breakdown tables (headline
+// metrics keep the compact $112.5M form via fmtDollarsCompact). Rounds to the
+// whole dollar and inserts thousands separators: 7482160 -> "$7,482,160".
+// Negative values keep the sign INSIDE the currency: -354055 -> "-$354,055".
+function fmtDollarsFull(n: number | null): string {
+  if (n === null) return NULL_SENTINEL;
+  const sign = n < 0 ? '-' : '';
+  return sign + '$' + Math.round(Math.abs(n)).toLocaleString('en-US');
+}
+
 function fmtDscr(n: number | null): string {
   if (n === null) return NULL_SENTINEL;
-  return n.toFixed(2) + 'x';
+  return n.toFixed(2) + '×';
 }
 
 function fmtRate(n: number | null): string {
   if (n === null) return NULL_SENTINEL;
   return (n * 100).toFixed(2) + '%';
+}
+
+// FIX 1 — 1-decimal percentage for headline-style rate rows (LTV 67.6%,
+// debt yield 9.1%, cap / growth assumptions). Input is a 0..1 fraction.
+function fmtRate1(n: number | null): string {
+  if (n === null) return NULL_SENTINEL;
+  return (n * 100).toFixed(1) + '%';
+}
+
+// FIX 1 — plain 2-decimal number for score-like cells (finalScore, mechanical
+// score, weighted aggregate, per-component score/weight/contribution). Kills
+// the raw-float tail: 35.0999999999999 -> "35.10".
+function fmtScore(n: number | null): string {
+  if (n === null) return NULL_SENTINEL;
+  return n.toFixed(1);
+}
+
+// FIX 1 — integer count for month/term cells (termMonths, amortizationMonths,
+// ioPeriodMonths). No decimals, no units.
+function fmtCount(n: number | null): string {
+  if (n === null) return NULL_SENTINEL;
+  return String(Math.round(n));
 }
 
 function dollarCell(n: number | null | undefined): RenderCell<number> {
@@ -283,11 +346,12 @@ export function renderUnderwritingContext(
     method: stressOutputs.method,
     scenarios: stressOutputs.scenarios.map((s): RenderedStressScenario => ({
       name: s.name,
-      noi: { value: s.noi, displayValue: applyNumericSentinel(s.noi) },
-      dscr: { value: s.dscr, displayValue: applyNumericSentinel(s.dscr) },
-      value: { value: s.value, displayValue: applyNumericSentinel(s.value) },
-      ltv: { value: s.ltv, displayValue: applyNumericSentinel(s.ltv) },
-      debtYield: { value: s.debtYield, displayValue: applyNumericSentinel(s.debtYield) },
+      // FIX 1 — unit-aware stress rows: noi/value are dollars, dscr is ×, ltv/dy are %.
+      noi: { value: s.noi, displayValue: fmtDollarsFull(s.noi) },
+      dscr: { value: s.dscr, displayValue: fmtDscr(s.dscr) },
+      value: { value: s.value, displayValue: fmtDollarsFull(s.value) },
+      ltv: { value: s.ltv, displayValue: fmtRate1(s.ltv) },
+      debtYield: { value: s.debtYield, displayValue: fmtRate1(s.debtYield) },
       breaches: s.breaches.map((b): RenderBadge => badgeFromFlag(b, 'warning')),
       skipped: s.skipped.map((b): RenderBadge => badgeFromFlag(b, 'info')),
     })),
@@ -332,10 +396,14 @@ export function renderUnderwritingContext(
     (c): RenderedComponentScore => ({
       name: c.componentId,
       ruleId: c.ruleId,
-      rawValue: { value: c.rawValue, displayValue: applyNumericSentinel(c.rawValue) },
-      score: { value: c.score, displayValue: applyNumericSentinel(c.score) },
-      weight: { value: c.weight, displayValue: applyNumericSentinel(c.weight) },
-      contribution: { value: c.contribution, displayValue: applyNumericSentinel(c.contribution) },
+      // FIX 1 — score-plane cells to a clean 2dp (kills the raw-float tail).
+      // rawValue is "the underlying metric the rule scored" — heterogeneous
+      // unit with no typed unit on the record, so 2dp plain (unit-neutral) is
+      // the honest choice; score/weight/contribution are 0..1 score-plane.
+      rawValue: { value: c.rawValue, displayValue: fmtScore(c.rawValue) },
+      score: { value: c.score, displayValue: fmtScore(c.score) },
+      weight: { value: c.weight, displayValue: fmtScore(c.weight) },
+      contribution: { value: c.contribution, displayValue: fmtScore(c.contribution) },
       reasonCodes: c.reasonCodes.map((code): RenderBadge => badgeFromFlag(code, 'info')),
     }),
   );
@@ -369,7 +437,8 @@ export function renderUnderwritingContext(
       },
       finalScore: {
         value: doctrineEvaluation.finalScore,
-        displayValue: applyNumericSentinel(doctrineEvaluation.finalScore),
+        // FIX 1 — clean 2dp (was raw float e.g. 35.0999999999999).
+        displayValue: fmtScore(doctrineEvaluation.finalScore),
       },
       // v7.14 — data-confidence axis (3-way). Passthrough of AdjustedInputs.dataConfidence
       // with a Capitalized display label. Explicit map (NOT binary ternary) so the new
@@ -399,9 +468,10 @@ export function renderUnderwritingContext(
           : '';
         return {
           status: { value: status, displayValue: status === 'flagged' ? 'Flagged' : 'Within band' },
-          derivedNoi:   { value: d.derivedNoi,   displayValue: applyNumericSentinel(d.derivedNoi) },
-          referenceNoi: { value: d.referenceNoi, displayValue: applyNumericSentinel(d.referenceNoi) },
-          shortfallPct: { value: d.shortfallPct, displayValue: applyNumericSentinel(d.shortfallPct) },
+          // FIX 1 — NOIs are dollars, shortfall is a %.
+          derivedNoi:   { value: d.derivedNoi,   displayValue: fmtDollarsFull(d.derivedNoi) },
+          referenceNoi: { value: d.referenceNoi, displayValue: fmtDollarsFull(d.referenceNoi) },
+          shortfallPct: { value: d.shortfallPct, displayValue: fmtRate1(d.shortfallPct) },
           caveat:       { value: caveat,         displayValue: caveat },
         };
       })(),
@@ -431,7 +501,7 @@ export function renderUnderwritingContext(
             ? `Rated without ${listForCopy} — risk dimension${excludedLabels.length === 1 ? '' : 's'} that couldn't be evaluated from the supplied documents. The band is capped accordingly and reflects documentation depth, not a complete credit assessment.`
             : '';
         return {
-          evaluatedPct: { value: cov.evaluatedPct, displayValue: applyNumericSentinel(cov.evaluatedPct) },
+          evaluatedPct: { value: cov.evaluatedPct, displayValue: fmtRate1(cov.evaluatedPct) },
           bandCapApplied: { value: cov.bandCapApplied, displayValue: cov.bandCapApplied ? 'Yes' : 'No' },
           insufficientCoverageGate: { value: cov.insufficientCoverageGate, displayValue: cov.insufficientCoverageGate ? 'Yes' : 'No' },
           excludedRiskDimLabels: excludedLabels,
@@ -441,21 +511,22 @@ export function renderUnderwritingContext(
     },
 
     metrics: {
+      // FIX 1 — headline metrics: DSCR ×, LTV/DY 1dp %, NOI full-comma dollars.
       dscr: {
         value: adjustedInputs.metrics.dscr,
-        displayValue: applyNumericSentinel(adjustedInputs.metrics.dscr),
+        displayValue: fmtDscr(adjustedInputs.metrics.dscr),
       },
       ltv: {
         value: adjustedInputs.metrics.ltvAppraisal,
-        displayValue: applyNumericSentinel(adjustedInputs.metrics.ltvAppraisal),
+        displayValue: fmtRate1(adjustedInputs.metrics.ltvAppraisal),
       },
       debtYield: {
         value: adjustedInputs.metrics.debtYield,
-        displayValue: applyNumericSentinel(adjustedInputs.metrics.debtYield),
+        displayValue: fmtRate1(adjustedInputs.metrics.debtYield),
       },
       noi: {
         value: adjustedInputs.metrics.noi,
-        displayValue: applyNumericSentinel(adjustedInputs.metrics.noi),
+        displayValue: fmtDollarsFull(adjustedInputs.metrics.noi),
       },
       // Option C — workbook NOI-basis disclosure callout. Null when the
       // resolver decided shouldRender=false (stabilized deals, no
@@ -466,7 +537,8 @@ export function renderUnderwritingContext(
     valuation: {
       finalValue: {
         value: valuationConclusion.finalValue,
-        displayValue: applyNumericSentinel(valuationConclusion.finalValue),
+        // FIX 1 — headline "Value" rail + Valuation tab: compact form ($112.5M).
+        displayValue: fmtDollarsCompact(valuationConclusion.finalValue),
       },
       anchorUsed: {
         value: valuationConclusion.anchorUsed,
@@ -475,13 +547,14 @@ export function renderUnderwritingContext(
     },
 
     doctrine: {
+      // FIX 1 — score-plane 2dp (mechanical + weighted aggregate ~45.10).
       mechanicalScore: {
         value: doctrineEvaluation.mechanicalScore,
-        displayValue: applyNumericSentinel(doctrineEvaluation.mechanicalScore),
+        displayValue: fmtScore(doctrineEvaluation.mechanicalScore),
       },
       weightedAggregate: {
         value: doctrineEvaluation.weightedAggregate,
-        displayValue: applyNumericSentinel(doctrineEvaluation.weightedAggregate),
+        displayValue: fmtScore(doctrineEvaluation.weightedAggregate),
       },
       flags: doctrineFlags,
       components,

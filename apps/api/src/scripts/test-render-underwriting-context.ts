@@ -14,7 +14,7 @@
 //   - Determinism: two renders of same input -> byte-identical full output
 //   - rootId passthrough
 //   - metadata.hashedAt mirrors doctrine.analysisAsOfDate (no clock leak)
-//   - metadata.renderVersion === '7.8'
+//   - metadata.renderVersion === RENDER_VERSION
 //   - Schema exhaustiveness (test-suite version, per the v1 cut): every cell key
 //     in the output sources from a known UnderwritingContext path
 
@@ -211,7 +211,7 @@ console.log('\nSection-keyed shape (PJ1-style bijection check):');
   const topKeys = Object.keys(rendered).sort();
   const expected = [
     'assumptions', 'dataQuality', 'doctrine', 'expenseLines', 'findings', 'id',
-    'incomeLines', 'loan', 'metadata', 'metrics', 'narrative', 'rootId', 'stress', 'summary',
+    'incomeLines', 'loan', 'metadata', 'metrics', 'mitigations', 'narrative', 'rootId', 'stress', 'summary',
     'valuation',
   ].sort();
   assertEqual(JSON.stringify(topKeys), JSON.stringify(expected), 'top-level keys match contract');
@@ -251,7 +251,7 @@ console.log('\nrootId + metadata passthrough (no clock leak, no random):');
   const store = new RecordGraphStore(':memory:');
   const { rootId, rendered } = await endToEnd(store);
 
-  assertEqual(rendered.metadata.renderVersion, '7.8', 'metadata.renderVersion === "7.8"');
+  assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'metadata.renderVersion === RENDER_VERSION');
   assertEqual(rendered.metadata.renderVersion, RENDER_VERSION, 'metadata matches RENDER_VERSION constant');
   assertEqual(rendered.metadata.hashedAt, AS_OF, 'metadata.hashedAt mirrors doctrine.analysisAsOfDate');
   assertEqual(rendered.rootId, rootId, 'rootId pass-through');
@@ -467,10 +467,12 @@ console.log('\nD16/D17 RD2 spirit: render does not re-derive adjusted from raw +
   if (gri !== undefined) {
     assert(gri.adjusted.value !== null && gri.adjusted.value > 0,
       'grossRentalIncome.adjusted is producer-positive');
-    // The displayValue for a non-null number is String(number) (per applyNumericSentinel)
+    // FIX 1 — grossRentalIncome is a dollar line item: full-comma currency form
+    // (was raw String(number)). The machine .value is untouched.
     if (gri.adjusted.value !== null) {
-      assertEqual(gri.adjusted.displayValue, String(gri.adjusted.value),
-        'grossRentalIncome.adjusted.displayValue === String(producer value)');
+      const expected = '$' + Math.round(gri.adjusted.value).toLocaleString('en-US');
+      assertEqual(gri.adjusted.displayValue, expected,
+        'grossRentalIncome.adjusted.displayValue is full-comma dollars');
     }
   }
 
@@ -582,21 +584,24 @@ console.log('\n#24 (7.3) + §14.3 (7.4): assumptions section projects AdjustedIn
 console.log('\nD21 RD2 spirit: render does not recompute debtService from rate+term+amort:');
 {
   // The producer (judgment-engine line-item builder) emits debtServiceAnnual.adjusted as
-  // a numeric value. Render reads it directly. Verify the displayValue matches the raw
-  // String() conversion of the producer's number - no formatting layer interjected.
+  // a numeric value. Render reads it directly (RD2 — no recompute). FIX 1: the
+  // displayValue is the unit-aware dollar form; the machine .value proves no
+  // recompute (it equals the producer's number, formatting aside).
   const store = new RecordGraphStore(':memory:');
   const { rendered } = await endToEnd(store);
 
   const ds = rendered.loan.debtServiceAnnual;
   if (ds.adjusted.value !== null) {
-    assertEqual(ds.adjusted.displayValue, String(ds.adjusted.value),
-      'debtServiceAnnual.adjusted.displayValue === String(producer value)');
+    const expected = '$' + Math.round(ds.adjusted.value).toLocaleString('en-US');
+    assertEqual(ds.adjusted.displayValue, expected,
+      'debtServiceAnnual.adjusted.displayValue is full-comma dollars');
   }
   // Same check on maturityBalance - producer-emitted, not amortization-table-derived in render.
   const mb = rendered.loan.maturityBalance;
   if (mb.adjusted.value !== null) {
-    assertEqual(mb.adjusted.displayValue, String(mb.adjusted.value),
-      'maturityBalance.adjusted.displayValue === String(producer value)');
+    const expected = '$' + Math.round(mb.adjusted.value).toLocaleString('en-US');
+    assertEqual(mb.adjusted.displayValue, expected,
+      'maturityBalance.adjusted.displayValue is full-comma dollars');
   }
 
   store.close();
@@ -684,11 +689,11 @@ console.log('\nD20 RD2 spirit: render does not recompute breach outcomes:');
       assert(validBreachCodes.indexOf(sk.code) >= 0,
         s.name + ': skipped code "' + sk.code + '" is producer-enum-valid');
     }
-    // For each numeric metric, displayValue is either NULL_SENTINEL or String(producer value).
-    // RD2 spirit: no formatting layer interjected; producer's number is the truth.
+    // FIX 1 — dscr stress metric renders with 2dp + the × unit (was raw String).
+    // RD2 spirit is proved by the machine .value, not the display string.
     if (s.dscr.value !== null) {
-      assertEqual(s.dscr.displayValue, String(s.dscr.value),
-        s.name + ': dscr.displayValue === String(producer value)');
+      assertEqual(s.dscr.displayValue, s.dscr.value.toFixed(2) + '×',
+        s.name + ': dscr.displayValue is 2dp + ×');
     }
   }
 

@@ -11,7 +11,11 @@ import type { DataConfidence } from './adjusted-inputs.js';
 import type { RatingBand } from './doctrine/components.js';
 import type { ValuationAnchor } from './valuation.js';
 
-export const RENDER_VERSION = '7.15' as const;
+// 7.16 (FIX 1) — unit-aware displayValue formatting for the raw render tier
+// (line items, component breakdown, stress, valuation, finalScore, weighted
+// aggregate). Bumped to invalidate append-only cache rows produced under the
+// prior raw-float String() displayValues; structure/values unchanged.
+export const RENDER_VERSION = '7.16' as const;
 export type RenderVersion = typeof RENDER_VERSION;
 
 // A cell carries the raw value (or null for missing data) plus a display string with
