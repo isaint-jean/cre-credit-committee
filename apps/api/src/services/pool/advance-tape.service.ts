@@ -658,43 +658,240 @@ function recordDeparture(
   label: DepartureLabel,
   recordedBy: { readonly userId: string; readonly displayName: string | null },
 ): DispositionId {
-  // P4c-status symmetric guard: a CLOSED loan (positive terminal) cannot then
-  // depart. Closed XOR departed XOR on-tape — mirror the /close route's rejection
-  // of a disposed loan. Extracted to an exported helper so the guard is the SAME
-  // code the test exercises.
-  assertNotClosedForDisposition(store, loanInPoolId);
-
-  const override = label.originatorLabel !== label.buyerLabel;
-  // reasonCategory is an OPTIONAL, hash-EXCLUDED refinement of the authoritative
-  // outcome. Reject a mismatched pair before we mint an id / persist.
-  if (!isReasonCategoryValidForOutcome(label.reasonCategory, label.buyerLabel)) {
-    throw new AdvanceTapeError(
-      `reasonCategory '${label.reasonCategory}' is not valid for outcome '${label.buyerLabel}' ` +
-        `(loan ${loanInPoolId})`,
-    );
-  }
-  const hashInput = {
+  // Freeze-time departure = the shared write core with FREEZE tape context:
+  // lastSeenOnTape = prior frozen tape, leftOnTape = the newly-frozen tape (the
+  // consecutive-tape event, `version + 1`, pool.ts:389). The out-of-band
+  // standalone path reuses the SAME core with a relaxed tape context (§B5).
+  return writeDisposition(store, {
     poolId,
     loanInPoolId,
     lastSeenOnTape,
     leftOnTape,
     originatorLabel: label.originatorLabel,
     buyerLabel: label.buyerLabel,
-    authoritative: label.buyerLabel,  // always === buyerLabel (P4)
-    override,                          // === (originatorLabel !== buyerLabel) (P5)
     reasons: label.reasons,
+    reasonCategory: label.reasonCategory ?? null,
+    recordedAt: label.recordedAt,
     recordedBy,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* §5. Standalone disposition — out-of-band per-loan reject/withdraw          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Typed error for the honest refusal when a pool has no current frozen tape.
+ * A disposition needs a `lastSeenOnTape` (the tape the loan is departing FROM);
+ * with no frozen tape there is nothing to depart from → refuse rather than
+ * fabricate a tape id. The route maps this to 422 NO_CURRENT_TAPE.
+ */
+export class NoCurrentTapeError extends Error {
+  override readonly name = 'NoCurrentTapeError';
+  constructor(public readonly poolId: PoolId, public readonly loanInPoolId: LoanInPoolId) {
+    super(`pool ${poolId} has no current frozen tape — loan ${loanInPoolId} cannot be disposed out-of-band`);
+  }
+}
+
+/** Typed error: the loan already carries a `currentDispositionId`. */
+export class LoanAlreadyDisposedError extends Error {
+  override readonly name = 'LoanAlreadyDisposedError';
+  constructor(public readonly loanInPoolId: LoanInPoolId, public readonly currentDispositionId: DispositionId) {
+    super(`loan ${loanInPoolId} is already disposed (${currentDispositionId})`);
+  }
+}
+
+export interface StandaloneDispositionInput {
+  readonly outcome: DispositionKind;
+  readonly reasonCategory?: ReasonCategory | null;
+  readonly note?: string | null;
+  readonly recordedBy: { readonly userId: string; readonly displayName: string | null };
+  readonly recordedAt: ISODateTime;
+}
+
+export interface StandaloneDispositionResult {
+  readonly dispositionId: DispositionId;
+  readonly disposition: Disposition;
+  readonly loan: LoanInPool;
+}
+
+/**
+ * Record a standalone, out-of-band disposition for ONE loan — the deal-room /
+ * pool-page "reject/withdraw this loan now" write. NO tape freeze.
+ *
+ * REUSE: `writeDisposition` (the exact hash/validate/persist core `recordDeparture`
+ * uses), `assertNotClosedForDisposition` (the closed-XOR-disposed guard). The
+ * mutual-exclusion vs the freeze-time double-count is handled by Phase 1's guard
+ * in `advanceTapePhaseB`'s departure loop.
+ *
+ * NET-NEW: the tape-context assembly. A freeze-time departure is a tape-DIFF; here
+ * there is no freeze, so:
+ *   - `lastSeenOnTape = pool.currentTapeId` — the tape the loan is currently ON.
+ *     Null → `NoCurrentTapeError` (422; never fabricate a tape).
+ *   - `leftOnTape = lastSeenOnTape` (§B5-a). The out-of-band reject leaves from the
+ *     CURRENT tape (no next tape exists yet). This RELAXES the `version + 1`
+ *     invariant (pool.ts:389) to `>=` for out-of-band rejects (`==` here); it is a
+ *     doctrine-only invariant, NOT machine-enforced (no code compares tape
+ *     versions), and B5 hash-safety holds — `DispositionIdHashInput` hashes the
+ *     `TapeId` VALUES, not any version delta.
+ *   - `originatorLabel = buyerLabel = outcome` — a buyer-initiated out-of-band
+ *     reject carries no conflicting originator label, so `override === false`.
+ *   - `note` (when present) rides in `reasons: string[]`.
+ *
+ * Guards (all before the write):
+ *   - `assertNotClosedForDisposition` → AdvanceTapeError (closed loan can't be disposed).
+ *   - `pool.currentTapeId === null` → `NoCurrentTapeError`.
+ *   - already-disposed (`currentDispositionId != null`): IDEMPOTENT no-op iff the
+ *     re-submit is byte-identical decision content (the recomputed DispositionId
+ *     equals the stored one) — mirrors /close's idempotent-closed. Otherwise
+ *     `LoanAlreadyDisposedError` (a real correction goes through the append-only
+ *     `supersedes` chain, not a silent overwrite).
+ */
+export function recordStandaloneDisposition(
+  store: PoolStore,
+  poolId: PoolId,
+  loanInPoolId: LoanInPoolId,
+  input: StandaloneDispositionInput,
+): StandaloneDispositionResult {
+  const loan = store.getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    // Caller (route) resolves 404; the service refuses a missing/mismatched target.
+    throw new AdvanceTapeError(`loan ${loanInPoolId} not found in pool ${poolId}`);
+  }
+
+  // Guard 1: closed XOR disposed (mirror recordDeparture's first check).
+  assertNotClosedForDisposition(store, loanInPoolId);
+
+  // Guard 2: honest refuse — nothing to depart from without a current tape.
+  const pool = store.getPool(poolId);
+  if (pool === null) {
+    throw new AdvanceTapeError(`pool ${poolId} not found`);
+  }
+  if (pool.currentTapeId === null) {
+    throw new NoCurrentTapeError(poolId, loanInPoolId);
+  }
+
+  // Tape context (net-new): out-of-band reject leaves FROM the current tape.
+  const lastSeenOnTape = pool.currentTapeId;
+  const leftOnTape = lastSeenOnTape; // §B5-a: leftOnTape == lastSeenOnTape.
+
+  // Validate reasonCategory before minting (same as recordDeparture core does).
+  if (!isReasonCategoryValidForOutcome(input.reasonCategory ?? null, input.outcome)) {
+    throw new AdvanceTapeError(
+      `reasonCategory '${input.reasonCategory}' is not valid for outcome '${input.outcome}' (loan ${loanInPoolId})`,
+    );
+  }
+
+  const reasons: string[] = input.note != null && input.note.length > 0 ? [input.note] : [];
+
+  // Pre-compute the id so idempotency can be decided WITHOUT a write on the
+  // already-disposed path.
+  const prospectiveId = computeDispositionId({
+    poolId,
+    loanInPoolId,
+    lastSeenOnTape,
+    leftOnTape,
+    originatorLabel: input.outcome,
+    buyerLabel: input.outcome,
+    authoritative: input.outcome,
+    override: false,
+    reasons,
+    recordedBy: input.recordedBy,
+    supersedes: null,
+  });
+
+  // Guard 3: already-disposed → idempotent iff byte-identical, else conflict.
+  if (loan.currentDispositionId != null) {
+    if (loan.currentDispositionId === prospectiveId) {
+      // Byte-identical re-submit → 200 no-op. Return the existing disposition.
+      const existing = store
+        .getDispositions(poolId)
+        .find((d) => d.id === loan.currentDispositionId);
+      if (existing !== undefined) {
+        return { dispositionId: existing.id, disposition: existing, loan };
+      }
+    }
+    throw new LoanAlreadyDisposedError(loanInPoolId, loan.currentDispositionId);
+  }
+
+  const dispositionId = writeDisposition(store, {
+    poolId,
+    loanInPoolId,
+    lastSeenOnTape,
+    leftOnTape,
+    originatorLabel: input.outcome,
+    buyerLabel: input.outcome,
+    reasons,
+    reasonCategory: input.reasonCategory ?? null,
+    recordedAt: input.recordedAt,
+    recordedBy: input.recordedBy,
+  });
+
+  const written = store.getDispositions(poolId).find((d) => d.id === dispositionId)!;
+  const updatedLoan = store.getLoanInPool(loanInPoolId)!;
+  return { dispositionId, disposition: written, loan: updatedLoan };
+}
+
+/* -------------------------------------------------------------------------- */
+/* §5b. Shared disposition write core (reused by both departure paths)         */
+/* -------------------------------------------------------------------------- */
+
+interface DispositionWriteCore {
+  readonly poolId: PoolId;
+  readonly loanInPoolId: LoanInPoolId;
+  readonly lastSeenOnTape: TapeId;
+  readonly leftOnTape: TapeId;
+  readonly originatorLabel: DispositionKind;
+  readonly buyerLabel: DispositionKind;
+  readonly reasons: readonly string[];
+  readonly reasonCategory: ReasonCategory | null;
+  readonly recordedAt: ISODateTime;
+  readonly recordedBy: { readonly userId: string; readonly displayName: string | null };
+}
+
+/**
+ * The shared hash/validate/persist core of a disposition write. Factored OUT of
+ * `recordDeparture` so the freeze-time and out-of-band paths share ONE hash
+ * derivation — no duplicated hash logic. The caller supplies the tape context
+ * (freeze-diff vs out-of-band) + labels; this computes `override`, validates the
+ * reasonCategory refinement, mints the `DispositionId`, and writes both the
+ * `disposition` row and the `current_disposition_id` pointer.
+ */
+function writeDisposition(store: PoolStore, core: DispositionWriteCore): DispositionId {
+  // P4c-status symmetric guard: a CLOSED loan (positive terminal) cannot depart.
+  assertNotClosedForDisposition(store, core.loanInPoolId);
+
+  const override = core.originatorLabel !== core.buyerLabel;
+  // reasonCategory is an OPTIONAL, hash-EXCLUDED refinement of the authoritative
+  // outcome. Reject a mismatched pair before we mint an id / persist.
+  if (!isReasonCategoryValidForOutcome(core.reasonCategory, core.buyerLabel)) {
+    throw new AdvanceTapeError(
+      `reasonCategory '${core.reasonCategory}' is not valid for outcome '${core.buyerLabel}' ` +
+        `(loan ${core.loanInPoolId})`,
+    );
+  }
+  const hashInput = {
+    poolId: core.poolId,
+    loanInPoolId: core.loanInPoolId,
+    lastSeenOnTape: core.lastSeenOnTape,
+    leftOnTape: core.leftOnTape,
+    originatorLabel: core.originatorLabel,
+    buyerLabel: core.buyerLabel,
+    authoritative: core.buyerLabel,  // always === buyerLabel (P4)
+    override,                         // === (originatorLabel !== buyerLabel) (P5)
+    reasons: core.reasons,
+    recordedBy: core.recordedBy,
     supersedes: null,
   };
   const id = computeDispositionId(hashInput);
   const disposition: Disposition = {
-    id, ...hashInput, recordedAt: label.recordedAt,
+    id, ...hashInput, recordedAt: core.recordedAt,
     // Body-only refinement — deliberately AFTER the id is computed and NOT in
     // hashInput, so it can never enter the DispositionId hash boundary.
-    reasonCategory: label.reasonCategory ?? null,
+    reasonCategory: core.reasonCategory,
   };
   store.recordDisposition(disposition);
-  store.setCurrentDisposition(loanInPoolId, id);
+  store.setCurrentDisposition(core.loanInPoolId, id);
   return id;
 }
 
