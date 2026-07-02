@@ -10,3 +10,12 @@
 # If a check fails: either revert the desk-constant change, or bump the
 # engine's *_VERSION and append a new manifest entry, then re-stage.
 npm --workspace=apps/api run check:engines
+
+# Web-integrity gate — check:engines does NOT typecheck the web app, which is how a
+# broken web commit (b375ef1: missing 4 web files, a dangling import) slipped through.
+# Scoped to staged apps/web changes so api-only commits stay fast; `tsc --noEmit` is
+# ~1.5s cached (next build is too slow for a hook — that stays in CI).
+if git diff --cached --name-only --diff-filter=ACMR | grep -q '^apps/web/'; then
+  echo "pre-commit: staged apps/web changes → web typecheck (tsc --noEmit)…"
+  npm --workspace=apps/web run typecheck
+fi
