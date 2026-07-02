@@ -58,7 +58,10 @@ import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
+  recordStandaloneDisposition,
   AdvanceTapeError,
+  NoCurrentTapeError,
+  LoanAlreadyDisposedError,
   type DepartureLabel,
   type IncomingTape,
   type IncomingTapeRow,
@@ -454,6 +457,103 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/close', (req: Request, res: Respon
     const updated = poolStore().getLoanInPool(loanInPoolId);
     return res.json({ loan: updated });
   } catch (e) {
+    return mapThrow(res, e);
+  }
+});
+
+/**
+ * POST /api/pools/:poolId/loans/:loanInPoolId/disposition — the NEGATIVE TERMINAL
+ * (standalone, out-of-band reject/withdraw). Mirrors `/close`, but records a
+ * `Disposition` (kicked|dropped) directly — no tape freeze.
+ *
+ * Body: { outcome: 'kicked'|'dropped', reasonCategory?, note? }. Actor is stamped
+ * SERVER-SIDE from req.user (never body — buyer-authoritative discipline, mirror
+ * the freeze handler).
+ *
+ * Guards → responses (all mirror `/close`, enforced in the service):
+ *   - 404 NOT_FOUND        — loan missing / not in this pool.
+ *   - 409 LOAN_ALREADY_CLOSED — loan lifecycleStatus === 'closed' (mutual exclusion;
+ *     symmetric to /close's 409 LOAN_ALREADY_DEPARTED).
+ *   - 200 idempotent no-op — already disposed with byte-identical decision content.
+ *   - 409 LOAN_ALREADY_DISPOSED — already disposed with DIFFERENT content
+ *     (a correction goes through the append-only supersede chain, not overwrite).
+ *   - 422 NO_CURRENT_TAPE  — pool.currentTapeId === null (nothing to depart from;
+ *     honest refuse, never fabricate a tape).
+ *
+ * Response 200: { disposition, loan }  (the now-disposed loan, currentDispositionId set).
+ */
+poolRoutes.post('/:poolId/loans/:loanInPoolId/disposition', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  // Shape validation (reuse the existing shape helpers).
+  if (!isDispositionKind(body['outcome'])) {
+    return send400Bad(res, "outcome: 'kicked'|'dropped'");
+  }
+  const outcome = body['outcome'] as DispositionKind;
+
+  // reasonCategory OPTIONAL — when present must be known AND valid for the outcome.
+  let reasonCategory: ReasonCategory | null = null;
+  const rawReasonCategory = body['reasonCategory'];
+  if (rawReasonCategory !== undefined && rawReasonCategory !== null) {
+    if (!isReasonCategory(rawReasonCategory)) {
+      return send400Bad(res, "reasonCategory: 'disqualifying'|'couldnt_structure'|'expired'|'withdrawn'");
+    }
+    if (!isReasonCategoryValidForOutcome(rawReasonCategory, outcome)) {
+      return send400Bad(res, `reasonCategory '${rawReasonCategory}' is not valid for outcome '${outcome}'`);
+    }
+    reasonCategory = rawReasonCategory;
+  }
+
+  // note OPTIONAL string.
+  let note: string | null = null;
+  if (body['note'] !== undefined && body['note'] !== null) {
+    if (typeof body['note'] !== 'string') return send400Bad(res, 'note: string|null');
+    note = body['note'];
+  }
+
+  try {
+    // 404 — resolved here (before the service) to mirror /close exactly.
+    const loan = poolStore().getLoanInPool(loanInPoolId);
+    if (loan === null || loan.poolId !== poolId) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+    }
+
+    // 409 — a closed loan cannot be disposed (mutual exclusion; symmetric to
+    // /close's LOAN_ALREADY_DEPARTED).
+    if (loan.lifecycleStatus === 'closed') {
+      return res.status(409).json({
+        error: 'LOAN_ALREADY_CLOSED',
+        message: `loan ${loanInPoolId} is closed (positive terminal) and cannot be disposed`,
+      });
+    }
+
+    // ★ Actor from req.user — NEVER body (buyer-authoritative discipline).
+    const recordedBy = {
+      userId: req.user?.userId ?? 'anonymous',
+      displayName: req.user?.email ?? null,
+    };
+
+    const result = recordStandaloneDisposition(poolStore(), poolId, loanInPoolId, {
+      outcome,
+      reasonCategory,
+      note,
+      recordedBy,
+      recordedAt: new Date().toISOString(),
+    });
+    return res.json({ disposition: result.disposition, loan: result.loan });
+  } catch (e) {
+    if (e instanceof NoCurrentTapeError) {
+      return res.status(422).json({ error: 'NO_CURRENT_TAPE', message: e.message });
+    }
+    if (e instanceof LoanAlreadyDisposedError) {
+      return res.status(409).json({
+        error: 'LOAN_ALREADY_DISPOSED',
+        message: e.message,
+        currentDispositionId: e.currentDispositionId,
+      });
+    }
     return mapThrow(res, e);
   }
 });
