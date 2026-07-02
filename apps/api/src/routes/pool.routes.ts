@@ -55,6 +55,7 @@ import type { ReasonCategory } from '@cre/contracts';
 import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } from '../storage/pool-store.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
+import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -574,6 +575,36 @@ poolRoutes.get('/', (req: Request, res: Response) => {
   try {
     const pools = poolStore().listPools(filter);
     return res.json({ pools });
+  } catch (e) { return mapThrow(res, e); }
+});
+
+/**
+ * GET /api/pools/loan-for-root?rootId=<64-hex lineage root>
+ *
+ * Phase A forward resolver surface. Turns a graph ROOT into the single pool loan
+ * it belongs to, so the graph-native DispositionBar (which holds only
+ * `data.rootId`) can go live in the deal room. READ-ONLY — resolves fresh, no
+ * stored column, no write.
+ *
+ * ★ MUST be registered BEFORE `GET /:poolId` — otherwise Express matches
+ *   `/loan-for-root` as `:poolId = 'loan-for-root'` and this handler never runs.
+ *
+ * Responses (always 200 so the WEB can distinguish determinate vs ambiguous and
+ * degrade to a preview without treating the ambiguous case as an HTTP error):
+ *   - determinate → 200 { resolved:true, poolId, loanInPoolId, matchedBy }
+ *   - not unique  → 200 { resolved:false, ambiguous:true, reason, matchCount }
+ *       reason ∈ { NONE (0 matches / name-less root), MULTIPLE (>1 pool),
+ *                  ROOT_NOT_FOUND (unknown root) }
+ * A missing/blank `rootId` is a client shape error → 400 POOL_BAD_REQUEST.
+ */
+poolRoutes.get('/loan-for-root', (req: Request, res: Response) => {
+  const rootId = req.query['rootId'];
+  if (typeof rootId !== 'string' || rootId.trim().length === 0) {
+    return send400Bad(res, 'rootId query parameter is required');
+  }
+  try {
+    const result = resolveLoanForRoot(rootId);
+    return res.json(result);
   } catch (e) { return mapThrow(res, e); }
 });
 

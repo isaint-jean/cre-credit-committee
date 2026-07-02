@@ -491,6 +491,47 @@ export class SqliteStore {
     }));
   }
 
+  /**
+   * Phase A (forward root→loan resolver) — FORWARD counterpart of
+   * `lookupAnalysisByDealRef`. Given a graph ROOT (`lineage_root_id`, 64-hex),
+   * return that root's extraction `deal_ref` and its human `analyses.name`.
+   *
+   * This walks the SAME canonical join chain as `lookupAnalysisByDealRef`
+   * PASS-1 (`extraction_results → doctrine_evaluations → revision_lineage_envelopes`),
+   * but run FORWARD: the root is the input (the envelope's `lineage_root_id`),
+   * not the extraction `deal_ref`. `revision_ordinal = 0` pins the root revision
+   * of the lineage, whose evaluation carries the root's extraction.
+   *
+   * `name` is resolved from `analyses.name` by joining ANY revision in the
+   * lineage (`analyses.graph_revision_id = rle.revision_id`, over all ordinals),
+   * because the legacy `analyses` row's `graph_revision_id` points at the lineage
+   * HEAD revision, not the root revision. Pure-graph roots that never got a legacy
+   * `analyses` row return `name: null` — the resolver's PASS-2 name bridge then
+   * simply finds no name to normalize (honest refuse, never a guess).
+   *
+   * Returns `null` when `rootId` is not a known lineage root.
+   */
+  getRootRefAndName(rootId: string): { readonly dealRef: string; readonly name: string | null } | null {
+    const row = this.db.prepare(`
+      SELECT
+        er.deal_ref AS deal_ref,
+        (
+          SELECT a.name
+          FROM analyses a
+          JOIN revision_lineage_envelopes r2 ON r2.revision_id = a.graph_revision_id
+          WHERE r2.lineage_root_id = rle.lineage_root_id
+          LIMIT 1
+        ) AS name
+      FROM revision_lineage_envelopes rle
+      JOIN doctrine_evaluations de ON de.id = rle.doctrine_evaluation_id
+      JOIN extraction_results er ON er.id = de.extraction_result_id
+      WHERE rle.lineage_root_id = ? AND rle.revision_ordinal = 0
+      LIMIT 1
+    `).get(rootId) as { deal_ref: string; name: string | null } | undefined;
+    if (!row) return null;
+    return { dealRef: row.deal_ref, name: row.name ?? null };
+  }
+
   listAnalyses(): AnalysisSummary[] {
     const rows = this.db.prepare(
       'SELECT id, name, asset_type, status, credit_score_overall, risk_tier, created_at, updated_at, data, parent_analysis_id, lineage_root_id, revision_ordinal FROM analyses ORDER BY created_at DESC'

@@ -567,6 +567,60 @@ export class PoolStore {
     });
   }
 
+  /* -------------------------------------------------------------------------- */
+  /* Forward root→loan resolver reads (Phase A). Two NARROW read-only projections */
+  /* consumed by `resolveLoanForRoot` (services/pool/resolve-loan-for-root.ts).   */
+  /* They are the FORWARD counterparts of the reverse pool-lookup that            */
+  /* `sqlite-store.lookupAnalysisByDealRef` PASS-2 walks: instead of pool-loan →   */
+  /* root, the resolver goes root → pool-loan, and needs (1) exact-deal_ref rows   */
+  /* and (2) the full {id, pool_id, originator_loan_ref, property_name} projection */
+  /* to run the SAME normalized-name bridge forward. Kept in the store so all SQL  */
+  /* lives in the storage layer; no business logic here.                          */
+  /* -------------------------------------------------------------------------- */
+
+  /** PASS 1 (exact) source: every pool loan whose `deal_ref` equals `dealRef`.
+   *  Indexed by `idx_loan_in_pool_dealref`. Returns id+pool_id only (identity). */
+  findLoansByExactDealRef(dealRef: string): ReadonlyArray<{
+    readonly loanInPoolId: LoanInPoolId;
+    readonly poolId: PoolId;
+  }> {
+    const rows = this.db
+      .prepare(`SELECT id, pool_id FROM loan_in_pool WHERE deal_ref = ?`)
+      .all(dealRef) as ReadonlyArray<{ readonly id: string; readonly pool_id: string }>;
+    return rows.map((r) => ({
+      loanInPoolId: r.id as LoanInPoolId,
+      poolId: r.pool_id as PoolId,
+    }));
+  }
+
+  /** PASS 2 (normalized-name bridge) source: the identity + name columns of every
+   *  pool loan. N is small (one row per loan ever pooled); the resolver filters
+   *  in JS by normalized-name equality, exactly as `lookupAnalysisByDealRef`
+   *  PASS-2 does over the analyses side — keeping the SQL portable (no UDF). */
+  listLoanNameKeys(): ReadonlyArray<{
+    readonly loanInPoolId: LoanInPoolId;
+    readonly poolId: PoolId;
+    readonly originatorLoanRef: string | null;
+    readonly propertyName: string | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, pool_id, originator_loan_ref, property_name FROM loan_in_pool`,
+      )
+      .all() as ReadonlyArray<{
+        readonly id: string;
+        readonly pool_id: string;
+        readonly originator_loan_ref: string | null;
+        readonly property_name: string | null;
+      }>;
+    return rows.map((r) => ({
+      loanInPoolId: r.id as LoanInPoolId,
+      poolId: r.pool_id as PoolId,
+      originatorLoanRef: r.originator_loan_ref,
+      propertyName: r.property_name,
+    }));
+  }
+
   /** PR3: when a buyer resolves a re-key (incoming originatorRef differs from
    *  the stored one), update the stored ref so the NEXT tape's exact-match
    *  succeeds without re-triggering the unmatched-needs-confirm flow. The
