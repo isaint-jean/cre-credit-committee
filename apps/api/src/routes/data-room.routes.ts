@@ -34,7 +34,13 @@ import {
   getDataRoomDoc,
   type DataRoomAssignment,
 } from '../services/data-room-store.service.js';
+import {
+  classifyStagedFile,
+  verdictFor,
+} from '../services/data-room-classify.service.js';
 import { DocumentReadStateStore } from '../storage/document-read-state-store.js';
+import { PoolStore } from '../storage/pool-store.js';
+import type { PoolId } from '@cre/contracts';
 
 export const dataRoomRoutes = Router();
 
@@ -51,6 +57,19 @@ function readStateStore(): DocumentReadStateStore {
 /** Test seam. */
 export function _setReadStateStoreForTests(s: DocumentReadStateStore): void {
   _readState = s;
+}
+
+// Lazy PoolStore for the classify-on-stage loan axis (read-only SELECTs only —
+// listLoanNameKeysForPool). Constructed only when a staging request first needs
+// to classify. Mirrors pool.routes.ts _store.
+let _poolStore: PoolStore | null = null;
+function poolStore(): PoolStore {
+  if (_poolStore === null) _poolStore = new PoolStore();
+  return _poolStore;
+}
+/** Test seam. */
+export function _setPoolStoreForTests(s: PoolStore): void {
+  _poolStore = s;
 }
 
 function userId(req: Request): string | null {
@@ -71,6 +90,7 @@ dataRoomRoutes.get('/doc-types', (_req: Request, res: Response) => {
 
 dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Request, res: Response) => {
   try {
+    const poolId = req.params.poolId!;
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     if (files.length === 0) {
       res.status(400).json({ error: 'no_files', message: 'At least one file is required.' });
@@ -79,7 +99,78 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
     const batch = await createStagingBatch({
       files: files.map((f) => ({ buffer: f.buffer, originalFileName: f.originalname, mimeType: f.mimetype })),
     });
-    res.status(201).json({ batch });
+
+    // ── Data-Room Phase 2c — classify-on-stage → auto-route or hint ──────────
+    // Two independent deterministic classifiers over each staged file's NAME;
+    // BOTH-confident → auto-file via the SAME assignDataRoomFiles seam the manual
+    // tray uses (no parallel path). Every other cell stays staged, pre-filled
+    // with whatever WAS confident (the confirm tray seeds from these hints).
+    const poolLoans = poolStore().listLoanNameKeysForPool(poolId as PoolId);
+
+    const autoAssignments: DataRoomAssignment[] = [];
+    // Per-file verdict surfaced to the UI, keyed by stagingId.
+    const routing: Array<{
+      stagingId: string;
+      auto: boolean; // auto-filed on stage → skips the tray
+      prefill: { docType?: string; loanInPoolId?: string };
+    }> = [];
+
+    for (const f of batch.files) {
+      const hints = classifyStagedFile(f.originalFileName, poolLoans);
+      const verdict = verdictFor(hints.docType, hints.loanInPoolId);
+      if (
+        verdict.action === 'auto' &&
+        verdict.prefill.docType &&
+        verdict.prefill.loanInPoolId
+      ) {
+        autoAssignments.push({
+          stagingId: f.stagingId,
+          loanInPoolId: verdict.prefill.loanInPoolId,
+          docType: verdict.prefill.docType,
+        });
+      }
+      routing.push({
+        stagingId: f.stagingId,
+        auto: verdict.action === 'auto',
+        prefill: verdict.prefill,
+      });
+    }
+
+    // File the both-confident files NOW via the SAME store the manual tray uses.
+    const autoResults =
+      autoAssignments.length > 0
+        ? await assignDataRoomFiles({ poolId, batchId: batch.batchId, assignments: autoAssignments })
+        : [];
+    // Reconcile: only mark a file auto-routed if its assign actually succeeded.
+    // A failed auto-assign (e.g. transient) falls back to a confirm row.
+    const failedAuto = new Set(
+      autoResults.filter((r) => r.status !== 'assigned').map((r) => r.stagingId),
+    );
+    if (failedAuto.size > 0) {
+      for (const r of routing) {
+        if (r.auto && failedAuto.has(r.stagingId)) r.auto = false;
+      }
+    }
+
+    const autoRoutedIds = new Set(
+      autoResults.filter((r) => r.status === 'assigned').map((r) => r.stagingId),
+    );
+    // The confirm tray should only receive files that were NOT auto-filed.
+    const stagedForConfirm = batch.files.filter((f) => !autoRoutedIds.has(f.stagingId));
+    const routingForConfirm = routing.filter((r) => !autoRoutedIds.has(r.stagingId));
+
+    res.status(201).json({
+      // Only the confirm-needed files ride in `batch.files` so the tray never
+      // shows an already-filed doc; auto-routed files appear under their folder
+      // on the next projection refresh.
+      batch: { ...batch, files: stagedForConfirm },
+      routing: routingForConfirm,
+      autoRouted: autoResults.filter((r) => r.status === 'assigned'),
+      summary: {
+        autoRoutedCount: autoRoutedIds.size,
+        needConfirmCount: stagedForConfirm.length,
+      },
+    });
   } catch (err: any) {
     console.error('data-room staging upload error:', err);
     res.status(500).json({ error: 'staging_upload_failed', message: err?.message ?? String(err) });
