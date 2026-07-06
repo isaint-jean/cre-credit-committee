@@ -35,7 +35,7 @@ import type {
   RenderedStressScenario,
   SkippedPrinciple,
 } from '@cre/contracts';
-import { ROLE_PERMISSIONS } from '@cre/contracts';
+import { ROLE_PERMISSIONS, DQ_CODE_TO_SLOT } from '@cre/contracts';
 import { CommitteeStatusHeader } from './CommitteeStatusHeader';
 import { CommitteeTimelinePanel } from './CommitteeTimelinePanel';
 import { CommitteeActionButtons } from './CommitteeActionButtons';
@@ -202,20 +202,15 @@ const DQ_DOCUMENT_LABEL: { readonly [code: string]: string } = {
 };
 
 // ── DQ code → the append-document SLOT the originator uploads to answer the flag.
-//    Inverse of DQ_DOCUMENT_LABEL, keyed on SLOT_TO_INPUT (append-source-doc.service.ts):
+//    DERIVED from the single doc-type taxonomy (@cre/contracts DQ_CODE_TO_SLOT):
 //      rent_roll / pca / appraisal re-extract directly; the T-12 / in-place statement
 //      arrives through the `cf` slot (there is no standalone extracting `t12` slot).
-//    ★ JE_LOAN_TERMS_MISSING is DELIBERATELY ABSENT — loan terms are reconstructed from
-//      the parent's AdjustedInputs, NOT an uploadable doc. A code missing here => the
-//      upload action hides (request-only), so we never offer an unanswerable upload.
-const DQ_UPLOAD_SLOT: { readonly [code: string]: string } = {
-  JE_RENT_ROLL_MISSING: 'rent_roll',
-  JE_RENT_ROLL_UNIT_INCOMPLETE: 'rent_roll',
-  JE_TRAILING_ACTUALS_MISSING: 'cf',
-  JE_IN_PLACE_MISSING: 'cf',
-  JE_PCA_MISSING: 'pca',
-  JE_APPRAISAL_MISSING: 'appraisal',
-};
+//    ★ JE_LOAN_TERMS_MISSING is DELIBERATELY ABSENT — loan terms are request-only
+//      (taxonomy slot=null, requestOnly=true), reconstructed from the parent's
+//      AdjustedInputs, NOT an uploadable doc. The taxonomy excludes it from
+//      DQ_CODE_TO_SLOT by construction (no slot), so the upload action hides and
+//      we never offer an unanswerable upload. This is no longer a 4th parallel list.
+const DQ_UPLOAD_SLOT: { readonly [code: string]: string } = DQ_CODE_TO_SLOT;
 
 /** Humanize a DQ code (e.g. JE_PCA_MISSING → "PCA missing") for display. Falls back
  *  to a title-cased strip of the JE_ prefix so unknown codes still read cleanly. */

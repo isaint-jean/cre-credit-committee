@@ -34,8 +34,13 @@ import type {
   RevisionId, ExtractionResult,
 } from '@cre/contracts';
 
-/** deal-doc slot → composer InputSlots field. null = not a composer input. */
-const SLOT_TO_INPUT: Record<SourceDocSlot, keyof InputSlots | null> = {
+/** deal-doc slot → composer InputSlots field. null = not a composer input.
+ *  ★ INGEST-CRITICAL — this map drives the composer slot assembly below; do NOT
+ *  rewire it from the taxonomy. It is `export`ed (read-only, additive) purely so
+ *  the doc-type-taxonomy consistency check can ASSERT it agrees with the single
+ *  source of truth (@cre/contracts SLOT_TO_ENGINE_INPUT). Physical definition
+ *  stays here for ingest safety; the taxonomy is the *verified* source. */
+export const SLOT_TO_INPUT: Record<SourceDocSlot, keyof InputSlots | null> = {
   asr: 'asrPdf',
   cf: 'sellerCfXlsx',
   rent_roll: 'rentRollXlsx',
