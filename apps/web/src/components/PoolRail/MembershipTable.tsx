@@ -21,7 +21,7 @@
  */
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import type { LoanMembership, OnTapeStatus, PoolId } from '@cre/contracts';
@@ -112,6 +112,17 @@ interface LoanCoverage {
   readonly missing: readonly string[];
 }
 
+/**
+ * ★ Data-Room Phase 3, P1 — per-loan transient state for the "Underwrite now"
+ * action. idle (default, not in the map) → running → done | failed. This is a
+ * PROCESS signal (did the ingest run?), distinct from BOTH the coverage chip
+ * (docs on hand) and the Status verdict (credit opinion) — three separate axes.
+ */
+type UnderwriteRowState =
+  | { readonly kind: 'running' }
+  | { readonly kind: 'done' }
+  | { readonly kind: 'failed'; readonly reason: string };
+
 const COVERAGE_TONE: Record<CoverageState, string> = {
   // Neutral / slate — NOT score-strong. A calm filled slate = "docs complete".
   'complete': 'bg-text-secondary/10 text-text-secondary border-text-secondary/30',
@@ -175,6 +186,13 @@ export function MembershipTable({
   // pattern as closedIds); keyed by loanInPoolId. Coverage is a DOCUMENT signal,
   // orthogonal to the Status column's credit verdict — a separate column entirely.
   const [coverage, setCoverage] = useState<Map<string, LoanCoverage>>(() => new Map());
+  const refetchCoverage = useCallback(() => {
+    return api.getPoolCoverage(poolId)
+      .then(({ coverage: rows }) => {
+        setCoverage(new Map(rows.map(r => [r.loanInPoolId, r])));
+      })
+      .catch(() => { /* advisory — no chip beats a wrong chip */ });
+  }, [poolId]);
   useEffect(() => {
     let cancelled = false;
     api.getPoolCoverage(poolId)
@@ -185,6 +203,37 @@ export function MembershipTable({
       .catch(() => { /* advisory — no chip beats a wrong chip */ });
     return () => { cancelled = true; };
   }, [poolId]);
+
+  // ★ Data-Room Phase 3, P1 — the manual "Underwrite now" action. Per-loan
+  // transient state (idle | running | done | failed). SYNC + slow (real ingest);
+  // the row shows "Underwriting…" while in flight, then refetches coverage (so the
+  // chip re-derives) AND re-runs the dealRef lookup (so a no-root loan flips from
+  // "New analysis →" to "Open underwriting →" once its root is minted). NOT an
+  // auto-fire — that is P2; this is behind the explicit button only.
+  const [underwrite, setUnderwrite] = useState<Map<string, UnderwriteRowState>>(() => new Map());
+  const runUnderwrite = useCallback((loanInPoolId: string, dealRef: string) => {
+    setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'running' }));
+    api.underwriteLoan(poolId, loanInPoolId)
+      .then(async result => {
+        if (result.outcome === 'no-ingestable-docs') {
+          setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'failed', reason: 'No ingestable docs' }));
+          return;
+        }
+        setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'done' }));
+        // Re-derive coverage + re-resolve the analysis lookup so the row settles.
+        await refetchCoverage();
+        try {
+          const resp = await api.lookupAnalysisByDealRef(dealRef);
+          setLookups(prev => new Map(prev).set(dealRef, resp.found
+            ? { kind: 'found', analysisId: resp.analysisId, status: resp.status }
+            : { kind: 'not-found' }));
+        } catch { /* advisory */ }
+      })
+      .catch((e: unknown) => {
+        const reason = e instanceof Error ? e.message : 'Underwrite failed';
+        setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'failed', reason }));
+      });
+  }, [poolId, refetchCoverage]);
 
   // Unique dealRefs from the full membership (not the filtered view — filtering
   // is a UI-only concern; we don't want to re-fetch when the filter changes).
@@ -328,13 +377,22 @@ export function MembershipTable({
                       const cov = coverage.get(m.loanInPoolId);
                       const { text, title } = coverageLabel(cov);
                       const tone = cov ? COVERAGE_TONE[cov.state] : COVERAGE_TONE.none;
+                      const hasDocs = cov !== undefined && cov.state !== 'none';
+                      const uw = underwrite.get(m.loanInPoolId);
                       return (
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded border ${tone}`}
-                          title={title}
-                        >
-                          {text}
-                        </span>
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded border ${tone}`}
+                            title={title}
+                          >
+                            {text}
+                          </span>
+                          <UnderwriteAction
+                            state={uw}
+                            enabled={hasDocs}
+                            onRun={() => runUnderwrite(m.loanInPoolId, m.dealRef)}
+                          />
+                        </div>
                       );
                     })()}
                   </td>
@@ -356,6 +414,64 @@ export function MembershipTable({
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * ★ Data-Room Phase 3, P1 — the "Underwrite now" action button. Fires ONE
+ * ingest/append for the loan from its data-room tier-(a) docs. Disabled (with a
+ * doc-vocabulary hint) when the loan has NO ingestable docs — never fire nothing.
+ * Transient states: running → "Underwriting…" (inert); done → a quiet re-run
+ * affordance (a later doc drop re-underwrites); failed → the REAL reason in a
+ * tooltip (honest failure, never a fake success). This is a PROCESS control, kept
+ * doc-vocabulary + neutral so it never reads as a credit action.
+ */
+function UnderwriteAction({
+  state,
+  enabled,
+  onRun,
+}: {
+  readonly state: UnderwriteRowState | undefined;
+  readonly enabled: boolean;
+  readonly onRun: () => void;
+}) {
+  if (state?.kind === 'running') {
+    return <span className="text-[11px] text-text-muted" title="Ingest in flight — this runs the extractor + engine">Underwriting…</span>;
+  }
+  if (!enabled) {
+    return (
+      <span
+        className="text-[11px] text-text-subtle"
+        title="No ingestable (ASR / cash-flow / rent-roll / PCA / appraisal) docs on file yet"
+      >
+        No docs to underwrite
+      </span>
+    );
+  }
+  if (state?.kind === 'failed') {
+    return (
+      <button
+        type="button"
+        onClick={onRun}
+        className="text-[11px] text-risk-high hover:underline"
+        title={`Underwrite failed: ${state.reason}. Click to retry.`}
+      >
+        Underwrite failed — retry
+      </button>
+    );
+  }
+  const label = state?.kind === 'done' ? 'Re-underwrite' : 'Underwrite now';
+  return (
+    <button
+      type="button"
+      onClick={onRun}
+      className="text-[11px] text-accent hover:text-accent-hover hover:underline"
+      title={state?.kind === 'done'
+        ? 'Re-run ingest over the current doc set (a new child revision)'
+        : 'Run ingest over this loan’s source docs (extractor + engine)'}
+    >
+      {label}
+    </button>
   );
 }
 

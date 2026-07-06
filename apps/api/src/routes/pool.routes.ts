@@ -57,6 +57,7 @@ import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { computePoolCoverage } from '../services/pool/pool-coverage.service.js';
+import { underwriteLoan, UnderwriteLoanError } from '../services/pool/underwrite-loan.service.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -459,6 +460,63 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/close', (req: Request, res: Respon
     const updated = poolStore().getLoanInPool(loanInPoolId);
     return res.json({ loan: updated });
   } catch (e) {
+    return mapThrow(res, e);
+  }
+});
+
+/**
+ * POST /api/pools/:poolId/loans/:loanInPoolId/underwrite — Data-Room Phase 3, P1.
+ * The manual "Underwrite now" action: fire ONE ingest/append per loan from its
+ * accumulated tier-(a) data-room docs.
+ *
+ * The store stays DECOUPLED from ingest (hard invariant) — this ROUTE is the seam
+ * that calls the underwriteLoan service (never assignDataRoomFiles). The service
+ * bridges the data-room store → deal-source-doc store (docType→slot) and branches
+ * has-root (→ ONE append → child revision) vs no-root (→ build-and-ingest → new
+ * root → promote → analyzed).
+ *
+ * The pool loan is read HERE for the branch inputs (dealRef = loan→root join key;
+ * assetType = the first-ingest propertyType hint). Actor is stamped SERVER-SIDE.
+ *
+ * SYNC + slow (real composer + LLM). P1 leaves it inline behind the explicit
+ * action; P2/P3 add the batch-settled auto-fire + async status. Honest failure:
+ * an ingest/extraction error surfaces the REAL reason (422), never a fake success.
+ *
+ *   200 → the branch result ({ outcome: appended | ingested | no-ingestable-docs, … })
+ *   404 → loan not in this pool
+ *   422 → underwrite (extraction/ingest) failed — real reason surfaced
+ */
+poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', async (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+
+  // Actor stamped server-side (never body) — same buyer-authoritative discipline
+  // as the close/disposition writes. Role gates deferred, matching this file.
+  void (req.user?.userId ?? 'anonymous');
+
+  try {
+    const loan = poolStore().getLoanInPool(loanInPoolId);
+    if (loan === null || loan.poolId !== poolId) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+    }
+
+    const result = await underwriteLoan({
+      poolId,
+      loanInPoolId,
+      dealRef: loan.dealRef,
+      propertyType: loan.assetType ?? null,
+      analysisName: loan.propertyName ?? loan.originatorLoanRef ?? loan.dealRef,
+    });
+
+    if (result.outcome === 'no-ingestable-docs') {
+      return res.status(422).json({ error: 'NO_INGESTABLE_DOCS', ...result });
+    }
+    return res.json(result);
+  } catch (e) {
+    if (e instanceof UnderwriteLoanError) {
+      // Honest failure — the real ingest/extraction reason, never a fake success.
+      return res.status(422).json({ error: e.code, message: e.message, loanInPoolId });
+    }
     return mapThrow(res, e);
   }
 });

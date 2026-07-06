@@ -1184,6 +1184,26 @@ export const api = {
       }>;
     }>(`/pools/${poolId}/coverage`),
 
+  // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3, P1
+  // "Underwrite now". Fires ONE ingest/append per loan from its accumulated
+  // tier-(a) data-room docs. Branch result: appended (child revision on an
+  // existing root) | ingested (new root + promoted analysis) | no-ingestable-docs.
+  // SYNC + slow (real composer + LLM). Honest failure surfaces the real reason.
+  underwriteLoan: (poolId: PoolId | string, loanInPoolId: string) =>
+    request<
+      | { outcome: 'no-ingestable-docs'; loanInPoolId: string; message: string }
+      | {
+          outcome: 'appended';
+          loanInPoolId: string;
+          docCount: number;
+          parentRevisionId: string;
+          childRevisionId: string;
+          revisionOrdinal: number;
+          analysisId: string;
+        }
+      | { outcome: 'ingested'; loanInPoolId: string; docCount: number; rootId: string; analysisId: string }
+    >(`/pools/${poolId}/loans/${loanInPoolId}/underwrite`, { method: 'POST' }),
+
   /* ------------------------------------------------------------------ */
   /* Phase B — forward `root → loan` resolver (read-only). Turns a graph */
   /* lineage ROOT into the single pool loan it belongs to so the graph-  */
