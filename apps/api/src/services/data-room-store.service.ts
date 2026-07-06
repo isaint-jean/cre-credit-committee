@@ -254,49 +254,96 @@ export async function saveDataRoomDoc(args: SaveDataRoomDocArgs): Promise<DataRo
     ingest: taxo.tier === 'ingesting',
   };
 
+  // Single drop = a one-element batch. saveDataRoomDoc and assignDataRoomFiles now
+  // share ONE persist code path (persistDataRoomEntries) — no divergence, no drift.
+  // Signature/return are unchanged: still resolves the built entry.
+  persistDataRoomEntries(args.poolId, [entry]);
+  return entry;
+}
+
+// ---------------------------------------------------------------------------
+// Batched persist (Data-Room v2, Phase 3 — the O(N²)→O(N) collapse).
+//
+// The manifest is read ONCE + written ONCE for the whole batch; the table upserts
+// run in ONE better-sqlite3 transaction. Applying N entries IN ORDER to the
+// in-memory docs[] (filter-out-then-append each) produces the EXACT same final
+// docs[] as N sequential saveDataRoomDoc calls — including intra-batch dedup
+// (two entries with the same (loanInPoolId, docType, fileHash) → last-wins at the
+// tail) and dedup against existing docs. The table's ORDER BY seq equals that
+// docs[]: upsertMany bumps seq to a fresh MAX(seq)+1 per row IN ARRAY ORDER, so
+// intra-batch order → increasing seq → the same tail-relocation.
+//
+// ★ DATA-ROOT: uses the SAME readManifestFile()/writeManifestFile() (via
+// dataRoomDir()/dataDir() → dataRootOverride ?? cwd) + docStore() (via
+// replicaDbPath() → dataRootOverride ?? cwd) as the OLD saveDataRoomDoc, so the
+// write path resolves to the data-root (<root>/.data manifest + <root>/data/cre.db
+// replica), NEVER <cwd> and NEVER dirname(root).
+// ---------------------------------------------------------------------------
+
+/**
+ * Persist N built entries into one pool's manifest + the replica table, reading
+ * the manifest ONCE and writing it ONCE, with the table upserts in ONE txn.
+ * Behavior-identical to N sequential saveDataRoomDoc calls (same in-order
+ * filter-out-then-append dedup, same seq tail-relocation). Returns the entries.
+ */
+export function persistDataRoomEntries(
+  poolId: string,
+  entries: ReadonlyArray<DataRoomDocEntry>,
+): ReadonlyArray<DataRoomDocEntry> {
+  if (entries.length === 0) return entries;
+
+  // ── JSON manifest: read ONCE, apply all entries in order, write ONCE. ──────
   const mf = readManifestFile();
-  const existing = mf.manifests.find((m) => m.poolId === args.poolId);
-  const base: DataRoomManifest =
-    existing ?? { poolId: args.poolId, docs: [], createdAt: entry.uploadedAt, updatedAt: entry.uploadedAt };
-  // Dedupe per (loanInPoolId, docType, fileHash).
-  const without = base.docs.filter(
-    (d) => !(d.loanInPoolId === entry.loanInPoolId && d.docType === entry.docType && d.fileHash === entry.fileHash),
-  );
-  const updated: DataRoomManifest = { ...base, docs: [...without, entry], updatedAt: entry.uploadedAt };
+  const existing = mf.manifests.find((m) => m.poolId === poolId);
+  const createdAt = existing?.createdAt ?? entries[0]!.uploadedAt;
+  // Mutable working copy of docs[] — apply the SAME per-entry dedup the loop did:
+  // filter out any prior doc with the same (loanInPoolId, docType, fileHash), then
+  // append. In-order over the batch → intra-batch same-triple last-wins at tail.
+  let docs: DataRoomDocEntry[] = existing ? [...existing.docs] : [];
+  for (const entry of entries) {
+    docs = docs.filter(
+      (d) => !(d.loanInPoolId === entry.loanInPoolId && d.docType === entry.docType && d.fileHash === entry.fileHash),
+    );
+    docs.push(entry);
+  }
+  const updatedAt = entries[entries.length - 1]!.uploadedAt;
+  const updated: DataRoomManifest = { poolId, docs, createdAt, updatedAt };
   const manifests = existing
-    ? mf.manifests.map((m) => (m.poolId === args.poolId ? updated : m))
+    ? mf.manifests.map((m) => (m.poolId === poolId ? updated : m))
     : [...mf.manifests, updated];
   writeManifestFile({ version: 1, manifests });
 
   // ── SQLite write-through (parallel replica; JSON stays authoritative) ──────
-  // Same fields, SEQ bump on every write (fresh insert AND refresh) so ORDER BY
-  // seq reproduces docs[] with a refreshed row relocated to the tail — matching
-  // the filter-out-then-append above. Additive: guarded so it can never break a
-  // drop (the JSON manifest is already durably written by this point).
+  // ONE transaction; each row bumps seq = MAX(seq)+1 IN ARRAY ORDER so ORDER BY
+  // seq reproduces docs[] (refreshed rows relocated to the tail). Additive:
+  // guarded so it can never break a drop (the JSON manifest is already durably
+  // written by this point).
   try {
-    docStore().upsert({
-      poolId: args.poolId,
-      loanInPoolId: entry.loanInPoolId,
-      docType: entry.docType,
-      fileHash: entry.fileHash,
-      fileName: entry.fileName,
-      mimeType: entry.mimeType,
-      size: entry.size,
-      uploadedAt: entry.uploadedAt,
-      notes: entry.notes,
-      tier: entry.tier,
-      ingest: entry.ingest,
-    });
+    docStore().upsertMany(
+      entries.map((entry) => ({
+        poolId,
+        loanInPoolId: entry.loanInPoolId,
+        docType: entry.docType,
+        fileHash: entry.fileHash,
+        fileName: entry.fileName,
+        mimeType: entry.mimeType,
+        size: entry.size,
+        uploadedAt: entry.uploadedAt,
+        notes: entry.notes,
+        tier: entry.tier,
+        ingest: entry.ingest,
+      })),
+    );
   } catch (err) {
     // Non-fatal this phase — the JSON manifest is the source of truth for reads.
     process.stderr.write(
-      `[data-room] write-through replica upsert failed (non-fatal, JSON authoritative): ${
+      `[data-room] write-through replica batch upsert failed (non-fatal, JSON authoritative): ${
         err instanceof Error ? err.message : String(err)
       }\n`,
     );
   }
 
-  return entry;
+  return entries;
 }
 
 // ---------------------------------------------------------------------------
@@ -517,14 +564,24 @@ export async function assignDataRoomFiles(args: {
     return results;
   }
 
+  // ── Phase 3: per-file do ONLY the async part (staged bytes + putBlob + docType
+  //    validation + build the entry), collecting the successful entries. The
+  //    persist (manifest-once + one txn) runs ONCE for all of them below. Same
+  //    validation, same errors (staged_file_not_found / invalid_doc_type /
+  //    staged_blob_missing), same result shape/order (results are pushed in
+  //    assignment order; entries carry the assignment index for post-persist
+  //    result emission). ──
+  const built: Array<{ index: number; entry: DataRoomDocEntry }> = [];
   for (const a of args.assignments) {
+    const index = results.length; // this assignment's slot in the ordered results
     const staged = batch.files.find((f) => f.stagingId === a.stagingId);
     if (!staged) {
       results.push({ stagingId: a.stagingId, status: 'error', error: 'staged_file_not_found_in_batch' });
       continue;
     }
     // Validate docType BEFORE touching bytes.
-    if (!docTypeById(a.docType)) {
+    const taxo = docTypeById(a.docType);
+    if (!taxo) {
       results.push({ stagingId: a.stagingId, status: 'error', error: `invalid_doc_type:${a.docType}` });
       continue;
     }
@@ -537,26 +594,55 @@ export async function assignDataRoomFiles(args: {
       results.push({ stagingId: a.stagingId, status: 'error', error: 'staged_blob_missing' });
       continue;
     }
+    let fileHash: string;
     try {
-      const entry = await saveDataRoomDoc({
-        poolId: args.poolId,
-        loanInPoolId: a.loanInPoolId,
-        docType: a.docType,
-        buffer: bytes,
-        originalFileName: staged.originalFileName,
-        mimeType: staged.mimeType,
-        notes: a.notes,
-      });
-      results.push({
-        stagingId: a.stagingId,
-        status: 'assigned',
-        loanInPoolId: entry.loanInPoolId,
-        docType: entry.docType,
-        fileHash: entry.fileHash,
-      });
+      // Bytes FIRST (idempotent, content-addressed) — same as saveDataRoomDoc.
+      fileHash = await blobStore.putBlob(bytes);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       results.push({ stagingId: a.stagingId, status: 'error', error: msg });
+      continue;
+    }
+    const entry: DataRoomDocEntry = {
+      loanInPoolId: a.loanInPoolId,
+      docType: taxo.id,
+      fileHash,
+      fileName: staged.originalFileName,
+      mimeType: staged.mimeType,
+      size: bytes.length,
+      uploadedAt: nowIso(),
+      notes: a.notes ?? null,
+      tier: taxo.tier,
+      ingest: taxo.tier === 'ingesting',
+    };
+    // Reserve this assignment's ordered result slot; fill it after the persist.
+    results.push({
+      stagingId: a.stagingId,
+      status: 'assigned',
+      loanInPoolId: entry.loanInPoolId,
+      docType: entry.docType,
+      fileHash: entry.fileHash,
+    });
+    built.push({ index, entry });
+  }
+
+  // ── ONE batched persist for all successful entries (manifest-once + one txn).
+  //    Behavior-identical to N sequential saveDataRoomDoc calls: in-order
+  //    filter-out-then-append dedup (incl. intra-batch same-triple last-wins) +
+  //    seq tail-relocation. If the persist throws (never should — the JSON write
+  //    is the durable step and the table upsert is guarded internally), surface
+  //    it on every entry's slot so the failure isn't silently reported assigned. ──
+  if (built.length > 0) {
+    try {
+      persistDataRoomEntries(
+        args.poolId,
+        built.map((b) => b.entry),
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      for (const b of built) {
+        results[b.index] = { stagingId: results[b.index]!.stagingId, status: 'error', error: msg };
+      }
     }
   }
   return results;

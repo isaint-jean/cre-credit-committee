@@ -219,6 +219,57 @@ export class DataRoomDocStore {
     return this.get(doc.poolId, doc.loanInPoolId, doc.docType, doc.fileHash)!;
   }
 
+  /**
+   * Batched write-through upsert (Data-Room v2, Phase 3 — the O(N²)→O(N) collapse).
+   *
+   * Upserts N docs in ONE better-sqlite3 transaction. Behavior-IDENTICAL to N
+   * sequential `upsert()` calls: each row bumps `seq` to a fresh global MAX(seq)+1
+   * IN ARRAY ORDER, so intra-batch order → strictly increasing seq → ORDER BY seq
+   * reproduces the same tail-relocation the loop produced (a re-drop of the same
+   * PK inside the batch relocates to the tail, latest-wins metadata). The single
+   * `upsert()` above is now just `upsertMany([doc])[0]` in effect; the SQL is the
+   * SAME prepared statement, so there is no divergence between the two paths.
+   */
+  upsertMany(docs: ReadonlyArray<DataRoomDocUpsert>): DataRoomDocRow[] {
+    const stmt = this.db.prepare(
+      `INSERT INTO data_room_doc
+         (pool_id, loan_in_pool_id, doc_type, file_hash,
+          file_name, mime_type, size, uploaded_at, notes, tier, ingest, seq)
+       VALUES
+         (@pool_id, @loan_in_pool_id, @doc_type, @file_hash,
+          @file_name, @mime_type, @size, @uploaded_at, @notes, @tier, @ingest,
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc))
+       ON CONFLICT(pool_id, loan_in_pool_id, doc_type, file_hash) DO UPDATE SET
+          file_name   = excluded.file_name,
+          mime_type   = excluded.mime_type,
+          size        = excluded.size,
+          uploaded_at = excluded.uploaded_at,
+          notes       = excluded.notes,
+          tier        = excluded.tier,
+          ingest      = excluded.ingest,
+          seq         = (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc)`,
+    );
+    const tx = this.db.transaction((rows: ReadonlyArray<DataRoomDocUpsert>) => {
+      for (const doc of rows) {
+        stmt.run({
+          pool_id: doc.poolId,
+          loan_in_pool_id: doc.loanInPoolId,
+          doc_type: doc.docType,
+          file_hash: doc.fileHash,
+          file_name: doc.fileName,
+          mime_type: doc.mimeType,
+          size: doc.size,
+          uploaded_at: doc.uploadedAt,
+          notes: doc.notes,
+          tier: doc.tier,
+          ingest: doc.ingest ? 1 : 0,
+        });
+      }
+    });
+    tx(docs);
+    return docs.map((d) => this.get(d.poolId, d.loanInPoolId, d.docType, d.fileHash)!);
+  }
+
   // -------------------------------------------------------------------------
   // reads (parallel — the service still reads the JSON manifest this phase)
   // -------------------------------------------------------------------------
