@@ -97,6 +97,48 @@ export function branchForLookup(dealRef: string, state: LookupState | undefined)
   };
 }
 
+/**
+ * ★ Data-Room P0 — per-loan DOC-COVERAGE chip. ORTHOGONAL to Status/score: a
+ * document signal ("are the facts sourced?"), never a credit signal. The palette
+ * is deliberately NEUTRAL / slate — explicitly NOT the score-strong green the
+ * Clean / Closed chips use — so a green-coverage / High-Risk deal reads honestly.
+ * Copy is doc-vocabulary only ("Docs complete" / "Missing …" / "No docs") — never
+ * credit words like "clean" or "approved".
+ */
+type CoverageState = 'complete' | 'partial' | 'none';
+interface LoanCoverage {
+  readonly loanInPoolId: string;
+  readonly state: CoverageState;
+  readonly missing: readonly string[];
+}
+
+const COVERAGE_TONE: Record<CoverageState, string> = {
+  // Neutral / slate — NOT score-strong. A calm filled slate = "docs complete".
+  'complete': 'bg-text-secondary/10 text-text-secondary border-text-secondary/30',
+  // Muted outline — some docs, not all.
+  'partial':  'bg-bg-tertiary text-text-muted border-border-primary',
+  // Ghost — nothing on file.
+  'none':     'bg-transparent text-text-subtle border-border-primary/50',
+};
+
+/** Doc-vocabulary copy for a coverage cell. Missing types are named for partial. */
+function coverageLabel(cov: LoanCoverage | undefined): { text: string; title: string } {
+  if (cov === undefined) return { text: '—', title: 'Coverage not yet loaded' };
+  if (cov.state === 'complete') {
+    return { text: 'Docs complete', title: 'Required source-doc facts are all extracted (doc coverage — not a credit signal)' };
+  }
+  if (cov.state === 'none') {
+    return { text: 'No docs', title: 'No source documents on file for this loan' };
+  }
+  const types = cov.missing.join(', ');
+  return {
+    text: types.length > 0 ? `Missing ${types}` : 'Partial docs',
+    title: types.length > 0
+      ? `Source docs still missing / un-extracted: ${types} (doc coverage — not a credit signal)`
+      : 'Some source-doc facts extracted, some still missing',
+  };
+}
+
 export function MembershipTable({
   poolId,
   membership,
@@ -124,6 +166,21 @@ export function MembershipTable({
       .then(({ loans }) => {
         if (cancelled) return;
         setClosedIds(new Set(loans.map(l => l.id)));
+      })
+      .catch(() => { /* advisory — no chip beats a wrong chip */ });
+    return () => { cancelled = true; };
+  }, [poolId]);
+
+  // ★ P0 — per-loan DOC-COVERAGE. Fetched ONCE for the pool (same lift-to-table
+  // pattern as closedIds); keyed by loanInPoolId. Coverage is a DOCUMENT signal,
+  // orthogonal to the Status column's credit verdict — a separate column entirely.
+  const [coverage, setCoverage] = useState<Map<string, LoanCoverage>>(() => new Map());
+  useEffect(() => {
+    let cancelled = false;
+    api.getPoolCoverage(poolId)
+      .then(({ coverage: rows }) => {
+        if (cancelled) return;
+        setCoverage(new Map(rows.map(r => [r.loanInPoolId, r])));
       })
       .catch(() => { /* advisory — no chip beats a wrong chip */ });
     return () => { cancelled = true; };
@@ -213,13 +270,14 @@ export function MembershipTable({
               <th className="px-3 py-2 font-medium text-right">Balance</th>
               <th className="px-3 py-2 font-medium">Seller</th>
               <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2 font-medium">Coverage</th>
               <th className="px-3 py-2 font-medium">Analysis</th>
               <th className="px-3 py-2 font-medium"></th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-3 py-6 text-center text-text-muted text-sm">
+              <tr><td colSpan={9} className="px-3 py-6 text-center text-text-muted text-sm">
                 No loans match the filter.
               </td></tr>
             ) : filtered.map(m => {
@@ -264,6 +322,21 @@ export function MembershipTable({
                         {STATUS_LABEL[m.status]}
                       </span>
                     )}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    {(() => {
+                      const cov = coverage.get(m.loanInPoolId);
+                      const { text, title } = coverageLabel(cov);
+                      const tone = cov ? COVERAGE_TONE[cov.state] : COVERAGE_TONE.none;
+                      return (
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded border ${tone}`}
+                          title={title}
+                        >
+                          {text}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-2 text-xs align-top">
                     <LoanFunnelCell branch={branch} />

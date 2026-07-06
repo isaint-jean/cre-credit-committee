@@ -1169,6 +1169,21 @@ export const api = {
   getFinalTape: (poolId: PoolId | string) =>
     request<{ loans: LoanInPool[] }>(`/pools/${poolId}/final-tape`),
 
+  // GET /api/pools/:poolId/coverage → per-loan DOC-COVERAGE (Data-Room P0).
+  // READ-ONLY, K-gated: state ∈ complete | partial | none derived from the intake
+  // ledger (analyzed loans) or data-room doc presence (un-analyzed loans).
+  // `missing` = tier-(a) doc-type labels not yet populated. ORTHOGONAL to the
+  // Status/score verdict — a document signal, never a credit signal.
+  getPoolCoverage: (poolId: PoolId | string) =>
+    request<{
+      coverage: Array<{
+        loanInPoolId: string;
+        state: 'complete' | 'partial' | 'none';
+        missing: string[];
+        analyzed: boolean;
+      }>;
+    }>(`/pools/${poolId}/coverage`),
+
   /* ------------------------------------------------------------------ */
   /* Phase B — forward `root → loan` resolver (read-only). Turns a graph */
   /* lineage ROOT into the single pool loan it belongs to so the graph-  */

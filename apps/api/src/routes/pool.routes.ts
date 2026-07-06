@@ -56,6 +56,7 @@ import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } fr
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
+import { computePoolCoverage } from '../services/pool/pool-coverage.service.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -616,6 +617,34 @@ poolRoutes.get('/:poolId', (req: Request, res: Response) => {
     if (pool === null) return res.status(404).json({ error: 'NOT_FOUND', message: `pool ${poolId} not found` });
     const wt = poolStore().getCurrentWorkingTape(poolId);
     return res.json({ pool, currentWorkingTapeId: wt?.id ?? null });
+  } catch (e) { return mapThrow(res, e); }
+});
+
+/**
+ * GET /api/pools/:poolId/coverage — per-loan DOC-COVERAGE projection (Data-Room
+ * Phase 3, P0). READ-ONLY. Returns `[{ loanInPoolId, state, missing, analyzed }]`
+ * where state ∈ complete | partial | none is derived K-gated from the intake
+ * ledger (analyzed loans) or data-room doc presence (un-analyzed loans).
+ *
+ * Coverage is ORTHOGONAL to the Status/score verdict — it answers a document
+ * question ("are the facts sourced?"), never a credit question. Green requires K.
+ *
+ * Loans are read from the pool's CURRENT (frozen) tape membership — the SAME
+ * rows MembershipTable renders (pool page reads `pool.currentTapeId`) — so
+ * coverage lines up 1:1 with the tape. When the pool has no current tape yet the
+ * coverage list is empty (nothing to cover).
+ *
+ * ★ MUST be registered BEFORE `GET /:poolId`.
+ */
+poolRoutes.get('/:poolId/coverage', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  try {
+    const pool = poolStore().getPool(poolId);
+    if (pool === null) return res.status(404).json({ error: 'NOT_FOUND', message: `pool ${poolId} not found` });
+    const membership = pool.currentTapeId !== null ? poolStore().getMembership(pool.currentTapeId) : [];
+    const loans = membership.map((m) => ({ loanInPoolId: m.loanInPoolId, dealRef: m.dealRef }));
+    const coverage = computePoolCoverage(poolId, loans);
+    return res.json({ coverage });
   } catch (e) { return mapThrow(res, e); }
 });
 
