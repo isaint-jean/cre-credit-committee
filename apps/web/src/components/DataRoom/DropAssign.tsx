@@ -65,16 +65,47 @@ export function DropAssign({
     setErr(null);
     setNotice(null);
     try {
-      const { batch: b } = await api.dataRoomStageFiles(poolId, files);
-      // Merge onto any existing staged (unassigned) batch so multiple drops queue.
+      const { batch: b, routing, summary } = await api.dataRoomStageFiles(poolId, files);
+      // Data-Room Phase 2d — auto-routed files are ALREADY filed server-side and
+      // are excluded from `b.files`; only confirm-needed files ride back. Merge
+      // onto any existing staged batch so multiple drops queue.
       setBatch((prev) => (prev ? { ...b, files: [...prev.files, ...b.files] } : b));
-      setNotice(`${b.files.length} file${b.files.length === 1 ? '' : 's'} staged — assign each below.`);
+      // Pre-seed the per-file drafts from the confident axis so a confirm row
+      // opens with its known dropdown already selected (fast-clear).
+      if (routing.length > 0) {
+        setDrafts((d) => {
+          const next = { ...d };
+          for (const r of routing) {
+            const prev = next[r.stagingId] ?? { loanInPoolId: '', docType: '' };
+            next[r.stagingId] = {
+              loanInPoolId: r.prefill.loanInPoolId ?? prev.loanInPoolId,
+              docType: r.prefill.docType ?? prev.docType,
+            };
+          }
+          return next;
+        });
+      }
+      // If anything auto-routed, refresh the parent projections so filed docs
+      // appear under their folder + loan immediately.
+      if (summary.autoRoutedCount > 0) onAssigned();
+      const parts: string[] = [];
+      if (summary.autoRoutedCount > 0) {
+        parts.push(`${summary.autoRoutedCount} auto-routed`);
+      }
+      if (summary.needConfirmCount > 0) {
+        parts.push(`${summary.needConfirmCount} need confirm`);
+      }
+      setNotice(
+        parts.length > 0
+          ? `${parts.join(' · ')}.${summary.needConfirmCount > 0 ? ' Confirm the pre-filled rows below.' : ''}`
+          : 'Nothing to assign.',
+      );
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setBusy('idle');
     }
-  }, [poolId]);
+  }, [poolId, onAssigned]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

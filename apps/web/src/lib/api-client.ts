@@ -171,6 +171,23 @@ export interface DataRoomAssignmentResult {
   readonly error?: string;
 }
 
+// ── Data-Room Phase 2 — classify-on-stage routing hints ─────────────────────
+/** Per-file verdict the staging endpoint returns for each confirm-needed file.
+ *  `prefill` carries whatever axis WAS confident so the tray opens pre-filled. */
+export interface DataRoomRoutingHint {
+  readonly stagingId: string;
+  readonly auto: boolean; // always false in `routing` (auto files are excluded)
+  readonly prefill: { readonly docType?: string; readonly loanInPoolId?: string };
+}
+
+/** Full staging response: the (confirm-only) batch + per-file hints + summary. */
+export interface DataRoomStageResponse {
+  readonly batch: StagingBatch;
+  readonly routing: readonly DataRoomRoutingHint[];
+  readonly autoRouted: readonly DataRoomAssignmentResult[];
+  readonly summary: { readonly autoRoutedCount: number; readonly needConfirmCount: number };
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // Discriminated union for GET /api/analyses/:id (post-6.8 unified read endpoint).
@@ -1252,7 +1269,7 @@ export const api = {
 
   // POST /data-room/:poolId/staging (multipart) → a StagingBatch (staged,
   // unassigned). This is the bulk-drop primitive; assign is the next step.
-  dataRoomStageFiles: async (poolId: string, files: File[]): Promise<{ batch: StagingBatch }> => {
+  dataRoomStageFiles: async (poolId: string, files: File[]): Promise<DataRoomStageResponse> => {
     const formData = new FormData();
     for (const f of files) formData.append('files', f);
     const res = await fetch(`${API_BASE}/data-room/${poolId}/staging`, {
