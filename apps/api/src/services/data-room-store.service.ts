@@ -41,8 +41,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { DOC_TYPE_TAXONOMY, docTypeById } from '@cre/contracts';
-import type { DocTypeEntry } from '@cre/contracts';
+import { DOC_TYPE_TAXONOMY, docTypeById, DOC_TYPE_CATEGORY, CATEGORIES_IN_ORDER } from '@cre/contracts';
+import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import { blobStore } from '../storage/blob-store.js';
 import type { ContentHash } from '@cre/contracts';
 import { getStagingBatch } from './source-doc-store.service.js';
@@ -248,6 +248,33 @@ export function projectByDocType(poolId: string): ReadonlyArray<DocTypeGroup> {
       ingest: t.tier === 'ingesting',
       docs: g,
     });
+  }
+  return out;
+}
+
+/** PROJECTION 3 — docs grouped by CATEGORY (the human folder above doc-types),
+ *  via DOC_TYPE_CATEGORY. Read-only projection; mirrors projectByDocType /
+ *  projectByLoan. Categories are emitted in CATEGORIES_IN_ORDER, only those the
+ *  pool actually has docs for. Serves Piece D (category-browsable data room). */
+export interface CategoryGroup {
+  readonly category: DocTypeCategory;
+  readonly docs: ReadonlyArray<DataRoomDocEntry>;
+}
+export function projectByCategory(poolId: string): ReadonlyArray<CategoryGroup> {
+  const docs = listPoolDocs(poolId);
+  const groups = new Map<DocTypeCategory, DataRoomDocEntry[]>();
+  for (const d of docs) {
+    const category = DOC_TYPE_CATEGORY[d.docType];
+    if (!category) continue; // docType not in taxonomy (should never happen — assign validates)
+    const arr = groups.get(category) ?? [];
+    arr.push(d);
+    groups.set(category, arr);
+  }
+  const out: CategoryGroup[] = [];
+  for (const category of CATEGORIES_IN_ORDER) {
+    const g = groups.get(category);
+    if (!g) continue;
+    out.push({ category, docs: g });
   }
   return out;
 }

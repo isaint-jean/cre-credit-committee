@@ -23,7 +23,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import archiver from 'archiver';
-import { DOC_TYPE_TAXONOMY } from '@cre/contracts';
+import { DOC_TYPE_TAXONOMY, DOC_TYPE_CATEGORY, CATEGORIES_IN_ORDER } from '@cre/contracts';
+import type { DocTypeCategory } from '@cre/contracts';
 import { upload } from '../middleware/upload.js';
 import { createStagingBatch } from '../services/source-doc-store.service.js';
 import {
@@ -313,6 +314,23 @@ dataRoomRoutes.get('/:poolId/download', async (req: Request, res: Response) => {
   const poolId = req.params.poolId!;
   const store = readStateStore();
   const docs = listPoolDocs(poolId);
+
+  // Optional ?category= filter — download just one category's folder. Validated
+  // against CATEGORIES_IN_ORDER (the ONE source); unknown category → 400.
+  const rawCategory = typeof req.query.category === 'string' ? req.query.category : null;
+  let categoryFilter: DocTypeCategory | null = null;
+  if (rawCategory !== null) {
+    if (!(CATEGORIES_IN_ORDER as readonly string[]).includes(rawCategory)) {
+      res.status(400).json({
+        error: 'invalid_category',
+        message: `Unknown category '${rawCategory}'.`,
+        validCategories: CATEGORIES_IN_ORDER,
+      });
+      return;
+    }
+    categoryFilter = rawCategory as DocTypeCategory;
+  }
+
   const { newDocs, nextCursor } = store.whatsNew(
     uid,
     poolId,
@@ -335,10 +353,18 @@ dataRoomRoutes.get('/:poolId/download', async (req: Request, res: Response) => {
   for (const nd of newDocs) {
     const entry = byHash.get(nd.fileHash);
     if (!entry) continue;
+    // CATEGORY-FIRST path tree: category resolved via DOC_TYPE_CATEGORY (the ONE
+    // source), so downloading lands a Category/ folder on disk. Unknown docType
+    // (should never happen — assign validates) falls back to 'General'.
+    const category = DOC_TYPE_CATEGORY[entry.docType] ?? 'General';
+    if (categoryFilter !== null && category !== categoryFilter) continue;
     const got = await getDataRoomDoc(poolId, nd.fileHash);
     if (!got) continue;
-    // Prefix with loan + docType so the zip is browsable on disk.
-    archive.append(got.bytes, { name: `${entry.loanInPoolId}/${entry.docType}/${entry.fileName}` });
+    // Prefix with category + loan + docType so the zip is a category-organized
+    // folder tree on disk (Legal/, Third-Party Reports/, …).
+    archive.append(got.bytes, {
+      name: `${category}/${entry.loanInPoolId}/${entry.docType}/${entry.fileName}`,
+    });
   }
   await archive.finalize();
 

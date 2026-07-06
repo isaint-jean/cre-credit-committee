@@ -72,12 +72,46 @@ export type DocTypeSlot =
 
 export type DocTypeTier = 'ingesting' | 'stored' | 'room_only';
 
+/**
+ * Data-Room CATEGORY — the HUMAN folder, a level ABOVE doc-types. Doc-types stay
+ * the engine's routing keys (asr/cf/rent_roll/…); categories are how a person
+ * browses / downloads the room ("give me the Legal folder"). Every doc-type maps
+ * to exactly one category via DOC_TYPE_CATEGORY (derived below). This is NOT a
+ * parallel list: the mapping lives ON each DocTypeEntry (the one source).
+ *
+ *   ASRs                 — the annual statement of rents (the deal's rent record).
+ *   Excels               — spreadsheet / financial models (cf/t12/rent_roll/seller_uw).
+ *   Third-Party Reports  — independent expert reports (appraisal/pca/phase_i_esa).
+ *   Legal                — legal instruments & closing set (legal/title/insurance/
+ *                          closing/leases/loan_terms).
+ *   General              — honest home for loose fits that would MISFILE anywhere
+ *                          else (sponsor_pfs, om). See the loose-fit note below.
+ */
+export type DocTypeCategory =
+  | 'ASRs'
+  | 'Excels'
+  | 'Third-Party Reports'
+  | 'Legal'
+  | 'General';
+
+/** The categories in browse / download order (broad financial → expert → legal →
+ *  catch-all). The one ordering source for UI + zip folder listing. */
+export const CATEGORIES_IN_ORDER: readonly DocTypeCategory[] = [
+  'ASRs',
+  'Excels',
+  'Third-Party Reports',
+  'Legal',
+  'General',
+] as const;
+
 /** One doc-type in the authoritative taxonomy. */
 export interface DocTypeEntry {
   /** Stable identity for this doc type. */
   readonly id: string;
   /** Human label for the data room / request UI. */
   readonly label: string;
+  /** The human data-room folder this doc-type files under (level above tier). */
+  readonly category: DocTypeCategory;
   readonly tier: DocTypeTier;
   /** Upload slot id, or null for request-only / room-only doc types. */
   readonly slot: DocTypeSlot | null;
@@ -105,6 +139,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'asr',
     label: 'Annual Statement of Rents (ASR)',
+    category: 'ASRs',
     tier: 'ingesting',
     slot: 'asr',
     engineInput: 'asrPdf',
@@ -115,6 +150,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'cf',
     label: 'Cash-flow / operating statement (T-12 + in-place)',
+    category: 'Excels',
     tier: 'ingesting',
     slot: 'cf',
     engineInput: 'sellerCfXlsx',
@@ -125,6 +161,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'rent_roll',
     label: 'Rent roll',
+    category: 'Excels',
     tier: 'ingesting',
     slot: 'rent_roll',
     engineInput: 'rentRollXlsx',
@@ -133,6 +170,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'pca',
     label: 'Property condition assessment (PCA)',
+    category: 'Third-Party Reports',
     tier: 'ingesting',
     slot: 'pca',
     engineInput: 'pcaPdf',
@@ -141,6 +179,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'appraisal',
     label: 'Appraisal',
+    category: 'Third-Party Reports',
     tier: 'ingesting',
     slot: 'appraisal',
     engineInput: 'appraisalPdf',
@@ -151,6 +190,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'seller_uw',
     label: 'Seller / issuer underwriting',
+    category: 'Excels',
     tier: 'stored',
     slot: 'seller_uw',
     // SEAM 3 — stored, not a composer input.
@@ -160,6 +200,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 't12',
     label: 'Trailing-12 operating statement (stored)',
+    category: 'Excels',
     tier: 'stored',
     slot: 't12',
     // SEAM 3 — stored, not a composer input.
@@ -171,6 +212,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'loan_terms',
     label: 'Loan terms / term sheet',
+    category: 'Legal',
     tier: 'room_only',
     slot: null,
     engineInput: null,
@@ -178,14 +220,22 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
     requestOnly: true,
     dqCodes: ['JE_LOAN_TERMS_MISSING'],
   },
-  { id: 'legal', label: 'Legal / org docs', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'title', label: 'Title', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'insurance', label: 'Insurance', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'closing', label: 'Closing', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'leases', label: 'Leases', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'sponsor_pfs', label: 'Sponsor PFS / REO schedule', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'phase_i_esa', label: 'Phase I ESA', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'om', label: 'Offering memorandum (OM)', tier: 'room_only', slot: null, engineInput: null },
+  { id: 'legal', label: 'Legal / org docs', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
+  { id: 'title', label: 'Title', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
+  { id: 'insurance', label: 'Insurance', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
+  { id: 'closing', label: 'Closing', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
+  { id: 'leases', label: 'Leases', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
+  // ── LOOSE FITS — honestly homed in 'General', never force-filed ──────────────
+  // sponsor_pfs (sponsor personal financial statement / REO schedule) is a
+  // borrower CREDIT doc — not a legal instrument, not a third-party report, not a
+  // spreadsheet model. Force-filing it into any of those would MISFILE it.
+  { id: 'sponsor_pfs', label: 'Sponsor PFS / REO schedule', category: 'General', tier: 'room_only', slot: null, engineInput: null },
+  { id: 'phase_i_esa', label: 'Phase I ESA', category: 'Third-Party Reports', tier: 'room_only', slot: null, engineInput: null },
+  // om (offering memorandum) is a marketing / offering document. The vision hints
+  // OM≈prospectus→Legal, but an OM is not a binding legal instrument; sitting it
+  // beside title/closing/loan_terms would imply it is. 'General' is the honest
+  // home (never-misfile wins over the vision's optional Legal placement).
+  { id: 'om', label: 'Offering memorandum (OM)', category: 'General', tier: 'room_only', slot: null, engineInput: null },
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -234,4 +284,33 @@ export function docTypeById(id: string): DocTypeEntry | undefined {
 /** Look up a taxonomy entry by upload-slot id. */
 export function docTypeBySlot(slot: DocTypeSlot): DocTypeEntry | undefined {
   return DOC_TYPE_TAXONOMY.find((e) => e.slot === slot);
+}
+
+/* ------------------------------------------------------------------ */
+/* Category derivations — the human folder above doc-types            */
+/* ------------------------------------------------------------------ */
+
+/** docType id → category. Pure projection of the entry's `category` field; the
+ *  ONE source is DOC_TYPE_TAXONOMY (no parallel category list anywhere). Used by
+ *  the data-room download path tree and the by-category store projection. */
+export const DOC_TYPE_CATEGORY: Readonly<Record<string, DocTypeCategory>> = Object.fromEntries(
+  DOC_TYPE_TAXONOMY.map((e) => [e.id, e.category]),
+);
+
+/** Look up the category for a docType id (undefined if unknown). */
+export function categoryOfDocType(docTypeId: string): DocTypeCategory | undefined {
+  return DOC_TYPE_CATEGORY[docTypeId];
+}
+
+/** Doc-type ids grouped by category, categories emitted in CATEGORIES_IN_ORDER,
+ *  and within a category in taxonomy order. Only categories that actually own a
+ *  doc-type are emitted. */
+export function docTypesByCategory(): ReadonlyArray<{
+  readonly category: DocTypeCategory;
+  readonly docTypes: readonly DocTypeEntry[];
+}> {
+  return CATEGORIES_IN_ORDER.map((category) => ({
+    category,
+    docTypes: DOC_TYPE_TAXONOMY.filter((e) => e.category === category),
+  })).filter((g) => g.docTypes.length > 0);
 }

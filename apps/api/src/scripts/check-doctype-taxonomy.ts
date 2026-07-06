@@ -46,8 +46,12 @@ import {
   DQ_CODE_TO_SLOT,
   DQ_CLEARABLE_SLOTS,
   SLOTTED_DOC_TYPES,
+  DOC_TYPE_CATEGORY,
+  CATEGORIES_IN_ORDER,
+  docTypesByCategory,
   docTypeById,
   type DocTypeSlot,
+  type DocTypeCategory,
 } from '@cre/contracts';
 import { SOURCE_DOC_SLOTS } from '@cre/shared';
 import { SLOT_TO_INPUT } from '../services/append-source-doc.service.js';
@@ -202,6 +206,73 @@ function main(): void {
   );
   assert(SLOTTED_DOC_TYPES.length === 7, `expected 7 slotted doc types, got ${SLOTTED_DOC_TYPES.length}`);
   console.log(`  ✓ tiers: ingesting(${ingesting.length}) + stored(${stored.length}) + room_only(${roomOnly.length}) = ${DOC_TYPE_TAXONOMY.length}`);
+
+  // ── CATEGORY — every doc-type has a valid category (the human folder) ───────
+  // Data Room v2 SLICE 1(C): a level ABOVE doc-types. One source (the entry's
+  // `category` field); DOC_TYPE_CATEGORY / docTypesByCategory are derivations.
+  const VALID_CATEGORIES = new Set<DocTypeCategory>(CATEGORIES_IN_ORDER);
+  assert(CATEGORIES_IN_ORDER.length === new Set(CATEGORIES_IN_ORDER).size, 'CATEGORIES_IN_ORDER has duplicates');
+  for (const e of DOC_TYPE_TAXONOMY) {
+    assert(
+      VALID_CATEGORIES.has(e.category),
+      `doc-type '${e.id}' has invalid category '${String(e.category)}' (not in CATEGORIES_IN_ORDER)`,
+    );
+    assert(
+      DOC_TYPE_CATEGORY[e.id] === e.category,
+      `DOC_TYPE_CATEGORY['${e.id}'] = ${String(DOC_TYPE_CATEGORY[e.id])} but entry.category = ${e.category}`,
+    );
+  }
+  // DOC_TYPE_CATEGORY covers EXACTLY the taxonomy ids (no drift either way).
+  assertSameSet(Object.keys(DOC_TYPE_CATEGORY), DOC_TYPE_TAXONOMY.map((e) => e.id), 'DOC_TYPE_CATEGORY keys vs taxonomy ids');
+
+  // The category grouping is COMPLETE and NON-LOSSY: every doc-type appears in
+  // exactly one category group, and the union of groups == the whole taxonomy.
+  const grouped = docTypesByCategory();
+  const groupedIds = grouped.flatMap((g) => g.docTypes.map((d) => d.id));
+  assert(groupedIds.length === DOC_TYPE_TAXONOMY.length, `docTypesByCategory emits ${groupedIds.length} doc-types, taxonomy has ${DOC_TYPE_TAXONOMY.length}`);
+  assert(groupedIds.length === new Set(groupedIds).size, 'docTypesByCategory placed a doc-type in more than one category');
+  assertSameSet(groupedIds, DOC_TYPE_TAXONOMY.map((e) => e.id), 'docTypesByCategory union vs taxonomy ids');
+  for (const g of grouped) assert(VALID_CATEGORIES.has(g.category), `docTypesByCategory emitted unknown category '${String(g.category)}'`);
+
+  // Pin the intended category MAP so the placement can't silently drift, and so
+  // the ★ loose-fit decision (sponsor_pfs / om → General) is asserted, not prose.
+  const EXPECTED_CATEGORY: Readonly<Record<string, DocTypeCategory>> = {
+    asr: 'ASRs',
+    cf: 'Excels',
+    rent_roll: 'Excels',
+    seller_uw: 'Excels',
+    t12: 'Excels',
+    appraisal: 'Third-Party Reports',
+    pca: 'Third-Party Reports',
+    phase_i_esa: 'Third-Party Reports',
+    legal: 'Legal',
+    title: 'Legal',
+    insurance: 'Legal',
+    closing: 'Legal',
+    leases: 'Legal',
+    loan_terms: 'Legal',
+    sponsor_pfs: 'General',
+    om: 'General',
+  };
+  assertSameSet(Object.keys(EXPECTED_CATEGORY), DOC_TYPE_TAXONOMY.map((e) => e.id), 'EXPECTED_CATEGORY coverage vs taxonomy');
+  for (const id of Object.keys(EXPECTED_CATEGORY)) {
+    assert(
+      DOC_TYPE_CATEGORY[id] === EXPECTED_CATEGORY[id],
+      `category drift: '${id}' is '${String(DOC_TYPE_CATEGORY[id])}' but pinned to '${EXPECTED_CATEGORY[id]}'`,
+    );
+  }
+  // ★ Loose-fits are NOT misfiled: sponsor_pfs / om must NOT land in Legal or
+  // Third-Party Reports (the never-misfile rule).
+  for (const id of ['sponsor_pfs', 'om']) {
+    const cat = DOC_TYPE_CATEGORY[id];
+    assert(
+      cat !== 'Legal' && cat !== 'Third-Party Reports' && cat !== 'Excels',
+      `loose-fit '${id}' must not be force-filed into Legal/Third-Party/Excels — got '${String(cat)}'`,
+    );
+  }
+  const catCounts = grouped.map((g) => `${g.category}(${g.docTypes.length})`).join(' + ');
+  console.log(`  ✓ category: every doc-type homed; groups complete & non-lossy: ${catCounts}`);
+  console.log('  ✓ loose-fits honestly homed: sponsor_pfs → General, om → General (never-misfile)');
 
   console.log('doc-type taxonomy consistency guard: ok');
 }
