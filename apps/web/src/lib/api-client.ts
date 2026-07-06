@@ -28,6 +28,12 @@ import type {
   WorkingTapeId,
 } from '@cre/contracts';
 import { isRenderedAnalysis } from './rendered-analysis-guard';
+import type { DocTypeEntry } from '@cre/contracts';
+
+// Re-export the taxonomy entry type so Data-Room (D4) components can pull it
+// (and the local DataRoom* shapes) from ONE module — the api-client — rather
+// than reaching into @cre/contracts directly for a transport-adjacent type.
+export type { DocTypeEntry };
 
 // Phase 4 (productization layer) - workflow API request/response shapes.
 // The client transports payloads opaquely; the server validates kind/payload
@@ -94,6 +100,75 @@ export interface IntakeCompleteness {
   // Route-echoed export params (the panel's always-on "Create workbook" CTA).
   readonly dealId: string;
   readonly assetClass: string;
+}
+
+// ---------------------------------------------------------------------------
+// Data-Room Phase 1 (D4) — client-side mirrors of the backend service shapes
+// (apps/api/src/services/data-room-store.service.ts + source-doc-store). Defined
+// locally because StagingBatch lives in @cre/shared (not re-exported by
+// @cre/contracts); the room UI only needs these transport shapes.
+// ---------------------------------------------------------------------------
+
+/** One dropped, unassigned file in a staging batch. */
+export interface StagingFileEntry {
+  readonly stagingId: string;
+  readonly fileHash: string;
+  readonly originalFileName: string;
+  readonly size: number;
+  readonly mimeType: string;
+  readonly uploadedAt: string;
+}
+export interface StagingBatch {
+  readonly batchId: string;
+  readonly createdAt: string;
+  readonly files: readonly StagingFileEntry[];
+}
+
+/** One assigned document, addressed by (loanInPoolId, docType) + content hash. */
+export interface DataRoomDocEntry {
+  readonly loanInPoolId: string;
+  readonly docType: string;
+  readonly fileHash: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly size: number;
+  readonly uploadedAt: string;
+  readonly notes: string | null;
+  readonly tier: 'ingesting' | 'stored' | 'room_only';
+  readonly ingest: boolean;
+}
+
+/** Projection 1 — docs grouped by doc-type (server emits tier-ordered a→b→c). */
+export interface DataRoomDocTypeGroup {
+  readonly docType: string;
+  readonly label: string;
+  readonly tier: 'ingesting' | 'stored' | 'room_only';
+  readonly ingest: boolean;
+  readonly docs: readonly DataRoomDocEntry[];
+}
+
+/** Projection 2 — docs grouped by loanInPoolId. */
+export interface DataRoomLoanGroup {
+  readonly loanInPoolId: string;
+  readonly docs: readonly DataRoomDocEntry[];
+}
+
+/** One assignment the tray posts (the Phase-2 seam input). */
+export interface DataRoomAssignmentInput {
+  readonly stagingId: string;
+  readonly loanInPoolId: string;
+  readonly docType: string;
+  readonly notes?: string;
+}
+
+/** Per-file outcome the assign endpoint returns. */
+export interface DataRoomAssignmentResult {
+  readonly stagingId: string;
+  readonly status: 'assigned' | 'error';
+  readonly loanInPoolId?: string;
+  readonly docType?: string;
+  readonly fileHash?: string;
+  readonly error?: string;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
@@ -1161,6 +1236,121 @@ export const api = {
       ? (body as { message: string }).message
       : `Disposition failed (${res.status})`;
     return { ok: false, status: res.status, code, message };
+  },
+
+  /* ================================================================== */
+  /* Data-Room Phase 1 (Deliverable 4) — the per-pool document room.    */
+  /* FRONTEND-ONLY over the shipped /api/data-room endpoints (D2 + D3).  */
+  /* Upload-and-organize + browse + per-user read/unread + download-    */
+  /* what's-new. No backend touched. Auth flows through getAuthHeader(). */
+  /* ================================================================== */
+
+  // GET /data-room/doc-types → the ONE authoritative taxonomy (3 tiers).
+  // Used for the doc-type folder list AND the assign picker.
+  dataRoomDocTypes: () =>
+    request<{ docTypes: readonly DocTypeEntry[] }>(`/data-room/doc-types`),
+
+  // POST /data-room/:poolId/staging (multipart) → a StagingBatch (staged,
+  // unassigned). This is the bulk-drop primitive; assign is the next step.
+  dataRoomStageFiles: async (poolId: string, files: File[]): Promise<{ batch: StagingBatch }> => {
+    const formData = new FormData();
+    for (const f of files) formData.append('files', f);
+    const res = await fetch(`${API_BASE}/data-room/${poolId}/staging`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+      body: formData,
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.message || err.error || 'Data-room staging upload failed');
+    }
+    return res.json();
+  },
+
+  // POST /data-room/:poolId/assign → files staged blobs into the manifest at
+  // (loanInPoolId, docType). THIS is the Phase-2 seam (manual assign now, auto
+  // later). Each assignment is processed independently server-side.
+  dataRoomAssign: (
+    poolId: string,
+    batchId: string,
+    assignments: ReadonlyArray<DataRoomAssignmentInput>,
+  ) =>
+    request<{ results: readonly DataRoomAssignmentResult[] }>(`/data-room/${poolId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ batchId, assignments }),
+    }),
+
+  // GET /data-room/:poolId/by-doc-type → projection 1 (folders = doc-types,
+  // tier-ordered a→b→c by the server).
+  dataRoomByDocType: (poolId: string) =>
+    request<{ poolId: string; groups: readonly DataRoomDocTypeGroup[] }>(
+      `/data-room/${poolId}/by-doc-type`,
+    ),
+
+  // GET /data-room/:poolId/by-loan → projection 2 (grouped by loanInPoolId).
+  dataRoomByLoan: (poolId: string) =>
+    request<{ poolId: string; groups: readonly DataRoomLoanGroup[] }>(
+      `/data-room/${poolId}/by-loan`,
+    ),
+
+  // GET /data-room/:poolId/unread → per-user unread fileHashes + count.
+  dataRoomUnread: (poolId: string) =>
+    request<{ poolId: string; unread: readonly string[]; count: number }>(
+      `/data-room/${poolId}/unread`,
+    ),
+
+  // POST /data-room/:poolId/read → mark one doc read (clears its unread dot).
+  dataRoomMarkRead: (poolId: string, fileHash: string) =>
+    request<{ ok: true; fileHash: string; read: true }>(`/data-room/${poolId}/read`, {
+      method: 'POST',
+      body: JSON.stringify({ fileHash }),
+    }),
+
+  // GET /data-room/:poolId/doc/:fileHash → stream one doc's bytes (opens the
+  // doc inline). Returned as a blob; the caller opens it in a new tab. Marking
+  // read is a SEPARATE call (dataRoomMarkRead) so read-state is explicit.
+  dataRoomOpenDoc: async (poolId: string, fileHash: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/data-room/${poolId}/doc/${fileHash}`, {
+      headers: { ...getAuthHeader() },
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) throw new Error(`Doc download failed (${res.status})`);
+    return res.blob();
+  },
+
+  // GET /data-room/:poolId/download → zip of new-since-cursor (advances the
+  // per-user cursor server-side on a successful, non-empty pull). Triggers a
+  // browser download; returns the X-Data-Room-New-Count header the server sets.
+  dataRoomDownloadNew: async (poolId: string): Promise<{ newCount: number }> => {
+    const res = await fetch(`${API_BASE}/data-room/${poolId}/download`, {
+      headers: { ...getAuthHeader() },
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) throw new Error(`Download-what's-new failed (${res.status})`);
+    const newCount = Number(res.headers.get('X-Data-Room-New-Count') ?? '0');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `data-room-${poolId}-new.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { newCount };
   },
 };
 

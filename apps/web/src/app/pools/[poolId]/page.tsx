@@ -126,7 +126,15 @@ export default function PoolRailPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
-      <Link href={withSide('/pools', side)} className="text-accent hover:text-accent-hover text-sm">← Pools</Link>
+      <div className="flex items-center justify-between">
+        <Link href={withSide('/pools', side)} className="text-accent hover:text-accent-hover text-sm">← Pools</Link>
+        <Link
+          href={withSide(`/pools/${poolId}/data-room`, side)}
+          className={`text-sm font-medium px-3 py-1.5 rounded-sm2 border ${accent.border} ${accent.softBg} ${accent.text} hover:opacity-90 transition-opacity`}
+        >
+          Data Room →
+        </Link>
+      </div>
       <div className="mt-3">
         {/* Deal cover — side-accented top rail + header. */}
         <div className={`border-t-[3px] ${accent.borderTop} rounded-t-panel`}>
