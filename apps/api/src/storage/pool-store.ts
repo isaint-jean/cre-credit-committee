@@ -621,6 +621,34 @@ export class PoolStore {
     }));
   }
 
+  /** Pool-scoped variant of listLoanNameKeys — the identity + name columns of
+   *  the loans in ONE pool. Used by the Data-Room Phase-2 classify-on-stage loan
+   *  axis so the filename is matched only against the target pool's loans. Same
+   *  shape + normalizer keyspace as listLoanNameKeys; just a WHERE clause. */
+  listLoanNameKeysForPool(poolId: PoolId): ReadonlyArray<{
+    readonly loanInPoolId: LoanInPoolId;
+    readonly poolId: PoolId;
+    readonly originatorLoanRef: string | null;
+    readonly propertyName: string | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, pool_id, originator_loan_ref, property_name FROM loan_in_pool WHERE pool_id = ?`,
+      )
+      .all(poolId) as ReadonlyArray<{
+        readonly id: string;
+        readonly pool_id: string;
+        readonly originator_loan_ref: string | null;
+        readonly property_name: string | null;
+      }>;
+    return rows.map((r) => ({
+      loanInPoolId: r.id as LoanInPoolId,
+      poolId: r.pool_id as PoolId,
+      originatorLoanRef: r.originator_loan_ref,
+      propertyName: r.property_name,
+    }));
+  }
+
   /** PR3: when a buyer resolves a re-key (incoming originatorRef differs from
    *  the stored one), update the stored ref so the NEXT tape's exact-match
    *  succeeds without re-triggering the unmatched-needs-confirm flow. The
