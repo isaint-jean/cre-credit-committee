@@ -46,6 +46,7 @@ import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import { blobStore } from '../storage/blob-store.js';
 import type { ContentHash } from '@cre/contracts';
 import { getStagingBatch } from './source-doc-store.service.js';
+import { DataRoomDocStore } from '../storage/data-room-doc-store.js';
 
 // ---------------------------------------------------------------------------
 // Paths (separate namespace — never touches cre.db, never touches ingest dirs)
@@ -65,6 +66,54 @@ function dataRoomDir(): string {
 }
 function manifestFile(): string {
   return path.join(dataRoomDir(), 'data-room-manifests.json');
+}
+
+// ---------------------------------------------------------------------------
+// SQLite write-through replica (Data-Room v2, Phase 1).
+//
+// The JSON manifest above stays AUTHORITATIVE for every READ this phase. In
+// PARALLEL, each manifest write ALSO upserts a lazy-DDL SQLite table so the port
+// populates without any read-path change (cutover is Phase 2). Behavior-
+// preserving: the upsert is additive, wrapped so a table hiccup never breaks a
+// drop (the JSON is the source of truth).
+//
+// The default store is keyed on the SAME data-root context as the manifest:
+//   - no override (real server): <cwd>/data/cre.db (the real db).
+//   - test root set via setDataRoomRoot: <root>/data/cre.db — NEVER the real
+//     cre.db. This makes the existing proofs (which only call setDataRoomRoot)
+//     write-through-safe automatically: their replica lives under the throwaway
+//     root they discard, so the real cre.db stays byte-unchanged.
+// A separate test seam (setDataRoomDocStore) can inject an explicit replica.
+// ---------------------------------------------------------------------------
+
+let docStoreOverride: DataRoomDocStore | null = null;
+/** Cache the default replica per resolved db-path so a root switch re-derives. */
+let defaultDocStore: { dbPath: string; store: DataRoomDocStore } | null = null;
+
+/** Test seam ONLY — inject an explicit temp-db-backed replica store (proofs).
+ *  Takes precedence over the root-derived default. Pass null to clear. */
+export function setDataRoomDocStore(store: DataRoomDocStore | null): void {
+  docStoreOverride = store;
+}
+
+/** The cre.db path the write-through replica targets, following the manifest's
+ *  data-root context: temp-root/data/cre.db under a test root, else the real
+ *  <cwd>/data/cre.db. The two-root gotcha: manifest under <root>/data-room,
+ *  db under <root>/data (no dot) — mirroring the real apps/api layout. */
+function replicaDbPath(): string {
+  const base = dataRootOverride ? path.dirname(dataRootOverride) : process.cwd();
+  return path.join(base, 'data', 'cre.db');
+}
+
+/** The write-through replica store (explicit override for tests, else the
+ *  root-derived default — re-derived if the resolved db-path changes). */
+function docStore(): DataRoomDocStore {
+  if (docStoreOverride) return docStoreOverride;
+  const dbPath = replicaDbPath();
+  if (defaultDocStore === null || defaultDocStore.dbPath !== dbPath) {
+    defaultDocStore = { dbPath, store: new DataRoomDocStore(dbPath) };
+  }
+  return defaultDocStore.store;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +253,70 @@ export async function saveDataRoomDoc(args: SaveDataRoomDocArgs): Promise<DataRo
     ? mf.manifests.map((m) => (m.poolId === args.poolId ? updated : m))
     : [...mf.manifests, updated];
   writeManifestFile({ version: 1, manifests });
+
+  // ── SQLite write-through (parallel replica; JSON stays authoritative) ──────
+  // Same fields, SEQ bump on every write (fresh insert AND refresh) so ORDER BY
+  // seq reproduces docs[] with a refreshed row relocated to the tail — matching
+  // the filter-out-then-append above. Additive: guarded so it can never break a
+  // drop (the JSON manifest is already durably written by this point).
+  try {
+    docStore().upsert({
+      poolId: args.poolId,
+      loanInPoolId: entry.loanInPoolId,
+      docType: entry.docType,
+      fileHash: entry.fileHash,
+      fileName: entry.fileName,
+      mimeType: entry.mimeType,
+      size: entry.size,
+      uploadedAt: entry.uploadedAt,
+      notes: entry.notes,
+      tier: entry.tier,
+      ingest: entry.ingest,
+    });
+  } catch (err) {
+    // Non-fatal this phase — the JSON manifest is the source of truth for reads.
+    process.stderr.write(
+      `[data-room] write-through replica upsert failed (non-fatal, JSON authoritative): ${
+        err instanceof Error ? err.message : String(err)
+      }\n`,
+    );
+  }
+
   return entry;
+}
+
+// ---------------------------------------------------------------------------
+// Marker-gated importer (Data-Room v2, Phase 1).
+//
+// For envs WITH an existing JSON manifest, backfill every entry once into the
+// SQLite replica — non-lossy (all fields, docs[] order preserved as ascending
+// seq) + IDEMPOTENT (a per-pool marker row; a re-run is a no-op). No-op in a
+// tree with NO manifest. Reads stay on the JSON this phase.
+// ---------------------------------------------------------------------------
+
+/** Import all pools' manifest docs[] into the replica table. Idempotent per pool
+ *  (marker-gated). Returns per-pool imported counts (0 = already imported). */
+export function importManifestToTable(): ReadonlyArray<{ poolId: string; imported: number }> {
+  const mf = readManifestFile();
+  const store = docStore();
+  return mf.manifests.map((m) => ({
+    poolId: m.poolId,
+    imported: store.importPoolManifest(
+      m.poolId,
+      m.docs.map((d) => ({
+        loanInPoolId: d.loanInPoolId,
+        docType: d.docType,
+        fileHash: d.fileHash,
+        fileName: d.fileName,
+        mimeType: d.mimeType,
+        size: d.size,
+        uploadedAt: d.uploadedAt,
+        notes: d.notes,
+        tier: d.tier,
+        ingest: d.ingest,
+      })),
+    ),
+  }));
 }
 
 // ---------------------------------------------------------------------------
