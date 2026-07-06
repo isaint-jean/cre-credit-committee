@@ -95,6 +95,30 @@ export class RecordIdMismatchError extends Error {
 }
 
 /**
+ * Registry-resolvability write-time guard (Sunroad registry fix, Phase 1).
+ *
+ * A `revision_evaluation_context` row MUST reference benchmark/manifesto ids
+ * that resolve to persisted rows in `market_benchmarks` / `manifesto_registry`.
+ * `insertRevisionEvaluationContext` throws this if either id is absent — so a
+ * context can NEVER be born orphaned. The ingest path persists the inline
+ * registry (content-addressed, idempotent) BEFORE writing the context, which
+ * guarantees resolvability; this error is the invariant that keeps it true.
+ */
+export class RegistryUnresolvableError extends Error {
+  override readonly name = 'RegistryUnresolvableError';
+  constructor(
+    public readonly revisionId: string,
+    public readonly missing: ReadonlyArray<{ kind: 'MarketBenchmarks' | 'CreditManifesto'; id: string }>,
+  ) {
+    super(
+      `revision_evaluation_context for revision ${revisionId} references unpersisted registry ` +
+        `row(s): ${missing.map((m) => `${m.kind}=${m.id}`).join(', ')}. ` +
+        `Persist the registry (insertMarketBenchmarks / insertCreditManifesto) before the context.`,
+    );
+  }
+}
+
+/**
  * Narrow interface for `handleHandbookEvaluationRead`'s store dependency
  * (#49, v14). Declared so route tests can construct full-shape stub literals
  * without `as unknown as RecordGraphStore` casts. Production code passes the
@@ -1556,6 +1580,22 @@ export class RecordGraphStore {
     marketBenchmarksId: string;
     creditManifestoId: string;
   }): { inserted: boolean } {
+    /* Write-time resolvability invariant (Sunroad registry fix, Phase 1).
+       Refuse to write a context that points at an unpersisted registry row —
+       that is exactly the orphan this fix eliminates. Callers persist the
+       inline registry (idempotently) before reaching here, so this never
+       fires on the happy path; it is the guard that keeps the invariant true. */
+    const missing: Array<{ kind: 'MarketBenchmarks' | 'CreditManifesto'; id: string }> = [];
+    if (this.getMarketBenchmarks(ctx.marketBenchmarksId as MarketBenchmarksId) === null) {
+      missing.push({ kind: 'MarketBenchmarks', id: ctx.marketBenchmarksId });
+    }
+    if (this.getCreditManifesto(ctx.creditManifestoId as CreditManifestoId) === null) {
+      missing.push({ kind: 'CreditManifesto', id: ctx.creditManifestoId });
+    }
+    if (missing.length > 0) {
+      throw new RegistryUnresolvableError(ctx.revisionId, missing);
+    }
+
     const result = this.db
       .prepare(
         `INSERT INTO revision_evaluation_context

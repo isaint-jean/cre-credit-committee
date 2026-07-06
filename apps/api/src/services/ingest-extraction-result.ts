@@ -413,6 +413,17 @@ export async function ingestExtractionResult(
     };
     store.insertRevisionProvenance(childProvenance);
 
+    // Persist-on-ingest (Sunroad registry fix, Phase 1). Persist the EXACT
+    // benchmarks/manifesto objects this ingest scored against — the same
+    // objects whose ids are stamped on the eval-context below — BEFORE writing
+    // the context, so the context is born resolvable (never orphaned). Both
+    // inserts are content-addressed + ON CONFLICT DO NOTHING (idempotent): the
+    // reference-id append path (registry already persisted) re-inserts the same
+    // row as a no-op. Behavior-preserving: additive rows only; the eval-context
+    // id boundary is unchanged (computeRevisionId ignores these ids).
+    store.insertMarketBenchmarks(marketBenchmarks);
+    store.insertCreditManifesto(creditManifesto);
+
     // A-enabler: record the evaluation context (the INHERITED benchmarks/manifesto
     // the orchestration passed — read off the parent) for the child, so a second
     // append (grandchild) can self-source. Additive sibling; no id boundary.
@@ -465,6 +476,17 @@ export async function ingestExtractionResult(
     afterHash: adjustedInputs.id,
   };
   store.insertRevisionProvenance(rootProvenance);
+
+  // Persist-on-ingest (Sunroad registry fix, Phase 1). Persist the EXACT
+  // benchmarks/manifesto objects this root was evaluated against — the same
+  // objects whose ids are stamped on the eval-context below — BEFORE writing
+  // the context, so the context is born resolvable (never orphaned). Both
+  // inserts are content-addressed + ON CONFLICT DO NOTHING (idempotent): an
+  // inline registry equal to a pre-persisted one (reference path) re-inserts
+  // the same row as a no-op. Behavior-preserving: additive rows only; the root
+  // revision id is unchanged (computeRevisionId ignores these ids).
+  store.insertMarketBenchmarks(marketBenchmarks);
+  store.insertCreditManifesto(creditManifesto);
 
   // A-enabler: record the evaluation context (benchmarks/manifesto this root was
   // evaluated against) so the append flow can self-source it from the parent.
