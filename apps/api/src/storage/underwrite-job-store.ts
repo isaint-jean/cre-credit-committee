@@ -1,8 +1,8 @@
 /**
  * UnderwriteJobStore (Data-Room Phase 3, P3 — the durable job queue).
  *
- * P2's `fireUnderwriteOnSettle` fired `underwriteLoan` FIRE-AND-FORGET — an
- * in-memory Promise that is LOST on a process restart. P3 makes the fan-out
+ * An earlier P2 fan-out fired `underwriteLoan` FIRE-AND-FORGET (since removed) —
+ * an in-memory Promise that is LOST on a process restart. P3 makes the fan-out
  * DURABLE: the settle enqueues a persisted `underwrite_job` row; an in-process
  * worker drains it OFF the request path; a boot re-claim guarantees no in-flight
  * job is silently dropped when the process dies mid-extraction.
