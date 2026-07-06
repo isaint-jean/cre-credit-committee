@@ -1184,6 +1184,21 @@ export const api = {
       }>;
     }>(`/pools/${poolId}/coverage`),
 
+  // GET /api/pools/:poolId/underwrite-jobs → per-loan ASYNC underwrite job state
+  // (Data-Room Phase 3, P3). Latest job per loan; state ∈ pending | running | done
+  // | failed | interrupted. The chip polls this: pending|running → "Underwriting…"
+  // (inert); done → resolves to /coverage; failed|interrupted → the REAL reason.
+  getPoolUnderwriteJobs: (poolId: PoolId | string) =>
+    request<{
+      jobs: Array<{
+        loanInPoolId: string;
+        jobId: string;
+        state: 'pending' | 'running' | 'done' | 'failed' | 'interrupted';
+        reason: string | null;
+        updatedAt: string;
+      }>;
+    }>(`/pools/${poolId}/underwrite-jobs`),
+
   // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3, P1
   // "Underwrite now". Fires ONE ingest/append per loan from its accumulated
   // tier-(a) data-room docs. Branch result: appended (child revision on an

@@ -123,6 +123,22 @@ type UnderwriteRowState =
   | { readonly kind: 'done' }
   | { readonly kind: 'failed'; readonly reason: string };
 
+/**
+ * ★ Data-Room Phase 3, P3 — the ASYNC (queue-backed) job state per loan, polled
+ * from GET /pools/:poolId/underwrite-jobs. Distinct from the P1 manual
+ * `UnderwriteRowState` above: THIS is the durable-queue status a settle enqueued.
+ *   pending | running → "Underwriting…" (inert — the worker is draining it)
+ *   done              → chip resolves to the P0 coverage (complete/partial)
+ *   failed | interrupted → the REAL reason (coverage stays doc-truth, no fake green)
+ */
+type JobState = 'pending' | 'running' | 'done' | 'failed' | 'interrupted';
+interface LoanJob {
+  readonly loanInPoolId: string;
+  readonly state: JobState;
+  readonly reason: string | null;
+}
+const JOB_ACTIVE: ReadonlySet<JobState> = new Set(['pending', 'running']);
+
 const COVERAGE_TONE: Record<CoverageState, string> = {
   // Neutral / slate — NOT score-strong. A calm filled slate = "docs complete".
   'complete': 'bg-text-secondary/10 text-text-secondary border-text-secondary/30',
@@ -203,6 +219,34 @@ export function MembershipTable({
       .catch(() => { /* advisory — no chip beats a wrong chip */ });
     return () => { cancelled = true; };
   }, [poolId]);
+
+  // ★ Data-Room Phase 3, P3 — ASYNC underwrite job state, keyed by loanInPoolId.
+  // Polled while any job is active (pending|running) so "Underwriting…" resolves
+  // live as the worker drains; when a job flips to `done` we also refetch coverage
+  // so the chip re-derives to complete/partial. failed|interrupted surface the
+  // real reason. Poll STOPS once no job is active (nothing left to watch).
+  const [jobs, setJobs] = useState<Map<string, LoanJob>>(() => new Map());
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let prevActive = false;
+    const tick = async () => {
+      try {
+        const { jobs: rows } = await api.getPoolUnderwriteJobs(poolId);
+        if (cancelled) return;
+        const next = new Map(rows.map(r => [r.loanInPoolId, { loanInPoolId: r.loanInPoolId, state: r.state, reason: r.reason }]));
+        setJobs(next);
+        const active = rows.some(r => JOB_ACTIVE.has(r.state));
+        // A job just finished draining (was active, now none) → coverage moved.
+        if (prevActive && !active) void refetchCoverage();
+        prevActive = active;
+        // Keep polling only while something is in flight (or on first load, once).
+        if (active && !cancelled) timer = setTimeout(tick, 2500);
+      } catch { /* advisory — no chip beats a wrong chip */ }
+    };
+    void tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [poolId, refetchCoverage]);
 
   // ★ Data-Room Phase 3, P1 — the manual "Underwrite now" action. Per-loan
   // transient state (idle | running | done | failed). SYNC + slow (real ingest);
@@ -379,6 +423,7 @@ export function MembershipTable({
                       const tone = cov ? COVERAGE_TONE[cov.state] : COVERAGE_TONE.none;
                       const hasDocs = cov !== undefined && cov.state !== 'none';
                       const uw = underwrite.get(m.loanInPoolId);
+                      const job = jobs.get(m.loanInPoolId);
                       return (
                         <div className="flex flex-col items-start gap-1">
                           <span
@@ -387,11 +432,32 @@ export function MembershipTable({
                           >
                             {text}
                           </span>
-                          <UnderwriteAction
-                            state={uw}
-                            enabled={hasDocs}
-                            onRun={() => runUnderwrite(m.loanInPoolId, m.dealRef)}
-                          />
+                          {/* ★ P3 async queue status takes precedence: an enqueued
+                              (settle-fired) job shows "Underwriting…" / the real
+                              failure reason. done → falls through to the manual
+                              P1 affordance so a later doc drop can re-underwrite. */}
+                          {job && JOB_ACTIVE.has(job.state) ? (
+                            <span className="text-[11px] text-text-muted" title="Queued underwrite in flight — the worker is draining it off-request">
+                              Underwriting…
+                            </span>
+                          ) : job && (job.state === 'failed' || job.state === 'interrupted') ? (
+                            <button
+                              type="button"
+                              onClick={() => runUnderwrite(m.loanInPoolId, m.dealRef)}
+                              className="text-[11px] text-risk-high hover:underline"
+                              title={job.state === 'interrupted'
+                                ? `Underwrite interrupted (process restarted mid-flight — outcome unknown). ${job.reason ?? ''} Click to re-run.`
+                                : `Underwrite failed: ${job.reason ?? 'unknown reason'}. Click to retry.`}
+                            >
+                              {job.state === 'interrupted' ? 'Underwrite interrupted — re-run' : 'Underwrite failed — retry'}
+                            </button>
+                          ) : (
+                            <UnderwriteAction
+                              state={uw}
+                              enabled={hasDocs}
+                              onRun={() => runUnderwrite(m.loanInPoolId, m.dealRef)}
+                            />
+                          )}
                         </div>
                       );
                     })()}

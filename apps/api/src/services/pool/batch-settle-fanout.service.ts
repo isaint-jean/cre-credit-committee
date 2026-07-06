@@ -38,6 +38,9 @@ import {
   UnderwriteLoanError,
 } from './underwrite-loan.service.js';
 import type { UnderwriteLoanResult } from './underwrite-loan.service.js';
+import type { UnderwriteJobStore } from '../../storage/underwrite-job-store.js';
+import { underwriteJobStore as defaultJobStore } from '../../storage/underwrite-job-store.js';
+import { kickUnderwriteDrain } from './underwrite-worker.service.js';
 
 /* -------------------------------------------------------------------------- */
 /* Settle detection.                                                          */
@@ -231,4 +234,77 @@ export function fireUnderwriteOnSettle(
     firedCount: dispatch.length,
     done,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* P3 — the DURABLE enqueue (replaces the fire-and-forget fan-out).            */
+/* -------------------------------------------------------------------------- */
+
+export interface EnqueueOnSettleDeps extends SettleDetectionDeps {
+  readonly poolStore?: PoolStore;
+  readonly jobStore?: UnderwriteJobStore;
+  /** Skip kicking the in-process drain (proofs drive the worker manually). */
+  readonly kickDrain?: boolean;
+}
+
+export interface EnqueueOnSettleResult {
+  readonly settled: boolean;
+  /** The distinct loans the settle enqueued (or found already active) a job for. */
+  readonly affectedLoans: ReadonlyArray<AffectedLoan>;
+  /** How many NEW jobs the settle minted (dedup: an already-active loan is 0). */
+  readonly enqueuedCount: number;
+  /** The job ids per affected loan (new or already-active), for the response/chip. */
+  readonly jobs: ReadonlyArray<{ loanInPoolId: string; jobId: string; created: boolean }>;
+}
+
+/**
+ * ★ P3 fan-out — DURABLE. If `batchId` is now fully settled, ENQUEUE one durable
+ * `underwrite_job` per distinct affected loan (DEDUP — a loan with an already-
+ * active job is NOT re-enqueued, preserving P2's one-per-loan through the queue),
+ * then KICK the in-process drain OFF the request path and RETURN FAST. The assign
+ * response never waits on K×(extraction+LLM) — the worker drains in the
+ * background; a process restart re-claims any in-flight job (boot re-claim).
+ *
+ * This REPLACES `fireUnderwriteOnSettle`'s fire-and-forget: no ephemeral Promise
+ * on the request path — the settle's ONLY durable act is the enqueue.
+ */
+export function enqueueUnderwriteOnSettle(
+  poolId: string,
+  batchId: string,
+  deps: EnqueueOnSettleDeps = {},
+): EnqueueOnSettleResult {
+  const poolStore = deps.poolStore ?? new PoolStore();
+  const jobStore = deps.jobStore ?? defaultJobStore();
+
+  const settle = detectSettledBatch(poolId, batchId, deps);
+  if (!settle.settled) {
+    return { settled: false, affectedLoans: [], enqueuedCount: 0, jobs: [] };
+  }
+
+  const affectedLoans: AffectedLoan[] = [];
+  const jobs: Array<{ loanInPoolId: string; jobId: string; created: boolean }> = [];
+  let enqueuedCount = 0;
+
+  for (const loanInPoolId of settle.affectedLoanIds) {
+    const loan = poolStore.getLoanInPool(loanInPoolId as LoanInPoolId);
+    if (loan === null || loan.poolId !== poolId) {
+      // Unresolvable / cross-pool — surface it but do NOT enqueue (nothing coherent
+      // to underwrite; the worker would only fail it).
+      affectedLoans.push({ loanInPoolId, dealRef: null });
+      continue;
+    }
+    affectedLoans.push({ loanInPoolId, dealRef: loan.dealRef });
+    const { job, created } = jobStore.enqueue(poolId, loanInPoolId);
+    if (created) enqueuedCount += 1;
+    jobs.push({ loanInPoolId, jobId: job.id, created });
+  }
+
+  // Kick the drain OFF the request path (idempotent; a running drain absorbs the
+  // new jobs). The route does NOT await this. Proofs pass kickDrain:false to drive
+  // the worker deterministically.
+  if (deps.kickDrain !== false && enqueuedCount > 0) {
+    kickUnderwriteDrain({ jobStore, poolStore });
+  }
+
+  return { settled: true, affectedLoans, enqueuedCount, jobs };
 }

@@ -58,6 +58,7 @@ import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { computePoolCoverage } from '../services/pool/pool-coverage.service.js';
 import { underwriteLoan, UnderwriteLoanError } from '../services/pool/underwrite-loan.service.js';
+import { underwriteJobStore } from '../storage/underwrite-job-store.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -703,6 +704,45 @@ poolRoutes.get('/:poolId/coverage', (req: Request, res: Response) => {
     const loans = membership.map((m) => ({ loanInPoolId: m.loanInPoolId, dealRef: m.dealRef }));
     const coverage = computePoolCoverage(poolId, loans);
     return res.json({ coverage });
+  } catch (e) { return mapThrow(res, e); }
+});
+
+/**
+ * GET /api/pools/:poolId/underwrite-jobs — the ASYNC underwrite job state per
+ * loan (Data-Room Phase 3, P3). Returns `[{ loanInPoolId, jobId, state, reason,
+ * updatedAt }]` — one row per loan that has (or had) a job, drawn from the loan's
+ * MOST-RECENT job. `state ∈ pending | running | done | failed | interrupted`.
+ *
+ * The chip reads this ALONGSIDE /coverage: pending|running → "Underwriting…"
+ * (inert); done → the chip resolves to the P0 coverage (complete/partial);
+ * failed|interrupted → the REAL reason (coverage stays doc-truth — never a fake
+ * green on failure). READ-ONLY — polled/refetched as jobs finish.
+ *
+ * ★ MUST be registered BEFORE `GET /:poolId`.
+ */
+poolRoutes.get('/:poolId/underwrite-jobs', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  try {
+    const pool = poolStore().getPool(poolId);
+    if (pool === null) return res.status(404).json({ error: 'NOT_FOUND', message: `pool ${poolId} not found` });
+    // Latest job per loan (a loan may have older done/failed rows behind a newer
+    // active one). getJobsForPool is newest-first → first per loan wins.
+    const seen = new Set<string>();
+    const jobs = underwriteJobStore()
+      .getJobsForPool(poolId)
+      .filter((j) => {
+        if (seen.has(j.loanInPoolId)) return false;
+        seen.add(j.loanInPoolId);
+        return true;
+      })
+      .map((j) => ({
+        loanInPoolId: j.loanInPoolId,
+        jobId: j.id,
+        state: j.state,
+        reason: j.reason,
+        updatedAt: j.updatedAt,
+      }));
+    return res.json({ jobs });
   } catch (e) { return mapThrow(res, e); }
 });
 
