@@ -33,126 +33,24 @@ export interface UWRecordLike {
   state?: string;
 }
 
-export type SourceDocSlot =
-  | 'asr'
-  | 'cf'
-  | 'rent_roll'
-  | 'pca'
-  | 'seller_uw'
-  | 't12'
-  | 'appraisal';
+// ── Lifted to @cre/shared (Data-Room Phase 2a) ──────────────────────────────
+// `inferSlotFromFilename`, `normalizeForMatch`, `stripSlotHints`, `SLOT_LABELS`,
+// `REQUIRED_SLOTS`, and the `SourceDocSlot` / `SOURCE_DOC_SLOTS` union now live in
+// @cre/shared so BOTH web and the API's classify-on-stage path import ONE copy
+// (no duplicate, no drift). Re-exported here so this module's existing web
+// consumers (SourceDocUpload.tsx, api-client.ts) keep importing from the same
+// path. `matchFileToDeal` + its result types stay web-only (library matcher).
+export {
+  SOURCE_DOC_SLOTS,
+  REQUIRED_SLOTS,
+  SLOT_LABELS,
+  stripSlotHints,
+  normalizeForMatch,
+  inferSlotFromFilename,
+  type SourceDocSlot,
+} from '@cre/shared';
 
-export const SOURCE_DOC_SLOTS: ReadonlyArray<SourceDocSlot> = [
-  'asr',
-  'cf',
-  'rent_roll',
-  'pca',
-  'seller_uw',
-  't12',
-  'appraisal',
-];
-
-export const REQUIRED_SLOTS: ReadonlyArray<SourceDocSlot> = ['asr', 'cf'];
-
-export const SLOT_LABELS: Record<SourceDocSlot, string> = {
-  asr: 'ASR (Anticipated Sale Report)',
-  cf: 'Cash Flow (Seller CF)',
-  rent_roll: 'Rent Roll',
-  pca: 'PCA (Property Condition)',
-  seller_uw: 'Seller Underwriting',
-  t12: 'T-12 (Trailing 12 Operating Statement)',
-  appraisal: 'Appraisal',
-};
-
-/**
- * Strip the slot-hint tokens from a filename for matching purposes. We don't
- * alter slot inference here; we just remove substrings that would otherwise
- * pollute the name-similarity score (e.g. the word "ASR" appearing in the
- * filename but not the dealName).
- */
-export function stripSlotHints(s: string): string {
-  return s
-    .replace(
-      /\b(ASR|CF|PCA|Rent[\s-]*Roll|RR|T-?12|Trailing[\s-]*Twelve|Trailing[\s-]*12|Appraisal|Seller[\s-]*UW|Seller[\s-]*Underwriting|Cash[\s-]*Flow|Operating[\s-]*Statement|Pro[\s-]*Forma|Anticipated[\s-]*Sale[\s-]*Report|Property[\s-]*Condition|Acquisition[\s-]*Sale[\s-]*Report|Valuation[\s-]*Report)\b/gi,
-      ' ',
-    )
-    .replace(/\(\s*\d{4}[\s-]*\d{1,2}[\s-]*\d{1,2}\s*\)/g, ' ') // (2023-07-25)
-    .replace(/\b(PRELIM|FINAL|DRAFT)\b/gi, ' ');
-}
-
-/**
- * Normalize a deal-name or filename for comparison.
- *
- * Pipeline:
- *   - strip file extension
- *   - strip leading "NNN- " / "NNN.NN- " / "N- " prefix
- *   - strip common manual-status suffixes ("OK TO PRINT JN", "FINAL", "W SITES", ...)
- *   - strip slot-hint substrings (delegated to stripSlotHints)
- *   - replace punctuation with spaces
- *   - lowercase + collapse whitespace
- */
-export function normalizeForMatch(raw: string): string {
-  let s = raw;
-
-  // Strip file extension
-  s = s.replace(/\.(xlsm|xlsx|xls|pdf|doc|docx)$/i, '');
-
-  // Strip leading "NNN- " or "NNN.NN- " or "N- " prefix
-  s = s.replace(/^\s*\d{1,3}(?:\.\d{1,3})?\s*[-–.\s]+/, '');
-
-  // Strip common suffixes (order matters — longest first). Repeated passes
-  // peel nested suffixes (e.g. "FINAL OK TO PRINT JN" → "FINAL OK TO PRINT"
-  // → "FINAL" → ""). Trim between passes so trailing whitespace doesn't
-  // break the `$` anchor.
-  const suffixRx = /\s*[-–]?\s*(OK\s*TO\s*PRINT\s*[A-Z]{1,3}|OK\s*TO\s*PRINT|FINAL[-–\s]*OK\s*TO\s*PRINT|FINAL|with\s+sites|W\s+SITES|vStress|v\d+|need(?:s)?\s+site|JH\s*OK(?:\s+with\s+sites)?|JK\s+with\s+sites|LP\s*OK(?:\s+with\s+sites)?|JN|Updated|Revised|REV\d*)\s*$/gi;
-  for (let i = 0; i < 4; i++) {
-    const before = s;
-    s = s.replace(suffixRx, '').trim();
-    if (s === before) break;
-  }
-
-  // Strip slot-hint tokens so name match isn't confused by them.
-  s = stripSlotHints(s);
-
-  // Punctuation → space
-  s = s.replace(/[-–_.,(){}[\]&'']/g, ' ');
-
-  // Lowercase + collapse
-  s = s.toLowerCase().replace(/\s+/g, ' ').trim();
-
-  return s;
-}
-
-/**
- * Infer the slot type from a filename. Returns null on either zero matches
- * (unknown) or multiple matches (ambiguous) — both states require the user
- * to choose explicitly via the dropdown in the review UI.
- *
- * The PCA pattern intentionally matches before the rent-roll pattern only
- * via ordering; we still rely on the multi-match-null fallback for the
- * pathological "appraisal-cf-pca.pdf" case.
- *
- * Bare "RR" is intentionally NOT a rent-roll trigger — too noisy in real
- * filenames (also matches in property codes).
- */
-export function inferSlotFromFilename(fileName: string): SourceDocSlot | null {
-  const patterns: ReadonlyArray<readonly [SourceDocSlot, RegExp]> = [
-    ['asr', /\b(ASR|Anticipated[\s-]*Sale[\s-]*Report|Acquisition[\s-]*Sale[\s-]*Report)\b/i],
-    ['cf', /\b(CF|Cash[\s-]*Flow|Operating[\s-]*Statement|Pro[\s-]*Forma)\b/i],
-    ['pca', /\b(PCA|Property[\s-]*Condition(?:[\s-]*Assessment)?)\b/i],
-    ['rent_roll', /\b(Rent[\s-]*Roll)\b/i],
-    ['seller_uw', /\b(Seller[\s-]*UW|Seller[\s-]*Underwriting|Seller[\s-]*Pro[\s-]*Forma)\b/i],
-    ['t12', /\b(T-?12|Trailing[\s-]*Twelve|Trailing[\s-]*12)\b/i],
-    ['appraisal', /\b(Appraisal(?:[\s-]*Report)?|Valuation[\s-]*Report)\b/i],
-  ];
-
-  const matched: SourceDocSlot[] = [];
-  for (const [slot, rx] of patterns) {
-    if (rx.test(fileName)) matched.push(slot);
-  }
-  if (matched.length === 1) return matched[0]!;
-  return null;
-}
+import { normalizeForMatch } from '@cre/shared';
 
 export interface MatchCandidate {
   readonly uwRecord: UWRecordLike;
