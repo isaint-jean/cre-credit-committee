@@ -40,6 +40,7 @@ import {
 } from '../services/data-room-classify.service.js';
 import { DocumentReadStateStore } from '../storage/document-read-state-store.js';
 import { PoolStore } from '../storage/pool-store.js';
+import { fireUnderwriteOnSettle } from '../services/pool/batch-settle-fanout.service.js';
 import type { PoolId } from '@cre/contracts';
 
 export const dataRoomRoutes = Router();
@@ -159,6 +160,15 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
     const stagedForConfirm = batch.files.filter((f) => !autoRoutedIds.has(f.stagingId));
     const routingForConfirm = routing.filter((r) => !autoRoutedIds.has(r.stagingId));
 
+    // ── Data-Room Phase 3, P2 — batch-settled auto-fire (settle path a). ──────
+    // When Phase-2 auto-routing files EVERY dropped file (nothing left for the
+    // confirm tray), the batch is SETTLED on this one request → fan out ONE
+    // underwriteLoan per distinct affected loan, NON-BLOCKING. A batch with any
+    // file still needing confirm is NOT settled → nothing fires here (it fires
+    // on the later POST /assign that confirms the last file). We do NOT await the
+    // jobs — only the affected-loan list rides in the response.
+    const fan = fireUnderwriteOnSettle(poolId, batch.batchId, { poolStore: poolStore() });
+
     res.status(201).json({
       // Only the confirm-needed files ride in `batch.files` so the tray never
       // shows an already-filed doc; auto-routed files appear under their folder
@@ -169,6 +179,12 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
       summary: {
         autoRoutedCount: autoRoutedIds.size,
         needConfirmCount: stagedForConfirm.length,
+      },
+      // P2: which loans (if any) the settle just kicked into underwriting.
+      underwriting: {
+        settled: fan.settled,
+        affectedLoans: fan.affectedLoans,
+        firedCount: fan.firedCount,
       },
     });
   } catch (err: any) {
@@ -188,7 +204,24 @@ dataRoomRoutes.post('/:poolId/assign', async (req: Request, res: Response) => {
       return;
     }
     const results = await assignDataRoomFiles({ poolId, batchId, assignments });
-    res.json({ results });
+
+    // ── Data-Room Phase 3, P2 — batch-settled auto-fire (settle path b). ──────
+    // Confirming tray files may have just assigned the LAST unassigned file in the
+    // batch → the batch is now SETTLED. Fan out ONE underwriteLoan per distinct
+    // affected loan, NON-BLOCKING. If any file is still tray-pending (this confirm
+    // didn't cover the whole batch), the batch is NOT settled → nothing fires. We
+    // return the affected-loan list WITHOUT awaiting the jobs (K×extraction+LLM
+    // must not block the assign response).
+    const fan = fireUnderwriteOnSettle(poolId, batchId, { poolStore: poolStore() });
+
+    res.json({
+      results,
+      underwriting: {
+        settled: fan.settled,
+        affectedLoans: fan.affectedLoans,
+        firedCount: fan.firedCount,
+      },
+    });
   } catch (err: any) {
     console.error('data-room assign error:', err);
     res.status(500).json({ error: 'assign_failed', message: err?.message ?? String(err) });
