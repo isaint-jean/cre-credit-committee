@@ -13,6 +13,7 @@ import { workflowRoutes } from './workflow.routes.js';
 import { registryRoutes } from './registry.routes.js';
 import { kicksRoutes } from './kicks.routes.js';
 import { sourceDocsRoutes } from './source-docs.routes.js';
+import { dataRoomRoutes } from './data-room.routes.js';
 import { poolRoutes } from './pool.routes.js';
 import { requireAuth } from '../middleware/auth.js';
 import { observabilityMiddleware } from '../middleware/observability.middleware.js';
@@ -65,6 +66,13 @@ apiRouter.use(workflowRoutes);
 // paired with HistoricalUnderwriting records. Upload-and-organize ONLY;
 // not wired to extraction or ingest. See routes/source-docs.routes.ts.
 apiRouter.use('/source-docs', requireAuth, sourceDocsRoutes);
+
+// Data-Room Phase 1 (Deliverables 2+3) — per-POOL two-level (Deal × Doc-type)
+// document store + per-user read/unread + download-what's-new. DECOUPLED from
+// ingest: bulk drop → stage → assign(loan, docType) → browse/download; NO
+// re-ingest is triggered. Tier-(c) room-only docs (legal/title/insurance) are
+// first-class. See routes/data-room.routes.ts.
+apiRouter.use('/data-room', requireAuth, dataRoomRoutes);
 
 // Pool layer (PR 4) — HTTP surface for the deal-as-collection-of-loans
 // stack (Pool / Tape / LoanInPool / Disposition). Composes the PR3
