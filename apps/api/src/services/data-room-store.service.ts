@@ -17,8 +17,11 @@
  *   - BYTES ride the existing content-addressed blobStore (.data/blobs/,
  *     hash-keyed, deduped) — the SAME bytes a future ingest would read. This
  *     store never writes bytes anywhere else.
- *   - MAPPING is the only NEW storage: an atomic JSON manifest at
- *     .data/data-room/data-room-manifests.json, one manifest per poolId.
+ *   - MAPPING lives in the `data_room_doc` SQLite table on cre.db. ★ Data-Room v2
+ *     Phase 4: the table is now the SOLE writer AND reader. The old JSON manifest
+ *     (.data/data-room/data-room-manifests.json) is FROZEN — kept read-only for a
+ *     one-release safety valve (readManifestFile + the marker-gated importer +
+ *     getPoolManifest), never written.
  *
  * NAMESPACE SEPARATION: three doc manifests now coexist, byte-shared in
  * .data/blobs/ but keyed differently and in different directories, so they can
@@ -70,15 +73,16 @@ function manifestFile(): string {
 }
 
 // ---------------------------------------------------------------------------
-// SQLite write-through replica (Data-Room v2, Phase 1).
+// SQLite store (Data-Room v2 — Phase 4: the SOLE source for reads AND writes).
 //
-// The JSON manifest above stays AUTHORITATIVE for every READ this phase. In
-// PARALLEL, each manifest write ALSO upserts a lazy-DDL SQLite table so the port
-// populates without any read-path change (cutover is Phase 2). Behavior-
-// preserving: the upsert is additive, wrapped so a table hiccup never breaks a
-// drop (the JSON is the source of truth).
+// The `data_room_doc` table (lazy-DDL) is now authoritative for every READ
+// (Phase 2) AND WRITE (Phase 4 — persistDataRoomEntries writes ONLY the table).
+// The JSON manifest is frozen (read-only safety valve; see the Manifest I/O
+// section). The store is keyed on the data-root so proofs setting a temp root
+// write/read a throwaway db, never the real cre.db.
 //
-// The default store is keyed on the SAME data-root context as the manifest:
+// The default store is keyed on the SAME data-root context as the (now frozen)
+// manifest:
 //   - no override (real server): <cwd>/data/cre.db (the real db).
 //   - test root set via setDataRoomRoot: <root>/data/cre.db — NEVER the real
 //     cre.db. This makes the existing proofs (which only call setDataRoomRoot)
@@ -178,7 +182,13 @@ export class InvalidDocTypeError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Manifest I/O — atomic tmp-rename write, single-writer
+// Manifest I/O — READ-ONLY safety valve (Data-Room v2, Phase 4).
+//
+// ★ Phase 4 dropped the JSON WRITE (the table is the sole writer). readManifestFile
+// is KEPT — read-only — for the one-release safety valve: the marker-gated importer
+// (importManifestToTable) migrates a pre-existing manifest in, and getPoolManifest
+// still answers off any frozen JSON. The write function was removed as dead code
+// once persistDataRoomEntries stopped calling it (grep-clean, no callers).
 // ---------------------------------------------------------------------------
 
 function readManifestFile(): DataRoomManifestFile {
@@ -189,14 +199,6 @@ function readManifestFile(): DataRoomManifestFile {
     return parsed as DataRoomManifestFile;
   }
   throw new Error(`data-room manifest corrupt at ${file}`);
-}
-
-function writeManifestFile(f: DataRoomManifestFile): void {
-  fs.mkdirSync(dataRoomDir(), { recursive: true });
-  const target = manifestFile();
-  const tmp = `${target}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(f, null, 2));
-  fs.renameSync(tmp, target);
 }
 
 function nowIso(): string {
@@ -262,29 +264,38 @@ export async function saveDataRoomDoc(args: SaveDataRoomDocArgs): Promise<DataRo
 }
 
 // ---------------------------------------------------------------------------
-// Batched persist (Data-Room v2, Phase 3 — the O(N²)→O(N) collapse).
+// Batched persist (Data-Room v2 — Phase 4: the table is the SOLE writer).
 //
-// The manifest is read ONCE + written ONCE for the whole batch; the table upserts
-// run in ONE better-sqlite3 transaction. Applying N entries IN ORDER to the
-// in-memory docs[] (filter-out-then-append each) produces the EXACT same final
-// docs[] as N sequential saveDataRoomDoc calls — including intra-batch dedup
-// (two entries with the same (loanInPoolId, docType, fileHash) → last-wins at the
-// tail) and dedup against existing docs. The table's ORDER BY seq equals that
-// docs[]: upsertMany bumps seq to a fresh MAX(seq)+1 per row IN ARRAY ORDER, so
-// intra-batch order → increasing seq → the same tail-relocation.
+// ★ PHASE 4 CUTOVER: the JSON manifest write is DROPPED. The table
+// (`data_room_doc`) is now authoritative for BOTH reads (Phase 2) AND writes.
+// The table's `ON CONFLICT(pk) DO UPDATE` + `seq = MAX(seq)+1` per row ALREADY
+// reproduces the old JSON filter-out-then-append dedup + tail-relocation exactly
+// (proven byte-identical in Phases 1–3): a re-drop of the same
+// (loanInPoolId, docType, fileHash) UPSERTs the SAME row and bumps its seq to a
+// fresh global max, so ORDER BY seq relocates it to the tail — identical to the
+// manifest's filter-out-then-append. Applying the batch in array order → strictly
+// increasing seq → the same intra-batch dedup (same-triple last-wins at tail) +
+// dedup against existing rows. So the table is self-sufficient; the JSON read for
+// dedup and the whole-JSON rewrite are both gone.
 //
-// ★ DATA-ROOT: uses the SAME readManifestFile()/writeManifestFile() (via
-// dataRoomDir()/dataDir() → dataRootOverride ?? cwd) + docStore() (via
-// replicaDbPath() → dataRootOverride ?? cwd) as the OLD saveDataRoomDoc, so the
-// write path resolves to the data-root (<root>/.data manifest + <root>/data/cre.db
-// replica), NEVER <cwd> and NEVER dirname(root).
+// ★ THE JSON READ-ONLY SAFETY VALVE stays intact (one release): readManifestFile,
+// the marker-gated importer (importManifestToTable / importPoolManifest), and
+// getPoolManifest are retained + any existing JSON files are NOT deleted, so a
+// post-cutover problem stays comparable and a real-manifest env can still migrate
+// in. Only the WRITE side of the JSON is dropped here.
+//
+// ★ DATA-ROOT: the sole writer is docStore() (via replicaDbPath() →
+// dataRootOverride ?? process.cwd() → <root>/data/cre.db), so the write path
+// resolves to the data-root, NEVER <cwd> when a root is set and NEVER
+// dirname(root). No more manifest write, so no <root>/.data manifest is touched.
 // ---------------------------------------------------------------------------
 
 /**
- * Persist N built entries into one pool's manifest + the replica table, reading
- * the manifest ONCE and writing it ONCE, with the table upserts in ONE txn.
- * Behavior-identical to N sequential saveDataRoomDoc calls (same in-order
- * filter-out-then-append dedup, same seq tail-relocation). Returns the entries.
+ * Persist N built entries into one pool's replica table in ONE transaction. The
+ * TABLE is the sole writer: upsertMany bumps seq = MAX(seq)+1 per row in array
+ * order, so ORDER BY seq reproduces the old manifest docs[] EXACTLY (in-order
+ * filter-out-then-append dedup, same-triple last-wins at the tail, existing-row
+ * dedup, tail-relocation). No JSON is read or written. Returns the entries.
  */
 export function persistDataRoomEntries(
   poolId: string,
@@ -292,56 +303,26 @@ export function persistDataRoomEntries(
 ): ReadonlyArray<DataRoomDocEntry> {
   if (entries.length === 0) return entries;
 
-  // ── JSON manifest: read ONCE, apply all entries in order, write ONCE. ──────
-  const mf = readManifestFile();
-  const existing = mf.manifests.find((m) => m.poolId === poolId);
-  const createdAt = existing?.createdAt ?? entries[0]!.uploadedAt;
-  // Mutable working copy of docs[] — apply the SAME per-entry dedup the loop did:
-  // filter out any prior doc with the same (loanInPoolId, docType, fileHash), then
-  // append. In-order over the batch → intra-batch same-triple last-wins at tail.
-  let docs: DataRoomDocEntry[] = existing ? [...existing.docs] : [];
-  for (const entry of entries) {
-    docs = docs.filter(
-      (d) => !(d.loanInPoolId === entry.loanInPoolId && d.docType === entry.docType && d.fileHash === entry.fileHash),
-    );
-    docs.push(entry);
-  }
-  const updatedAt = entries[entries.length - 1]!.uploadedAt;
-  const updated: DataRoomManifest = { poolId, docs, createdAt, updatedAt };
-  const manifests = existing
-    ? mf.manifests.map((m) => (m.poolId === poolId ? updated : m))
-    : [...mf.manifests, updated];
-  writeManifestFile({ version: 1, manifests });
-
-  // ── SQLite write-through (parallel replica; JSON stays authoritative) ──────
+  // ── SQLite is the SOLE writer (Phase 4). ───────────────────────────────────
   // ONE transaction; each row bumps seq = MAX(seq)+1 IN ARRAY ORDER so ORDER BY
-  // seq reproduces docs[] (refreshed rows relocated to the tail). Additive:
-  // guarded so it can never break a drop (the JSON manifest is already durably
-  // written by this point).
-  try {
-    docStore().upsertMany(
-      entries.map((entry) => ({
-        poolId,
-        loanInPoolId: entry.loanInPoolId,
-        docType: entry.docType,
-        fileHash: entry.fileHash,
-        fileName: entry.fileName,
-        mimeType: entry.mimeType,
-        size: entry.size,
-        uploadedAt: entry.uploadedAt,
-        notes: entry.notes,
-        tier: entry.tier,
-        ingest: entry.ingest,
-      })),
-    );
-  } catch (err) {
-    // Non-fatal this phase — the JSON manifest is the source of truth for reads.
-    process.stderr.write(
-      `[data-room] write-through replica batch upsert failed (non-fatal, JSON authoritative): ${
-        err instanceof Error ? err.message : String(err)
-      }\n`,
-    );
-  }
+  // seq reproduces the old docs[] (refreshed rows relocated to the tail). No JSON
+  // manifest is read or written — the table's PK-upsert + seq-bump is the dedup +
+  // ordering, exactly as the JSON docs[] filter-out-then-append was.
+  docStore().upsertMany(
+    entries.map((entry) => ({
+      poolId,
+      loanInPoolId: entry.loanInPoolId,
+      docType: entry.docType,
+      fileHash: entry.fileHash,
+      fileName: entry.fileName,
+      mimeType: entry.mimeType,
+      size: entry.size,
+      uploadedAt: entry.uploadedAt,
+      notes: entry.notes,
+      tier: entry.tier,
+      ingest: entry.ingest,
+    })),
+  );
 
   return entries;
 }
@@ -384,6 +365,16 @@ export function importManifestToTable(): ReadonlyArray<{ poolId: string; importe
 // Public API — reads + the two projections
 // ---------------------------------------------------------------------------
 
+/**
+ * F3 — reads the (now Phase-4-FROZEN) JSON manifest for a pool's createdAt/
+ * updatedAt envelope. ★ NO LIVE CONSUMER: kept as part of the one-release
+ * read-only safety valve (the frozen JSON stays readable for comparison /
+ * migration). It is the ONLY reader of the pool-level createdAt/updatedAt, which
+ * the `data_room_doc` table does not carry (the table stores per-doc uploadedAt
+ * only). Since the JSON write is dropped, any value it returns reflects the
+ * manifest AS FROZEN at cutover — do NOT wire a live consumer onto it without
+ * first sourcing createdAt/updatedAt from the table.
+ */
 export function getPoolManifest(poolId: string): DataRoomManifest | null {
   return readManifestFile().manifests.find((m) => m.poolId === poolId) ?? null;
 }
