@@ -47,6 +47,7 @@ import { blobStore } from '../storage/blob-store.js';
 import type { ContentHash } from '@cre/contracts';
 import { getStagingBatch } from './source-doc-store.service.js';
 import { DataRoomDocStore } from '../storage/data-room-doc-store.js';
+import type { DataRoomDocRow } from '../storage/data-room-doc-store.js';
 
 // ---------------------------------------------------------------------------
 // Paths (separate namespace — never touches cre.db, never touches ingest dirs)
@@ -96,12 +97,25 @@ export function setDataRoomDocStore(store: DataRoomDocStore | null): void {
   docStoreOverride = store;
 }
 
-/** The cre.db path the write-through replica targets, following the manifest's
- *  data-root context: temp-root/data/cre.db under a test root, else the real
- *  <cwd>/data/cre.db. The two-root gotcha: manifest under <root>/data-room,
- *  db under <root>/data (no dot) — mirroring the real apps/api layout. */
+/** The cre.db path the write-through replica (Phase 1) AND the read path
+ *  (Phase 2) target, following the manifest's data-root context:
+ *    - test root set: <root>/data/cre.db — UNDER the throwaway root, so it is
+ *      isolated per-root (auto-cleaned when the proof rms its tmpRoot) AND is
+ *      NEVER the real cre.db. Manifest lives at <root>/data-room/…, the replica
+ *      at <root>/data/cre.db — a sibling INSIDE the same root.
+ *    - no override (real server): <cwd>/data/cre.db (the real db).
+ *
+ *  ★ PHASE-2 LESSON (why this must live UNDER the root, not dirname(root)):
+ *  the read path now reads this db. If the db lived at dirname(root)/data
+ *  (root's PARENT, e.g. os.tmpdir()/data), every sibling temp root would share
+ *  ONE replica db → cross-proof/cross-run row bleed the moment reads move off
+ *  the per-root JSON. Keeping it UNDER the root makes each proof's table reads
+ *  see exactly (and only) that proof's writes — the data-root-following identity
+ *  the Phase-1 lesson demands, now enforced on the READ path too. Proofs that
+ *  inject an explicit replica via setDataRoomDocStore are unaffected (that
+ *  override wins over this default). */
 function replicaDbPath(): string {
-  const base = dataRootOverride ? path.dirname(dataRootOverride) : process.cwd();
+  const base = dataRootOverride ?? process.cwd();
   return path.join(base, 'data', 'cre.db');
 }
 
@@ -327,9 +341,42 @@ export function getPoolManifest(poolId: string): DataRoomManifest | null {
   return readManifestFile().manifests.find((m) => m.poolId === poolId) ?? null;
 }
 
-/** Every doc in the pool (flat pile). */
+/** Strip a table row (poolId + seq) down to the manifest's DataRoomDocEntry
+ *  shape. tier/ingest ride the row (denormalized, as the manifest); CATEGORY is
+ *  never on the entry — it is derived on read from DOC_TYPE_CATEGORY by the
+ *  projections, the ONE source. */
+function rowToEntry(r: DataRoomDocRow): DataRoomDocEntry {
+  return {
+    loanInPoolId: r.loanInPoolId,
+    docType: r.docType,
+    fileHash: r.fileHash,
+    fileName: r.fileName,
+    mimeType: r.mimeType,
+    size: r.size,
+    uploadedAt: r.uploadedAt,
+    notes: r.notes,
+    tier: r.tier,
+    ingest: r.ingest,
+  };
+}
+
+/**
+ * Every doc in the pool (flat pile).
+ *
+ * ── Data-Room v2, Phase 2: READS CUT OVER TO THE TABLE ──────────────────────
+ * Reads `data_room_doc` (ORDER BY seq) via the SAME data-root-following
+ * `docStore()` the write-through replica writes — so a proof that sets only a
+ * data-room root reads from the temp-root db, never the real cre.db. The
+ * `ORDER BY seq` reproduces the manifest's `docs[]` order EXACTLY (write-order,
+ * with any refreshed row relocated to the tail). This is THE BASE: the three
+ * projections + getDataRoomDoc + download all build on this one query, so they
+ * inherit the cutover (and the first-seen / seq ordering) for free.
+ *
+ * JSON stays WRITE-THROUGH this phase (drop is Phase 4); reads no longer touch
+ * the manifest.
+ */
 export function listPoolDocs(poolId: string): ReadonlyArray<DataRoomDocEntry> {
-  return getPoolManifest(poolId)?.docs ?? [];
+  return docStore().listPoolDocs(poolId).map(rowToEntry);
 }
 
 /** PROJECTION 1 — docs grouped by doc-type across the pool's loans. */
@@ -415,9 +462,14 @@ export async function getDataRoomDoc(
   poolId: string,
   fileHash: string,
 ): Promise<{ bytes: Buffer; entry: DataRoomDocEntry } | null> {
-  const docs = listPoolDocs(poolId);
-  const entry = docs.find((d) => d.fileHash === fileHash);
-  if (!entry) return null;
+  // Data-Room v2, Phase 2 — F2: read the table for the FIRST (ORDER BY seq)
+  // doc in this pool matching the content hash, reproducing the original
+  // `listPoolDocs(...).find((d) => d.fileHash === fileHash)` first-in-docs[]
+  // semantics via a single indexed query. Reads through the SAME
+  // data-root-following docStore() as the write-through.
+  const row = docStore().firstByHash(poolId, fileHash);
+  if (!row) return null;
+  const entry = rowToEntry(row);
   const bytes = await blobStore.getBlob(fileHash as ContentHash);
   if (bytes === null) return null;
   return { bytes, entry };

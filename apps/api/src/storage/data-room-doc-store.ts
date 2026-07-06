@@ -242,6 +242,21 @@ export class DataRoomDocStore {
     return rows.map(toRow);
   }
 
+  /**
+   * F2 — the first doc in a pool matching a content hash, in manifest `docs[]`
+   * order (ORDER BY seq LIMIT 1). Reproduces `getDataRoomDoc`'s original
+   * `docs.find((d) => d.fileHash === fileHash)` semantics: first-relocated-match
+   * over the seq-ordered pile (a doc can appear once per (loan, docType), so the
+   * pool + hash resolves to a single streamable doc; the LIMIT 1 makes the
+   * first-in-docs[] tie-break explicit). Returns null if no match.
+   */
+  firstByHash(poolId: string, fileHash: string): DataRoomDocRow | null {
+    const row = this.db
+      .prepare(`SELECT * FROM data_room_doc WHERE pool_id = ? AND file_hash = ? ORDER BY seq ASC LIMIT 1`)
+      .get(poolId, fileHash) as DbRow | undefined;
+    return row ? toRow(row) : null;
+  }
+
   /** DERIVED category for a doc row (the ONE source: DOC_TYPE_CATEGORY). Never a
    *  stored column — pure function of doc_type. */
   categoryOf(docType: string): DocTypeCategory | undefined {
