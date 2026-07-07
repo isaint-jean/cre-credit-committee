@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_OPTIONS=\"--max-old-space-size=8192 --expose-gc\" tsx watch --clear-screen=false --ignore=.data --ignore=data src/index.ts",
+    "dev": "NODE_OPTIONS=\"--max-old-space-size=8192 --expose-gc\" tsx watch --clear-screen=false --include 'src/**' --include '../../packages/*/src/**' --ignore=.data --ignore=data src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
