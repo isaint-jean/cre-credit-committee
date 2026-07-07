@@ -38,8 +38,12 @@ import {
 } from '../services/data-room-store.service.js';
 import {
   classifyStagedFile,
+  classifyEntryFromPath,
   verdictFor,
+  type PathClassifyHints,
 } from '../services/data-room-classify.service.js';
+import { unpackZipToSandbox } from '../services/data-room/unpack-zip.service.js';
+import { promises as fsp } from 'node:fs';
 import { DocumentReadStateStore } from '../storage/document-read-state-store.js';
 import { PoolStore } from '../storage/pool-store.js';
 import { enqueueUnderwriteOnSettle } from '../services/pool/batch-settle-fanout.service.js';
@@ -92,6 +96,9 @@ dataRoomRoutes.get('/doc-types', (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Request, res: Response) => {
+  // Track sandbox cleanups so the finally always rm -rf's every unpacked archive
+  // once its validated bytes have been staged into the content-addressed store.
+  const cleanups: Array<() => Promise<void>> = [];
   try {
     const poolId = req.params.poolId!;
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
@@ -99,17 +106,93 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
       res.status(400).json({ error: 'no_files', message: 'At least one file is required.' });
       return;
     }
+
+    // ── poolLoans fetched ONCE per batch (loan-axis classify for BOTH loose
+    //    filenames and zip entry paths). NOT re-fetched per file/per entry. ──
+    const poolLoans = poolStore().listLoanNameKeysForPool(poolId as PoolId);
+
+    // ── Data Room v2 Piece B, Phase 3 — zip-unpack ⟶ path-classify ⟶ the SAME
+    //    staging seam ────────────────────────────────────────────────────────
+    // Build ONE unified list of staged inputs from BOTH loose uploads and zip
+    // entries, each carrying the ClassifyHints (+ contradiction flag) that will
+    // seed the verdict. The zip is only a DELIVERY mechanism: a validated entry
+    // is staged exactly like a loose file (bytes + leaf display name), then it
+    // rides the identical createStagingBatch → verdictFor → assignDataRoomFiles →
+    // persist → enqueue path. No new seam, no second truth-table.
+    interface StagedInput {
+      readonly buffer: Buffer;
+      readonly originalFileName: string; // leaf, for display
+      readonly mimeType: string;
+      readonly hints: PathClassifyHints;
+    }
+    const stagedInputs: StagedInput[] = [];
+    let rejectedCount = 0; // Phase-1 rejected[] entries: COUNTED, routed NOWHERE.
+
+    const isZip = (f: Express.Multer.File): boolean =>
+      /\.zip$/i.test(f.originalname) ||
+      f.mimetype.toLowerCase() === 'application/zip' ||
+      f.mimetype.toLowerCase() === 'application/x-zip-compressed';
+
+    for (const f of files) {
+      if (isZip(f)) {
+        // Fail-closed unpack. rejected[] entries never reach classify/stage/assign.
+        const unpacked = await unpackZipToSandbox(f.buffer);
+        cleanups.push(unpacked.cleanup);
+        rejectedCount += unpacked.rejected.length;
+        for (const entry of unpacked.files) {
+          const bytes = await fsp.readFile(entry.sandboxPath);
+          const leaf = entry.internalPath.split('/').filter((s) => s.length > 0).pop() ?? entry.internalPath;
+          stagedInputs.push({
+            buffer: bytes,
+            originalFileName: leaf,
+            // Best-effort mime from the multer part is meaningless for an inner
+            // entry; the store never routes on it. Keep octet-stream.
+            mimeType: 'application/octet-stream',
+            hints: classifyEntryFromPath(entry.internalPath, poolLoans),
+          });
+        }
+      } else {
+        // Non-zip loose file: existing filename classify. Wrap in the PathClassifyHints
+        // shape (no categoryHint/contradiction — a loose file has no folder cross-check).
+        stagedInputs.push({
+          buffer: f.buffer,
+          originalFileName: f.originalname,
+          mimeType: f.mimetype,
+          hints: classifyStagedFile(f.originalname, poolLoans),
+        });
+      }
+    }
+
+    const unpackedCount = stagedInputs.length;
+
+    if (unpackedCount === 0) {
+      // Every dropped file was a zip whose every entry was rejected (or empty).
+      // Nothing to stage; report the rejected count so the UI can surface it.
+      res.status(201).json({
+        batch: { batchId: null, createdAt: new Date().toISOString(), files: [] },
+        routing: [],
+        autoRouted: [],
+        summary: { unpackedCount: 0, autoRoutedCount: 0, needConfirmCount: 0, rejectedCount },
+        underwriting: { settled: false, affectedLoans: [], enqueuedCount: 0, jobs: [] },
+      });
+      return;
+    }
+
     const batch = await createStagingBatch({
-      files: files.map((f) => ({ buffer: f.buffer, originalFileName: f.originalname, mimeType: f.mimetype })),
+      files: stagedInputs.map((s) => ({
+        buffer: s.buffer,
+        originalFileName: s.originalFileName,
+        mimeType: s.mimeType,
+      })),
     });
 
     // ── Data-Room Phase 2c — classify-on-stage → auto-route or hint ──────────
-    // Two independent deterministic classifiers over each staged file's NAME;
-    // BOTH-confident → auto-file via the SAME assignDataRoomFiles seam the manual
-    // tray uses (no parallel path). Every other cell stays staged, pre-filled
-    // with whatever WAS confident (the confirm tray seeds from these hints).
-    const poolLoans = poolStore().listLoanNameKeysForPool(poolId as PoolId);
-
+    // Two independent deterministic classifiers per input; BOTH-confident AND no
+    // contradiction → auto-file via the SAME assignDataRoomFiles seam the manual
+    // tray uses (no parallel path). Every other cell stays staged, pre-filled with
+    // whatever WAS confident (the confirm tray seeds from these hints). A Phase-2
+    // path CONTRADICTION forces the tray even when both axes resolved — a
+    // contradiction must never auto-file.
     const autoAssignments: DataRoomAssignment[] = [];
     // Per-file verdict surfaced to the UI, keyed by stagingId.
     const routing: Array<{
@@ -118,11 +201,17 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
       prefill: { docType?: string; loanInPoolId?: string };
     }> = [];
 
-    for (const f of batch.files) {
-      const hints = classifyStagedFile(f.originalFileName, poolLoans);
+    for (let i = 0; i < batch.files.length; i++) {
+      const f = batch.files[i]!;
+      const hints = stagedInputs[i]!.hints;
       const verdict = verdictFor(hints.docType, hints.loanInPoolId);
+      // A cross-check contradiction demotes an otherwise-auto verdict to confirm:
+      // the docType/loan hints are still the best pre-fill, but a folder-vs-docType
+      // disagreement must be human-confirmed, never auto-filed.
+      const contradicted = hints.contradiction === true;
+      const auto = verdict.action === 'auto' && !contradicted;
       if (
-        verdict.action === 'auto' &&
+        auto &&
         verdict.prefill.docType &&
         verdict.prefill.loanInPoolId
       ) {
@@ -134,7 +223,7 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
       }
       routing.push({
         stagingId: f.stagingId,
-        auto: verdict.action === 'auto',
+        auto,
         prefill: verdict.prefill,
       });
     }
@@ -179,9 +268,16 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
       batch: { ...batch, files: stagedForConfirm },
       routing: routingForConfirm,
       autoRouted: autoResults.filter((r) => r.status === 'assigned'),
+      // Data Room v2 Piece B, Phase 3 — the widened summary (P4 renders it):
+      //   unpackedCount   staged inputs (loose files + validated zip entries)
+      //   autoRoutedCount both-confident, no-contradiction → auto-filed
+      //   needConfirmCount left in the confirm tray
+      //   rejectedCount   Phase-1 security-rejected zip entries (routed NOWHERE)
       summary: {
+        unpackedCount,
         autoRoutedCount: autoRoutedIds.size,
         needConfirmCount: stagedForConfirm.length,
+        rejectedCount,
       },
       // P3: which loans (if any) the settle just enqueued into underwriting.
       underwriting: {
@@ -194,6 +290,13 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
   } catch (err: any) {
     console.error('data-room staging upload error:', err);
     res.status(500).json({ error: 'staging_upload_failed', message: err?.message ?? String(err) });
+  } finally {
+    // rm -rf every unpacked archive's sandbox. The validated bytes are already
+    // in the content-addressed store (staged), so the sandbox is disposable. Run
+    // AFTER staging (success OR error) so no unvalidated bytes linger on disk.
+    for (const cleanup of cleanups) {
+      await cleanup().catch(() => { /* best-effort */ });
+    }
   }
 });
 
