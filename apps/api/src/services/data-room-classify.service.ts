@@ -29,6 +29,11 @@
 
 import { inferSlotFromFilename, normalizeForMatch } from '@cre/shared';
 import {
+  CATEGORIES_IN_ORDER,
+  DOC_TYPE_CATEGORY,
+  type DocTypeCategory,
+} from '@cre/contracts';
+import {
   normalizePropertyName,
 } from './parse-bmark-tape-xlsx.js';
 
@@ -142,4 +147,165 @@ export function verdictFor(
     docType !== null && loanInPoolId !== null ? 'auto' : 'confirm';
 
   return { action, prefill };
+}
+
+// ---------------------------------------------------------------------------
+// Piece B Phase 2 — classifyEntryFromPath (pure PATH parse)
+// ---------------------------------------------------------------------------
+
+/**
+ * Bank subfolder-label → canonical DocTypeCategory synonym map. The ONLY new
+ * data in this phase. Keys are lowercased folder labels a bank might use;
+ * values are one of the 5 CATEGORIES_IN_ORDER names. A folder that maps to NO
+ * entry here → no category hint (undefined) → NO cross-check, NOT a
+ * contradiction. Keep small and conservative — an unrecognized folder must
+ * never manufacture a false conflict.
+ */
+const SUBFOLDER_CATEGORY_SYNONYMS: Readonly<Record<string, DocTypeCategory>> = {
+  // Third-Party Reports
+  appraisal: 'Third-Party Reports',
+  appraisals: 'Third-Party Reports',
+  'third party': 'Third-Party Reports',
+  'third-party': 'Third-Party Reports',
+  'third party reports': 'Third-Party Reports',
+  'third-party reports': 'Third-Party Reports',
+  reports: 'Third-Party Reports',
+  pca: 'Third-Party Reports',
+  environmental: 'Third-Party Reports',
+  // Legal
+  legal: 'Legal',
+  'loan docs': 'Legal',
+  'loan documents': 'Legal',
+  title: 'Legal',
+  closing: 'Legal',
+  insurance: 'Legal',
+  leases: 'Legal',
+  // Excels
+  financials: 'Excels',
+  financial: 'Excels',
+  models: 'Excels',
+  model: 'Excels',
+  excels: 'Excels',
+  excel: 'Excels',
+  // ASRs
+  asr: 'ASRs',
+  asrs: 'ASRs',
+  // General
+  general: 'General',
+  other: 'General',
+  misc: 'General',
+};
+
+/** Map a raw bank subfolder label → canonical category, or undefined when the
+ *  folder isn't recognized (→ no category hint, NOT a contradiction). */
+function categoryFromSubfolder(folder: string): DocTypeCategory | undefined {
+  const key = folder.trim().toLowerCase();
+  const hit = SUBFOLDER_CATEGORY_SYNONYMS[key];
+  // Defensive: only ever emit a canonical category name.
+  return hit !== undefined && CATEGORIES_IN_ORDER.includes(hit) ? hit : undefined;
+}
+
+/** The result of a pure path classify — ClassifyHints plus a browse-category
+ *  hint and a cross-check contradiction flag for Phase 3's tray routing. */
+export interface PathClassifyHints extends ClassifyHints {
+  /** The human browse-category this entry most likely belongs to, from the
+   *  subfolder label (shape 1) or derived from docType (shape 2). Undefined
+   *  when there's no folder hint AND no docType to derive from. */
+  readonly categoryHint?: DocTypeCategory;
+  /** True only when a shape-1 subfolder category hint EXISTS and CONTRADICTS
+   *  DOC_TYPE_CATEGORY[docType]. A tray signal — Phase 3 must NOT auto-file on
+   *  a contradiction. The docType/loanInPoolId hints are still the best guesses. */
+  readonly contradiction?: boolean;
+}
+
+/**
+ * PURE path-parse classifier. Takes an entry's internal path within a bank zip
+ * (or a loose drop) and the pool's loan-name keys, and returns the best
+ * ClassifyHints + a browse category + a cross-check contradiction signal.
+ *
+ * ★ PURE — no I/O, no store, no DB. `loanNameKeys` is a PARAMETER (Phase 3's
+ *   caller supplies the pool's keys); this fn fetches nothing. It REUSES the
+ *   exact loan-match bridge (`classifyLoanFromFilename`, refuse-when-≠1) and
+ *   docType-infer (`inferSlotFromFilename`) of the filename classifier above —
+ *   no new classifier logic. Category is a CROSS-CHECK, never a routing key.
+ *
+ * The 3 path shapes (split on '/', ignoring a leading `*.zip/` root):
+ *   - Loan/Category/file (3+ segments): folder[0] → loan; file → docType;
+ *     folder[-2] → category hint (synonym map) → CROSS-CHECK vs
+ *     DOC_TYPE_CATEGORY[docType] → contradiction flag.
+ *   - Loan/file (2 segments): folder[0] → loan; file → docType; category
+ *     DERIVED from docType (no subfolder → no cross-check).
+ *   - file (1 segment): loose drop — docType from filename only; loan UNKNOWN
+ *     (→ tray in Phase 3). Same as a loose bare-file drop.
+ */
+export function classifyEntryFromPath(
+  internalPath: string,
+  loanNameKeys: ReadonlyArray<PoolLoanNameKey>,
+): PathClassifyHints {
+  // Split on '/', drop empties (leading/trailing/double slashes), and strip a
+  // leading `*.zip/` archive-root segment if present (the bank's own zip name
+  // is not a path shape segment).
+  let segments = internalPath.split('/').filter((s) => s.length > 0);
+  if (segments.length > 1 && /\.zip$/i.test(segments[0]!)) {
+    segments = segments.slice(1);
+  }
+
+  // Degenerate: nothing usable → all hints null/undefined.
+  if (segments.length === 0) {
+    return { docType: null, loanInPoolId: null };
+  }
+
+  const file = segments[segments.length - 1]!;
+  const docType = inferSlotFromFilename(file); // null when un-inferable (tier-c)
+
+  // Shape 3 — bare file (1 segment): loose drop. docType only, loan UNKNOWN.
+  if (segments.length === 1) {
+    return {
+      docType: docType === null ? null : (docType as string),
+      loanInPoolId: null,
+      // Category derived from docType if we could infer one; else no hint.
+      ...(docType !== null ? { categoryHint: DOC_TYPE_CATEGORY[docType as string] } : {}),
+    };
+  }
+
+  // Shapes 1 & 2 both start with a loan folder.
+  const loanFolder = segments[0]!;
+  const loanInPoolId = classifyLoanFromFilename(loanFolder, loanNameKeys); // refuse-when-≠1
+
+  // Shape 2 — Loan/file (2 segments): no subfolder → category DERIVED from
+  // docType, no cross-check possible.
+  if (segments.length === 2) {
+    return {
+      docType: docType === null ? null : (docType as string),
+      loanInPoolId,
+      ...(docType !== null ? { categoryHint: DOC_TYPE_CATEGORY[docType as string] } : {}),
+    };
+  }
+
+  // Shape 1 — Loan/Category/file (3+ segments): the middle folder just before
+  // the file is the category subfolder. Cross-check it against the docType's
+  // canonical category.
+  const subfolder = segments[segments.length - 2]!;
+  const folderCategory = categoryFromSubfolder(subfolder); // undefined = unrecognized
+
+  // Best category hint: prefer the recognized subfolder label; else derive from
+  // docType; else undefined.
+  const derivedCategory =
+    docType !== null ? DOC_TYPE_CATEGORY[docType as string] : undefined;
+  const categoryHint = folderCategory ?? derivedCategory;
+
+  // CROSS-CHECK — contradiction ONLY when BOTH a recognized folder category AND
+  // a derived docType category exist and they DISAGREE. Unrecognized folder
+  // (undefined) or un-inferable docType (null) → no cross-check, no false flag.
+  const contradiction =
+    folderCategory !== undefined &&
+    derivedCategory !== undefined &&
+    folderCategory !== derivedCategory;
+
+  return {
+    docType: docType === null ? null : (docType as string),
+    loanInPoolId,
+    ...(categoryHint !== undefined ? { categoryHint } : {}),
+    ...(contradiction ? { contradiction: true } : {}),
+  };
 }
