@@ -25,6 +25,28 @@ import {
 import type { SideAccent } from '@/lib/side-accent';
 import { formatBytes } from './data-room-utils';
 
+/** Accepted drop types: the existing loose-doc set PLUS `.zip` (the server
+ *  unpacks a dropped archive — Data Room v2 Piece B). Used for the picker's
+ *  `accept` attribute; the drop-zone accepts anything the browser hands over. */
+const ACCEPT =
+  'application/pdf,.pdf,' +
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,' +
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx,' +
+  'application/vnd.ms-excel.sheet.macroEnabled.12,.xlsm,' +
+  'application/zip,application/x-zip-compressed,.zip';
+
+/** A dropped file is a zip if its name ends `.zip` or its browser mime says so.
+ *  Mirrors the server's `isZip` check so the UI only uses "Unpacked N" framing
+ *  when an archive was actually in the drop. */
+function isZipFile(f: File): boolean {
+  const mime = (f.type || '').toLowerCase();
+  return (
+    /\.zip$/i.test(f.name) ||
+    mime === 'application/zip' ||
+    mime === 'application/x-zip-compressed'
+  );
+}
+
 /** One assignable loan the picker offers (from the pool membership). */
 export interface AssignLoanOption {
   readonly loanInPoolId: string;
@@ -57,6 +79,9 @@ export function DropAssign({
   const [busy, setBusy] = useState<'idle' | 'uploading' | 'assigning'>('idle');
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Kept separate from `notice` so it can render in a distinct WARNING tone —
+  // rejected zip entries must NEVER hide inside the happy-path green line.
+  const [rejectedCount, setRejectedCount] = useState(0);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const stage = useCallback(async (files: File[]) => {
@@ -64,6 +89,10 @@ export function DropAssign({
     setBusy('uploading');
     setErr(null);
     setNotice(null);
+    setRejectedCount(0);
+    // Only frame the notice as "Unpacked N" when the drop actually contained a
+    // zip; a plain loose-file drop keeps its existing auto-routed/confirm notice.
+    const hadZip = files.some(isZipFile);
     try {
       const { batch: b, routing, summary } = await api.dataRoomStageFiles(poolId, files);
       // Data-Room Phase 2d — auto-routed files are ALREADY filed server-side and
@@ -88,7 +117,16 @@ export function DropAssign({
       // If anything auto-routed, refresh the parent projections so filed docs
       // appear under their folder + loan immediately.
       if (summary.autoRoutedCount > 0) onAssigned();
+      // Surface the rejected count in its OWN warning-toned line — never fold it
+      // into the green summary. R>0 means a zip entry failed security validation.
+      setRejectedCount(summary.rejectedCount ?? 0);
       const parts: string[] = [];
+      // Zip drops lead with the unpacked count so the operator sees the archive
+      // was opened; loose-file drops keep their existing framing (no zip language).
+      // Only surface "Unpacked N" when a zip was actually in the drop.
+      if (hadZip) {
+        parts.push(`Unpacked ${summary.unpackedCount}`);
+      }
       if (summary.autoRoutedCount > 0) {
         parts.push(`${summary.autoRoutedCount} auto-routed`);
       }
@@ -98,7 +136,7 @@ export function DropAssign({
       setNotice(
         parts.length > 0
           ? `${parts.join(' · ')}.${summary.needConfirmCount > 0 ? ' Confirm the pre-filled rows below.' : ''}`
-          : 'Nothing to assign.',
+          : (summary.rejectedCount > 0 ? null : 'Nothing to assign.'),
       );
     } catch (e) {
       setErr((e as Error).message);
@@ -135,6 +173,7 @@ export function DropAssign({
     setBusy('assigning');
     setErr(null);
     setNotice(null);
+    setRejectedCount(0);
     try {
       const { results } = await api.dataRoomAssign(poolId, batch.batchId, eligible);
       const ok = results.filter((r) => r.status === 'assigned').map((r) => r.stagingId);
@@ -181,16 +220,29 @@ export function DropAssign({
           ref={fileInput}
           type="file"
           multiple
+          accept={ACCEPT}
           className="hidden"
           onChange={(e) => { stage(Array.from(e.target.files ?? [])); e.target.value = ''; }}
         />
         <p className={`text-sm font-medium ${accent.text}`}>
-          {busy === 'uploading' ? 'Uploading…' : 'Drop files here or click to browse'}
+          {busy === 'uploading' ? 'Uploading…' : 'Drop files or a .zip here, or click to browse'}
         </p>
-        <p className="text-text-muted text-xs mt-1">Bulk drop into staging — assign each to a (loan, doc-type) below.</p>
+        <p className="text-text-muted text-xs mt-1">
+          Bulk drop into staging (a dropped .zip is unpacked server-side) — assign each to a (loan, doc-type) below.
+        </p>
       </div>
 
       {notice && <p className="mt-2 text-xs text-score-strong">{notice}</p>}
+      {/* HONEST ON REJECTION — a refused zip entry is surfaced in its own warning
+          tone so the operator never wonders where a dropped file went. */}
+      {rejectedCount > 0 && (
+        <p
+          className="mt-2 text-xs text-risk-high font-medium"
+          title="rejected = failed security validation (malformed / unsafe archive entry)"
+        >
+          {rejectedCount} rejected — failed security validation (malformed / unsafe archive entry).
+        </p>
+      )}
       {err && <p className="mt-2 text-xs text-risk-high">{err}</p>}
 
       {/* ── Manual-assign tray (the Phase-2 seam) ───────────────────────── */}

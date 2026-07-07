@@ -190,12 +190,21 @@ export interface DataRoomRoutingHint {
   readonly prefill: { readonly docType?: string; readonly loanInPoolId?: string };
 }
 
-/** Full staging response: the (confirm-only) batch + per-file hints + summary. */
+/** Full staging response: the (confirm-only) batch + per-file hints + summary.
+ *  Data Room v2 Piece B (Phase 3) widened `summary` with `unpackedCount` (staged
+ *  inputs = loose files + validated zip entries) and `rejectedCount` (zip entries
+ *  refused by security validation — routed NOWHERE). Both are always present so
+ *  the drop UI can surface honest "Unpacked N · … · R rejected" counts. */
 export interface DataRoomStageResponse {
   readonly batch: StagingBatch;
   readonly routing: readonly DataRoomRoutingHint[];
   readonly autoRouted: readonly DataRoomAssignmentResult[];
-  readonly summary: { readonly autoRoutedCount: number; readonly needConfirmCount: number };
+  readonly summary: {
+    readonly unpackedCount: number;
+    readonly autoRoutedCount: number;
+    readonly needConfirmCount: number;
+    readonly rejectedCount: number;
+  };
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
