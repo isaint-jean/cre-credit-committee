@@ -10,9 +10,13 @@ const ALLOWED_MIMES = [
   'application/csv',
   'application/octet-stream', // some clients don't detect MIME; we also check extension
   'text/plain',
+  // Data Room v2 (Piece B): bank archives. The MIME only lets multer pass the
+  // .zip through — the fail-closed unpack/validation is the actual security core.
+  'application/zip',
+  'application/x-zip-compressed',
 ];
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.xls', '.xlsm', '.csv', '.txt'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.xls', '.xlsm', '.csv', '.txt', '.zip'];
 
 export const upload = multer({
   storage: multer.memoryStorage(),

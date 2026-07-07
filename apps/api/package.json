@@ -114,7 +114,8 @@
     "test:registry-routes": "tsx src/scripts/test-registry-routes.ts",
     "test:registry-stores": "tsx src/scripts/test-registry-stores.ts",
     "test:rent-roll-adapter": "tsx src/scripts/test-rent-roll-adapter.ts",
-    "test:role-boundary": "tsx src/scripts/test-role-boundary.ts"
+    "test:role-boundary": "tsx src/scripts/test-role-boundary.ts",
+    "test:unpack-zip-security": "tsx src/scripts/test-unpack-zip-security.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
@@ -136,7 +137,8 @@
     "unpdf": "^1.6.2",
     "stripe": "^17.0.0",
     "uuid": "^10.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -148,6 +150,7 @@
     "@types/multer": "^1.4.12",
     "@types/pdfkit": "^0.17.5",
     "@types/uuid": "^10.0.0",
+    "@types/yauzl": "^3.4.0",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   }
