@@ -31,6 +31,7 @@ import {
   assignDataRoomFiles,
   projectByDocType,
   projectByLoan,
+  projectByCategory,
   listPoolDocs,
   getDataRoomDoc,
   type DataRoomAssignment,
@@ -242,6 +243,49 @@ dataRoomRoutes.get('/:poolId/by-doc-type', (req: Request, res: Response) => {
 
 dataRoomRoutes.get('/:poolId/by-loan', (req: Request, res: Response) => {
   res.json({ poolId: req.params.poolId, groups: projectByLoan(req.params.poolId!) });
+});
+
+// ---------------------------------------------------------------------------
+// By-CATEGORY SUMMARY (Data-Room v2 — Piece D: the category-control surface).
+//
+// ★ ANTI-BOMBARDMENT: this returns per-category COUNTS ONLY — never the file
+// list. A pool holds thousands of files; the room's default surface is the five
+// CATEGORIES, so this route ships {category, count, unreadCount}, never rows.
+// The drill-in to a category's files reuses the existing by-doc-type / by-loan
+// projections scoped client-side; this route stays a pure summary.
+//
+// count       — from projectByCategory(poolId) (reads the INDEXED data_room_doc
+//               table via listPoolDocs → docStore(); no O(N) JSON rewrite).
+// unreadCount — server-side, per category, from the SAME per-user read cursor
+//               the /unread route uses (readStateStore().readSet): intersect
+//               each category's file hashes with the user's UNREAD set. Auth-
+//               gated; actor is req.user.userId (never client-supplied).
+//
+// Every category in CATEGORIES_IN_ORDER is emitted — including ones with zero
+// docs (count 0 / unreadCount 0) — so the UI's five-card shape is stable and a
+// category never silently vanishes. projectByCategory only emits categories the
+// pool has docs for, so we fold its groups into a full CATEGORIES_IN_ORDER map.
+// ---------------------------------------------------------------------------
+
+dataRoomRoutes.get('/:poolId/by-category', (req: Request, res: Response) => {
+  const uid = userId(req);
+  if (!uid) {
+    res.status(401).json({ error: 'unauthenticated' });
+    return;
+  }
+  const poolId = req.params.poolId!;
+  const groups = projectByCategory(poolId);
+  const read = readStateStore().readSet(uid);
+
+  const byCategory = new Map(groups.map((g) => [g.category, g.docs] as const));
+  const summary = CATEGORIES_IN_ORDER.map((category) => {
+    const docs = byCategory.get(category) ?? [];
+    // Unread = a doc the user hasn't marked read (mirror /unread's set math).
+    const unreadCount = docs.reduce((n, d) => n + (read.has(d.fileHash) ? 0 : 1), 0);
+    return { category, count: docs.length, unreadCount };
+  });
+
+  res.json({ poolId, categories: summary });
 });
 
 dataRoomRoutes.get('/:poolId/docs', (req: Request, res: Response) => {

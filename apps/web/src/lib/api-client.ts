@@ -28,12 +28,12 @@ import type {
   WorkingTapeId,
 } from '@cre/contracts';
 import { isRenderedAnalysis } from './rendered-analysis-guard';
-import type { DocTypeEntry } from '@cre/contracts';
+import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
 // (and the local DataRoom* shapes) from ONE module — the api-client — rather
 // than reaching into @cre/contracts directly for a transport-adjacent type.
-export type { DocTypeEntry };
+export type { DocTypeEntry, DocTypeCategory };
 
 // Phase 4 (productization layer) - workflow API request/response shapes.
 // The client transports payloads opaquely; the server validates kind/payload
@@ -151,6 +151,16 @@ export interface DataRoomDocTypeGroup {
 export interface DataRoomLoanGroup {
   readonly loanInPoolId: string;
   readonly docs: readonly DataRoomDocEntry[];
+}
+
+/** Piece D — the by-category SUMMARY (counts only, never the file list). One per
+ *  category in CATEGORIES_IN_ORDER; unreadCount is server-computed from the
+ *  user's read cursor. Zero-doc categories carry count 0 (the five-card shape is
+ *  stable). */
+export interface DataRoomCategorySummary {
+  readonly category: DocTypeCategory;
+  readonly count: number;
+  readonly unreadCount: number;
 }
 
 /** One assignment the tray posts (the Phase-2 seam input). */
@@ -1365,6 +1375,17 @@ export const api = {
       `/data-room/${poolId}/by-loan`,
     ),
 
+  // GET /data-room/:poolId/by-category → the SUMMARY control surface for the
+  // room (Piece D). Returns per-category { category, count, unreadCount } — NOT
+  // the file list (anti-bombardment: counts, never thousands of rows). count is
+  // read off the indexed data_room_doc table (projectByCategory); unreadCount is
+  // computed server-side from the user's read cursor. Every category in
+  // CATEGORIES_IN_ORDER is present (zero-doc categories carry count 0).
+  getPoolByCategory: (poolId: string) =>
+    request<{ poolId: string; categories: readonly DataRoomCategorySummary[] }>(
+      `/data-room/${poolId}/by-category`,
+    ),
+
   // GET /data-room/:poolId/unread → per-user unread fileHashes + count.
   dataRoomUnread: (poolId: string) =>
     request<{ poolId: string; unread: readonly string[]; count: number }>(
@@ -1413,6 +1434,39 @@ export const api = {
     const a = document.createElement('a');
     a.href = url;
     a.download = `data-room-${poolId}-new.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { newCount };
+  },
+
+  // GET /data-room/:poolId/download?category={category} → the category-structured
+  // download (Piece E's ?category= filter): a zip whose entries land under a
+  // {Category}/loan/docType/ folder tree. Same auth'd blob path as
+  // dataRoomDownloadNew (the token rides via getAuthHeader — a plain <a href>
+  // would drop it), and it advances the same per-user cursor server-side. Returns
+  // the X-Data-Room-New-Count the server sets.
+  dataRoomDownloadCategory: async (
+    poolId: string,
+    category: DocTypeCategory,
+  ): Promise<{ newCount: number }> => {
+    const res = await fetch(
+      `${API_BASE}/data-room/${poolId}/download?category=${encodeURIComponent(category)}`,
+      { headers: { ...getAuthHeader() } },
+    );
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) throw new Error(`Category download failed (${res.status})`);
+    const newCount = Number(res.headers.get('X-Data-Room-New-Count') ?? '0');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `data-room-${poolId}-${category}.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();

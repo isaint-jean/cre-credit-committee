@@ -68,7 +68,9 @@ function LoanFolder({
   readonly label: string | null;
   readonly docTypeLabels: ReadonlyMap<string, string>;
 }) {
-  const [open, setOpen] = useState(true);
+  // Default COLLAPSED — the loan view is a loan-level SUMMARY (per-loan count +
+  // new-badge), not a thousand-row dump. Expand a loan to see its files.
+  const [open, setOpen] = useState(false);
   const unreadCount = group.docs.reduce((n, d) => n + (unread.has(d.fileHash) ? 1 : 0), 0);
   return (
     <section className="border border-border-primary rounded-panel overflow-hidden bg-bg-secondary">

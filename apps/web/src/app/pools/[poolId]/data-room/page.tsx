@@ -26,15 +26,22 @@ import {
   type DocTypeEntry,
   type DataRoomDocTypeGroup,
   type DataRoomLoanGroup,
+  type DataRoomCategorySummary,
+  type DocTypeCategory,
 } from '@/lib/api-client';
+import { DOC_TYPE_CATEGORY } from '@cre/contracts';
 import { useSide } from '@/lib/side-context';
 import { sideAccent, withSide } from '@/lib/side-accent';
 import { DropAssign, type AssignLoanOption } from '@/components/DataRoom/DropAssign';
+import { CategoryView } from '@/components/DataRoom/CategoryView';
 import { ByDocTypeView } from '@/components/DataRoom/ByDocTypeView';
 import { ByLoanView } from '@/components/DataRoom/ByLoanView';
 
 type LoadState = 'loading' | 'loaded' | 'error';
-type RoomView = 'byDocType' | 'byLoan';
+// ★ DEFAULT surface = 'category' (the five category cards, NEVER a flat file
+// list). 'byLoan' stays available as a toggle (loan-level view). A category
+// drill-in switches to 'byDocType' scoped to the selected category.
+type RoomView = 'category' | 'byDocType' | 'byLoan';
 
 export default function DataRoomPage() {
   const { poolId } = useParams<{ poolId: string }>();
@@ -43,9 +50,13 @@ export default function DataRoomPage() {
 
   const [load, setLoad] = useState<LoadState>('loading');
   const [err, setErr] = useState<string | null>(null);
-  const [view, setView] = useState<RoomView>('byDocType');
+  const [view, setView] = useState<RoomView>('category');
+  // When drilled into a category from a card click, the by-doc-type view is
+  // SCOPED to it. null = show all doc-types (reached via the toggle, not a card).
+  const [scopedCategory, setScopedCategory] = useState<DocTypeCategory | null>(null);
 
   const [docTypes, setDocTypes] = useState<readonly DocTypeEntry[]>([]);
+  const [categories, setCategories] = useState<readonly DataRoomCategorySummary[]>([]);
   const [byDocType, setByDocType] = useState<readonly DataRoomDocTypeGroup[]>([]);
   const [byLoan, setByLoan] = useState<readonly DataRoomLoanGroup[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
@@ -75,11 +86,13 @@ export default function DataRoomPage() {
   // Re-fetch the two projections + the per-user unread set. Called on mount and
   // after every assign so a filed doc immediately shows under its folder + loan.
   const refresh = useCallback(async () => {
-    const [dt, loan, un] = await Promise.all([
+    const [cat, dt, loan, un] = await Promise.all([
+      api.getPoolByCategory(poolId),
       api.dataRoomByDocType(poolId),
       api.dataRoomByLoan(poolId),
       api.dataRoomUnread(poolId),
     ]);
+    setCategories(cat.categories);
     setByDocType(dt.groups);
     setByLoan(loan.groups);
     setUnread(new Set(un.unread));
@@ -167,7 +180,7 @@ export default function DataRoomPage() {
           <div>
             <h1 className="text-2xl font-semibold text-text-primary">Data Room</h1>
             <p className="text-text-muted text-sm mt-1">
-              {totalDocs} document{totalDocs === 1 ? '' : 's'} · one pile, two projections
+              {totalDocs} document{totalDocs === 1 ? '' : 's'} · organized by category
               {unread.size > 0 && <span className={`ml-2 ${accent.text}`}>· {unread.size} unread</span>}
             </p>
           </div>
@@ -193,10 +206,13 @@ export default function DataRoomPage() {
         onAssigned={refresh}
       />
 
-      {/* Two-view toggle. */}
+      {/* View toggle. ★ DEFAULT = Categories (the five cards, never a flat file
+          list). By loan stays a SUMMARIZED loan-level toggle. Doc-type view is
+          reached by drilling INTO a category card (scoped), not from the top
+          toggle — the room's primary axis is the category, not the doc-type. */}
       <div className="flex items-center gap-1 bg-bg-secondary border border-border-primary rounded-panel p-1 w-fit mb-4">
         {([
-          { value: 'byDocType' as const, label: 'By doc-type', count: byDocType.length },
+          { value: 'category' as const, label: 'Categories', count: categories.length },
           { value: 'byLoan' as const, label: 'By loan', count: byLoan.length },
         ]).map((t) => {
           const active = view === t.value;
@@ -205,7 +221,7 @@ export default function DataRoomPage() {
               key={t.value}
               type="button"
               aria-pressed={active}
-              onClick={() => setView(t.value)}
+              onClick={() => { setView(t.value); setScopedCategory(null); }}
               className={`px-4 py-2 text-sm font-medium rounded-sm2 flex items-center gap-2 transition-colors ${
                 active ? `${accent.softBg} ${accent.text}` : 'text-text-secondary hover:text-text-primary'
               }`}
@@ -217,9 +233,45 @@ export default function DataRoomPage() {
         })}
       </div>
 
-      {view === 'byDocType' && (
-        <ByDocTypeView poolId={poolId} groups={byDocType} unread={unread} onRead={handleRead} />
+      {/* ★ DEFAULT SURFACE — category cards (count + new-badge + download). */}
+      {view === 'category' && (
+        <CategoryView
+          poolId={poolId}
+          categories={categories}
+          accent={accent}
+          onDrillIn={(category) => { setScopedCategory(category); setView('byDocType'); }}
+          onDownloaded={refresh}
+        />
       )}
+
+      {/* SECONDARY — a category's files (by-doc-type, scoped to the drilled-in
+          category). Reached only via a card click; a back link returns to the
+          cards. */}
+      {view === 'byDocType' && (
+        <>
+          <button
+            type="button"
+            onClick={() => { setView('category'); setScopedCategory(null); }}
+            className={`mb-3 text-xs ${accent.text} hover:opacity-80`}
+          >
+            ← All categories
+          </button>
+          {scopedCategory !== null && (
+            <p className="mb-3 text-sm font-semibold text-text-primary">{scopedCategory}</p>
+          )}
+          <ByDocTypeView
+            poolId={poolId}
+            groups={
+              scopedCategory === null
+                ? byDocType
+                : byDocType.filter((g) => DOC_TYPE_CATEGORY[g.docType] === scopedCategory)
+            }
+            unread={unread}
+            onRead={handleRead}
+          />
+        </>
+      )}
+
       {view === 'byLoan' && (
         <ByLoanView
           poolId={poolId}
