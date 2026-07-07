@@ -1126,6 +1126,23 @@ export const api = {
     const qs = q.length > 0 ? `?${q.join('&')}` : '';
     return request<{ pools: Pool[] }>(`/pools${qs}`);
   },
+  /* Data Room v2 Piece A — MINT a pool (the pool IS the deal). POST /pools with
+   * { shelfName, vintage, seller? } → 201 { pool }. The server mints id via
+   * mintPoolId(). The data room keys on the returned pool.id from birth
+   * (data_room_doc.pool_id), so no separate room-attach is required — the room
+   * auto-creates on the first drop and /pools/[poolId]/data-room is reachable by
+   * poolId the moment the pool exists. */
+  createPool: (body: { shelfName: string; vintage: number; seller?: string | null }) =>
+    request<{ pool: Pool }>(`/pools`, {
+      method: 'POST',
+      body: JSON.stringify({
+        shelfName: body.shelfName,
+        vintage: body.vintage,
+        ...(body.seller !== undefined && body.seller !== null && body.seller !== ''
+          ? { seller: body.seller }
+          : {}),
+      }),
+    }),
   getPoolDetail: (poolId: PoolId | string) =>
     request<{ pool: Pool; currentWorkingTapeId: WorkingTapeId | null }>(`/pools/${poolId}`),
   getCurrentWorkingTape: (poolId: PoolId | string) =>

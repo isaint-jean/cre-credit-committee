@@ -13,7 +13,8 @@
  *   - Filters (vintage / seller) are SECONDARY — they sit in a small toolbar.
  *
  * READ-ONLY (PR6 — same lane as PR5). Clicking a card navigates; no mutation.
- * "Create pool" stays a DisabledAffordance until the next slice.
+ * "New deal" (Data Room v2 Piece A) mints a pool + its poolId-keyed data room as
+ * one act, then lands the user in the fresh room (NewDealForm).
  *
  * Design choices stated plainly for redirect:
  *   - Cards in a CSS grid (not a table). Tables read as "data dump"; cards read
@@ -30,7 +31,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api-client';
 import type { Pool } from '@cre/contracts';
 import { DealCard } from '@/components/PoolRail/DealCard';
-import { DisabledAffordance } from '@/components/PoolRail/DisabledAffordance';
+import { NewDealForm } from '@/components/PoolRail/NewDealForm';
 import { useSide } from '@/lib/side-context';
 import { sideAccent } from '@/lib/side-accent';
 
@@ -92,7 +93,7 @@ export default function PoolHomeBasePage() {
             )}
           </p>
         </div>
-        <DisabledAffordance label="New deal" hint="Pool creation — next UI slice" />
+        <NewDealForm />
       </header>
 
       {/* Secondary toolbar — filters de-emphasized vs. PR5's primary placement */}
