@@ -57,8 +57,8 @@ import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { computePoolCoverage } from '../services/pool/pool-coverage.service.js';
-import { underwriteLoan, UnderwriteLoanError } from '../services/pool/underwrite-loan.service.js';
 import { underwriteJobStore } from '../storage/underwrite-job-store.js';
+import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -466,28 +466,34 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/close', (req: Request, res: Respon
 });
 
 /**
- * POST /api/pools/:poolId/loans/:loanInPoolId/underwrite — Data-Room Phase 3, P1.
+ * POST /api/pools/:poolId/loans/:loanInPoolId/underwrite — Data-Room Phase 3.
  * The manual "Underwrite now" action: fire ONE ingest/append per loan from its
  * accumulated tier-(a) data-room docs.
  *
- * The store stays DECOUPLED from ingest (hard invariant) — this ROUTE is the seam
- * that calls the underwriteLoan service (never assignDataRoomFiles). The service
- * bridges the data-room store → deal-source-doc store (docType→slot) and branches
- * has-root (→ ONE append → child revision) vs no-root (→ build-and-ingest → new
- * root → promote → analyzed).
+ * ★ ASYNC (was sync). This route no longer `await`s `underwriteLoan` — a heavy
+ * extraction (60 MB of PDFs + 2 LLM calls) blew past the connection timeout →
+ * ECONNRESET / "socket hang up" and a "Underwrite failed" toast even though the
+ * work often finished server-side (a GHOST completion). Instead it ENQUEUES one
+ * durable `underwrite_job` (the SAME queue the settle fan-out uses) and returns
+ * IMMEDIATELY (202). The P3 worker (`kickUnderwriteDrain`) drains it OFF the
+ * request path and runs `underwriteLoan` VERBATIM; the UI polls
+ * `GET …/underwrite-jobs` for the result. No sync `underwriteLoan` here → no
+ * timeout to raise.
  *
- * The pool loan is read HERE for the branch inputs (dealRef = loan→root join key;
- * assetType = the first-ingest propertyType hint). Actor is stamped SERVER-SIDE.
+ * ★ ONE JOB PER LOAN — the enqueue goes through the SAME dedup as the settle
+ * fan-out (`underwriteJobStore().enqueue`, no-op when the loan already has an
+ * ACTIVE pending|running job). So a manual click + a settle auto-fire, or a
+ * double-click, can NEVER stack two ingests → no duplicate child revision.
  *
- * SYNC + slow (real composer + LLM). P1 leaves it inline behind the explicit
- * action; P2/P3 add the batch-settled auto-fire + async status. Honest failure:
- * an ingest/extraction error surfaces the REAL reason (422), never a fake success.
+ * The pool loan is read HERE only to 404 a missing/cross-pool loan; the worker
+ * re-reads it for the branch inputs. Actor is stamped SERVER-SIDE.
  *
- *   200 → the branch result ({ outcome: appended | ingested | no-ingestable-docs, … })
+ *   202 → enqueued ({ enqueued: true, jobId, alreadyActive })
+ *         alreadyActive:true means the dedup returned an in-flight job (no second
+ *         run) — the UI just polls that job.
  *   404 → loan not in this pool
- *   422 → underwrite (extraction/ingest) failed — real reason surfaced
  */
-poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', async (req: Request, res: Response) => {
+poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: Response) => {
   const poolId = req.params['poolId'] as PoolId;
   const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
 
@@ -501,23 +507,24 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', async (req: Request, 
       return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
     }
 
-    const result = await underwriteLoan({
-      poolId,
-      loanInPoolId,
-      dealRef: loan.dealRef,
-      propertyType: loan.assetType ?? null,
-      analysisName: loan.propertyName ?? loan.originatorLoanRef ?? loan.dealRef,
-    });
+    // Enqueue through the shared dedup (one ACTIVE job per loan) — identical to the
+    // settle fan-out (batch-settle-fanout.service.ts). created:false ⇒ a job was
+    // already active (settle auto-fire or a prior/double click) → NO second run.
+    const { job, created } = underwriteJobStore().enqueue(poolId, loanInPoolId);
 
-    if (result.outcome === 'no-ingestable-docs') {
-      return res.status(422).json({ error: 'NO_INGESTABLE_DOCS', ...result });
-    }
-    return res.json(result);
+    // Drain OFF the request path (idempotent — a running drain absorbs the new job).
+    // We do NOT await; the request returns before any extraction/LLM work.
+    kickUnderwriteDrain();
+
+    // 202 Accepted — the work is queued, not done. UI polls GET …/underwrite-jobs.
+    return res.status(202).json({
+      enqueued: true,
+      jobId: job.id,
+      alreadyActive: !created,
+      state: job.state,
+      loanInPoolId,
+    });
   } catch (e) {
-    if (e instanceof UnderwriteLoanError) {
-      // Honest failure — the real ingest/extraction reason, never a fake success.
-      return res.status(422).json({ error: e.code, message: e.message, loanInPoolId });
-    }
     return mapThrow(res, e);
   }
 });

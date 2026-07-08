@@ -1255,25 +1255,21 @@ export const api = {
       }>;
     }>(`/pools/${poolId}/underwrite-jobs`),
 
-  // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3, P1
-  // "Underwrite now". Fires ONE ingest/append per loan from its accumulated
-  // tier-(a) data-room docs. Branch result: appended (child revision on an
-  // existing root) | ingested (new root + promoted analysis) | no-ingestable-docs.
-  // SYNC + slow (real composer + LLM). Honest failure surfaces the real reason.
+  // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3.
+  // "Underwrite now". ★ ASYNC (was sync): ENQUEUES one durable underwrite_job
+  // (the same dedup'd queue the settle fan-out uses) and returns FAST (202) — no
+  // socket-timeout on a heavy 60 MB extraction. The worker drains it off-request;
+  // the caller then POLLS getPoolUnderwriteJobs for the result (pending|running →
+  // "Underwriting…"; done → coverage resolves; failed|interrupted → real reason).
+  // alreadyActive:true ⇒ dedup returned an in-flight job (no second run).
   underwriteLoan: (poolId: PoolId | string, loanInPoolId: string) =>
-    request<
-      | { outcome: 'no-ingestable-docs'; loanInPoolId: string; message: string }
-      | {
-          outcome: 'appended';
-          loanInPoolId: string;
-          docCount: number;
-          parentRevisionId: string;
-          childRevisionId: string;
-          revisionOrdinal: number;
-          analysisId: string;
-        }
-      | { outcome: 'ingested'; loanInPoolId: string; docCount: number; rootId: string; analysisId: string }
-    >(`/pools/${poolId}/loans/${loanInPoolId}/underwrite`, { method: 'POST' }),
+    request<{
+      enqueued: true;
+      jobId: string;
+      alreadyActive: boolean;
+      state: 'pending' | 'running' | 'done' | 'failed' | 'interrupted';
+      loanInPoolId: string;
+    }>(`/pools/${poolId}/loans/${loanInPoolId}/underwrite`, { method: 'POST' }),
 
   /* ------------------------------------------------------------------ */
   /* Phase B — forward `root → loan` resolver (read-only). Turns a graph */

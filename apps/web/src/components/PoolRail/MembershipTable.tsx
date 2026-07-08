@@ -21,7 +21,7 @@
  */
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import type { LoanMembership, OnTapeStatus, PoolId } from '@cre/contracts';
@@ -225,59 +225,75 @@ export function MembershipTable({
   // live as the worker drains; when a job flips to `done` we also refetch coverage
   // so the chip re-derives to complete/partial. failed|interrupted surface the
   // real reason. Poll STOPS once no job is active (nothing left to watch).
+  //
+  // ★ The manual "Underwrite now" is now ASYNC too — it enqueues onto THIS same
+  // queue and returns fast, so it feeds the SAME poll (no separate sync path). The
+  // poll loop is a self-scheduling ref so `runUnderwrite` can (re)start it after an
+  // enqueue without duplicating the tick.
   const [jobs, setJobs] = useState<Map<string, LoanJob>>(() => new Map());
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let prevActive = false;
-    const tick = async () => {
-      try {
-        const { jobs: rows } = await api.getPoolUnderwriteJobs(poolId);
-        if (cancelled) return;
-        const next = new Map(rows.map(r => [r.loanInPoolId, { loanInPoolId: r.loanInPoolId, state: r.state, reason: r.reason }]));
-        setJobs(next);
-        const active = rows.some(r => JOB_ACTIVE.has(r.state));
-        // A job just finished draining (was active, now none) → coverage moved.
-        if (prevActive && !active) void refetchCoverage();
-        prevActive = active;
-        // Keep polling only while something is in flight (or on first load, once).
-        if (active && !cancelled) timer = setTimeout(tick, 2500);
-      } catch { /* advisory — no chip beats a wrong chip */ }
-    };
-    void tick();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  const cancelledRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevActiveRef = useRef(false);
+  const pollTick = useCallback(async () => {
+    try {
+      const { jobs: rows } = await api.getPoolUnderwriteJobs(poolId);
+      if (cancelledRef.current) return;
+      const next = new Map(rows.map(r => [r.loanInPoolId, { loanInPoolId: r.loanInPoolId, state: r.state, reason: r.reason }]));
+      setJobs(next);
+      const active = rows.some(r => JOB_ACTIVE.has(r.state));
+      // A job just finished draining (was active, now none) → coverage + lookups moved.
+      if (prevActiveRef.current && !active) {
+        void refetchCoverage();
+        void refetchLookupsRef.current();
+      }
+      prevActiveRef.current = active;
+      // Keep polling only while something is in flight.
+      if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
+      if (active && !cancelledRef.current) pollTimerRef.current = setTimeout(() => void pollTick(), 2500);
+    } catch { /* advisory — no chip beats a wrong chip */ }
   }, [poolId, refetchCoverage]);
+  // refetchLookupsRef is a stable escape hatch so the poll can re-resolve dealRef
+  // lookups (a no-root loan flips "New analysis →" → "Open underwriting →" once its
+  // root is minted) without pollTick depending on the lookups closure.
+  const refetchLookupsRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    cancelledRef.current = false;
+    void pollTick();
+    return () => { cancelledRef.current = true; if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
+  }, [pollTick]);
 
-  // ★ Data-Room Phase 3, P1 — the manual "Underwrite now" action. Per-loan
-  // transient state (idle | running | done | failed). SYNC + slow (real ingest);
-  // the row shows "Underwriting…" while in flight, then refetches coverage (so the
-  // chip re-derives) AND re-runs the dealRef lookup (so a no-root loan flips from
-  // "New analysis →" to "Open underwriting →" once its root is minted). NOT an
-  // auto-fire — that is P2; this is behind the explicit button only.
+  // ★ Data-Room Phase 3 — the manual "Underwrite now" action. NOW FIRE-AND-POLL
+  // (was a sync/blocking call): the POST ENQUEUES a durable job and returns FAST
+  // (202) — no socket-timeout on a heavy 60 MB extraction. We mark the row
+  // "running" optimistically, then let the SHARED job poll (above) surface
+  // "Underwriting…" and resolve to done | failed | interrupted as the worker
+  // drains off-request. The enqueue is dedup'd server-side (one active job per
+  // loan) so a manual click + a settle auto-fire, or a double-click, never
+  // double-runs a loan. `alreadyActive` just means we joined an in-flight job.
   const [underwrite, setUnderwrite] = useState<Map<string, UnderwriteRowState>>(() => new Map());
-  const runUnderwrite = useCallback((loanInPoolId: string, dealRef: string) => {
+  const runUnderwrite = useCallback((loanInPoolId: string, _dealRef: string) => {
+    void _dealRef; // dealRef re-lookup now happens on poll completion (refetchLookupsRef).
     setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'running' }));
     api.underwriteLoan(poolId, loanInPoolId)
-      .then(async result => {
-        if (result.outcome === 'no-ingestable-docs') {
-          setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'failed', reason: 'No ingestable docs' }));
-          return;
-        }
-        setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'done' }));
-        // Re-derive coverage + re-resolve the analysis lookup so the row settles.
-        await refetchCoverage();
-        try {
-          const resp = await api.lookupAnalysisByDealRef(dealRef);
-          setLookups(prev => new Map(prev).set(dealRef, resp.found
-            ? { kind: 'found', analysisId: resp.analysisId, status: resp.status }
-            : { kind: 'not-found' }));
-        } catch { /* advisory */ }
+      .then(() => {
+        // Enqueued (or joined an in-flight job). Optimistically seed the job map so
+        // "Underwriting…" shows before the first poll returns, then (re)start the
+        // poll to watch it drain. The button state hands off to the shared chip.
+        setJobs(prev => {
+          if (prev.has(loanInPoolId) && JOB_ACTIVE.has(prev.get(loanInPoolId)!.state)) return prev;
+          return new Map(prev).set(loanInPoolId, { loanInPoolId, state: 'pending', reason: null });
+        });
+        setUnderwrite(prev => { const m = new Map(prev); m.delete(loanInPoolId); return m; });
+        prevActiveRef.current = true; // ensure the finish-of-drain coverage refetch fires
+        void pollTick();
       })
       .catch((e: unknown) => {
-        const reason = e instanceof Error ? e.message : 'Underwrite failed';
+        // Only the ENQUEUE can fail here (404 / network) — extraction failures are
+        // reported by the job poll (failed|interrupted), not this promise.
+        const reason = e instanceof Error ? e.message : 'Could not queue underwrite';
         setUnderwrite(prev => new Map(prev).set(loanInPoolId, { kind: 'failed', reason }));
       });
-  }, [poolId, refetchCoverage]);
+  }, [poolId, pollTick]);
 
   // Unique dealRefs from the full membership (not the filtered view — filtering
   // is a UI-only concern; we don't want to re-fetch when the filter changes).
@@ -320,6 +336,30 @@ export function MembershipTable({
       });
     return () => { cancelled = true; };
   }, [dealRefs]);
+
+  // Re-resolve every dealRef lookup (called by the job poll when a drain finishes:
+  // a no-root loan that just got its first underwrite flips "New analysis →" →
+  // "Open underwriting →" once the analysis exists). Kept off pollTick's dep list
+  // via a ref so the poll loop stays stable.
+  const refetchAllLookups = useCallback(() => {
+    Promise.allSettled(dealRefs.map(d => api.lookupAnalysisByDealRef(d).then(r => [d, r] as const)))
+      .then(results => {
+        setLookups(prev => {
+          const next = new Map(prev);
+          for (const r of results) {
+            if (r.status === 'fulfilled') {
+              const [dealRef, resp] = r.value;
+              next.set(dealRef, resp.found
+                ? { kind: 'found', analysisId: resp.analysisId, status: resp.status }
+                : { kind: 'not-found' });
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => { /* advisory */ });
+  }, [dealRefs]);
+  useEffect(() => { refetchLookupsRef.current = refetchAllLookups; }, [refetchAllLookups]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -484,12 +524,14 @@ export function MembershipTable({
 }
 
 /**
- * ★ Data-Room Phase 3, P1 — the "Underwrite now" action button. Fires ONE
- * ingest/append for the loan from its data-room tier-(a) docs. Disabled (with a
- * doc-vocabulary hint) when the loan has NO ingestable docs — never fire nothing.
- * Transient states: running → "Underwriting…" (inert); done → a quiet re-run
- * affordance (a later doc drop re-underwrites); failed → the REAL reason in a
- * tooltip (honest failure, never a fake success). This is a PROCESS control, kept
+ * ★ Data-Room Phase 3 — the "Underwrite now" action button. ENQUEUES ONE durable
+ * job (async — returns fast, no socket-timeout) that runs the ingest/append for
+ * the loan from its data-room tier-(a) docs. Disabled (with a doc-vocabulary hint)
+ * when the loan has NO ingestable docs — never fire nothing. Transient states:
+ * running → "Underwriting…" (the brief enqueue window; then the shared job chip
+ * takes over as the worker drains); done → a quiet re-run affordance (a later doc
+ * drop re-underwrites); failed → the enqueue error in a tooltip (extraction
+ * failures surface on the job chip, not here). A PROCESS control, kept
  * doc-vocabulary + neutral so it never reads as a credit action.
  */
 function UnderwriteAction({
@@ -502,7 +544,7 @@ function UnderwriteAction({
   readonly onRun: () => void;
 }) {
   if (state?.kind === 'running') {
-    return <span className="text-[11px] text-text-muted" title="Ingest in flight — this runs the extractor + engine">Underwriting…</span>;
+    return <span className="text-[11px] text-text-muted" title="Queuing underwrite — the worker will drain it off-request">Underwriting…</span>;
   }
   if (!enabled) {
     return (
