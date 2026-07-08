@@ -42,6 +42,22 @@ async function pdfPage1(bytes: Buffer): Promise<string> {
   return (pages[0] ?? '').slice(0, MAX_PAGE1_CHARS);
 }
 
+/** Cap the front-matter blob (a few cover pages). Larger than page-1 because the
+ *  appraisal's effective/value date lives in the value-conclusion table a few
+ *  pages in, not on the bare cover. */
+const MAX_FRONTMATTER_CHARS = 24_576;
+/** How many leading PDF pages the date scan reads (cover + letter + value table). */
+const FRONTMATTER_PAGES = 6;
+
+/** PDF → the first FRONTMATTER_PAGES pages joined (the cover + transmittal letter
+ *  + value-conclusion table, where the appraisal's effective/as-of/report date
+ *  lives). Real appraisal COVERS carry no date; the value date is a few pages in. */
+async function pdfFrontMatter(bytes: Buffer): Promise<string> {
+  const pdf = await getDocumentProxy(new Uint8Array(bytes));
+  const { text: pages } = await extractText(pdf, { mergePages: false });
+  return pages.slice(0, FRONTMATTER_PAGES).join('\n').slice(0, MAX_FRONTMATTER_CHARS);
+}
+
 /** XLSX → first-sheet name + header/first-rows text (the cover-page analogue). */
 function xlsxPage1(bytes: Buffer): string {
   const wb = XLSX.read(bytes, { type: 'buffer' });
@@ -67,6 +83,24 @@ export async function extractPage1Text(bytes: Buffer): Promise<string> {
   } catch {
     // A malformed / encrypted / unsupported doc must never break routing —
     // fall through to "no content signal" (both content axes then refuse).
+    return '';
+  }
+}
+
+/**
+ * Extract front-matter text for the CONTENT-DATE scan (SLICE 4). Same dispatch as
+ * extractPage1Text, but reads the first several PDF pages (the appraisal's
+ * effective/value date lives in the value-conclusion table a few pages past the
+ * bare cover). XLSX reuses the page-1 header text (its dates live in the first
+ * rows). Returns '' on any parser failure — the caller then persists a null
+ * content date and the tiebreak falls back to uploadedAt (honest). NO-LLM.
+ */
+export async function extractFrontMatterText(bytes: Buffer): Promise<string> {
+  try {
+    if (looksLikePdf(bytes)) return await pdfFrontMatter(bytes);
+    if (looksLikeZipXlsx(bytes)) return xlsxPage1(bytes);
+    return '';
+  } catch {
     return '';
   }
 }

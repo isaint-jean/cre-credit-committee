@@ -76,6 +76,14 @@ export interface DataRoomDocRow {
   readonly ingest: boolean;
   /** Monotonic write-order cursor (bumped on every write incl. refresh). */
   readonly seq: number;
+  /** SLICE 4 — the doc's extracted effective/as-of/report date (ISO-UTC), or
+   *  null when no parseable content date was found. The version tiebreak signal:
+   *  gatherTierADocs picks latest-per-slot by this, uploadedAt as the fallback. */
+  readonly docEffectiveDate: string | null;
+  /** SLICE 4 — a human pin: when 1, THIS version wins its (loan, docType) slot
+   *  for underwriting regardless of content date (the manual override, never
+   *  required). Default 0 = latest-content-date-wins. */
+  readonly pinned: boolean;
 }
 
 /** The upsert payload — everything but seq (the store owns the seq bump). */
@@ -91,6 +99,9 @@ export interface DataRoomDocUpsert {
   readonly notes: string | null;
   readonly tier: DocTypeEntry['tier'];
   readonly ingest: boolean;
+  /** SLICE 4 — extracted content date (ISO-UTC) or null. Optional so existing
+   *  callers stay source-compatible; omitted → null (uploadedAt tiebreak). */
+  readonly docEffectiveDate?: string | null;
 }
 
 interface DbRow {
@@ -106,6 +117,8 @@ interface DbRow {
   tier: string;
   ingest: number;
   seq: number;
+  doc_effective_date: string | null;
+  pinned: number | null;
 }
 
 function toRow(r: DbRow): DataRoomDocRow {
@@ -122,6 +135,56 @@ function toRow(r: DbRow): DataRoomDocRow {
     tier: r.tier as DocTypeEntry['tier'],
     ingest: r.ingest === 1,
     seq: r.seq,
+    docEffectiveDate: r.doc_effective_date ?? null,
+    pinned: r.pinned === 1,
+  };
+}
+
+/**
+ * The ONE upsert statement shared by upsert() / upsertMany() (SLICE-4 refactor —
+ * they were byte-identical SQL and drifting was a risk). Same seq tail-relocation
+ * (MAX(seq)+1 on insert AND conflict-update) as before.
+ *
+ * ★ doc_effective_date REFRESHES on a re-drop (excluded value → latest scan wins).
+ * ★ pinned is NEVER touched here — a re-drop of the same bytes must not clear a
+ *   human pin. Pin/unpin flows through pinSlot()/unpinSlot() exclusively. On a
+ *   fresh INSERT, pinned takes the column DEFAULT 0.
+ */
+const UPSERT_SQL = `INSERT INTO data_room_doc
+     (pool_id, loan_in_pool_id, doc_type, file_hash,
+      file_name, mime_type, size, uploaded_at, notes, tier, ingest, seq,
+      doc_effective_date)
+   VALUES
+     (@pool_id, @loan_in_pool_id, @doc_type, @file_hash,
+      @file_name, @mime_type, @size, @uploaded_at, @notes, @tier, @ingest,
+      (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc),
+      @doc_effective_date)
+   ON CONFLICT(pool_id, loan_in_pool_id, doc_type, file_hash) DO UPDATE SET
+      file_name          = excluded.file_name,
+      mime_type          = excluded.mime_type,
+      size               = excluded.size,
+      uploaded_at        = excluded.uploaded_at,
+      notes              = excluded.notes,
+      tier               = excluded.tier,
+      ingest             = excluded.ingest,
+      doc_effective_date = excluded.doc_effective_date,
+      seq                = (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc)`;
+
+/** Bind params for UPSERT_SQL from an upsert payload (docEffectiveDate → null). */
+function upsertParams(doc: DataRoomDocUpsert): Record<string, unknown> {
+  return {
+    pool_id: doc.poolId,
+    loan_in_pool_id: doc.loanInPoolId,
+    doc_type: doc.docType,
+    file_hash: doc.fileHash,
+    file_name: doc.fileName,
+    mime_type: doc.mimeType,
+    size: doc.size,
+    uploaded_at: doc.uploadedAt,
+    notes: doc.notes,
+    tier: doc.tier,
+    ingest: doc.ingest ? 1 : 0,
+    doc_effective_date: doc.docEffectiveDate ?? null,
   };
 }
 
@@ -155,6 +218,10 @@ export class DataRoomDocStore {
         tier            TEXT    NOT NULL,
         ingest          INTEGER NOT NULL,
         seq             INTEGER NOT NULL,
+        -- SLICE 4: content-date version resolution + manual pin (nullable /
+        -- defaulted so a fresh db carries them and an existing db ALTERs them in).
+        doc_effective_date TEXT,
+        pinned             INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (pool_id, loan_in_pool_id, doc_type, file_hash)
       );
       CREATE INDEX IF NOT EXISTS idx_data_room_doc_pool      ON data_room_doc(pool_id);
@@ -167,6 +234,21 @@ export class DataRoomDocStore {
         imported_at TEXT NOT NULL
       );
     `);
+
+    // ── SLICE-4 lazy migration for a PRE-EXISTING data_room_doc table ──────────
+    // The CREATE TABLE above only carries the two new columns for a FRESH db (the
+    // real cre.db already has the table from earlier slices). Guard each ALTER on
+    // PRAGMA table_info so re-running is a no-op and the real cre.db is only
+    // touched (ADD COLUMN — a metadata-only, non-rewriting op) the FIRST time.
+    const cols = new Set(
+      (this.db.prepare(`PRAGMA table_info(data_room_doc)`).all() as Array<{ name: string }>).map((c) => c.name),
+    );
+    if (!cols.has('doc_effective_date')) {
+      this.db.exec(`ALTER TABLE data_room_doc ADD COLUMN doc_effective_date TEXT`);
+    }
+    if (!cols.has('pinned')) {
+      this.db.exec(`ALTER TABLE data_room_doc ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -184,38 +266,7 @@ export class DataRoomDocStore {
    * append parity). Uses `MAX(seq)+1` (never rowid).
    */
   upsert(doc: DataRoomDocUpsert): DataRoomDocRow {
-    this.db
-      .prepare(
-        `INSERT INTO data_room_doc
-           (pool_id, loan_in_pool_id, doc_type, file_hash,
-            file_name, mime_type, size, uploaded_at, notes, tier, ingest, seq)
-         VALUES
-           (@pool_id, @loan_in_pool_id, @doc_type, @file_hash,
-            @file_name, @mime_type, @size, @uploaded_at, @notes, @tier, @ingest,
-            (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc))
-         ON CONFLICT(pool_id, loan_in_pool_id, doc_type, file_hash) DO UPDATE SET
-            file_name   = excluded.file_name,
-            mime_type   = excluded.mime_type,
-            size        = excluded.size,
-            uploaded_at = excluded.uploaded_at,
-            notes       = excluded.notes,
-            tier        = excluded.tier,
-            ingest      = excluded.ingest,
-            seq         = (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc)`,
-      )
-      .run({
-        pool_id: doc.poolId,
-        loan_in_pool_id: doc.loanInPoolId,
-        doc_type: doc.docType,
-        file_hash: doc.fileHash,
-        file_name: doc.fileName,
-        mime_type: doc.mimeType,
-        size: doc.size,
-        uploaded_at: doc.uploadedAt,
-        notes: doc.notes,
-        tier: doc.tier,
-        ingest: doc.ingest ? 1 : 0,
-      });
+    this.db.prepare(UPSERT_SQL).run(upsertParams(doc));
     return this.get(doc.poolId, doc.loanInPoolId, doc.docType, doc.fileHash)!;
   }
 
@@ -231,40 +282,9 @@ export class DataRoomDocStore {
    * SAME prepared statement, so there is no divergence between the two paths.
    */
   upsertMany(docs: ReadonlyArray<DataRoomDocUpsert>): DataRoomDocRow[] {
-    const stmt = this.db.prepare(
-      `INSERT INTO data_room_doc
-         (pool_id, loan_in_pool_id, doc_type, file_hash,
-          file_name, mime_type, size, uploaded_at, notes, tier, ingest, seq)
-       VALUES
-         (@pool_id, @loan_in_pool_id, @doc_type, @file_hash,
-          @file_name, @mime_type, @size, @uploaded_at, @notes, @tier, @ingest,
-          (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc))
-       ON CONFLICT(pool_id, loan_in_pool_id, doc_type, file_hash) DO UPDATE SET
-          file_name   = excluded.file_name,
-          mime_type   = excluded.mime_type,
-          size        = excluded.size,
-          uploaded_at = excluded.uploaded_at,
-          notes       = excluded.notes,
-          tier        = excluded.tier,
-          ingest      = excluded.ingest,
-          seq         = (SELECT COALESCE(MAX(seq), 0) + 1 FROM data_room_doc)`,
-    );
+    const stmt = this.db.prepare(UPSERT_SQL);
     const tx = this.db.transaction((rows: ReadonlyArray<DataRoomDocUpsert>) => {
-      for (const doc of rows) {
-        stmt.run({
-          pool_id: doc.poolId,
-          loan_in_pool_id: doc.loanInPoolId,
-          doc_type: doc.docType,
-          file_hash: doc.fileHash,
-          file_name: doc.fileName,
-          mime_type: doc.mimeType,
-          size: doc.size,
-          uploaded_at: doc.uploadedAt,
-          notes: doc.notes,
-          tier: doc.tier,
-          ingest: doc.ingest ? 1 : 0,
-        });
-      }
+      for (const doc of rows) stmt.run(upsertParams(doc));
     });
     tx(docs);
     return docs.map((d) => this.get(d.poolId, d.loanInPoolId, d.docType, d.fileHash)!);
@@ -291,6 +311,54 @@ export class DataRoomDocStore {
       .prepare(`SELECT * FROM data_room_doc WHERE pool_id = ? ORDER BY seq ASC`)
       .all(poolId) as DbRow[];
     return rows.map(toRow);
+  }
+
+  // -------------------------------------------------------------------------
+  // SLICE 4 — the manual PIN override (available, never required).
+  //
+  // A pin marks ONE version (file_hash) as the winner of its (loan, docType)
+  // slot for underwriting, overriding the latest-content-date tiebreak. Pinning
+  // is EXCLUSIVE per (pool, loan, docType): pinning one version clears any pin on
+  // the other versions of the same slot (so at most one pin per slot). Unpin
+  // clears it → back to latest-content-date-wins (zero human action default).
+  // -------------------------------------------------------------------------
+
+  /**
+   * Pin one version (file_hash) as the winner of its (loan, docType) slot.
+   * EXCLUSIVE: clears any existing pin on OTHER versions of the same slot first,
+   * then sets this one. Returns true if the target row exists (was pinned), false
+   * if there is no such doc row (nothing pinned). One transaction (atomic swap).
+   */
+  pinSlot(poolId: string, loanInPoolId: string, docType: string, fileHash: string): boolean {
+    const tx = this.db.transaction(() => {
+      // Clear pins on the whole slot (all versions), then pin the target.
+      this.db
+        .prepare(
+          `UPDATE data_room_doc SET pinned = 0
+            WHERE pool_id = ? AND loan_in_pool_id = ? AND doc_type = ?`,
+        )
+        .run(poolId, loanInPoolId, docType);
+      const r = this.db
+        .prepare(
+          `UPDATE data_room_doc SET pinned = 1
+            WHERE pool_id = ? AND loan_in_pool_id = ? AND doc_type = ? AND file_hash = ?`,
+        )
+        .run(poolId, loanInPoolId, docType, fileHash);
+      return r.changes > 0;
+    });
+    return tx();
+  }
+
+  /** Clear the pin on a (loan, docType) slot (all versions) → back to
+   *  latest-content-date-wins. Returns how many rows were un-pinned. */
+  unpinSlot(poolId: string, loanInPoolId: string, docType: string): number {
+    const r = this.db
+      .prepare(
+        `UPDATE data_room_doc SET pinned = 0
+          WHERE pool_id = ? AND loan_in_pool_id = ? AND doc_type = ? AND pinned = 1`,
+      )
+      .run(poolId, loanInPoolId, docType);
+    return r.changes;
   }
 
   /**

@@ -53,6 +53,8 @@ import { DataRoomDocStore } from '../storage/data-room-doc-store.js';
 import type { DataRoomDocRow } from '../storage/data-room-doc-store.js';
 import { DataRoomHeldStore } from '../storage/data-room-held-store.js';
 import type { DataRoomHeldRow } from '../storage/data-room-held-store.js';
+import { classifyDateFromContent } from '@cre/shared';
+import { extractFrontMatterText } from './data-room/page1-text.service.js';
 
 // ---------------------------------------------------------------------------
 // Paths (separate namespace — never touches cre.db, never touches ingest dirs)
@@ -182,6 +184,12 @@ export interface DataRoomDocEntry {
   /** Denormalized from the taxonomy for cheap projection rendering. */
   readonly tier: DocTypeEntry['tier'];
   readonly ingest: boolean; // true only for tier 'ingesting'
+  /** SLICE 4 — extracted effective/as-of/report date (ISO-UTC) or null. The
+   *  version tiebreak signal (latest-content-date wins the underwrite slot). */
+  readonly docEffectiveDate?: string | null;
+  /** SLICE 4 — human pin: this version wins its (loan, docType) slot for
+   *  underwriting, overriding latest-content-date. Read-only on the entry. */
+  readonly pinned?: boolean;
 }
 
 /** One pool's document pile. Two projections are derived from `docs`. */
@@ -236,6 +244,24 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * SLICE 4 — extract a doc's effective/as-of/report content date at persist time
+ * (durable on data_room_doc.doc_effective_date, not re-derived each read).
+ *
+ * Scoped to TIER-A (ingest===true) docs — the ones that underwrite, whose version
+ * selection the date resolves. Tier-(b/c) docs skip the scan (no underwrite
+ * selection to resolve) → null → uploadedAt tiebreak if ever needed. NO-LLM: a
+ * cheap deterministic front-matter (page-1..N) text scan + the shared regex
+ * classifier. Returns null on any parse miss / non-tier-a doc (honest — the
+ * tiebreak then falls back to uploadedAt).
+ */
+async function extractEffectiveDate(bytes: Buffer, ingest: boolean): Promise<string | null> {
+  if (!ingest) return null; // only tier-a docs feed the underwrite selection
+  const text = await extractFrontMatterText(bytes);
+  if (text.length === 0) return null;
+  return classifyDateFromContent(text);
+}
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -274,6 +300,12 @@ export async function saveDataRoomDoc(args: SaveDataRoomDocArgs): Promise<DataRo
   // Bytes FIRST (idempotent). Throws on write failure — never a half-persist.
   const fileHash = await blobStore.putBlob(args.buffer);
 
+  const ingest = taxo.tier === 'ingesting';
+  // SLICE 4: extract the content date for tier-a docs (the version tiebreak
+  // signal). Never throws into the persist path — extractEffectiveDate is '' /
+  // null-safe.
+  const docEffectiveDate = await extractEffectiveDate(args.buffer, ingest);
+
   const entry: DataRoomDocEntry = {
     loanInPoolId: args.loanInPoolId,
     docType: taxo.id,
@@ -284,7 +316,8 @@ export async function saveDataRoomDoc(args: SaveDataRoomDocArgs): Promise<DataRo
     uploadedAt: nowIso(),
     notes: args.notes ?? null,
     tier: taxo.tier,
-    ingest: taxo.tier === 'ingesting',
+    ingest,
+    docEffectiveDate,
   };
 
   // Single drop = a one-element batch. saveDataRoomDoc and assignDataRoomFiles now
@@ -352,6 +385,7 @@ export function persistDataRoomEntries(
       notes: entry.notes,
       tier: entry.tier,
       ingest: entry.ingest,
+      docEffectiveDate: entry.docEffectiveDate ?? null,
     })),
   );
 
@@ -426,6 +460,8 @@ function rowToEntry(r: DataRoomDocRow): DataRoomDocEntry {
     notes: r.notes,
     tier: r.tier,
     ingest: r.ingest,
+    docEffectiveDate: r.docEffectiveDate,
+    pinned: r.pinned,
   };
 }
 
@@ -625,6 +661,9 @@ export async function assignDataRoomFiles(args: {
       results.push({ stagingId: a.stagingId, status: 'error', error: msg });
       continue;
     }
+    const ingest = taxo.tier === 'ingesting';
+    // SLICE 4: content-date scan for tier-a docs (bytes already in hand here).
+    const docEffectiveDate = await extractEffectiveDate(bytes, ingest);
     const entry: DataRoomDocEntry = {
       loanInPoolId: a.loanInPoolId,
       docType: taxo.id,
@@ -635,7 +674,8 @@ export async function assignDataRoomFiles(args: {
       uploadedAt: nowIso(),
       notes: a.notes ?? null,
       tier: taxo.tier,
-      ingest: taxo.tier === 'ingesting',
+      ingest,
+      docEffectiveDate,
     };
     // Reserve this assignment's ordered result slot; fill it after the persist.
     results.push({
@@ -829,13 +869,13 @@ export interface IdentifyHeldResult {
  * copy already exists; identifying the same held file twice with the same address
  * is a data_room_doc upsert (no-op) + held delete.
  */
-export function identifyHeldDoc(args: {
+export async function identifyHeldDoc(args: {
   readonly poolId: string;
   readonly fileHash: string;
   readonly loanInPoolId: string;
   readonly docType: string;
   readonly notes?: string;
-}): IdentifyHeldResult {
+}): Promise<IdentifyHeldResult> {
   const taxo = docTypeById(args.docType);
   if (!taxo) {
     return { status: 'error', error: `invalid_doc_type:${args.docType}` };
@@ -843,6 +883,17 @@ export function identifyHeldDoc(args: {
   const row = heldStore().get(args.poolId, args.fileHash);
   if (!row) {
     return { status: 'error', error: 'held_doc_not_found' };
+  }
+
+  // SLICE 4: a held file identified AS a tier-a doc now enters the underwrite
+  // selection → extract its content date. Bytes are already in the blob store
+  // (put when held); the fileHash is the content id. Best-effort — a fetch/parse
+  // miss yields null (uploadedAt tiebreak), never fails the identify move.
+  const ingest = taxo.tier === 'ingesting';
+  let docEffectiveDate: string | null = null;
+  if (ingest) {
+    const bytes = await blobStore.getBlob(row.fileHash as ContentHash);
+    if (bytes !== null) docEffectiveDate = await extractEffectiveDate(bytes, ingest);
   }
 
   // Build the routed entry from the held row (its fileName/mimeType/size ride the
@@ -857,7 +908,8 @@ export function identifyHeldDoc(args: {
     uploadedAt: nowIso(),
     notes: args.notes ?? null,
     tier: taxo.tier,
-    ingest: taxo.tier === 'ingesting',
+    ingest,
+    docEffectiveDate,
   };
 
   // 1) Persist-to-doc FIRST (durable). Then 2) delete-from-held — the clean move.
@@ -870,6 +922,50 @@ export function identifyHeldDoc(args: {
     docType: entry.docType,
     fileHash: entry.fileHash,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Public API — the manual PIN override (SLICE 4; available, never required).
+//
+// Pin one version (file_hash) of a (loan, docType) slot as the underwrite winner,
+// overriding the latest-content-date tiebreak. Default (no pin) = latest-date
+// wins, zero human action. Pin is EXCLUSIVE per slot (pinning one clears the
+// others). Unpin → back to latest-date-wins.
+// ---------------------------------------------------------------------------
+
+export interface PinResult {
+  readonly status: 'pinned' | 'unpinned' | 'error';
+  readonly loanInPoolId?: string;
+  readonly docType?: string;
+  readonly fileHash?: string;
+  readonly error?: string;
+}
+
+/** Pin a specific version (fileHash) as the winner of its (loan, docType) slot.
+ *  Validates docType ∈ taxonomy + that the version exists in this pool's slot. */
+export function pinDataRoomDoc(args: {
+  readonly poolId: string;
+  readonly loanInPoolId: string;
+  readonly docType: string;
+  readonly fileHash: string;
+}): PinResult {
+  const taxo = docTypeById(args.docType);
+  if (!taxo) return { status: 'error', error: `invalid_doc_type:${args.docType}` };
+  const ok = docStore().pinSlot(args.poolId, args.loanInPoolId, args.docType, args.fileHash);
+  if (!ok) return { status: 'error', error: 'doc_not_found' };
+  return { status: 'pinned', loanInPoolId: args.loanInPoolId, docType: taxo.id, fileHash: args.fileHash };
+}
+
+/** Clear the pin on a (loan, docType) slot → latest-content-date-wins again. */
+export function unpinDataRoomDoc(args: {
+  readonly poolId: string;
+  readonly loanInPoolId: string;
+  readonly docType: string;
+}): PinResult {
+  const taxo = docTypeById(args.docType);
+  if (!taxo) return { status: 'error', error: `invalid_doc_type:${args.docType}` };
+  docStore().unpinSlot(args.poolId, args.loanInPoolId, args.docType);
+  return { status: 'unpinned', loanInPoolId: args.loanInPoolId, docType: taxo.id };
 }
 
 /** Read a staged file's raw bytes from the staging batch directory. The staging

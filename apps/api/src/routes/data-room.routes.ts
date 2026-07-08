@@ -38,6 +38,8 @@ import {
   listHeldDocs,
   getHeldDoc,
   identifyHeldDoc,
+  pinDataRoomDoc,
+  unpinDataRoomDoc,
   type DataRoomAssignment,
   type HoldStagedFile,
 } from '../services/data-room-store.service.js';
@@ -429,7 +431,7 @@ dataRoomRoutes.get('/:poolId/held/:fileHash', async (req: Request, res: Response
   res.send(found.bytes);
 });
 
-dataRoomRoutes.post('/:poolId/held/:fileHash/identify', (req: Request, res: Response) => {
+dataRoomRoutes.post('/:poolId/held/:fileHash/identify', async (req: Request, res: Response) => {
   const uid = userId(req);
   if (!uid) {
     res.status(401).json({ error: 'unauthenticated' });
@@ -444,7 +446,7 @@ dataRoomRoutes.post('/:poolId/held/:fileHash/identify', (req: Request, res: Resp
     return;
   }
 
-  const result = identifyHeldDoc({
+  const result = await identifyHeldDoc({
     poolId,
     fileHash,
     loanInPoolId,
@@ -462,6 +464,60 @@ dataRoomRoutes.post('/:poolId/held/:fileHash/identify', (req: Request, res: Resp
   // manual identify is an out-of-band resolution of a genuinely-unidentified file,
   // so it routes the doc (eligible for the underwrite queue on the next settle)
   // without re-deriving a batch here.
+  res.json({ result });
+});
+
+// ---------------------------------------------------------------------------
+// Data-Room content-routing SLICE 4 — the manual PIN override (available, never
+// required). Pin a specific version (file_hash) of a (loan, docType) slot as the
+// underwrite winner, overriding the latest-content-date tiebreak. Default (no
+// pin) = latest-content-date wins, zero human action.
+//
+//   POST /:poolId/loans/:loanInPoolId/pin     { docType, fileHash }  → pin
+//   POST /:poolId/loans/:loanInPoolId/unpin   { docType }            → unpin
+// ---------------------------------------------------------------------------
+
+dataRoomRoutes.post('/:poolId/loans/:loanInPoolId/pin', (req: Request, res: Response) => {
+  const uid = userId(req);
+  if (!uid) {
+    res.status(401).json({ error: 'unauthenticated' });
+    return;
+  }
+  const { poolId, loanInPoolId } = req.params as { poolId: string; loanInPoolId: string };
+  const body = req.body as { docType?: string; fileHash?: string } | undefined;
+  const docType = typeof body?.docType === 'string' ? body.docType : null;
+  const fileHash = typeof body?.fileHash === 'string' ? body.fileHash : null;
+  if (!docType || !fileHash) {
+    res.status(400).json({ error: 'invalid_body', message: '`docType` and `fileHash` are required.' });
+    return;
+  }
+  const result = pinDataRoomDoc({ poolId, loanInPoolId, docType, fileHash });
+  if (result.status === 'error') {
+    const status = result.error === 'doc_not_found' ? 404 : 400;
+    res.status(status).json({ error: result.error ?? 'pin_failed' });
+    return;
+  }
+  res.json({ result });
+});
+
+dataRoomRoutes.post('/:poolId/loans/:loanInPoolId/unpin', (req: Request, res: Response) => {
+  const uid = userId(req);
+  if (!uid) {
+    res.status(401).json({ error: 'unauthenticated' });
+    return;
+  }
+  const { poolId, loanInPoolId } = req.params as { poolId: string; loanInPoolId: string };
+  const body = req.body as { docType?: string } | undefined;
+  const docType = typeof body?.docType === 'string' ? body.docType : null;
+  if (!docType) {
+    res.status(400).json({ error: 'invalid_body', message: '`docType` is required.' });
+    return;
+  }
+  const result = unpinDataRoomDoc({ poolId, loanInPoolId, docType });
+  if (result.status === 'error') {
+    res.status(400).json({ error: result.error ?? 'unpin_failed' });
+    return;
+  }
   res.json({ result });
 });
 

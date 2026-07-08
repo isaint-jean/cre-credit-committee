@@ -165,3 +165,102 @@ export function inferSlotFromFilename(fileName: string): SourceDocSlot | null {
 export function classifyDocTypeFromContent(pageText: string): SourceDocSlot | null {
   return matchSlotInText(pageText);
 }
+
+/* -------------------------------------------------------------------------- */
+/* CONTENT-DATE axis (Data-Room content-routing SLICE 4).                     */
+/*                                                                            */
+/* Extract a document's effective / as-of / report date from its own text —  */
+/* the version tiebreak signal for gatherTierADocs (latest-content-date wins  */
+/* the underwrite slot). NO-LLM: pure regex over the doc's front-matter text  */
+/* (the same page-1/cover text the SLICE-1 content classifier already reads,  */
+/* extended a few pages for the appraisal value-conclusion table). Returns an */
+/* ISO-8601 UTC string (YYYY-MM-DDT00:00:00.000Z) or null when no parseable   */
+/* date is present (→ the caller falls back to uploadedAt, honest).           */
+/* -------------------------------------------------------------------------- */
+
+const MONTH_INDEX: Readonly<Record<string, number>> = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+};
+
+/** A month/day/year triple → the canonical ISO-UTC midnight string, or null on
+ *  an out-of-range component. */
+function toIso(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00.000Z`;
+}
+
+/** "July 13, 2023" → ISO, or null. Mirrors extract-cbre-appraisal.ts parseDate. */
+function parseMonthNameDate(s: string): string | null {
+  const m = s.match(/([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
+  if (!m) return null;
+  const mo = MONTH_INDEX[m[1]!.toLowerCase()];
+  if (mo === undefined) return null;
+  return toIso(Number(m[3]), mo, Number(m[2]));
+}
+
+/** "7/13/2023" or "1.23.20" (M/D/Y) → ISO, or null. 2-digit years → 2000s. */
+function parseNumericDate(s: string): string | null {
+  const m = s.match(/(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})/);
+  if (!m) return null;
+  let year = Number(m[3]);
+  if (year < 100) year += 2000;
+  return toIso(year, Number(m[1]), Number(m[2]));
+}
+
+/** Either date form → ISO, or null. */
+function parseAnyDate(s: string): string | null {
+  return parseMonthNameDate(s) ?? parseNumericDate(s);
+}
+
+/** A single alternation for BOTH date forms (month-name OR numeric M/D/Y),
+ *  reused inside the labeled-date patterns. */
+const DATE_TOKEN =
+  '(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},?\\s+\\d{4}|\\d{1,2}[/.]\\d{1,2}[/.]\\d{2,4}';
+
+/**
+ * CONTENT-DATE axis (SLICE 4). Extract the strongest effective/as-of/report date
+ * signal from a document's front-matter text. Priority (strongest first):
+ *
+ *   1. As-Is value / effective / valuation / "Date of Value" date — the
+ *      appraisal's own effective date (the field extract-cbre-appraisal reads as
+ *      asIsValueDate). This is the canonical "as of when is this valuation true".
+ *   2. Date of Report / Report Date — the document's issue date.
+ *   3. Any bare month-name date anywhere in the text — last resort.
+ *
+ * Within a priority tier, the LATEST date wins (recency). Returns ISO-UTC or
+ * null. Pure regex, NO-LLM — runs with API credits depleted.
+ */
+export function classifyDateFromContent(text: string): string | null {
+  if (typeof text !== 'string' || text.trim().length === 0) return null;
+
+  const candidates: Array<{ iso: string; priority: number }> = [];
+  const collect = (rx: RegExp, priority: number): void => {
+    for (const m of text.matchAll(rx)) {
+      const iso = parseAnyDate(m[1]!);
+      if (iso) candidates.push({ iso, priority });
+    }
+  };
+
+  // Priority 1 — value / effective / as-of dates (the value-conclusion table).
+  collect(
+    new RegExp(
+      `(?:As[\\s-]*Is[^\\n$]{0,40}?|Effective Date(?: of (?:Value|the Appraisal))?|Date of Value|Valuation Date)\\s*:?\\s*(${DATE_TOKEN})`,
+      'gi',
+    ),
+    1,
+  );
+  // Priority 2 — report / issue date.
+  collect(new RegExp(`(?:Date of Report|Report Date)\\s*:?\\s*(${DATE_TOKEN})`, 'gi'), 2);
+  // Priority 3 — any month-name date anywhere (last resort).
+  collect(
+    /((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})/gi,
+    3,
+  );
+
+  if (candidates.length === 0) return null;
+  // Strongest priority; within a tier, the latest ISO date (lexical compare works
+  // for the fixed ISO shape).
+  candidates.sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : (a.iso < b.iso ? 1 : -1)));
+  return candidates[0]!.iso;
+}

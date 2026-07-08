@@ -163,28 +163,76 @@ const CONTRACTS_TO_LEGACY_ASSET_TYPE: Record<ContractsAssetType, LegacyAssetType
 /* Half A helpers.                                                            */
 /* -------------------------------------------------------------------------- */
 
-/** A loan's tier-(a) (ingest===true) docs from the data-room store. Deduped per
- *  docType → SourceDocSlot: if two docs share a slot, the latest-uploaded wins
- *  (one slot ingests once). Returns the resolved slot alongside each entry. */
+/**
+ * A loan's tier-(a) (ingest===true) docs from the data-room store, ONE version
+ * per docType slot (a slot ingests once).
+ *
+ * ── SLICE 4: the version tiebreak is CONTENT-DATE, with two overrides ──────────
+ * For each (loan, docType) slot with N stored versions (keep-all — every version
+ * persists; nothing is discarded), we pick the ONE that underwrites:
+ *
+ *   1. PIN wins — if a human pinned a version of the slot, that version is the
+ *      winner regardless of dates (the manual override, available but never
+ *      required). At most one pin per slot (store enforces exclusivity).
+ *   2. else LATEST doc_effective_date wins — the extracted effective/as-of/report
+ *      date (the appraisal's own value date). Two appraisals for one loan → the
+ *      latest-dated one underwrites automatically, no human action.
+ *   3. FALLBACK to uploadedAt — a version with no parseable content date
+ *      (doc_effective_date null) sorts by uploadedAt (honest: no date → upload
+ *      order). A dated version always beats an undated one (a real signal beats a
+ *      proxy).
+ *
+ * Older versions are KEPT in the store (projectBy* still lists them); only the
+ * underwrite SELECTION changes here.
+ */
 function gatherTierADocs(
   poolId: string,
   loanInPoolId: string,
   listPoolDocs: typeof defaultListPoolDocs,
 ): Array<{ entry: DataRoomDocEntry; slot: SourceDocSlot }> {
-  const docs = listPoolDocs(poolId)
-    .filter((d) => d.loanInPoolId === loanInPoolId && d.ingest === true)
-    // stable: oldest → newest so the latest-per-slot wins the dedupe below.
-    .slice()
-    .sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt));
+  const docs = listPoolDocs(poolId).filter((d) => d.loanInPoolId === loanInPoolId && d.ingest === true);
 
-  const bySlot = new Map<SourceDocSlot, { entry: DataRoomDocEntry; slot: SourceDocSlot }>();
+  // Group every stored version by slot, then pick the winner per slot.
+  const bySlot = new Map<SourceDocSlot, Array<DataRoomDocEntry>>();
   for (const d of docs) {
     const taxo = docTypeById(d.docType);
     const slot = taxo?.slot as SourceDocSlot | null | undefined;
     if (!slot) continue; // not slotted → not a composer input (shouldn't happen for tier-a)
-    bySlot.set(slot, { entry: d, slot }); // latest-per-slot wins
+    const arr = bySlot.get(slot) ?? [];
+    arr.push(d);
+    bySlot.set(slot, arr);
   }
-  return Array.from(bySlot.values());
+
+  const out: Array<{ entry: DataRoomDocEntry; slot: SourceDocSlot }> = [];
+  for (const [slot, versions] of bySlot) {
+    out.push({ entry: pickWinningVersion(versions), slot });
+  }
+  return out;
+}
+
+/**
+ * SLICE-4 tiebreak: pin > latest content-date > latest uploadedAt. Pure over the
+ * slot's versions. A dated version always outranks an undated one; among dated,
+ * the latest doc_effective_date wins; among undated (or as the final tie-break),
+ * the latest uploadedAt wins — reproducing the pre-SLICE-4 behavior exactly when
+ * NO version has a content date and none is pinned.
+ */
+export function pickWinningVersion(versions: ReadonlyArray<DataRoomDocEntry>): DataRoomDocEntry {
+  // 1) A human pin wins outright (at most one per slot; if somehow >1, the latest
+  //    uploaded pinned wins — same secondary ordering as everything else).
+  const pinned = versions.filter((v) => v.pinned === true);
+  const pool = pinned.length > 0 ? pinned : versions;
+
+  return pool.slice().sort((a, b) => {
+    // 2) Content-date: a present date beats a null one; later date wins.
+    const ad = a.docEffectiveDate ?? null;
+    const bd = b.docEffectiveDate ?? null;
+    if (ad !== null && bd !== null && ad !== bd) return ad < bd ? 1 : -1;
+    if (ad !== null && bd === null) return -1; // a dated → a wins
+    if (ad === null && bd !== null) return 1; // b dated → b wins
+    // 3) Fallback / final tie-break: latest uploadedAt wins.
+    return a.uploadedAt < b.uploadedAt ? 1 : a.uploadedAt > b.uploadedAt ? -1 : 0;
+  })[0]!;
 }
 
 /* -------------------------------------------------------------------------- */
