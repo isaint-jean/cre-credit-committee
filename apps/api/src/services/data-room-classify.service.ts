@@ -42,7 +42,7 @@ import {
 import {
   normalizePropertyName,
 } from './parse-bmark-tape-xlsx.js';
-import { extractPage1Text } from './data-room/page1-text.service.js';
+import { extractFrontMatterText } from './data-room/page1-text.service.js';
 
 /** The minimal loan-name shape the loan axis matches against. Mirrors
  *  PoolStore.listLoanNameKeys() rows (already pool-scoped by the caller). */
@@ -403,14 +403,15 @@ export interface ClassifyFileInput {
  *   LOAN:     folder(zip top folder) → filename → content
  *   DOC-TYPE: filename → content            (folder gives category, not doc-type)
  *
- * Content is the tier-3 fallback: page-1 text is parsed AT MOST ONCE, and ONLY
- * when at least one axis is still unresolved after folder + filename — so a file
- * whose name already resolves both axes never gets scanned (cheap). categoryHint
- * and contradiction from the folder tier are preserved unchanged; the returned
- * shape is the SAME `PathClassifyHints` (⊇ `ClassifyHints`), so `verdictFor` /
- * assign / underwrite downstream are UNCHANGED.
+ * Content is the tier-3 fallback: the front-matter window (first-N-pages, a
+ * superset of page-1) is parsed AT MOST ONCE, and ONLY when at least one axis is
+ * still unresolved after folder + filename — so a file whose name already
+ * resolves both axes never gets scanned (cheap). categoryHint and contradiction
+ * from the folder tier are preserved unchanged; the returned shape is the SAME
+ * `PathClassifyHints` (⊇ `ClassifyHints`), so `verdictFor` / assign / underwrite
+ * downstream are UNCHANGED.
  *
- * NO-LLM: every tier is deterministic regex / string-scoring; `extractPage1Text`
+ * NO-LLM: every tier is deterministic regex / string-scoring; `extractFrontMatterText`
  * uses the unpdf/xlsx parsers only. Runs with credits depleted.
  */
 export async function classifyFileCascade(
@@ -435,11 +436,16 @@ export async function classifyFileCascade(
   let loanInPoolId: string | null = folderHints?.loanInPoolId ?? filenameLoan;
   let docType: string | null = folderHints?.docType ?? filenameDocType;
 
-  // ── Tier 3 (content) — the fallback. Parse page-1 ONCE, and ONLY if an axis
-  //    is still unresolved. Skip the scan entirely when both axes already
-  //    resolved (the cheap fast-path). ─────────────────────────────────────────
+  // ── Tier 3 (content) — the fallback. Parse the FRONT-MATTER window ONCE, and
+  //    ONLY if an axis is still unresolved. Skip the scan entirely when both axes
+  //    already resolved (the cheap fast-path). The front-matter window (first N
+  //    pages, a superset of page-1) recovers files whose page-1 is unusable —
+  //    e.g. a CBRE appraisal cover that extracts LETTER-SPACED
+  //    ("S U N R O A D  C E N TR U M") where page 2 carries clean "Sunroad
+  //    Centrum" that fuzzy-matches. BOTH axes (loan + doc-type) share the same
+  //    deeper text (parse-once still). ──────────────────────────────────────────
   if (loanInPoolId === null || docType === null) {
-    const pageText = await extractPage1Text(bytes); // parse-once; '' on any failure
+    const pageText = await extractFrontMatterText(bytes); // parse-once; '' on any failure
     if (pageText.length > 0) {
       if (loanInPoolId === null) {
         loanInPoolId = classifyLoanFromContent(pageText, poolLoans);
