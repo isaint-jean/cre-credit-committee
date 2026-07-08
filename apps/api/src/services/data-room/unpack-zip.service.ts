@@ -31,6 +31,9 @@
  *                 recursed into.
  *   - symlinks / non-files: symlinks (S_IFLNK) and directory entries are SKIPPED;
  *                 only regular files are written.
+ *   - AppleDouble: macOS resource-fork stubs (`._name`) and the `__MACOSX/`
+ *                 metadata folder are SKIPPED (like a real `unzip`) — they are
+ *                 known junk metadata, NOT held and NOT security-rejected.
  */
 
 import { createWriteStream } from 'node:fs';
@@ -159,6 +162,26 @@ function isSymlink(entry: Entry): boolean {
 }
 
 /**
+ * True iff an entry is macOS AppleDouble junk — a resource-fork stub whose
+ * BASENAME starts with `._`, or anything under the `__MACOSX/` metadata folder.
+ * Mirrors what a real `unzip` silently drops. Uses the SAME forward-slash
+ * segment split as the zip-slip guard (a `\`-bearing name is already rejected as
+ * `backslash` upstream, so segments here are the real path parts).
+ *
+ * Precise on purpose (no over-skip):
+ *   - `._foo.pdf`               → junk (basename starts with `._`)
+ *   - `__MACOSX/x/._y`          → junk (a `__MACOSX` path segment)
+ *   - `2024._report.pdf`        → KEPT (`._` is mid-name, not basename-start)
+ *   - `my_data.pdf` / `macosx…` → KEPT (no `._` basename, no `__MACOSX` segment)
+ */
+function isAppleDoubleJunk(name: string): boolean {
+  const segments = name.split('/');
+  if (segments.some((s) => s === '__MACOSX')) return true;
+  const basename = segments[segments.length - 1] ?? '';
+  return basename.startsWith('._');
+}
+
+/**
  * Unpack a zip (given as bytes) into a per-batch sandbox under os.tmpdir(),
  * validating every entry fail-closed. Nothing unvalidated leaves the sandbox.
  */
@@ -229,6 +252,13 @@ export async function unpackZipToSandbox(
 
             // ── Directories: skip silently (structure is implied by files). ──
             if (isDirEntry(internalPath, entry)) {
+              return nextEntry();
+            }
+
+            // ── AppleDouble junk (macOS `._name` stubs + `__MACOSX/`): SKIP ──
+            // silently, exactly like a real `unzip`. NOT held, NOT rejected —
+            // it is known metadata junk, never a routed doc nor a held item.
+            if (isAppleDoubleJunk(internalPath)) {
               return nextEntry();
             }
 
