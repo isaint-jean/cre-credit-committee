@@ -74,8 +74,13 @@ export function normalizeForMatch(raw: string): string {
   // Strip file extension
   s = s.replace(/\.(xlsm|xlsx|xls|pdf|doc|docx)$/i, '');
 
-  // Strip leading "NNN- " or "NNN.NN- " or "N- " prefix
-  s = s.replace(/^\s*\d{1,3}(?:\.\d{1,3})?\s*[-–.\s]+/, '');
+  // Strip leading "NNN- " or "NNN.NN- " or "N- " DOC-INDEX prefix. ★ The separator
+  // MUST include a dash/dot ([-–.]) — a bare space is NOT enough. Otherwise a
+  // street number ("640 5th avenue") is wrongly stripped to a generic ordinal
+  // core ("5th avenue"), which then false-matches any 5th-avenue prose. Doc
+  // indexes are "010. "/"23- "/"001 - " (dash/dot); street numbers are
+  // space-separated and are KEPT.
+  s = s.replace(/^\s*\d{1,3}(?:\.\d{1,3})?\s*[-–.]+\s*/, '');
 
   // Strip common suffixes (order matters — longest first). Repeated passes
   // peel nested suffixes (e.g. "FINAL OK TO PRINT JN" → "FINAL OK TO PRINT"
