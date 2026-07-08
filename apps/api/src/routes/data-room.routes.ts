@@ -38,6 +38,7 @@ import {
   listHeldDocs,
   getHeldDoc,
   identifyHeldDoc,
+  deleteHeldDoc,
   pinDataRoomDoc,
   unpinDataRoomDoc,
   type DataRoomAssignment,
@@ -48,7 +49,7 @@ import {
   verdictFor,
   type PathClassifyHints,
 } from '../services/data-room-classify.service.js';
-import { unpackZipToSandbox } from '../services/data-room/unpack-zip.service.js';
+import { unpackZipToSandbox, looksLikeFolderZip } from '../services/data-room/unpack-zip.service.js';
 import { promises as fsp } from 'node:fs';
 import { DocumentReadStateStore } from '../storage/document-read-state-store.js';
 import { PoolStore } from '../storage/pool-store.js';
@@ -134,10 +135,26 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
     const stagedInputs: StagedInput[] = [];
     let rejectedCount = 0; // Phase-1 rejected[] entries: COUNTED, routed NOWHERE.
 
-    const isZip = (f: Express.Multer.File): boolean =>
-      /\.zip$/i.test(f.originalname) ||
-      f.mimetype.toLowerCase() === 'application/zip' ||
-      f.mimetype.toLowerCase() === 'application/x-zip-compressed';
+    // ── isZip: cheap checks FIRST, magic-byte peek ONLY if they miss. ─────────
+    // ★ ROOT-CAUSE FIX: a real zip can arrive with its `.zip` extension stripped
+    // and a generic octet-stream mime (Isabelle's "Sunroad Zip"). The extension +
+    // mime tiers catch the labeled case with zero byte-reads; the magic-byte tier
+    // (`looksLikeFolderZip`) catches the STRIPPED case by peeking the bytes we
+    // already hold — and CRITICALLY excludes Office Open XML containers
+    // (.xlsx/.docx/.pptx are zips too) so a stripped-extension spreadsheet routes
+    // as a DOCUMENT, never explodes into its XML parts.
+    const isZip = async (f: Express.Multer.File): Promise<boolean> => {
+      // Tier 1 — extension (cheapest, no byte read).
+      if (/\.zip$/i.test(f.originalname)) return true;
+      // Tier 2 — declared zip mime.
+      const mime = f.mimetype.toLowerCase();
+      if (mime === 'application/zip' || mime === 'application/x-zip-compressed') {
+        return true;
+      }
+      // Tier 3 — magic bytes + Office-container exclusion (buffer already in hand;
+      // a 4-byte signature check + central-directory name peek, not a full read).
+      return await looksLikeFolderZip(f.buffer);
+    };
 
     // ── UNIFIED classify cascade (Data-Room content-routing SLICE 1) ──────────
     // ONE path for loose drops AND zip entries. `classifyFileCascade` runs the
@@ -148,7 +165,7 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
     // sandbox), so the content tier scans them directly — no re-read. Loose and
     // zip differ ONLY in whether an `internalPath` (folder tier) is present.
     for (const f of files) {
-      if (isZip(f)) {
+      if (await isZip(f)) {
         // Fail-closed unpack. rejected[] entries never reach classify/stage/assign.
         const unpacked = await unpackZipToSandbox(f.buffer);
         cleanups.push(unpacked.cleanup);
@@ -465,6 +482,180 @@ dataRoomRoutes.post('/:poolId/held/:fileHash/identify', async (req: Request, res
   // so it routes the doc (eligible for the underwrite queue on the next settle)
   // without re-deriving a batch here.
   res.json({ result });
+});
+
+// ---------------------------------------------------------------------------
+// RETRY-HELD — re-process an already-held blob through the (now magic-byte-fixed)
+// gate WITHOUT re-uploading.
+//
+//   POST /:poolId/held/:fileHash/retry
+//
+// ★ WHY: a real zip that arrived with its `.zip` extension stripped
+// (application/octet-stream) fell through the OLD extension+mime-only gate → it
+// was HELD as one opaque 52.8 MB blob, never unpacked. Now that `looksLikeFolderZip`
+// recognizes it by its bytes, this route fetches the held bytes, runs the SAME
+// unpack → classify-cascade → auto-route / durable-hold pipeline the /staging
+// route uses (no second truth-table), then — iff the retry actually resolved into
+// unpacked entries — DELETES the original opaque held row (it's now split into
+// routed docs / per-entry held rows). If the blob still can't be treated as a
+// folder zip (e.g. it's genuinely a single document), it stays held untouched.
+// ---------------------------------------------------------------------------
+
+dataRoomRoutes.post('/:poolId/held/:fileHash/retry', async (req: Request, res: Response) => {
+  const uid = userId(req);
+  if (!uid) {
+    res.status(401).json({ error: 'unauthenticated' });
+    return;
+  }
+  const { poolId, fileHash } = req.params as { poolId: string; fileHash: string };
+
+  const cleanups: Array<() => Promise<void>> = [];
+  try {
+    const found = await getHeldDoc(poolId, fileHash);
+    if (!found) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    // Run the NOW-FIXED gate on the held bytes (extension is already stripped —
+    // the held fileName carries no `.zip`, mime is octet-stream — so this is
+    // exactly the magic-byte path). If it's not a folder zip, leave it held.
+    if (!(await looksLikeFolderZip(found.bytes))) {
+      res.status(409).json({
+        error: 'not_a_folder_zip',
+        message:
+          'The held file is not a folder zip (no ZIP magic bytes, or it is an Office document). Left held.',
+      });
+      return;
+    }
+
+    const poolLoans = poolStore().listLoanNameKeysForPool(poolId as PoolId);
+
+    // Fail-closed unpack → validated entries only (rejected entries never route).
+    const unpacked = await unpackZipToSandbox(found.bytes);
+    cleanups.push(unpacked.cleanup);
+    const rejectedCount = unpacked.rejected.length;
+
+    interface StagedInput {
+      readonly buffer: Buffer;
+      readonly originalFileName: string;
+      readonly mimeType: string;
+      readonly hints: PathClassifyHints;
+    }
+    const stagedInputs: StagedInput[] = [];
+    for (const entry of unpacked.files) {
+      const bytes = await fsp.readFile(entry.sandboxPath);
+      const leaf =
+        entry.internalPath.split('/').filter((s) => s.length > 0).pop() ?? entry.internalPath;
+      stagedInputs.push({
+        buffer: bytes,
+        originalFileName: leaf,
+        mimeType: 'application/octet-stream',
+        hints: await classifyFileCascade(
+          { internalPath: entry.internalPath, fileName: leaf, bytes },
+          poolLoans,
+        ),
+      });
+    }
+
+    const unpackedCount = stagedInputs.length;
+    if (unpackedCount === 0) {
+      // A folder zip whose every entry was rejected/empty. Nothing to route; the
+      // original held blob is NOT deleted (nothing resolved it).
+      res.status(200).json({
+        retried: fileHash,
+        resolved: false,
+        summary: { unpackedCount: 0, autoRoutedCount: 0, heldCount: 0, rejectedCount },
+      });
+      return;
+    }
+
+    // Stage the validated entries through the SAME batch primitive.
+    const batch = await createStagingBatch({
+      files: stagedInputs.map((s) => ({
+        buffer: s.buffer,
+        originalFileName: s.originalFileName,
+        mimeType: s.mimeType,
+      })),
+    });
+
+    // Auto-route both-confident, non-contradicted entries via the SAME assign seam.
+    const autoAssignments: DataRoomAssignment[] = [];
+    for (let i = 0; i < batch.files.length; i++) {
+      const f = batch.files[i]!;
+      const hints = stagedInputs[i]!.hints;
+      const verdict = verdictFor(hints.docType, hints.loanInPoolId);
+      const auto = verdict.action === 'auto' && hints.contradiction !== true;
+      if (auto && verdict.prefill.docType && verdict.prefill.loanInPoolId) {
+        autoAssignments.push({
+          stagingId: f.stagingId,
+          loanInPoolId: verdict.prefill.loanInPoolId,
+          docType: verdict.prefill.docType,
+        });
+      }
+    }
+    const autoResults =
+      autoAssignments.length > 0
+        ? await assignDataRoomFiles({ poolId, batchId: batch.batchId, assignments: autoAssignments })
+        : [];
+    const autoRoutedIds = new Set(
+      autoResults.filter((r) => r.status === 'assigned').map((r) => r.stagingId),
+    );
+
+    // Everything not auto-routed is durably HELD (as a per-entry needs-ID row) —
+    // never dropped. This is the SLICE-3 never-reject discipline unchanged.
+    const heldToPersist: HoldStagedFile[] = [];
+    for (let i = 0; i < batch.files.length; i++) {
+      const f = batch.files[i]!;
+      if (autoRoutedIds.has(f.stagingId)) continue;
+      const staged = stagedInputs[i]!;
+      heldToPersist.push({
+        stagingId: f.stagingId,
+        buffer: staged.buffer,
+        originalFileName: staged.originalFileName,
+        mimeType: staged.mimeType,
+        hintDocType: staged.hints.docType,
+        hintLoanInPoolId: staged.hints.loanInPoolId,
+        hintCategory: staged.hints.categoryHint ?? null,
+      });
+    }
+    const heldResults =
+      heldToPersist.length > 0 ? await holdStagedFiles({ poolId, files: heldToPersist }) : [];
+
+    // The opaque archive is now fully resolved into routed docs + per-entry held
+    // rows → remove the ORIGINAL held row. Ordered AFTER the entries persist so a
+    // crash can only leave the archive both resolved AND still-held (recoverable,
+    // a re-retry is a no-op), never lose the entries.
+    deleteHeldDoc(poolId, fileHash);
+
+    // A settle may now be due (auto-routed entries can complete a loan).
+    const fan = enqueueUnderwriteOnSettle(poolId, batch.batchId, { poolStore: poolStore() });
+
+    res.status(200).json({
+      retried: fileHash,
+      resolved: true,
+      summary: {
+        unpackedCount,
+        autoRoutedCount: autoRoutedIds.size,
+        heldCount: heldResults.filter((r) => r.status === 'held').length,
+        rejectedCount,
+      },
+      autoRouted: autoResults.filter((r) => r.status === 'assigned'),
+      underwriting: {
+        settled: fan.settled,
+        affectedLoans: fan.affectedLoans,
+        enqueuedCount: fan.enqueuedCount,
+        jobs: fan.jobs,
+      },
+    });
+  } catch (err: any) {
+    console.error('data-room retry-held error:', err);
+    res.status(500).json({ error: 'retry_held_failed', message: err?.message ?? String(err) });
+  } finally {
+    for (const cleanup of cleanups) {
+      await cleanup().catch(() => { /* best-effort */ });
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------

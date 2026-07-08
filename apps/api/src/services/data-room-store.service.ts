@@ -840,6 +840,21 @@ export async function getHeldDoc(
   return { bytes, held: heldRowToDoc(row) };
 }
 
+/**
+ * Remove a held row by (poolId, fileHash) WITHOUT routing it. Used by the
+ * retry-held flow: once a held ZIP has been re-processed through the fixed gate
+ * (its entries unpacked → classified → routed/re-held), the ORIGINAL opaque held
+ * blob is fully resolved and its held entry must go (else it lingers as a dead
+ * "needs identification" row). Distinct from identifyHeldDoc (which routes then
+ * deletes) — here the resolution already happened via the unpack, so this is a
+ * pure delete. The content-addressed bytes stay in the blob store (any routed
+ * entry that happens to share bytes still reads them; GC is out of scope).
+ * Returns true iff a row was removed.
+ */
+export function deleteHeldDoc(poolId: string, fileHash: string): boolean {
+  return heldStore().delete(poolId, fileHash);
+}
+
 export class HeldDocNotFoundError extends Error {
   constructor(poolId: string, fileHash: string) {
     super(`held doc not found: pool=${poolId} hash=${fileHash}`);

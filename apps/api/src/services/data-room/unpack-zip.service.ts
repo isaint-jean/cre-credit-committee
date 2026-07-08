@@ -297,6 +297,123 @@ export async function unpackZipToSandbox(
   return { sandboxRoot, files, rejected, cleanup };
 }
 
+// ── Magic-byte + Office-container detection (the upload-gate helper) ──────────
+//
+// ★ WHY: a real zip can arrive with its `.zip` extension stripped and a generic
+// `application/octet-stream` mime (that is exactly how Isabelle's "Sunroad Zip"
+// arrived). An extension+mime-only gate misses it → the whole archive is held as
+// one opaque blob and never unpacked. `looksLikeFolderZip` recognizes a zip by
+// its BYTES so the gate fires on content, not on a (strippable) label.
+//
+// ★★ CRITICAL CORRECTNESS — Office Open XML files (.xlsx/.docx/.pptx) ARE zip
+// containers: they start with the SAME `PK\x03\x04` local-file signature. A naive
+// "PK ⇒ unpack" would WRONGLY explode a stripped-extension spreadsheet into its
+// internal XML parts (garbage routing). So this helper returns true ONLY for a
+// "folder zip" — an arbitrary file/folder archive — and returns FALSE for an
+// Office container. We distinguish by PEEKING the central-directory entry names:
+// an Office document's archive carries the marker `[Content_Types].xml` (and/or
+// top-level `xl/`, `word/`, `ppt/`, `docProps/`), a folder zip never does.
+//
+// CHEAP: this only lists the central directory (yauzl reads entry HEADERS, it
+// never decompresses a byte here) and stops at the first Office marker.
+
+/** The three ZIP local/EOCD/spanned signatures (little-endian, first 4 bytes). */
+const ZIP_LOCAL_FILE = 0x04034b50; // "PK\x03\x04" — a normal (non-empty) archive
+const ZIP_EMPTY_EOCD = 0x06054b50; // "PK\x05\x06" — an empty archive (EOCD only)
+const ZIP_SPANNED = 0x08074b50; // "PK\x07\x08" — spanned/split marker
+
+/** True iff the buffer starts with one of the three ZIP signatures. */
+function hasZipSignature(buffer: Buffer): boolean {
+  if (buffer.length < 4) return false;
+  const sig = buffer.readUInt32LE(0);
+  return sig === ZIP_LOCAL_FILE || sig === ZIP_EMPTY_EOCD || sig === ZIP_SPANNED;
+}
+
+/**
+ * True iff an entry name marks the archive as an Office Open XML container
+ * (xlsx/docx/pptx) rather than an arbitrary folder zip. The `[Content_Types].xml`
+ * part is MANDATORY in every OOXML package (ECMA-376); the top-level part dirs
+ * are the per-format payload roots. Matching ANY is sufficient to say "document,
+ * not folder".
+ */
+function isOfficeMarkerEntry(name: string): boolean {
+  // Normalize: OOXML paths are forward-slashed, no leading slash.
+  const n = name.replace(/^\/+/, '');
+  if (n === '[Content_Types].xml') return true;
+  return (
+    n.startsWith('xl/') ||
+    n.startsWith('word/') ||
+    n.startsWith('ppt/') ||
+    n.startsWith('docProps/') ||
+    n.startsWith('_rels/')
+  );
+}
+
+/**
+ * Magic-byte zip detection for the upload gate.
+ *
+ * Returns true iff the buffer (a) starts with a ZIP signature AND (b) is NOT an
+ * Office Open XML container. Only a "folder zip" (arbitrary files/folders, no
+ * Office marker) should be unpacked; an xlsx/docx/pptx with a stripped extension
+ * must be routed as a DOCUMENT, never exploded into its XML parts.
+ *
+ * Fail-closed / cheap:
+ *   - No ZIP signature → false immediately (a real PDF is `%PDF`, never PK).
+ *   - Signature present → list the central directory (headers only, no decompress)
+ *     and return false the moment an Office marker is seen; else true.
+ *   - A corrupt/unopenable archive whose bytes START with PK is treated as a
+ *     folder zip candidate (true) — the fail-closed unpacker then refuses it
+ *     safely (unpackZipToSandbox throws / rejects every entry). We never guess a
+ *     bad archive is an Office doc.
+ *   - An empty (PK\x05\x06) archive has no entries → not Office → true (the
+ *     unpacker yields zero files, harmless).
+ */
+export async function looksLikeFolderZip(buffer: Buffer): Promise<boolean> {
+  // (a) Cheapest possible check first: the 4 signature bytes.
+  if (!hasZipSignature(buffer)) return false;
+
+  // (b) Peek the central directory for an Office marker. Headers only — yauzl
+  // with lazyEntries reads entry names without opening any read stream.
+  return await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const done = (v: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    try {
+      yauzl.fromBuffer(
+        buffer,
+        { lazyEntries: true, autoClose: true, decodeStrings: false },
+        (err, zipFile) => {
+          if (err || !zipFile) {
+            // Bytes look like a zip but it won't open → candidate folder zip;
+            // the fail-closed unpacker will refuse it. Never mis-tag as Office.
+            done(true);
+            return;
+          }
+          zipFile.on('error', () => done(true));
+          zipFile.on('end', () => done(true)); // walked every entry, no Office marker
+          zipFile.on('entry', (entry: Entry) => {
+            const name = decodeName(entry.fileName as unknown as Buffer);
+            if (isOfficeMarkerEntry(name)) {
+              // It's a document container — NOT a folder zip. Stop early.
+              done(false);
+              return;
+            }
+            zipFile.readEntry();
+          });
+          zipFile.readEntry();
+        },
+      );
+    } catch {
+      // Any synchronous throw → treat as a candidate folder zip (fail-closed
+      // unpacker refuses a bad archive); never silently mis-route.
+      done(true);
+    }
+  });
+}
+
 interface MeterCtx {
   maxEntry: number;
   maxTotal: number;
