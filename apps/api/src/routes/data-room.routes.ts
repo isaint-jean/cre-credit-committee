@@ -37,8 +37,7 @@ import {
   type DataRoomAssignment,
 } from '../services/data-room-store.service.js';
 import {
-  classifyStagedFile,
-  classifyEntryFromPath,
+  classifyFileCascade,
   verdictFor,
   type PathClassifyHints,
 } from '../services/data-room-classify.service.js';
@@ -133,6 +132,14 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
       f.mimetype.toLowerCase() === 'application/zip' ||
       f.mimetype.toLowerCase() === 'application/x-zip-compressed';
 
+    // ── UNIFIED classify cascade (Data-Room content-routing SLICE 1) ──────────
+    // ONE path for loose drops AND zip entries. `classifyFileCascade` runs the
+    // per-axis cascade folder(zip top folder)→filename→content, first-confident-
+    // wins, with the tier-3 CONTENT scan (page-1 text) as a parse-once fallback
+    // reached only when the folder+filename tiers leave an axis unresolved. The
+    // bytes are ALREADY in hand here (loose `f.buffer`; zip entry read from the
+    // sandbox), so the content tier scans them directly — no re-read. Loose and
+    // zip differ ONLY in whether an `internalPath` (folder tier) is present.
     for (const f of files) {
       if (isZip(f)) {
         // Fail-closed unpack. rejected[] entries never reach classify/stage/assign.
@@ -148,17 +155,22 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
             // Best-effort mime from the multer part is meaningless for an inner
             // entry; the store never routes on it. Keep octet-stream.
             mimeType: 'application/octet-stream',
-            hints: classifyEntryFromPath(entry.internalPath, poolLoans),
+            hints: await classifyFileCascade(
+              { internalPath: entry.internalPath, fileName: leaf, bytes },
+              poolLoans,
+            ),
           });
         }
       } else {
-        // Non-zip loose file: existing filename classify. Wrap in the PathClassifyHints
-        // shape (no categoryHint/contradiction — a loose file has no folder cross-check).
+        // Loose file: no folder tier (internalPath omitted) → filename→content.
         stagedInputs.push({
           buffer: f.buffer,
           originalFileName: f.originalname,
           mimeType: f.mimetype,
-          hints: classifyStagedFile(f.originalname, poolLoans),
+          hints: await classifyFileCascade(
+            { fileName: f.originalname, bytes: f.buffer },
+            poolLoans,
+          ),
         });
       }
     }

@@ -101,32 +101,67 @@ export function normalizeForMatch(raw: string): string {
 }
 
 /**
- * Infer the slot type from a filename. Returns null on either zero matches
- * (unknown) or multiple matches (ambiguous) — both states require the user
- * to choose explicitly via the dropdown in the review UI.
+ * The doc-type slot regex table — the SINGLE source of truth for both the
+ * filename axis (`inferSlotFromFilename`) and the CONTENT axis
+ * (`classifyDocTypeFromContent`, Data-Room content-routing SLICE 1). Extracted
+ * so filename + page-1 content share ONE keyword table — no duplicate, no drift.
  *
- * The PCA pattern intentionally matches before the rent-roll pattern only
- * via ordering; we still rely on the multi-match-null fallback for the
- * pathological "appraisal-cf-pca.pdf" case.
+ * Each RegExp is a set of cover-page / header keywords (the same words appear in
+ * a filename AND on the document's own page 1: "Property Condition Assessment",
+ * "Appraisal Report", "Cash Flow", …). The bare-abbreviation alternatives (PCA,
+ * ASR, T-12, CF) are the ones that appear in short filenames; the spelled-out
+ * alternatives (Property Condition Assessment, Anticipated Sale Report) are the
+ * ones a document's own cover carries.
  *
- * Bare "RR" is intentionally NOT a rent-roll trigger — too noisy in real
- * filenames (also matches in property codes).
+ * The PCA pattern intentionally sits before the rent-roll pattern only via
+ * ordering; we still rely on the multi-match-null fallback for the pathological
+ * "appraisal-cf-pca.pdf" case. Bare "RR" is intentionally NOT a rent-roll
+ * trigger — too noisy (also matches property codes).
  */
-export function inferSlotFromFilename(fileName: string): SourceDocSlot | null {
-  const patterns: ReadonlyArray<readonly [SourceDocSlot, RegExp]> = [
-    ['asr', /\b(ASR|Anticipated[\s-]*Sale[\s-]*Report|Acquisition[\s-]*Sale[\s-]*Report)\b/i],
-    ['cf', /\b(CF|Cash[\s-]*Flow|Operating[\s-]*Statement|Pro[\s-]*Forma)\b/i],
-    ['pca', /\b(PCA|Property[\s-]*Condition(?:[\s-]*Assessment)?)\b/i],
-    ['rent_roll', /\b(Rent[\s-]*Roll)\b/i],
-    ['seller_uw', /\b(Seller[\s-]*UW|Seller[\s-]*Underwriting|Seller[\s-]*Pro[\s-]*Forma)\b/i],
-    ['t12', /\b(T-?12|Trailing[\s-]*Twelve|Trailing[\s-]*12)\b/i],
-    ['appraisal', /\b(Appraisal(?:[\s-]*Report)?|Valuation[\s-]*Report)\b/i],
-  ];
+export const SLOT_PATTERNS: ReadonlyArray<readonly [SourceDocSlot, RegExp]> = [
+  ['asr', /\b(ASR|Anticipated[\s-]*Sale[\s-]*Report|Acquisition[\s-]*Sale[\s-]*Report)\b/i],
+  ['cf', /\b(CF|Cash[\s-]*Flow|Operating[\s-]*Statement|Pro[\s-]*Forma)\b/i],
+  ['pca', /\b(PCA|Property[\s-]*Condition(?:[\s-]*Assessment)?)\b/i],
+  ['rent_roll', /\b(Rent[\s-]*Roll)\b/i],
+  ['seller_uw', /\b(Seller[\s-]*UW|Seller[\s-]*Underwriting|Seller[\s-]*Pro[\s-]*Forma)\b/i],
+  ['t12', /\b(T-?12|Trailing[\s-]*Twelve|Trailing[\s-]*12)\b/i],
+  ['appraisal', /\b(Appraisal(?:[\s-]*Report)?|Valuation[\s-]*Report)\b/i],
+];
 
+/**
+ * Run the shared SLOT_PATTERNS table over an arbitrary text and return the one
+ * matched slot, or null on 0 or ≥2 matches (unknown OR ambiguous). The common
+ * engine behind both `inferSlotFromFilename` (text = filename) and
+ * `classifyDocTypeFromContent` (text = page-1 content) — same exactly-1-or-refuse
+ * discipline, one keyword table.
+ */
+function matchSlotInText(text: string): SourceDocSlot | null {
   const matched: SourceDocSlot[] = [];
-  for (const [slot, rx] of patterns) {
-    if (rx.test(fileName)) matched.push(slot);
+  for (const [slot, rx] of SLOT_PATTERNS) {
+    if (rx.test(text)) matched.push(slot);
   }
   if (matched.length === 1) return matched[0]!;
   return null;
+}
+
+/**
+ * Infer the slot type from a filename. Returns null on either zero matches
+ * (unknown) or multiple matches (ambiguous) — both states require the user
+ * to choose explicitly via the dropdown in the review UI.
+ */
+export function inferSlotFromFilename(fileName: string): SourceDocSlot | null {
+  return matchSlotInText(fileName);
+}
+
+/**
+ * DOC-TYPE axis, CONTENT tier (Data-Room content-routing SLICE 1).
+ *
+ * Run the EXACT same SLOT_PATTERNS keyword table over a document's page-1 text.
+ * Same exactly-1-or-refuse discipline as the filename axis. NO-LLM, pure regex.
+ * The caller (`classifyFileCascade`) uses this only as the tier-3 fallback when
+ * the filename axis refused (an un-renamed / cryptically-named file whose OWN
+ * cover page carries "Property Condition Assessment" / "Appraisal Report").
+ */
+export function classifyDocTypeFromContent(pageText: string): SourceDocSlot | null {
+  return matchSlotInText(pageText);
 }

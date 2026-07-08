@@ -27,7 +27,13 @@
  * Pure over its inputs (poolLoans is passed in) — no DB, no I/O here.
  */
 
-import { inferSlotFromFilename, normalizeForMatch } from '@cre/shared';
+import {
+  inferSlotFromFilename,
+  normalizeForMatch,
+  classifyDocTypeFromContent,
+  matchFileToDeal,
+  type UWRecordLike,
+} from '@cre/shared';
 import {
   CATEGORIES_IN_ORDER,
   DOC_TYPE_CATEGORY,
@@ -36,6 +42,7 @@ import {
 import {
   normalizePropertyName,
 } from './parse-bmark-tape-xlsx.js';
+import { extractPage1Text } from './data-room/page1-text.service.js';
 
 /** The minimal loan-name shape the loan axis matches against. Mirrors
  *  PoolStore.listLoanNameKeys() rows (already pool-scoped by the caller). */
@@ -86,6 +93,66 @@ export function classifyLoanFromFilename(
 
   // Refuse-when-≠1: exactly one distinct loan, else null.
   if (distinct.size === 1) return [...distinct][0]!;
+  return null;
+}
+
+/**
+ * LOAN axis, CONTENT tier (Data-Room content-routing SLICE 1).
+ *
+ * The property name is on every appraisal / PCA / ASR cover page ("Sunroad
+ * Centrum"), so when a file's NAME refuses (cryptic vendor filename like
+ * "23-414408.1 …" or a bare "Appraisal_…"), we point the SAME conservative
+ * fuzzy matcher (`matchFileToDeal`, lifted to @cre/shared) at the page-1 text.
+ *
+ * The matcher is name-oriented, so we adapt each pool loan into the UWRecordLike
+ * shape it reads: propertyName → dealName, originatorLoanRef → fileName. It
+ * normalizes both sides through the SAME `normalizeForMatch` bridge and scores
+ * exact / substring / token-overlap, with the PORTFOLIO GUARD (2+ strong matches
+ * → refuse) as the load-bearing piece. We accept ONLY the matcher's
+ * `auto_attach` bucket — its single-unambiguous verdict — mapping every other
+ * bucket (needs_pick / unmatched) to null. Same deterministic-or-refuse
+ * discipline as the filename/folder loan tiers; NO-LLM, pure text scoring.
+ *
+ * `pageText` is a full page-1 blob (prose), not a bare name, so a raw
+ * exact-normalize would never hit; the matcher's substring + token-overlap paths
+ * are what let "…Sunroad Centrum, San Diego, CA…" resolve to the Sunroad loan.
+ */
+export function classifyLoanFromContent(
+  pageText: string,
+  poolLoans: ReadonlyArray<PoolLoanNameKey>,
+): string | null {
+  if (pageText.trim().length === 0) return null;
+
+  // Adapt pool loan-name keys into the matcher's UWRecordLike shape. The
+  // matcher's FUZZY paths (substring / token-overlap) score against `dealName`
+  // only, using `fileName` for the exact-normalized check — so a prose page-1
+  // blob (never an exact hit) needs the loan's actual name in `dealName`. Some
+  // pool rows carry the name in propertyName, others (like Sunroad) in
+  // originatorLoanRef; feed the FIRST non-empty name as `dealName` so the fuzzy
+  // paths engage regardless of which column holds it, and keep the other in
+  // `fileName` for the exact path.
+  const records: UWRecordLike[] = poolLoans.map((loan) => {
+    const property = loan.propertyName ?? '';
+    const ref = loan.originatorLoanRef ?? '';
+    const primary = property.trim().length > 0 ? property : ref;
+    const secondary = primary === property ? ref : property;
+    return { id: loan.loanInPoolId, dealName: primary, fileName: secondary };
+  });
+
+  const result = matchFileToDeal(pageText, records);
+
+  // A property name inside a page-1 PROSE blob scores as a SUBSTRING hit (0.85),
+  // not an exact-normalized hit — so the matcher buckets a single clean content
+  // match as `needs_pick`, not `auto_attach` (which is exact-only). For the
+  // CONTENT tier we therefore read the CANDIDATES directly and apply the SAME
+  // portfolio guard: accept iff EXACTLY ONE distinct loan clears the strong
+  // threshold (score ≥ 0.7) and NO OTHER loan is also strong. 2+ strong → refuse
+  // (ambiguous). This keeps the exact deterministic-or-refuse discipline; it just
+  // reads the strong-match set instead of the exact-only auto bucket.
+  const STRONG = 0.7;
+  const strong = result.candidates.filter((c) => c.score >= STRONG);
+  const distinctStrong = new Set(strong.map((c) => c.uwRecord.id));
+  if (distinctStrong.size === 1) return [...distinctStrong][0]!;
   return null;
 }
 
@@ -304,6 +371,99 @@ export function classifyEntryFromPath(
 
   return {
     docType: docType === null ? null : (docType as string),
+    loanInPoolId,
+    ...(categoryHint !== undefined ? { categoryHint } : {}),
+    ...(contradiction ? { contradiction: true } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Data-Room content-routing SLICE 1 — the UNIFIED cascade (loose + zip, one path)
+// ---------------------------------------------------------------------------
+
+/** One file to classify. `internalPath` present ⇒ a zip entry (folder tier is
+ *  live); absent ⇒ a loose drop (folder tier skipped). `bytes` feeds the tier-3
+ *  content scan, parsed at most ONCE and ONLY when a tier-3 fallback is needed. */
+export interface ClassifyFileInput {
+  /** Zip entry's internal path (e.g. `Sunroad Centrum/Reports/appraisal.pdf`),
+   *  or undefined for a loose file drop. */
+  readonly internalPath?: string;
+  /** Leaf display name — the filename tier's input for BOTH loose and zip. */
+  readonly fileName: string;
+  /** Raw bytes for the tier-3 content scan. */
+  readonly bytes: Buffer;
+}
+
+/**
+ * THE unified per-axis cascade — ONE path for loose drops AND zip entries.
+ * The zip is only a delivery mechanism: the folder is just the top tier, present
+ * for a zip entry (via `internalPath`) and absent for a loose file. Both axes
+ * resolve first-confident-wins:
+ *
+ *   LOAN:     folder(zip top folder) → filename → content
+ *   DOC-TYPE: filename → content            (folder gives category, not doc-type)
+ *
+ * Content is the tier-3 fallback: page-1 text is parsed AT MOST ONCE, and ONLY
+ * when at least one axis is still unresolved after folder + filename — so a file
+ * whose name already resolves both axes never gets scanned (cheap). categoryHint
+ * and contradiction from the folder tier are preserved unchanged; the returned
+ * shape is the SAME `PathClassifyHints` (⊇ `ClassifyHints`), so `verdictFor` /
+ * assign / underwrite downstream are UNCHANGED.
+ *
+ * NO-LLM: every tier is deterministic regex / string-scoring; `extractPage1Text`
+ * uses the unpdf/xlsx parsers only. Runs with credits depleted.
+ */
+export async function classifyFileCascade(
+  input: ClassifyFileInput,
+  poolLoans: ReadonlyArray<PoolLoanNameKey>,
+): Promise<PathClassifyHints> {
+  const { internalPath, fileName, bytes } = input;
+
+  // ── Tier 1 (folder) — ONLY for zip entries. Reuse the pure path classifier;
+  //    it yields folder→loan, filename→docType, and the category/contradiction
+  //    cross-check. For a loose file there is no folder tier. ──────────────────
+  const folderHints: PathClassifyHints | null =
+    internalPath !== undefined ? classifyEntryFromPath(internalPath, poolLoans) : null;
+
+  // ── Tier 2 (filename) — always available for both loose and zip. ───────────
+  const filenameLoan = classifyLoanFromFilename(fileName, poolLoans);
+  const filenameSlot = inferSlotFromFilename(fileName);
+  const filenameDocType: string | null = filenameSlot === null ? null : (filenameSlot as string);
+
+  // First-confident per axis across tiers 1→2 (folder loan wins over filename
+  // loan when a zip folder resolved it; doc-type has no folder tier).
+  let loanInPoolId: string | null = folderHints?.loanInPoolId ?? filenameLoan;
+  let docType: string | null = folderHints?.docType ?? filenameDocType;
+
+  // ── Tier 3 (content) — the fallback. Parse page-1 ONCE, and ONLY if an axis
+  //    is still unresolved. Skip the scan entirely when both axes already
+  //    resolved (the cheap fast-path). ─────────────────────────────────────────
+  if (loanInPoolId === null || docType === null) {
+    const pageText = await extractPage1Text(bytes); // parse-once; '' on any failure
+    if (pageText.length > 0) {
+      if (loanInPoolId === null) {
+        loanInPoolId = classifyLoanFromContent(pageText, poolLoans);
+      }
+      if (docType === null) {
+        const contentSlot = classifyDocTypeFromContent(pageText);
+        docType = contentSlot === null ? null : (contentSlot as string);
+      }
+    }
+  }
+
+  // ── Category + contradiction: PRESERVE the folder tier's cross-check when it
+  //    exists (a zip entry with a recognized subfolder). Otherwise DERIVE a
+  //    category hint from the (possibly content-resolved) docType — same rule the
+  //    loose/2-segment shapes use. No new contradiction is manufactured from a
+  //    content-resolved docType (there's no folder to cross-check against it). ──
+  let categoryHint: DocTypeCategory | undefined = folderHints?.categoryHint;
+  const contradiction: boolean = folderHints?.contradiction === true;
+  if (categoryHint === undefined && docType !== null) {
+    categoryHint = DOC_TYPE_CATEGORY[docType];
+  }
+
+  return {
+    docType,
     loanInPoolId,
     ...(categoryHint !== undefined ? { categoryHint } : {}),
     ...(contradiction ? { contradiction: true } : {}),
