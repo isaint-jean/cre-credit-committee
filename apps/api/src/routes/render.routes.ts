@@ -35,6 +35,8 @@ import {
 import { adaptAnalysisToAdjustedInputs } from '../services/analysis-to-adjusted-inputs.adapter.js';
 import { buildFloorBindings } from '../services/build-floor-bindings.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
+import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
+import { MalformedAnalysisIdError } from '../util/dispatch-by-id-format.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import { hydrateUnderwritingContext } from '../services/hydrate-underwriting-context.js';
 import {
@@ -686,7 +688,25 @@ function composeRenderPayloadFromQuery(
     };
   }
 
-  const stored = store.getAnalysis(dealId);
+  // Unified-Read: resolve dealId for BOTH id formats via the shared resolver
+  // (graph 64-hex → lineage root → latest revision's bridged legacy row;
+  // legacy uuid → latest revision in lineage). The prior direct
+  // store.getAnalysis(dealId) 404'd whenever the deal was viewed via its 64-hex
+  // graph id (Sunroad's lineage root 3454c89f… — the banked sibling of the
+  // download-memo bug). Malformed ids surface as the existing 400 shape.
+  let stored;
+  try {
+    stored = resolveAnalysisForRead(dealId, recordGraphStore, store);
+  } catch (err) {
+    if (err instanceof MalformedAnalysisIdError) {
+      return {
+        status: 'error',
+        httpStatus: 400,
+        body: { error: err.message, code: 'MALFORMED_ANALYSIS_ID' },
+      };
+    }
+    throw err;
+  }
   if (!stored) {
     return {
       status: 'error',
