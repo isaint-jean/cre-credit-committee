@@ -33,6 +33,7 @@ import {
 import { createRevision, type RevisionDelta } from '../services/revision-creator.service.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import { renderMemoForAnalysis } from '../services/render-memo/render-memo-for-analysis.js';
+import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
 import {
   applyRevisionDelta,
   InvalidDeltaError,
@@ -522,7 +523,19 @@ analysisRoutes.get('/:id/handbook-evaluation', (req: Request, res: Response) => 
 // resolves the honest not-in-any-doc). Reuses the same PRESENCE derivation the
 // export route computes at render.routes.ts (sourceDocumentKinds ∪ overlays).
 analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => {
-  const stored = store.getAnalysis(req.params.id);
+  // Unified-Read: resolve for both id formats. The graph-id case recovers the
+  // bridged legacy row (its uuid id is the dealId the panel echoes for the
+  // /underwriting/export CTA; the export path is legacy-uuid based today).
+  let stored;
+  try {
+    stored = resolveAnalysisForRead(req.params.id, recordGraphStore, store);
+  } catch (e) {
+    if (e instanceof MalformedAnalysisIdError) {
+      res.status(400).json({ error: 'MALFORMED_ANALYSIS_ID', message: e.message });
+      return;
+    }
+    throw e;
+  }
   if (!stored) {
     res.status(404).json({ error: 'Analysis not found' });
     return;
@@ -578,7 +591,21 @@ analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => 
 // 404 when the analysis is missing or lacks a graph chain; 409 when the chain
 // is incomplete (e.g. narrative not yet produced).
 analysisRoutes.get('/:id/memo', (req: Request, res: Response) => {
-  const analysis = store.getAnalysis(req.params.id);
+  // Unified-Read: resolve :id for BOTH id formats (graph lineage root → latest
+  // revision, or legacy uuid → latest revision in lineage). The prior direct
+  // store.getAnalysis(:id) 404'd whenever the deal was viewed via its 64-hex
+  // graph id (the reported Sunroad download-memo bug). Malformed ids surface as
+  // the existing 400.
+  let analysis;
+  try {
+    analysis = resolveAnalysisForRead(req.params.id, recordGraphStore, store);
+  } catch (e) {
+    if (e instanceof MalformedAnalysisIdError) {
+      res.status(400).json({ error: 'MALFORMED_ANALYSIS_ID', message: e.message });
+      return;
+    }
+    throw e;
+  }
   if (!analysis) {
     res.status(404).json({ error: 'Analysis not found' });
     return;
@@ -604,7 +631,18 @@ analysisRoutes.get('/:id/memo', (req: Request, res: Response) => {
 
 // GET /api/analyses/:id/status — Polling endpoint
 analysisRoutes.get('/:id/status', (req: Request, res: Response) => {
-  const analysis = store.getAnalysis(req.params.id);
+  // Unified-Read: resolve for both id formats so polling by a 64-hex graph id
+  // (the format the deal-room page routes with) doesn't 404.
+  let analysis;
+  try {
+    analysis = resolveAnalysisForRead(req.params.id, recordGraphStore, store);
+  } catch (e) {
+    if (e instanceof MalformedAnalysisIdError) {
+      res.status(400).json({ error: 'MALFORMED_ANALYSIS_ID', message: e.message });
+      return;
+    }
+    throw e;
+  }
   if (!analysis) {
     res.status(404).json({ error: 'Analysis not found' });
     return;

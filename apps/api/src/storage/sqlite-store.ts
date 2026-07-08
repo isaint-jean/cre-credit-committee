@@ -369,6 +369,26 @@ export class SqliteStore {
   }
 
   /**
+   * Unified-Read bridge — resolve the legacy `analyses` row whose
+   * `graph_revision_id` points at a given graph RevisionId. Used by the
+   * shared read resolver (`resolveAnalysisForRead`) to recover the legacy
+   * substrate (deal name, appraisal/PCA/etc. overlays stored in the row's
+   * `data` blob) for a deal being viewed through its 64-hex graph lineage.
+   *
+   * The legacy row's `graph_revision_id` bridges to the lineage HEAD revision
+   * (see `lookupAnalysisByDealRef` docstring), so callers should pass the
+   * envelope's `revisionId` for the LATEST revision of the lineage. Returns
+   * null for pure-graph deals that never got a legacy row.
+   */
+  getAnalysisByGraphRevisionId(graphRevisionId: string): Analysis | null {
+    const row = this.db
+      .prepare('SELECT * FROM analyses WHERE graph_revision_id = ? LIMIT 1')
+      .get(graphRevisionId);
+    if (!row) return null;
+    return this.rowToAnalysis(row);
+  }
+
+  /**
    * Funnel PR — lookup analyses by dealRef (the soft string id the pool layer
    * stores on each LoanInPool/LoanMembership). Walks the canonical join chain:
    *
