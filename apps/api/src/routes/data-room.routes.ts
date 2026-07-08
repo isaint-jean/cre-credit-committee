@@ -34,7 +34,12 @@ import {
   projectByCategory,
   listPoolDocs,
   getDataRoomDoc,
+  holdStagedFiles,
+  listHeldDocs,
+  getHeldDoc,
+  identifyHeldDoc,
   type DataRoomAssignment,
+  type HoldStagedFile,
 } from '../services/data-room-store.service.js';
 import {
   classifyFileCascade,
@@ -263,6 +268,34 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
     const stagedForConfirm = batch.files.filter((f) => !autoRoutedIds.has(f.stagingId));
     const routingForConfirm = routing.filter((r) => !autoRoutedIds.has(r.stagingId));
 
+    // ── Data-Room content-routing SLICE 3 — DURABLE never-reject ──────────────
+    // Every file the cascade did NOT auto-route is ACCEPTED + KEPT in the durable
+    // HELD ("needs identification") set — never dropped, never left only in the
+    // transient staging batch. It carries whatever PARTIAL hints the cascade found
+    // (docType and/or loan, plus the browse category), so the human resolves it
+    // pre-filled. Bytes ride the content-addressed blob store (idempotent). The
+    // held files STILL ride the confirm-tray response (`batch.files` /`routing`)
+    // for the immediate in-batch UX, but they are ALSO now durable in cre.db so a
+    // restart / batch-expiry never discards them. Security-rejected zip entries
+    // never reach here — they were refused at the unpack gate (rejectedCount).
+    const heldToPersist: HoldStagedFile[] = [];
+    for (let i = 0; i < batch.files.length; i++) {
+      const f = batch.files[i]!;
+      if (autoRoutedIds.has(f.stagingId)) continue; // routed → data_room_doc, not held
+      const staged = stagedInputs[i]!;
+      heldToPersist.push({
+        stagingId: f.stagingId,
+        buffer: staged.buffer,
+        originalFileName: staged.originalFileName,
+        mimeType: staged.mimeType,
+        hintDocType: staged.hints.docType,
+        hintLoanInPoolId: staged.hints.loanInPoolId,
+        hintCategory: staged.hints.categoryHint ?? null,
+      });
+    }
+    const heldResults =
+      heldToPersist.length > 0 ? await holdStagedFiles({ poolId, files: heldToPersist }) : [];
+
     // ── Data-Room Phase 3, P3 — batch-settled DURABLE enqueue (settle path a). ─
     // When Phase-2 auto-routing files EVERY dropped file (nothing left for the
     // confirm tray), the batch is SETTLED on this one request → ENQUEUE one
@@ -290,6 +323,11 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
         autoRoutedCount: autoRoutedIds.size,
         needConfirmCount: stagedForConfirm.length,
         rejectedCount,
+        // SLICE 3: how many of the non-auto files were durably HELD (needs-ID).
+        // ★ COUNT RECONCILIATION: accepted (unpackedCount) == autoRoutedCount +
+        // heldCount, always (every accepted file is routed OR held — none dropped).
+        // rejectedCount is SEPARATE — those never entered (refused at the gate).
+        heldCount: heldResults.filter((r) => r.status === 'held').length,
       },
       // P3: which loans (if any) the settle just enqueued into underwriting.
       underwriting: {
@@ -346,6 +384,85 @@ dataRoomRoutes.post('/:poolId/assign', async (req: Request, res: Response) => {
     console.error('data-room assign error:', err);
     res.status(500).json({ error: 'assign_failed', message: err?.message ?? String(err) });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Data-Room content-routing SLICE 3 — the DURABLE HELD ("needs identification")
+// set + human resolution (held → routed).
+//
+//   GET  /:poolId/held                     the needs-identification set + count
+//   GET  /:poolId/held/:fileHash           stream one held doc's bytes
+//   POST /:poolId/held/:fileHash/identify  assign (loan, docType) → MOVE to routed
+//
+// A held file is one the cascade could not confidently identify — accepted +
+// kept durably, surfaced here with its partial hints. Identify moves it into
+// data_room_doc (routed) → it underwrites on settle. A clean move (persist-to-doc
+// then delete-from-held). Security-rejected zip entries never reach this set.
+// ---------------------------------------------------------------------------
+
+dataRoomRoutes.get('/:poolId/held', (req: Request, res: Response) => {
+  const uid = userId(req);
+  if (!uid) {
+    res.status(401).json({ error: 'unauthenticated' });
+    return;
+  }
+  const poolId = req.params.poolId!;
+  const held = listHeldDocs(poolId);
+  res.json({ poolId, held, count: held.length });
+});
+
+dataRoomRoutes.get('/:poolId/held/:fileHash', async (req: Request, res: Response) => {
+  const uid = userId(req);
+  if (!uid) {
+    res.status(401).json({ error: 'unauthenticated' });
+    return;
+  }
+  const { poolId, fileHash } = req.params as { poolId: string; fileHash: string };
+  const found = await getHeldDoc(poolId, fileHash);
+  if (!found) {
+    res.status(404).json({ error: 'not_found' });
+    return;
+  }
+  res.setHeader('Content-Type', found.held.mimeType || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(found.held.fileName)}"`);
+  res.setHeader('Content-Length', String(found.bytes.length));
+  res.send(found.bytes);
+});
+
+dataRoomRoutes.post('/:poolId/held/:fileHash/identify', (req: Request, res: Response) => {
+  const uid = userId(req);
+  if (!uid) {
+    res.status(401).json({ error: 'unauthenticated' });
+    return;
+  }
+  const { poolId, fileHash } = req.params as { poolId: string; fileHash: string };
+  const body = req.body as { loanInPoolId?: string; docType?: string; notes?: string } | undefined;
+  const loanInPoolId = typeof body?.loanInPoolId === 'string' ? body.loanInPoolId : null;
+  const docType = typeof body?.docType === 'string' ? body.docType : null;
+  if (!loanInPoolId || !docType) {
+    res.status(400).json({ error: 'invalid_body', message: '`loanInPoolId` and `docType` are required.' });
+    return;
+  }
+
+  const result = identifyHeldDoc({
+    poolId,
+    fileHash,
+    loanInPoolId,
+    docType,
+    ...(typeof body?.notes === 'string' ? { notes: body.notes } : {}),
+  });
+  if (result.status === 'error') {
+    const status = result.error === 'held_doc_not_found' ? 404 : 400;
+    res.status(status).json({ error: result.error ?? 'identify_failed' });
+    return;
+  }
+
+  // The file just moved held → routed. If assigning it settled its original
+  // batch, the underwrite enqueue happens on the confirming POST /assign path; a
+  // manual identify is an out-of-band resolution of a genuinely-unidentified file,
+  // so it routes the doc (eligible for the underwrite queue on the next settle)
+  // without re-deriving a batch here.
+  res.json({ result });
 });
 
 // ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ import {
   type DataRoomDocTypeGroup,
   type DataRoomLoanGroup,
   type DataRoomCategorySummary,
+  type DataRoomHeldDoc,
   type DocTypeCategory,
 } from '@/lib/api-client';
 import { DOC_TYPE_CATEGORY } from '@cre/contracts';
@@ -36,6 +37,7 @@ import { DropAssign, type AssignLoanOption } from '@/components/DataRoom/DropAss
 import { CategoryView } from '@/components/DataRoom/CategoryView';
 import { ByDocTypeView } from '@/components/DataRoom/ByDocTypeView';
 import { ByLoanView } from '@/components/DataRoom/ByLoanView';
+import { HeldView } from '@/components/DataRoom/HeldView';
 
 type LoadState = 'loading' | 'loaded' | 'error';
 // ★ DEFAULT surface = 'category' (the five category cards, NEVER a flat file
@@ -59,6 +61,7 @@ export default function DataRoomPage() {
   const [categories, setCategories] = useState<readonly DataRoomCategorySummary[]>([]);
   const [byDocType, setByDocType] = useState<readonly DataRoomDocTypeGroup[]>([]);
   const [byLoan, setByLoan] = useState<readonly DataRoomLoanGroup[]>([]);
+  const [held, setHeld] = useState<readonly DataRoomHeldDoc[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [loanOptions, setLoanOptions] = useState<readonly AssignLoanOption[]>([]);
   const [downloading, setDownloading] = useState(false);
@@ -86,16 +89,18 @@ export default function DataRoomPage() {
   // Re-fetch the two projections + the per-user unread set. Called on mount and
   // after every assign so a filed doc immediately shows under its folder + loan.
   const refresh = useCallback(async () => {
-    const [cat, dt, loan, un] = await Promise.all([
+    const [cat, dt, loan, un, hld] = await Promise.all([
       api.getPoolByCategory(poolId),
       api.dataRoomByDocType(poolId),
       api.dataRoomByLoan(poolId),
       api.dataRoomUnread(poolId),
+      api.dataRoomHeld(poolId),
     ]);
     setCategories(cat.categories);
     setByDocType(dt.groups);
     setByLoan(loan.groups);
     setUnread(new Set(un.unread));
+    setHeld(hld.held);
   }, [poolId]);
 
   const bootstrap = useCallback(async () => {
@@ -204,6 +209,18 @@ export default function DataRoomPage() {
         docTypes={docTypes}
         loanOptions={loanOptions}
         onAssigned={refresh}
+      />
+
+      {/* SLICE 3 — the durable "needs identification" set. Accepted-but-unrouted
+          files kept in cre.db (never dropped); a human identifies each → routed.
+          Renders nothing when the held set is empty. */}
+      <HeldView
+        poolId={poolId}
+        held={held}
+        accent={accent}
+        docTypes={docTypes}
+        loanOptions={loanOptions}
+        onIdentified={refresh}
       />
 
       {/* View toggle. ★ DEFAULT = Categories (the five cards, never a flat file

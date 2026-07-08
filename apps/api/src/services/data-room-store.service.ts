@@ -51,6 +51,8 @@ import type { ContentHash } from '@cre/contracts';
 import { getStagingBatch } from './source-doc-store.service.js';
 import { DataRoomDocStore } from '../storage/data-room-doc-store.js';
 import type { DataRoomDocRow } from '../storage/data-room-doc-store.js';
+import { DataRoomHeldStore } from '../storage/data-room-held-store.js';
+import type { DataRoomHeldRow } from '../storage/data-room-held-store.js';
 
 // ---------------------------------------------------------------------------
 // Paths (separate namespace — never touches cre.db, never touches ingest dirs)
@@ -132,6 +134,35 @@ function docStore(): DataRoomDocStore {
     defaultDocStore = { dbPath, store: new DataRoomDocStore(dbPath) };
   }
   return defaultDocStore.store;
+}
+
+// ---------------------------------------------------------------------------
+// The HELD store (Data-Room content-routing SLICE 3 — durable never-reject).
+//
+// A DURABLE home for accepted-but-unidentified files (the "needs identification"
+// set). Follows the EXACT SAME data-root discipline as docStore(): keyed on the
+// resolved replicaDbPath() (dataRootOverride ?? cwd → <root>/data/cre.db), so a
+// proof that sets only a data-room root reads/writes the temp-root db, never the
+// real cre.db. The held store is a SIBLING table (data_room_held) on the same db
+// file — it never pollutes data_room_doc's routed PK/dedup.
+// ---------------------------------------------------------------------------
+
+let heldStoreOverride: DataRoomHeldStore | null = null;
+let defaultHeldStore: { dbPath: string; store: DataRoomHeldStore } | null = null;
+
+/** Test seam ONLY — inject an explicit temp-db-backed held store (proofs).
+ *  Takes precedence over the root-derived default. Pass null to clear. */
+export function setDataRoomHeldStore(store: DataRoomHeldStore | null): void {
+  heldStoreOverride = store;
+}
+
+function heldStore(): DataRoomHeldStore {
+  if (heldStoreOverride) return heldStoreOverride;
+  const dbPath = replicaDbPath();
+  if (defaultHeldStore === null || defaultHeldStore.dbPath !== dbPath) {
+    defaultHeldStore = { dbPath, store: new DataRoomHeldStore(dbPath) };
+  }
+  return defaultHeldStore.store;
 }
 
 // ---------------------------------------------------------------------------
@@ -637,6 +668,208 @@ export async function assignDataRoomFiles(args: {
     }
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Public API — the DURABLE HELD ("needs identification") set (SLICE 3).
+//
+// A file the routing cascade could NOT confidently identify (either axis
+// unresolved after folder→filename→content) is ACCEPTED + KEPT here — never
+// dropped, never left only in the transient staging batch. It carries the PARTIAL
+// hints the cascade DID find. A human can later identify it (loan + docType) →
+// it MOVES to data_room_doc (routed) and underwrites on settle.
+//
+// SECURITY-REJECTED zip entries never reach here — they're refused at the unpack
+// gate (counted in rejectedCount) and NEVER admitted to the store. Held = admitted
+// + kept + unidentified; security-reject = never admitted.
+// ---------------------------------------------------------------------------
+
+/** The public shape of one held file (its payload + partial hints + browse
+ *  category). Category is DERIVED on read from the hint doc-type when the store
+ *  carries no explicit folder-tier category. */
+export interface HeldDoc {
+  readonly poolId: string;
+  readonly fileHash: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly size: number;
+  readonly uploadedAt: string;
+  readonly hintDocType: string | null;
+  readonly hintLoanInPoolId: string | null;
+  readonly hintCategory: DocTypeCategory | null;
+}
+
+function heldRowToDoc(r: DataRoomHeldRow): HeldDoc {
+  // Prefer the stored folder-tier category; else derive from the hint docType.
+  const category: DocTypeCategory | null =
+    (r.hintCategory as DocTypeCategory | null) ??
+    (r.hintDocType !== null ? DOC_TYPE_CATEGORY[r.hintDocType] ?? null : null);
+  return {
+    poolId: r.poolId,
+    fileHash: r.fileHash,
+    fileName: r.fileName,
+    mimeType: r.mimeType,
+    size: r.size,
+    uploadedAt: r.uploadedAt,
+    hintDocType: r.hintDocType,
+    hintLoanInPoolId: r.hintLoanInPoolId,
+    hintCategory: category,
+  };
+}
+
+/** One file to HOLD (persist to the durable never-reject set) with its partial
+ *  cascade hints. The bytes ride the content-addressed blob store (idempotent),
+ *  exactly as saveDataRoomDoc does. */
+export interface HoldStagedFile {
+  readonly stagingId: string;
+  readonly buffer: Buffer;
+  readonly originalFileName: string;
+  readonly mimeType: string;
+  readonly hintDocType: string | null;
+  readonly hintLoanInPoolId: string | null;
+  readonly hintCategory: string | null;
+}
+
+export interface HoldResult {
+  readonly stagingId: string;
+  readonly status: 'held' | 'error';
+  readonly fileHash?: string;
+  readonly error?: string;
+}
+
+/**
+ * Persist N accepted-but-unidentified files into the DURABLE held set. Bytes →
+ * blobStore FIRST (idempotent, content-addressed — the SAME bytes a later routed
+ * copy reads), then the mapping + partial hints → data_room_held. Each file is
+ * processed independently (one failure never aborts the others). Idempotent per
+ * (poolId, fileHash): re-holding the same bytes refreshes the row (latest hints
+ * win). Returns per-file outcomes.
+ */
+export async function holdStagedFiles(args: {
+  readonly poolId: string;
+  readonly files: ReadonlyArray<HoldStagedFile>;
+}): Promise<ReadonlyArray<HoldResult>> {
+  const store = heldStore();
+  const results: HoldResult[] = [];
+  for (const f of args.files) {
+    try {
+      // Bytes FIRST (idempotent). Throws on write failure — never a half-persist.
+      const fileHash = await blobStore.putBlob(f.buffer);
+      store.upsert({
+        poolId: args.poolId,
+        fileHash,
+        fileName: f.originalFileName,
+        mimeType: f.mimeType,
+        size: f.buffer.length,
+        uploadedAt: nowIso(),
+        hintDocType: f.hintDocType,
+        hintLoanInPoolId: f.hintLoanInPoolId,
+        hintCategory: f.hintCategory,
+      });
+      results.push({ stagingId: f.stagingId, status: 'held', fileHash });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      results.push({ stagingId: f.stagingId, status: 'error', error: msg });
+    }
+  }
+  return results;
+}
+
+/** The "needs identification" projection for a pool — every durably-held file in
+ *  write-order, with derived browse category. */
+export function listHeldDocs(poolId: string): ReadonlyArray<HeldDoc> {
+  return heldStore().listForPool(poolId).map(heldRowToDoc);
+}
+
+/** The held count for a pool (the room's "needs identification" badge). */
+export function countHeldDocs(poolId: string): number {
+  return heldStore().countForPool(poolId);
+}
+
+/** Fetch a held doc's bytes by (poolId, fileHash). Mirrors getDataRoomDoc — the
+ *  held file is browsable/downloadable before it's identified. Returns null if the
+ *  file isn't held in this pool or the blob is missing. */
+export async function getHeldDoc(
+  poolId: string,
+  fileHash: string,
+): Promise<{ bytes: Buffer; held: HeldDoc } | null> {
+  const row = heldStore().get(poolId, fileHash);
+  if (!row) return null;
+  const bytes = await blobStore.getBlob(fileHash as ContentHash);
+  if (bytes === null) return null;
+  return { bytes, held: heldRowToDoc(row) };
+}
+
+export class HeldDocNotFoundError extends Error {
+  constructor(poolId: string, fileHash: string) {
+    super(`held doc not found: pool=${poolId} hash=${fileHash}`);
+    this.name = 'HeldDocNotFoundError';
+  }
+}
+
+export interface IdentifyHeldResult {
+  readonly status: 'routed' | 'error';
+  readonly loanInPoolId?: string;
+  readonly docType?: string;
+  readonly fileHash?: string;
+  readonly error?: string;
+}
+
+/**
+ * HUMAN RESOLUTION — identify a held file (assign loan + doc-type) → MOVE it from
+ * the held set into data_room_doc (routed) so it underwrites on settle. A CLEAN
+ * move: persist-to-doc FIRST (durable), then delete-from-held. Ordered so a crash
+ * mid-move can only leave a file BOTH routed AND held (recoverable — the routed
+ * copy wins, a re-identify is a no-op delete) and NEVER neither (a "drop").
+ *
+ * Validates docType ∈ DOC_TYPE_TAXONOMY. The bytes are already in the blobStore
+ * (put when the file was held), and the fileHash IS the content id, so this only
+ * records the mapping — no re-read of bytes needed. Idempotent-ish: re-identifying
+ * an already-moved file (no held row) is an error (not found) since the routed
+ * copy already exists; identifying the same held file twice with the same address
+ * is a data_room_doc upsert (no-op) + held delete.
+ */
+export function identifyHeldDoc(args: {
+  readonly poolId: string;
+  readonly fileHash: string;
+  readonly loanInPoolId: string;
+  readonly docType: string;
+  readonly notes?: string;
+}): IdentifyHeldResult {
+  const taxo = docTypeById(args.docType);
+  if (!taxo) {
+    return { status: 'error', error: `invalid_doc_type:${args.docType}` };
+  }
+  const row = heldStore().get(args.poolId, args.fileHash);
+  if (!row) {
+    return { status: 'error', error: 'held_doc_not_found' };
+  }
+
+  // Build the routed entry from the held row (its fileName/mimeType/size ride the
+  // held record; loan/docType are the human's identification).
+  const entry: DataRoomDocEntry = {
+    loanInPoolId: args.loanInPoolId,
+    docType: taxo.id,
+    fileHash: row.fileHash,
+    fileName: row.fileName,
+    mimeType: row.mimeType,
+    size: row.size,
+    uploadedAt: nowIso(),
+    notes: args.notes ?? null,
+    tier: taxo.tier,
+    ingest: taxo.tier === 'ingesting',
+  };
+
+  // 1) Persist-to-doc FIRST (durable). Then 2) delete-from-held — the clean move.
+  persistDataRoomEntries(args.poolId, [entry]);
+  heldStore().delete(args.poolId, args.fileHash);
+
+  return {
+    status: 'routed',
+    loanInPoolId: entry.loanInPoolId,
+    docType: entry.docType,
+    fileHash: entry.fileHash,
+  };
 }
 
 /** Read a staged file's raw bytes from the staging batch directory. The staging

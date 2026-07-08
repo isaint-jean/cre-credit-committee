@@ -163,6 +163,22 @@ export interface DataRoomCategorySummary {
   readonly unreadCount: number;
 }
 
+/** SLICE 3 — one durably-HELD ("needs identification") file: the accepted file's
+ *  payload + whatever PARTIAL hints the routing cascade found (a null hint = the
+ *  cascade refused that axis). A held file is kept, never dropped; a human
+ *  identifies it (loan + docType) → it moves to the routed set. */
+export interface DataRoomHeldDoc {
+  readonly poolId: string;
+  readonly fileHash: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly size: number;
+  readonly uploadedAt: string;
+  readonly hintDocType: string | null;
+  readonly hintLoanInPoolId: string | null;
+  readonly hintCategory: DocTypeCategory | null;
+}
+
 /** One assignment the tray posts (the Phase-2 seam input). */
 export interface DataRoomAssignmentInput {
   readonly stagingId: string;
@@ -204,6 +220,10 @@ export interface DataRoomStageResponse {
     readonly autoRoutedCount: number;
     readonly needConfirmCount: number;
     readonly rejectedCount: number;
+    // SLICE 3 — how many non-auto files were durably HELD (needs-identification).
+    // ★ accepted (unpackedCount) == autoRoutedCount + heldCount; rejectedCount is
+    // separate (refused at the gate, never admitted).
+    readonly heldCount: number;
   };
 }
 
@@ -1410,6 +1430,30 @@ export const api = {
   getPoolByCategory: (poolId: string) =>
     request<{ poolId: string; categories: readonly DataRoomCategorySummary[] }>(
       `/data-room/${poolId}/by-category`,
+    ),
+
+  // ── SLICE 3 — the DURABLE HELD ("needs identification") set + resolution ─────
+  // GET /data-room/:poolId/held → every durably-held (unidentified) file + count.
+  // These are accepted-but-unroutable files kept in cre.db (never dropped); each
+  // carries the partial cascade hints so the human resolves it pre-filled.
+  dataRoomHeld: (poolId: string) =>
+    request<{ poolId: string; held: readonly DataRoomHeldDoc[]; count: number }>(
+      `/data-room/${poolId}/held`,
+    ),
+
+  // POST /data-room/:poolId/held/:fileHash/identify → assign (loan, docType) to a
+  // held file → MOVES it from the held set into the routed set (data_room_doc),
+  // where it underwrites on settle. A clean move (persist-to-doc then delete-held).
+  dataRoomIdentifyHeld: (
+    poolId: string,
+    fileHash: string,
+    loanInPoolId: string,
+    docType: string,
+    notes?: string,
+  ) =>
+    request<{ result: DataRoomAssignmentResult }>(
+      `/data-room/${poolId}/held/${fileHash}/identify`,
+      { method: 'POST', body: JSON.stringify({ loanInPoolId, docType, ...(notes ? { notes } : {}) }) },
     ),
 
   // GET /data-room/:poolId/unread → per-user unread fileHashes + count.
