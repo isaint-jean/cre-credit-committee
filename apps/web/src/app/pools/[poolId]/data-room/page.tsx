@@ -66,6 +66,8 @@ export default function DataRoomPage() {
   const [loanOptions, setLoanOptions] = useState<readonly AssignLoanOption[]>([]);
   const [downloading, setDownloading] = useState(false);
   const [downloadNote, setDownloadNote] = useState<string | null>(null);
+  // Honest post-retry summary — surfaced after a held blob resolves into real files.
+  const [retryNote, setRetryNote] = useState<string | null>(null);
 
   // Resolve the pool membership so the assign picker offers REAL loans and the
   // By-Loan view can label groups by property name. Best-effort: if it fails the
@@ -214,6 +216,9 @@ export default function DataRoomPage() {
       {/* SLICE 3 — the durable "needs identification" set. Accepted-but-unrouted
           files kept in cre.db (never dropped); a human identifies each → routed.
           Renders nothing when the held set is empty. */}
+      {retryNote && (
+        <p className="mb-4 text-xs text-text-secondary">{retryNote}</p>
+      )}
       <HeldView
         poolId={poolId}
         held={held}
@@ -221,6 +226,7 @@ export default function DataRoomPage() {
         docTypes={docTypes}
         loanOptions={loanOptions}
         onIdentified={refresh}
+        onRetried={setRetryNote}
       />
 
       {/* View toggle. ★ DEFAULT = Categories (the five cards, never a flat file

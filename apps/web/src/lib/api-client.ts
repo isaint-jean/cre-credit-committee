@@ -1456,6 +1456,61 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ loanInPoolId, docType, ...(notes ? { notes } : {}) }) },
     ),
 
+  // POST /data-room/:poolId/held/:fileHash/retry → re-run a held BLOB through the
+  // now-magic-byte-aware gate: iff it's a folder zip it unpacks → routes each doc
+  // (some auto, some newly-held per-file) → DELETES the opaque held row (resolved).
+  // If it's not a folder zip the server refuses with 409 `not_a_folder_zip` and the
+  // blob stays held (the caller falls back to the manual loan/doc-type assign).
+  //
+  // Response summary mirrors the staging summary shape (unpacked / auto-routed /
+  // newly-held / rejected). `resolved` is false when nothing came of the retry (a
+  // non-resolving folder zip whose every entry was rejected/empty — original held
+  // row kept). The custom error flow surfaces the server's structured `error` code
+  // (so the UI can special-case 409 `not_a_folder_zip`) alongside `message`.
+  dataRoomRetryHeld: async (
+    poolId: string,
+    fileHash: string,
+  ): Promise<{
+    retried: string;
+    resolved: boolean;
+    summary: {
+      unpackedCount: number;
+      autoRoutedCount: number;
+      heldCount: number;
+      rejectedCount: number;
+    };
+    autoRouted?: readonly DataRoomAssignmentResult[];
+    underwriting?: {
+      settled: boolean;
+      affectedLoans: readonly string[];
+      enqueuedCount: number;
+      jobs: unknown;
+    };
+  }> => {
+    const res = await fetch(`${API_BASE}/data-room/${poolId}/held/${fileHash}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    });
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('cre_token');
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const body = await res
+        .json()
+        .catch(() => ({ error: res.statusText, message: res.statusText }));
+      const err = new Error(body.message ?? body.error ?? `Retry failed: ${res.status}`) as Error & {
+        code?: string;
+        status?: number;
+      };
+      if (typeof body.error === 'string') err.code = body.error;
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  },
+
   // GET /data-room/:poolId/unread → per-user unread fileHashes + count.
   dataRoomUnread: (poolId: string) =>
     request<{ poolId: string; unread: readonly string[]; count: number }>(
