@@ -301,6 +301,7 @@ export default function DataRoomPage() {
           groups={byLoan}
           unread={unread}
           onRead={handleRead}
+          onChanged={refresh}
           loanLabels={loanLabels}
           docTypeLabels={docTypeLabels}
         />

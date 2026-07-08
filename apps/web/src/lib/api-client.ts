@@ -136,6 +136,12 @@ export interface DataRoomDocEntry {
   readonly notes: string | null;
   readonly tier: 'ingesting' | 'stored' | 'room_only';
   readonly ingest: boolean;
+  /** SLICE 4 — extracted effective/as-of/report date (ISO-UTC) or null. The
+   *  version tiebreak signal: latest content-date wins the underwrite slot. */
+  readonly docEffectiveDate?: string | null;
+  /** SLICE 4 — human pin: this version wins its (loan, docType) slot for the
+   *  NEXT underwrite, overriding latest-content-date. Read-only on the entry. */
+  readonly pinned?: boolean;
 }
 
 /** Projection 1 — docs grouped by doc-type (server emits tier-ordered a→b→c). */
@@ -1506,6 +1512,26 @@ export const api = {
     }
     return res.json();
   },
+
+  // ── SLICE 4 — the manual VERSION PIN override (optional, never required) ─────
+  // POST /data-room/:poolId/loans/:loanInPoolId/pin → pin a specific version
+  // (fileHash) of a (loan, docType) slot as the underwrite winner, overriding the
+  // latest-content-date tiebreak. ★ This ONLY changes WHICH version the NEXT
+  // underwrite reads — it does NOT trigger a re-underwrite (no LLM run). Refetch
+  // the doc view after success so the selected marker + reason update.
+  dataRoomPinDoc: (poolId: string, loanInPoolId: string, docType: string, fileHash: string) =>
+    request<{ result: { status: 'pinned' | 'error'; loanInPoolId: string; docType: string; fileHash: string; error?: string } }>(
+      `/data-room/${poolId}/loans/${loanInPoolId}/pin`,
+      { method: 'POST', body: JSON.stringify({ docType, fileHash }) },
+    ),
+
+  // POST /data-room/:poolId/loans/:loanInPoolId/unpin → clear the pin for a
+  // (loan, docType) slot → the NEXT underwrite reverts to latest-content-date.
+  dataRoomUnpinDoc: (poolId: string, loanInPoolId: string, docType: string) =>
+    request<{ result: { status: 'unpinned' | 'error'; loanInPoolId: string; docType: string; error?: string } }>(
+      `/data-room/${poolId}/loans/${loanInPoolId}/unpin`,
+      { method: 'POST', body: JSON.stringify({ docType }) },
+    ),
 
   // GET /data-room/:poolId/unread → per-user unread fileHashes + count.
   dataRoomUnread: (poolId: string) =>

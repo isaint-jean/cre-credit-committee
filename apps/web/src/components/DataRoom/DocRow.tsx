@@ -22,8 +22,9 @@ export function DocRow({
   readonly doc: DataRoomDocEntry;
   readonly unread: boolean;
   /** 'loan' shows the loan id (in the doc-type view); 'docType' shows the doc-type
-   *  (in the loan view). null hides the context column. */
-  readonly context: { readonly kind: 'loan' | 'docType'; readonly value: string } | null;
+   *  (in the loan view); 'plain' shows the value verbatim (version picker → the
+   *  version's effective date). null hides the context column. */
+  readonly context: { readonly kind: 'loan' | 'docType' | 'plain'; readonly value: string } | null;
   readonly onRead: (fileHash: string) => void;
 }) {
   const chip = tierChip(doc.tier);
@@ -68,7 +69,11 @@ export function DocRow({
         </div>
         {context !== null && (
           <div className="text-[10px] font-mono text-text-subtle mt-0.5 truncate">
-            {context.kind === 'loan' ? `loan ${shortLoan(context.value)}` : context.value}
+            {context.kind === 'loan'
+              ? `loan ${shortLoan(context.value)}`
+              : context.kind === 'plain'
+                ? `effective ${context.value}`
+                : context.value}
           </div>
         )}
       </button>
