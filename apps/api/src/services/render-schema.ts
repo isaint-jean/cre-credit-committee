@@ -2986,15 +2986,55 @@ const V25_TABLE_LAYOUTS: TableLayout[] = [
   },
 ];
 
+// GROUP C — MF/SS/MHP-ONLY (G1). multifamily/self_storage/manufactured_housing →
+// 'Property Detail - MF SS MHP'. This is the MF/SS mirror of GROUP A (Comm-only):
+// the SAME physical/rights atoms (parkingSurface/parkingCovered/landAreaAcres/
+// zoningCode), but the MF SS MHP layout puts these labels at DIFFERENT cell
+// addresses than the Comm sheet — so a distinct entry group scoped to the MF SS
+// MHP sheet is required (binding the Comm addresses would miss the MF sheet, and
+// binding the MF addresses on Comm would corrupt it). Cell map (verified against
+// Blank_UW_Template_v2.xlsm sheet6):
+//   C16 = "Parking (Surface) / Per Unit"  (blank input; C18 = SUM formula — untouched)
+//   C17 = "Parking (Covered) / Per Unit"  (blank input)
+//   G7  = "Zoning"                        (blank input; the F7-labeled value cell)
+//   G9  = "Land Area (Acres)"             (blank input; G8 = +G9*43560 formula — untouched)
+// forceOverwrite (matching GROUP A) because these are style-only blank inputs.
+//
+// ★ DESIGN DECISION (MF vs SS): ONE SHARED binding set, NOT distinct MF-only +
+// SS-only groups. The MF SS MHP left-block input cells carry GENERIC labels
+// ("Total Units", "Rentable Area", "Parking / Per Unit", "Zoning", "Land Area")
+// that BOTH classes populate with their own unit concept. There are NO
+// MF-specific-vs-SS-specific SEPARATE input cells on this sheet. The class
+// divergence (studio/1BR/2BR unit-mix vs climate-controlled storage sizes)
+// lives ENTIRELY in the unit-mix table (rows 24-29: No. Units / Avg. Size /
+// UW Rent PSF / UW Rent), and every data cell there is TEMPLATE-FORMULA-driven
+// (=IF(INDEX('Property & Loan Summary'!$A$86:$K$96...)) — it reads the rent-roll
+// block on P&L Summary. Those cells are NOT bindable inputs (binding them would
+// clobber the template formula, the CMBS-Comps Q/$SF anti-pattern), and there is
+// NO unit-count / unit-mix source in EX-102 / the corpus PropertyComponent shape
+// (which has netRentableSF/revenue/noi/occupancy but no unit count). So the
+// unit-mix is HONEST-STRUCTURAL-BLANK: template-computed where a rent roll
+// exists, blank otherwise — never a fabricated fill. => G1 is ONE build.
+const V25_PROPERTY_DETAIL_MFSS_ONLY: SchemaEntry[] = [
+  { slot: 'Property_Detail', range: 'C16', selector: apxSel('parkingSurface'), cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'C17', selector: apxSel('parkingCovered'), cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'G7',  selector: apxSel('zoningCode'),     cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'G9',  selector: apxSel('landAreaAcres'),  cellState: 'concluded', forceOverwrite: true },
+];
+
 // SCHEMA_V25 = SCHEMA_V24 cell-for-cell (v24 entries carry forward byte-for-byte)
 // but with the cmbsComps table layout attached to every (asset-class, variant)
-// definition. The cell-binding surface is IDENTICAL to v24 — the only structural
-// change is the added table layout. We clone each v24 SchemaDefinition and swap
-// its tableLayouts (which were V6_TABLE_LAYOUTS = []).
+// definition, PLUS the G1 MF/SS Property Detail group scoped to the MF SS MHP
+// classes. The Comm/Office/Hotel cell-binding surface is IDENTICAL to v24 — the
+// only additions are (a) the added table layout and (b) GROUP C on MF/SS/MHP.
+// We clone each v24 SchemaDefinition, swap its tableLayouts (V6=[]), and append
+// GROUP C for the MF SS MHP classes only.
 function v25DefsFor(assetClass: AssetType): SchemaDefinition[] {
+  const isMfSs = SHEET_MAPPING_PROPERTY_DETAIL[assetClass] === 'Property Detail - MF SS MHP';
   return v24DefsFor(assetClass).map((def) => ({
     ...def,
     tableLayouts: V25_TABLE_LAYOUTS,
+    entries: isMfSs ? [...def.entries, ...V25_PROPERTY_DETAIL_MFSS_ONLY] : def.entries,
   }));
 }
 

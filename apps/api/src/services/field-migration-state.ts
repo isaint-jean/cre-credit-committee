@@ -932,11 +932,23 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
 // v25: CMBS office-comps TABLE layout (cmbsComps). The table cells (CMBS Comps
 // r13–r18) are NOT schema cell-addresses — they're written via the TablePayload
 // path (writeTable), not cellBindings — so the field-state registry needs NO new
-// declarations. v25's cell-binding surface is identical to v24; carry forward
-// verbatim.
+// declarations for the table. v25's cell-binding surface is identical to v24
+// EXCEPT for the G1 MF/SS Property Detail group (GROUP C) — 4 new cell-addresses
+// on the 'Property Detail - MF SS MHP' sheet ONLY (C16/C17 parking, G7 zoning,
+// G9 land). The render-schema entry (V25_PROPERTY_DETAIL_MFSS_ONLY) is scoped to
+// the MF SS MHP classes, so declare field-states on that ONE sheet only (no
+// Comm/Hotel) to match the governance's per-asset-class `observed` set. Source
+// surface is resolvedContext.appraisal.* (the SAME atoms as the Comm GROUP A
+// cells L3/L4/H7/L11 — different cell addresses on the MF layout).
 (FIELD_STATE_REGISTRY as unknown as Record<number, FieldStateDeclaration[]>)[25] = (() => {
   const carryForward = FIELD_STATE_REGISTRY[24] ?? [];
-  return [...carryForward];
+  const mfSsOnly = ['C16', 'C17', 'G7', 'G9'].map((cell): FieldStateDeclaration => ({
+    address: `Property Detail - MF SS MHP!${cell}`,
+    group: 'property' as const,
+    state: 'FULL_MODERN' as const,
+    notes: 'New at v25 (G1). MF/SS-only: C16 surface parking / C17 covered parking / G7 zoning / G9 land area (acres) — resolvedContext.appraisal.*. Same atoms as Comm GROUP A (L3/L4/H7/L11), different cell addresses on the MF SS MHP layout.',
+  }));
+  return [...carryForward, ...mfSsOnly];
 })();
 
 // --- Legal cross-version transitions ---------------------------------------
