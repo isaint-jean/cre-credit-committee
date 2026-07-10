@@ -171,10 +171,80 @@ export interface RollUpMath {
   readonly concentration: PortfolioConcentration;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Portfolio-structure terms — HONEST-BLANK by default (Phase 3)      */
+/* ------------------------------------------------------------------ */
+
+/** Sentinel for a portfolio-structure cell that has no source and no human
+ *  input. NEVER computed / fabricated — a blank is the honest answer. */
+export const DATA_NOT_PROVIDED = 'DATA_NOT_PROVIDED' as const;
+export type DataNotProvided = typeof DATA_NOT_PROVIDED;
+
+/**
+ * ★ PORTFOLIO-STRUCTURE TERMS — release provisions & cross-collateralization.
+ *
+ * These are DEAL-DOCUMENT / HUMAN-JUDGMENT terms with ZERO modeling hook in the
+ * EX-102 surface (no release prices, no cross-collateral covenants, no
+ * cross-default language are carried in the child records). There is no model
+ * that can invent them. So the DEFAULT is HONEST-BLANK (`DATA_NOT_PROVIDED`) —
+ * never a computed or fabricated figure — with an OPTIONAL slot to RECORD a
+ * value IF a human supplies it from the loan documents.
+ *
+ * A field is either the sentinel (no data / no human input) or a human-supplied
+ * string. The aggregator NEVER writes anything but the sentinel; only
+ * `supplyPortfolioStructure` (a human-in-the-loop entry) sets a real value.
+ */
+export interface PortfolioStructureTerms {
+  /** Cross-collateralization: are the N properties cross-collateralized?
+   *  Human-supplied verdict / terms, else DATA_NOT_PROVIDED. */
+  readonly crossCollateralized: string | DataNotProvided;
+  /** Cross-default: does default on one property trigger default across the
+   *  pool? Human-supplied, else DATA_NOT_PROVIDED. */
+  readonly crossDefaulted: string | DataNotProvided;
+  /** Release provisions: the terms permitting release of an individual
+   *  property (release price, prepayment premium, min-debt-yield/LTV tests).
+   *  Human-supplied, else DATA_NOT_PROVIDED. */
+  readonly releaseProvisions: string | DataNotProvided;
+  /** Release price / defeasance premium basis (e.g. "115% of allocated loan
+   *  amount"). Human-supplied, else DATA_NOT_PROVIDED — NEVER a computed
+   *  release price (there is no allocated-loan-amount source in EX-102). */
+  readonly releasePriceBasis: string | DataNotProvided;
+  /** Substitution / addition-of-collateral rights. Human-supplied, else
+   *  DATA_NOT_PROVIDED. */
+  readonly substitutionRights: string | DataNotProvided;
+  /** Provenance / who supplied any non-blank value (audit slot). */
+  readonly source: string | DataNotProvided;
+}
+
+/** The all-honest-blank default — the ONLY thing the aggregator emits. */
+export const BLANK_PORTFOLIO_STRUCTURE: PortfolioStructureTerms = {
+  crossCollateralized: DATA_NOT_PROVIDED,
+  crossDefaulted: DATA_NOT_PROVIDED,
+  releaseProvisions: DATA_NOT_PROVIDED,
+  releasePriceBasis: DATA_NOT_PROVIDED,
+  substitutionRights: DATA_NOT_PROVIDED,
+  source: DATA_NOT_PROVIDED,
+};
+
+/**
+ * Human-in-the-loop entry point: record portfolio-structure terms a human read
+ * from the loan documents. Every field defaults to the honest blank; only the
+ * fields the human supplies are overwritten. This is the ONLY path that can
+ * produce a non-blank value — there is deliberately no computed path.
+ */
+export function supplyPortfolioStructure(
+  supplied: Partial<PortfolioStructureTerms>,
+): PortfolioStructureTerms {
+  return { ...BLANK_PORTFOLIO_STRUCTURE, ...supplied };
+}
+
 export interface PortfolioAggregation {
   readonly scoredComponents: readonly ScoredComponent[];
   readonly math: RollUpMath;
   readonly rollUpAggregation: RollUpAggregation;
+  /** ★ Release / cross-collateral terms — HONEST-BLANK by default (Phase 3).
+   *  Only non-blank when a caller passes `portfolioStructure` in options. */
+  readonly portfolioStructure: PortfolioStructureTerms;
 }
 
 /* ------------------------------------------------------------------ */
@@ -191,6 +261,13 @@ export interface AggregateOptions {
   readonly wholeLoanDebtService?: number | null;
   /** Optional per-loan identifiers for `constituentLoanIds`. */
   readonly constituentLoanIds?: readonly string[];
+  /**
+   * ★ Optional HUMAN-SUPPLIED portfolio-structure terms (release provisions,
+   * cross-collateralization). ABSENT → all-honest-blank (DATA_NOT_PROVIDED).
+   * The aggregator NEVER computes these; a human passes what they read from the
+   * loan documents. Use `supplyPortfolioStructure()` to build a partial safely.
+   */
+  readonly portfolioStructure?: PortfolioStructureTerms;
 }
 
 /* ------------------------------------------------------------------ */
@@ -358,5 +435,9 @@ export function aggregatePortfolio(
     constituentLoanIds,
   };
 
-  return { scoredComponents, math, rollUpAggregation };
+  /* (4) Portfolio-structure terms — HONEST-BLANK by default. Only non-blank
+   *     when a human supplied them via options; never computed/fabricated. */
+  const portfolioStructure = opts.portfolioStructure ?? BLANK_PORTFOLIO_STRUCTURE;
+
+  return { scoredComponents, math, rollUpAggregation, portfolioStructure };
 }
