@@ -943,6 +943,73 @@ export interface PariPassuCombination {
   readonly combinedCutOffBalance: number;
 }
 
+/* --------------------------- multi-property model --------------------------- */
+
+/**
+ * PropertyComponent — one property inside a loan secured by N properties
+ * (a "roll-up" / cross-collateralized portfolio loan). PORTFOLIO PHASE 1.
+ *
+ * ★ THE INVARIANT (byte-identity): this is a NET-NEW, ADDITIVE surface. It is
+ * populated ONLY for multi-property deals, via the OPTIONAL `properties` array
+ * on `ExtractionResult` (below). A single-property deal leaves `properties`
+ * ABSENT (undefined) — its existing inline single-property fields (rentRoll,
+ * inPlace, appraisal, asr, loanTerms, …) are the sole source of truth and are
+ * NOT touched. Single-property == the N=1 case, viewable as a length-1
+ * projection WITHOUT changing the stored inline representation. Every existing
+ * reader (extraction-to-dealbag adapter, hydrate, resolver, render) ignores
+ * this field entirely, so single-property results stay byte-identical.
+ *
+ * Field shape mirrors the per-property surface PROVEN by the EX-102 un-collapse
+ * spike (portfolio-spike1-ex102-uncollapse.ts → the 5 Prime Storage-Blue
+ * component records, comps.db `19-001..005`). Each field is nullable and an
+ * honest mirror of the source; the extractor never substitutes 0 for missing
+ * data (Architecture rule §8).
+ *
+ * SCOPE (Phase 1): this carries the property LIST only. The portfolio-level
+ * numeric AGGREGATION (weighted NOI / value / cap rate across the N children)
+ * is Phase 2 — it stays the honest `buildRollUpStub()` today. Nothing here
+ * feeds scoring; the doctrine `DealBag` / `evaluateDeal` are untouched.
+ */
+export interface PropertyComponent {
+  /** 1..N ordinal within the loan (parent roll-up is NOT a component). */
+  readonly ordinal: number;
+  /**
+   * Stable per-property identifier within the loan. For an EX-102-sourced
+   * portfolio this is the child assetNumber (e.g. '19-001'); the parent
+   * roll-up assetNumber (e.g. '19') is carried on `parentAssetNumber`.
+   */
+  readonly componentId: string | null;
+  /** The parent roll-up's assetNumber — the parent↔child LINK (e.g. '19'). */
+  readonly parentAssetNumber: string | null;
+
+  // — identity / location —
+  readonly propertyName: string | null;
+  readonly address: string | null;
+  readonly city: string | null;
+  readonly state: string | null;
+  readonly zip: string | null;
+
+  // — physical —
+  readonly propertyType: string | null;   // decoded (e.g. 'Self-Storage')
+  readonly netRentableSF: number | null;
+  readonly yearBuilt: number | null;
+
+  // — valuation —
+  readonly value: number | null;
+  readonly valuationDate: string | null;  // ISO
+
+  // — financials (as-underwritten / securitization basis) —
+  readonly noi: number | null;
+  readonly ncf: number | null;
+  readonly revenue: number | null;
+
+  // — occupancy (0..1 fraction) —
+  readonly occupancyPct: number | null;
+
+  // — computed —
+  readonly capRate: number | null;        // noi / value
+}
+
 /* ------------------------------ ExtractionResult ---------------------------- */
 
 /**
@@ -1082,4 +1149,84 @@ export interface ExtractionResult {
    * extractionEngineVersion).
    */
   readonly extractorVersions: Record<string, string>;
+
+  /**
+   * PORTFOLIO PHASE 1 — multi-property model. The per-property children of a
+   * loan secured by N properties (roll-up / cross-collateralized portfolio).
+   *
+   * ★ THE INVARIANT: ADDITIVE + OPTIONAL. Populated ONLY for multi-property
+   * deals; ABSENT (undefined) for the single-property path. Single-property ==
+   * the N=1 case: its existing INLINE fields (rentRoll / inPlace / appraisal /
+   * asr / loanTerms / …) remain the sole source of truth and are untouched;
+   * this array stays absent so every existing consumer is byte-identical.
+   * Consumers that WANT to treat single-property uniformly can project a
+   * length-1 view without mutating storage (see `viewAsPropertyComponents`).
+   *
+   * SCOPE: the property LIST only (Phase 1). Portfolio numeric aggregation
+   * stays the honest `roll_up` stub (Phase 2). Nothing here feeds scoring —
+   * the doctrine `DealBag` / `evaluateDeal` are NOT reopened.
+   *
+   * Additive widening — legacy persisted ExtractionResults have this absent;
+   * readers MUST treat undefined and null identically (both = single-property /
+   * "no per-property children extracted").
+   */
+  readonly properties?: readonly PropertyComponent[] | null;
+}
+
+/* --------------------- single-property N=1 projection ----------------------- */
+
+/**
+ * Project an ExtractionResult onto the multi-property model as a UNIFORM view,
+ * WITHOUT mutating storage. PORTFOLIO PHASE 1.
+ *
+ * ★ THE INVARIANT, made concrete: single-property IS the N=1 case. This is a
+ * READ-ONLY projection for consumers that want to iterate properties uniformly:
+ *
+ *   - MULTI-property (properties present + non-empty) → returns them verbatim.
+ *   - SINGLE-property (properties absent/null/empty)  → returns a length-1
+ *     view synthesized from the inline single-property surface. The STORED
+ *     representation is unchanged; this is a pure derived value.
+ *
+ * Existing single-property consumers do NOT call this and are byte-identical.
+ * It exists so NEW portfolio-aware consumers can treat N=1 and N>1 with one
+ * code path. It reads only identity/value fields the inline surface already
+ * carries (asr.impliedValue as the value comparator, appraisal identity
+ * backfills); everything unknown at this layer is honest-null.
+ */
+export function viewAsPropertyComponents(
+  er: Pick<ExtractionResult, 'properties' | 'appraisal' | 'asr'>,
+): readonly PropertyComponent[] {
+  if (er.properties !== undefined && er.properties !== null && er.properties.length > 0) {
+    return er.properties;
+  }
+  // N=1 synthesized length-1 view from the inline single-property surface.
+  const value =
+    (er.asr?.impliedValue ?? null) !== null
+      ? er.asr!.impliedValue
+      : (er.appraisal?.asIsValue ?? er.appraisal?.valueConclusion ?? null);
+  const noi = er.asr?.underwrittenNOI ?? er.appraisal?.stabilizedProForma?.netOperatingIncome ?? null;
+  const capRate =
+    value !== null && value > 0 && noi !== null ? noi / value : null;
+  return [
+    {
+      ordinal: 1,
+      componentId: null,
+      parentAssetNumber: null,
+      propertyName: er.appraisal?.reportName ?? null,
+      address: er.appraisal?.addressFull ?? null,
+      city: er.appraisal?.city ?? null,
+      state: er.appraisal?.state ?? null,
+      zip: er.appraisal?.zip ?? null,
+      propertyType: null,
+      netRentableSF: er.appraisal?.netRentableArea ?? null,
+      yearBuilt: er.appraisal?.yearBuilt ?? null,
+      value,
+      valuationDate: er.appraisal?.asIsValueDate ?? null,
+      noi,
+      ncf: null,
+      revenue: er.appraisal?.stabilizedProForma?.effectiveGrossIncome ?? null,
+      occupancyPct: er.appraisal?.stabilizedOccupancy ?? null,
+      capRate,
+    },
+  ];
 }
