@@ -948,7 +948,15 @@ export const FIELD_STATE_REGISTRY: Readonly<Record<number, ReadonlyArray<FieldSt
     state: 'FULL_MODERN' as const,
     notes: 'New at v25 (G1). MF/SS-only: C16 surface parking / C17 covered parking / G7 zoning / G9 land area (acres) — resolvedContext.appraisal.*. Same atoms as Comm GROUP A (L3/L4/H7/L11), different cell addresses on the MF SS MHP layout.',
   }));
-  return [...carryForward, ...mfSsOnly];
+  // G2 (GROUP D) - Hotel-only: 7 cell-addresses on the 'Property Detail - Hotel'
+  // sheet ONLY. Same appraisal atoms as Comm GROUP A+B, different cell addresses.
+  const hotelOnly = ['J9', 'K9', 'L8', 'L7', 'D13', 'D14', 'D17'].map((cell): FieldStateDeclaration => ({
+    address: `Property Detail - Hotel!${cell}`,
+    group: 'property' as const,
+    state: 'FULL_MODERN' as const,
+    notes: 'New at v25 (G2). Hotel-only: J9 surface parking / K9 covered parking / L8 land area (acres) / L7 zoning / D13 #buildings / D14 #stories / D17 building class - resolvedContext.appraisal.*. Same atoms as Comm GROUP A+B (L3/L4/L11/H7/C11/C12/C15), different cell addresses on the Hotel layout.',
+  }));
+  return [...carryForward, ...mfSsOnly, ...hotelOnly];
 })();
 
 // --- Legal cross-version transitions ---------------------------------------

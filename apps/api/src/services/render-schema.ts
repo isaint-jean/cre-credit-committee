@@ -3022,19 +3022,70 @@ const V25_PROPERTY_DETAIL_MFSS_ONLY: SchemaEntry[] = [
   { slot: 'Property_Detail', range: 'G9',  selector: apxSel('landAreaAcres'),  cellState: 'concluded', forceOverwrite: true },
 ];
 
+// GROUP D — HOTEL-ONLY (G2). hotel → 'Property Detail - Hotel' (the TRUE
+// property-detail sheet; NOTE the operating-ladder 'Hotel Op History and Pro
+// Forma' is a SEPARATE sheet reached by the Operating_ProForma slot, not this
+// one). This is the hotel mirror of GROUP A (Comm) + GROUP B (#buildings/#stories/
+// class): the SAME physical/rights appraisal atoms (parkingSurface/parkingCovered/
+// landAreaAcres/zoningCode/numberOfBuildings/numberOfStories/buildingClass), but
+// the hotel layout puts these labels at DIFFERENT cell addresses than the Comm/MF
+// sheets — so a distinct entry group scoped to the Hotel sheet is required. Cell
+// map (verified against Blank_UW_Template_v2.xlsm sheet7, style-only blank/
+// placeholder inputs):
+//   J9  = "Parking (Surface / Covered / Total)" surface input (L9 = SUM formula — untouched)
+//   K9  = "Parking (Surface / Covered / Total)" covered input
+//   L8  = "Land Area (SF / Acres)" acres input (K8 = +L8*43560 formula — untouched)
+//   L7  = "Zoning" value input (blank, next to the F7 label)
+//   D13 = "Number of Buildings"  ('-' placeholder input)
+//   D14 = "Number of Stories"    ('-' placeholder input)
+//   D17 = "Building Class"       ('-' placeholder input)
+// forceOverwrite (matching GROUP A/B) because these are style-only blank/'-'/VAL=0
+// inputs. Same atoms as Comm GROUP B (C11/C12/C15 → numberOfBuildings/numberOfStories/
+// buildingClass) + GROUP A (L3/L4/L11/H7 → parkingSurface/parkingCovered/landAreaAcres/
+// zoningCode), different cell addresses on the hotel layout — no new 3-places plumbing.
+//
+// ★ HONEST-BLANK (NOT bound — no source, or template-formula-driven):
+//   FORMULA-DRIVEN (self-populating via named ranges → P&L Summary; un-bindable,
+//   the CMBS-Comps Q/$SF anti-pattern): D3 Total Rooms (=Measure), L4 Year Built
+//   (=Year_Built), L5 Year Renovated (=Year_Renovated), L6 Date Acquired
+//   (=Date_Acquired), L13 Ownership Interest (=Ownership_Interest), D10/L9/L10
+//   (=SUM/ratio), A1 (=Property_Name), STR index B24:D24 (=B22/B23...), room-mix
+//   % J22:L29 (=I../$I$29...), franchise D38/D39 (='Property & Loan Summary'!F115).
+//   NO-SOURCE (honest-structural-blank; the data model / EX-102 corpus carries
+//   NO such atom — never fabricated): L3 Property Subtype, D15 Number of Outparcels,
+//   D16 Clear Height, D5:D9 rentable-area breakdown (Hotel/Meeting/Restaurant/
+//   Lobby/Other space), the STR Report competitive-set (B22:D23 Subject/Comp-Set
+//   Occupancy/ADR/RevPAR — no STR-report atom in the resolver), Room Mix counts/
+//   sizes (I22:K28), Amenities (A31:J35), Franchise/Management fee & option terms.
+const V25_PROPERTY_DETAIL_HOTEL_ONLY: SchemaEntry[] = [
+  { slot: 'Property_Detail', range: 'J9',  selector: apxSel('parkingSurface'),    cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'K9',  selector: apxSel('parkingCovered'),    cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'L8',  selector: apxSel('landAreaAcres'),     cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'L7',  selector: apxSel('zoningCode'),        cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'D13', selector: apxSel('numberOfBuildings'), cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'D14', selector: apxSel('numberOfStories'),   cellState: 'concluded', forceOverwrite: true },
+  { slot: 'Property_Detail', range: 'D17', selector: apxSel('buildingClass'),     cellState: 'concluded', forceOverwrite: true },
+];
+
 // SCHEMA_V25 = SCHEMA_V24 cell-for-cell (v24 entries carry forward byte-for-byte)
 // but with the cmbsComps table layout attached to every (asset-class, variant)
 // definition, PLUS the G1 MF/SS Property Detail group scoped to the MF SS MHP
 // classes. The Comm/Office/Hotel cell-binding surface is IDENTICAL to v24 — the
 // only additions are (a) the added table layout and (b) GROUP C on MF/SS/MHP.
 // We clone each v24 SchemaDefinition, swap its tableLayouts (V6=[]), and append
-// GROUP C for the MF SS MHP classes only.
+// GROUP C for the MF SS MHP classes / GROUP D (G2) for the Hotel class only.
 function v25DefsFor(assetClass: AssetType): SchemaDefinition[] {
   const isMfSs = SHEET_MAPPING_PROPERTY_DETAIL[assetClass] === 'Property Detail - MF SS MHP';
+  const isHotel = SHEET_MAPPING_PROPERTY_DETAIL[assetClass] === 'Property Detail - Hotel';
+  const scoped: SchemaEntry[] = isMfSs
+    ? V25_PROPERTY_DETAIL_MFSS_ONLY
+    : isHotel
+      ? V25_PROPERTY_DETAIL_HOTEL_ONLY
+      : [];
   return v24DefsFor(assetClass).map((def) => ({
     ...def,
     tableLayouts: V25_TABLE_LAYOUTS,
-    entries: isMfSs ? [...def.entries, ...V25_PROPERTY_DETAIL_MFSS_ONLY] : def.entries,
+    entries: scoped.length ? [...def.entries, ...scoped] : def.entries,
   }));
 }
 
