@@ -68,6 +68,7 @@ import {
   resolveFieldAuthorityRegistry,
   type ResolverSources,
 } from './field-authority.resolver.js';
+import { aggregatePortfolio } from './portfolio-aggregator.service.js';
 
 export interface HydrationSources {
   analysis: Analysis;
@@ -321,11 +322,28 @@ function defaultComparables(): ComparablesNarrative {
   return { leaseComps: 'REQUIRES_EXTERNAL_DATA', salesComps: 'REQUIRES_EXTERNAL_DATA', cmbsComps: 'REQUIRES_EXTERNAL_DATA' };
 }
 
-function buildRollUpStub(): RollUpAggregation {
-  // Single-loan deals export with rollUpAggregation === null. Roll-up mode
-  // requires a populated block; until a portfolio aggregator service lands,
-  // ship a deterministic placeholder so the render-service invariant
-  // (rollUpAggregation iff mode === 'roll_up') holds.
+/**
+ * Build the roll-up aggregation payload for a `roll_up`-mode deal.
+ *
+ * PORTFOLIO PHASE 2. When the extraction carries per-property children
+ * (`extractionResult.properties`), the REAL aggregator (portfolio-aggregator.
+ * service.ts) runs `evaluateDeal()` per component + computes the roll-up math
+ * and returns a computed `rollUpAggregation`. When no components are present
+ * (a roll_up-mode deal whose properties weren't extracted), fall back to the
+ * empty-but-valid placeholder so the render-service invariant
+ * (rollUpAggregation non-null iff mode === 'roll_up') still holds.
+ *
+ * ★ INVARIANT: this is called ONLY on the `mode === 'roll_up'` branch, so the
+ * N=1 single-property path never reaches the aggregator — single-property
+ * output stays byte-identical.
+ */
+function buildRollUpAggregation(analysis: Analysis): RollUpAggregation {
+  const components = analysis.extractionResult?.properties;
+  if (components && components.length > 0) {
+    return aggregatePortfolio(components).rollUpAggregation;
+  }
+  // Roll-up mode with no extracted components — deterministic placeholder that
+  // keeps the mode↔payload invariant. Honest-blank methodology/normalization.
   return {
     loanCount: 1,
     aggregationMethodology: 'DATA_NOT_PROVIDED',
@@ -359,7 +377,7 @@ export function hydrateUnderwritingContext(
     siteInspection:       defaultSiteInspection(),
     comparables:          defaultComparables(),
 
-    rollUpAggregation: s.mode === 'roll_up' ? buildRollUpStub() : null,
+    rollUpAggregation: s.mode === 'roll_up' ? buildRollUpAggregation(s.analysis) : null,
 
     // NEW atomic blocks — populated from extractionResult + AdjustedInputs.
     property:               buildPropertyAtoms(s.analysis, s.assetProfile),

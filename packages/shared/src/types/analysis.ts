@@ -571,6 +571,18 @@ export interface ExtractionResult {
    * found nothing.
    */
   comparablesLinkageRefs?: string[];
+  /**
+   * PORTFOLIO PHASE 1/2 — multi-property children of a roll-up loan.
+   *
+   * ★ ADDITIVE + OPTIONAL, mirroring the `@cre/contracts.ExtractionResult.
+   * properties` invariant. Populated ONLY for multi-property (roll_up) deals;
+   * ABSENT for the single-property path, which stays byte-identical. Consumers
+   * MUST treat undefined and null identically (both = single-property / "no
+   * per-property children"). The Phase-2 aggregator (portfolio-aggregator.
+   * service.ts) reads this to run evaluateDeal() per component + compute the
+   * roll-up math; nothing here feeds the single-property scorer.
+   */
+  properties?: readonly import('@cre/contracts').PropertyComponent[] | null;
   /** True if all required fields are present or derivable. */
   allRequiredPresent: boolean;
   /** List of field names that are missing and could not be derived. */
