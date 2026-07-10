@@ -36,6 +36,7 @@ import { adaptAnalysisToAdjustedInputs } from '../services/analysis-to-adjusted-
 import { buildFloorBindings } from '../services/build-floor-bindings.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
+import { resolvePortfolioExport } from '../services/export-portfolio-dispatch.service.js';
 import { MalformedAnalysisIdError } from '../util/dispatch-by-id-format.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import { hydrateUnderwritingContext } from '../services/hydrate-underwriting-context.js';
@@ -969,6 +970,60 @@ renderRoutes.get('/export', async (req: Request, res: Response) => {
     return;
   }
   const templateType = templateTypeRaw as TemplateType;
+
+  // ── PORTFOLIO DISPATCH (ADDITIVE) ────────────────────────────────────────
+  // roll_up mode AND the resolved deal carries extractionResult.properties
+  // (N>1) → compose the proven portfolio workbook (N per-property leaf tabs +
+  // 4 roll-up tabs) and stream it. ELSE → fall through to the EXISTING single-
+  // property pipeline below, byte-unchanged. This is the ONE additive branch;
+  // it fires BEFORE the template-registry lookup because the portfolio render
+  // composes from the on-disk template directly (no roll_up artifact / no
+  // schema-key coupling). A single-property deal never enters here (the helper
+  // returns null unless mode==='roll_up' AND properties present). Malformed ids
+  // surface the SAME 400 as the existing path.
+  {
+    const dealIdForDispatch = String(req.query.dealId ?? '').trim();
+    const underwritingModeForDispatch = req.query.underwritingMode
+      ? String(req.query.underwritingMode).trim()
+      : '';
+    let portfolio;
+    try {
+      portfolio = await resolvePortfolioExport({
+        dealId: dealIdForDispatch,
+        underwritingMode: underwritingModeForDispatch,
+        recordGraphStore,
+        store,
+      });
+    } catch (err) {
+      if (err instanceof MalformedAnalysisIdError) {
+        res.status(400).json({ error: err.message, code: 'MALFORMED_ANALYSIS_ID' });
+        return;
+      }
+      throw err;
+    }
+    if (portfolio) {
+      const safeName =
+        portfolio.analysisName.replace(/[^a-zA-Z0-9_\- ]/g, '').substring(0, 60).trim() ||
+        'Portfolio';
+      const profileLabel = profile === 'bank' ? 'Bank' : 'BPSpire';
+      const fileName = `${profileLabel}_UW_${safeName}.xlsx`;
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('X-Underwriting-Mode', 'roll_up');
+      res.setHeader('X-Export-Profile', profile);
+      res.setHeader('X-Template-Type', 'roll_up');
+      res.setHeader('X-Portfolio-Property-Count', String(portfolio.components.length));
+      res.setHeader(
+        'X-Portfolio-Sheets',
+        `${portfolio.workbook.leafSheetNames.length}leaf+${portfolio.workbook.rollUpSheetNames.length}rollup`,
+      );
+      res.send(portfolio.workbook.buffer);
+      return;
+    }
+  }
 
   // Step 1 — load active template artifact. Pulled before payload composition
   // so we can render at the template's compatibleContractVersion. The
