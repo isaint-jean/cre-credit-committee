@@ -9,7 +9,13 @@
  * for the first drop.
  *
  * FIELDS: shelfName (required text), vintage (required int, defaults to the
- * current year), seller (optional text).
+ * current year), seller (optional text), propertyName (optional text — FIX 2).
+ *
+ * ★ FIX 2 — the OPTIONAL "Property name" field turns this into a single-property
+ * deal: when filled (e.g. "640 Fifth Ave"), the server seeds ONE matchable loan
+ * into the new pool so this deal's data-room docs route to it (via the classify
+ * seam + the FIX-1 ordinal bridge). Left blank ⇒ a CMBS pool whose loans arrive on
+ * a separate tape upload (byte-unchanged create). Kept optional so both flows work.
  *
  * ★ HONEST RBAC CAVEAT: pool creation is NOT bank-access-controlled. No
  * bank/counterparty role exists yet (pool RBAC is deferred), so this flow is a
@@ -38,6 +44,7 @@ export function NewDealForm() {
   const [shelfName, setShelfName] = useState('');
   const [vintage, setVintage] = useState<string>(String(new Date().getFullYear()));
   const [seller, setSeller] = useState('');
+  const [propertyName, setPropertyName] = useState('');
   const [submit, setSubmit] = useState<SubmitState>('idle');
   const [err, setErr] = useState<string | null>(null);
 
@@ -45,6 +52,7 @@ export function NewDealForm() {
     setShelfName('');
     setVintage(String(new Date().getFullYear()));
     setSeller('');
+    setPropertyName('');
     setErr(null);
     setSubmit('idle');
   }, []);
@@ -71,6 +79,9 @@ export function NewDealForm() {
           shelfName: shelfName.trim(),
           vintage: vintageNum,
           seller: seller.trim() === '' ? null : seller.trim(),
+          // FIX 2 — optional single-property name. When supplied the server seeds
+          // ONE matchable loan so this deal's docs route to it; blank ⇒ CMBS shell.
+          propertyName: propertyName.trim() === '' ? null : propertyName.trim(),
         });
         // Land the user IN the new deal — its data room, connected from birth
         // (keyed by pool.id), empty and ready for the first drop.
@@ -80,7 +91,7 @@ export function NewDealForm() {
         setSubmit('idle');
       }
     },
-    [canSubmit, shelfName, vintageNum, seller, router, side],
+    [canSubmit, shelfName, vintageNum, seller, propertyName, router, side],
   );
 
   if (!open) {
@@ -165,6 +176,28 @@ export function NewDealForm() {
               />
             </label>
           </div>
+
+          {/* ★ FIX 2 — OPTIONAL single-property name. Filled ⇒ the server seeds one
+              matchable loan so this deal's data-room docs route to it. Blank ⇒ a
+              CMBS pool whose loans arrive on a separate tape upload. */}
+          <label className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-wide text-text-muted mb-1">
+              Property name <span className="text-text-muted normal-case">(optional — single-property deal)</span>
+            </span>
+            <input
+              type="text"
+              value={propertyName}
+              onChange={(e) => setPropertyName(e.target.value)}
+              placeholder="e.g. 640 Fifth Ave"
+              disabled={submit === 'pending'}
+              className="bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-text-primary text-sm
+                         focus:outline-none focus:border-accent placeholder-text-muted disabled:opacity-60"
+            />
+            <span className="mt-1 text-[10px] text-text-muted leading-relaxed">
+              Name a single property to seed one loan the data room can route this
+              deal&apos;s documents to. Leave blank for a multi-loan pool (loans load from a tape).
+            </span>
+          </label>
         </div>
 
         {/* ★ HONEST RBAC label — no false "banks-only" enforcement claim. */}

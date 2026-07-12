@@ -41,6 +41,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import type {
+  AssetType,
   Disposition,
   DispositionId,
   LoanInPool,
@@ -62,6 +63,7 @@ import {
 import {
   makeDispositionIdHashInput,
   makeTapeIdHashInput,
+  mintLoanInPoolId,
 } from '../util/pool-ids.js';
 import { RecordIdMismatchError } from './record-graph-store.js';
 
@@ -502,6 +504,55 @@ export class PoolStore {
         loan.propertyName, loan.assetType, loan.currentDispositionId,
         loan.lifecycleStatus ?? null, payload,
       );
+  }
+
+  /**
+   * Seed ONE user-created loan into a pool from a supplied property name — the
+   * single-property "new deal" case (FIX 2). A pool created via `createPool` is a
+   * SHELL with no `loan_in_pool` (loans normally arrive on a separate tape upload),
+   * so a genuinely-new single-property deal has NO loan for the data-room router to
+   * match against → all its docs hold. This mints exactly one minimal-but-valid
+   * loan so the SAME classify seam (`classifyLoanFromContent`/`classifyStagedFile`
+   * + the FIX-1 ordinal bridge) can route "640 5th Avenue" docs to it.
+   *
+   * Discipline / honesty:
+   *   - `added_on_tape` carries the SENTINEL `'user-created'` (schema is NOT NULL
+   *     but has NO FK on this column — same soft-reference precedent as dealRef).
+   *     This loan was NOT born on a tape; the sentinel says so honestly rather than
+   *     fabricating a TapeId.
+   *   - `added_on_tape=0`? No — that's a per-tape display flag on the tape rows, not
+   *     this column. The brief's `added_on_tape=0` intent is captured structurally:
+   *     no tape membership row is written (this loan is user-created, not tape-loaded).
+   *   - `originatorLoanRef` AND `propertyName` both carry the supplied name so BOTH
+   *     match paths (`classifyLoanFromFilename` reads originatorLoanRef+propertyName;
+   *     `classifyLoanFromContent` reads propertyName-or-ref) resolve to it.
+   *   - `assetType` is OPTIONAL (null by default) — for MATCHING (the immediate goal)
+   *     only the name is load-bearing; the asset class is a later workbook-render
+   *     concern that a per-loan underwrite can fill. Never fabricated here.
+   *   - `dealRef` = the minted LoanInPoolId itself: a stable soft handle for the
+   *     single deal (no engine revision exists yet; the loan's lineage forms when
+   *     its docs are first underwritten).
+   *
+   * Returns the minted loan so the route can echo its id.
+   */
+  seedSingleLoan(poolId: PoolId, propertyName: string, assetType: AssetType | null = null): LoanInPool {
+    const id = mintLoanInPoolId();
+    const loan: LoanInPool = {
+      id,
+      poolId,
+      // A user-created single deal has no engine revision yet; use the loan's own
+      // id as a stable soft dealRef (matches the pool-layer soft-reference model).
+      dealRef: id as unknown as string,
+      // Sentinel: NOT born on a tape. Column is NOT NULL but carries no FK.
+      addedOnTape: 'user-created' as unknown as TapeId,
+      originatorLoanRef: propertyName,
+      propertyName,
+      assetType,
+      currentDispositionId: null,
+      lifecycleStatus: null,
+    };
+    this.insertLoanInPool(loan);
+    return loan;
   }
 
   getLoanInPool(id: LoanInPoolId): LoanInPool | null {

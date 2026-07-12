@@ -228,8 +228,17 @@ function validateDeparture(v: unknown, idx: number): DepartureLabel | string {
 /**
  * POST /api/pools — create a pool.
  *
- * Body: { shelfName, vintage, seller? }
- * Response 201: { pool: Pool }
+ * Body: { shelfName, vintage, seller?, propertyName? }
+ * Response 201: { pool: Pool, seededLoan?: LoanInPool }
+ *
+ * ★ FIX 2 — OPTIONAL `propertyName` (ADDITIVE). When ABSENT the create path is
+ * byte-identical to before: a pool SHELL with no `loan_in_pool` (a CMBS pool whose
+ * loans arrive on a separate tape upload). When PRESENT the create is a
+ * single-property "new deal": after the shell is created we seed ONE `loan_in_pool`
+ * from the supplied name (`seedSingleLoan`), so the genuinely-new deal has a loan
+ * for the data-room router to match its docs against (via `classifyLoanFromContent`
+ * / `classifyStagedFile` + the FIX-1 ordinal bridge). `seededLoan` is echoed only
+ * when a loan was seeded.
  */
 poolRoutes.post('/', (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -238,6 +247,14 @@ poolRoutes.post('/', (req: Request, res: Response) => {
   if (body['seller'] !== undefined && body['seller'] !== null && typeof body['seller'] !== 'string') {
     return send400Bad(res, 'seller: string|null');
   }
+  // OPTIONAL propertyName — absent/null/'' ⇒ no seed (unchanged shell). When a
+  // non-empty string, seed exactly one single-property loan after the shell.
+  if (body['propertyName'] !== undefined && body['propertyName'] !== null && typeof body['propertyName'] !== 'string') {
+    return send400Bad(res, 'propertyName: string|null');
+  }
+  const rawName = body['propertyName'] as string | null | undefined;
+  const seedName = typeof rawName === 'string' && rawName.trim().length > 0 ? rawName.trim() : null;
+
   const pool: Pool = {
     id: mintPoolId(),
     shelfName: body['shelfName'] as string,
@@ -250,6 +267,11 @@ poolRoutes.post('/', (req: Request, res: Response) => {
   };
   try {
     poolStore().createPool(pool);
+    // ★ ADDITIVE: seed a single matchable loan ONLY when propertyName is supplied.
+    if (seedName !== null) {
+      const seededLoan = poolStore().seedSingleLoan(pool.id, seedName);
+      return res.status(201).json({ pool, seededLoan });
+    }
     return res.status(201).json({ pool });
   } catch (e) {
     return mapThrow(res, e);

@@ -1158,14 +1158,26 @@ export const api = {
    * (data_room_doc.pool_id), so no separate room-attach is required — the room
    * auto-creates on the first drop and /pools/[poolId]/data-room is reachable by
    * poolId the moment the pool exists. */
-  createPool: (body: { shelfName: string; vintage: number; seller?: string | null }) =>
-    request<{ pool: Pool }>(`/pools`, {
+  createPool: (body: {
+    shelfName: string;
+    vintage: number;
+    seller?: string | null;
+    /* FIX 2 — OPTIONAL. When a non-empty single-property name is supplied, the
+     * server seeds ONE matchable loan into the new pool so the data room can route
+     * this deal's docs (e.g. "640 5th Avenue") to it. Absent ⇒ a CMBS shell whose
+     * loans arrive on a tape upload (unchanged). */
+    propertyName?: string | null;
+  }) =>
+    request<{ pool: Pool; seededLoan?: LoanInPool }>(`/pools`, {
       method: 'POST',
       body: JSON.stringify({
         shelfName: body.shelfName,
         vintage: body.vintage,
         ...(body.seller !== undefined && body.seller !== null && body.seller !== ''
           ? { seller: body.seller }
+          : {}),
+        ...(body.propertyName !== undefined && body.propertyName !== null && body.propertyName !== ''
+          ? { propertyName: body.propertyName }
           : {}),
       }),
     }),
