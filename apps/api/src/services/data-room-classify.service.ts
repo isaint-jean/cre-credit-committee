@@ -43,6 +43,7 @@ import {
   normalizePropertyName,
 } from './parse-bmark-tape-xlsx.js';
 import { extractFrontMatterText } from './data-room/page1-text.service.js';
+import { classifyByLlm, type LlmRouteCall } from './data-room/llm-smart-route.service.js';
 
 /** The minimal loan-name shape the loan axis matches against. Mirrors
  *  PoolStore.listLoanNameKeys() rows (already pool-scoped by the caller). */
@@ -283,6 +284,11 @@ export interface PathClassifyHints extends ClassifyHints {
    *  DOC_TYPE_CATEGORY[docType]. A tray signal — Phase 3 must NOT auto-file on
    *  a contradiction. The docType/loanInPoolId hints are still the best guesses. */
   readonly contradiction?: boolean;
+  /** Tier-3.5 provenance — "routed by AI — {reason}" — present ONLY when the LLM
+   *  tier actually FILLED an axis. Display-only / score-neutral: the caller writes
+   *  it into `data_room_doc.notes` so a human sees + can override an AI-routed doc.
+   *  Undefined for every deterministically-routed or HELD file. */
+  readonly aiRouteNote?: string;
 }
 
 /**
@@ -411,12 +417,18 @@ export interface ClassifyFileInput {
  * `PathClassifyHints` (⊇ `ClassifyHints`), so `verdictFor` / assign / underwrite
  * downstream are UNCHANGED.
  *
- * NO-LLM: every tier is deterministic regex / string-scoring; `extractFrontMatterText`
- * uses the unpdf/xlsx parsers only. Runs with credits depleted.
+ * Tiers 1-3 are NO-LLM: deterministic regex / string-scoring; `extractFrontMatterText`
+ * uses the unpdf/xlsx parsers only, so they run with credits depleted. Tier 3.5
+ * (LLM smart-route) is the ONLY LLM tier — it fires ONLY when an axis is STILL
+ * null after tiers 1-3 (the same hard-doc guard tier-3 uses) AND credits are
+ * available; on no-credits / error / malformed output it is a NO-OP and the doc
+ * HELDs exactly as today (fail-safe). It writes into the SAME loanInPoolId/docType
+ * locals → same `PathClassifyHints` out → verdictFor/assign/underwrite untouched.
  */
 export async function classifyFileCascade(
   input: ClassifyFileInput,
   poolLoans: ReadonlyArray<PoolLoanNameKey>,
+  deps?: { readonly llmCall?: LlmRouteCall },
 ): Promise<PathClassifyHints> {
   const { internalPath, fileName, bytes } = input;
 
@@ -444,8 +456,13 @@ export async function classifyFileCascade(
   //    ("S U N R O A D  C E N TR U M") where page 2 carries clean "Sunroad
   //    Centrum" that fuzzy-matches. BOTH axes (loan + doc-type) share the same
   //    deeper text (parse-once still). ──────────────────────────────────────────
+  // `pageText` is parsed AT MOST ONCE here and REUSED by Tier 3.5 below (no
+  // second parse). '' when tiers 1-2 already resolved both axes (never reached)
+  // or on any parser failure.
+  let pageText = '';
+  let aiRouteNote: string | undefined;
   if (loanInPoolId === null || docType === null) {
-    const pageText = await extractFrontMatterText(bytes); // parse-once; '' on any failure
+    pageText = await extractFrontMatterText(bytes); // parse-once; '' on any failure
     if (pageText.length > 0) {
       if (loanInPoolId === null) {
         loanInPoolId = classifyLoanFromContent(pageText, poolLoans);
@@ -455,6 +472,22 @@ export async function classifyFileCascade(
         docType = contentSlot === null ? null : (contentSlot as string);
       }
     }
+  }
+
+  // ── Tier 3.5 (LLM smart-route) — the ONLY LLM tier. Fires ONLY when an axis is
+  //    STILL null after regex/fuzzy (the SAME hard-doc guard tier-3 uses), so the
+  //    ~7 files that auto-routed on folder/filename never reach it — cheap by
+  //    construction. Credit-gated + fail-safe: no-credits/error/malformed → NO-OP
+  //    → the doc HELDs exactly as today. The LLM can only FILL a null axis (it is
+  //    validated against the pool loans + taxonomy and held below its confidence
+  //    floor), never overwrite a deterministically-resolved one — so the honest
+  //    floor survives and verdictFor's both-axes-confident bar still applies. ──
+  if (loanInPoolId === null || docType === null) {
+    const llm = await classifyByLlm(fileName, pageText, poolLoans, deps?.llmCall);
+    if (loanInPoolId === null && llm.loanInPoolId !== null) loanInPoolId = llm.loanInPoolId;
+    if (docType === null && llm.docType !== null) docType = llm.docType;
+    // Provenance recorded ONLY when the LLM actually filled an axis (§ guard 3).
+    if (llm.note !== null) aiRouteNote = llm.note;
   }
 
   // ── Category + contradiction: PRESERVE the folder tier's cross-check when it
@@ -473,5 +506,6 @@ export async function classifyFileCascade(
     loanInPoolId,
     ...(categoryHint !== undefined ? { categoryHint } : {}),
     ...(contradiction ? { contradiction: true } : {}),
+    ...(aiRouteNote !== undefined ? { aiRouteNote } : {}),
   };
 }

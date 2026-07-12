@@ -255,6 +255,10 @@ dataRoomRoutes.post('/:poolId/staging', uploadFilesArray as any, async (req: Req
           stagingId: f.stagingId,
           loanInPoolId: verdict.prefill.loanInPoolId,
           docType: verdict.prefill.docType,
+          // Tier-3.5 provenance — present only when the LLM tier filled an axis.
+          // Written to data_room_doc.notes so an AI-routed doc is visible +
+          // overridable ("routed by AI — {reason}").
+          ...(hints.aiRouteNote !== undefined ? { notes: hints.aiRouteNote } : {}),
         });
       }
       routing.push({
