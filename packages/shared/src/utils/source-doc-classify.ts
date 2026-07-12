@@ -58,6 +58,23 @@ export function stripSlotHints(s: string): string {
 }
 
 /**
+ * Ordinal WORD → NUMERAL canonicalization for street-name matching. Single-word
+ * ordinals only (1st–20th + the even tens + hundredth) — the forms that appear
+ * in real street addresses ("Fifth Avenue", "Third Avenue"); compound ordinals
+ * ("42nd Street") are conventionally written as numerals already. Canonical
+ * target is the NUMERAL so a doc's "Fifth" and the tape's "5th" collapse to one.
+ */
+const ORDINAL_WORD_TO_NUM: Readonly<Record<string, string>> = {
+  first: '1st', second: '2nd', third: '3rd', fourth: '4th', fifth: '5th',
+  sixth: '6th', seventh: '7th', eighth: '8th', ninth: '9th', tenth: '10th',
+  eleventh: '11th', twelfth: '12th', thirteenth: '13th', fourteenth: '14th',
+  fifteenth: '15th', sixteenth: '16th', seventeenth: '17th', eighteenth: '18th',
+  nineteenth: '19th', twentieth: '20th', thirtieth: '30th', fortieth: '40th',
+  fiftieth: '50th', sixtieth: '60th', seventieth: '70th', eightieth: '80th',
+  ninetieth: '90th', hundredth: '100th',
+};
+
+/**
  * Normalize a deal-name or filename for comparison.
  *
  * Pipeline:
@@ -67,6 +84,7 @@ export function stripSlotHints(s: string): string {
  *   - strip slot-hint substrings (delegated to stripSlotHints)
  *   - replace punctuation with spaces
  *   - lowercase + collapse whitespace
+ *   - canonicalize street ordinals word→numeral (fifth→5th)
  */
 export function normalizeForMatch(raw: string): string {
   let s = raw;
@@ -101,6 +119,17 @@ export function normalizeForMatch(raw: string): string {
 
   // Lowercase + collapse
   s = s.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  // ★ Canonicalize street ORDINALS word→numeral (fifth→5th, third→3rd) so a
+  // doc's "640 Fifth Avenue" matches the tape's "640 5th avenue". A real
+  // equivalence (an ordinal word IS its numeral), NOT a loosened threshold or
+  // a fuzzy guess — the confidence bar is untouched. Token-based = whole-word
+  // by construction; the tape is mixed (numeral "640 5th avenue" + word
+  // "556 third avenue") so canonicalizing to ONE form (numeral) bridges both.
+  s = s
+    .split(' ')
+    .map((t) => ORDINAL_WORD_TO_NUM[t] ?? t)
+    .join(' ');
 
   return s;
 }
