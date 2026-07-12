@@ -60,6 +60,10 @@ import { extractRentRollFromDocument } from '../../extract-rent-roll-from-docume
 import { extractPropertyMetadata } from '../../extract-property-metadata.js';
 import { extractASR } from '../../extract-asr.js';
 import { extractAsrLoanTerms } from '../../extract-asr-loan-terms.js';
+import {
+  extractAsrLoanTermsLlm,
+  type ExtractAsrLoanTermsLlmDeps,
+} from '../../extract-asr-loan-terms-llm.js';
 import { parsePartiesFromAsrText } from '../../extract-parties-from-asr.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 import { projectToRentRollExtraction } from './rent-roll.adapter.js';
@@ -75,8 +79,15 @@ import { projectToRentRollExtraction } from './rent-roll.adapter.js';
  *            (AI-driven). Adapter coordination/contract unchanged.
  *    0.4.0 — ASR "Underwritten Cash Flows" table parse (extractAsrCashFlows)
  *            added to extractASR → ASRExtraction.underwrittenCashFlows. Bumped
- *            to cache-bust so a re-ingest re-extracts the new field. */
-export const ASR_ADAPTER_VERSION = '0.4.0';
+ *            to cache-bust so a re-ingest re-extracts the new field.
+ *    0.5.0 — DE-ANCHORED loan terms. When the deterministic regex
+ *            (extractAsrLoanTerms) finds no MS anchor OR a null loanAmount, an
+ *            LLM-primary FALLBACK (extractAsrLoanTermsLlm) reads the WHOLE ASR
+ *            text → structured loan terms, gating on the WHOLE loan (piece is a
+ *            separate labeled field). Fixes non-MS ASRs (e.g. 640/BMO) that
+ *            broke the single-anchor regex. Sunroad still resolves via the free
+ *            regex path (no LLM). Bumped to cache-bust a re-extract. */
+export const ASR_ADAPTER_VERSION = '0.5.0';
 
 /**
  * One outcome value covers three ExtractionResult-relevant fields PLUS one
@@ -116,6 +127,14 @@ export interface AsrAdapterValue {
    *  loanTerms is null. Empty even when loanTerms is non-null if all
    *  cross-checks passed. */
   readonly loanTermsWarnings: readonly string[];
+  /** ★ WHOLE-vs-PIECE. When the ASR splits the loan into a trust / senior /
+   *  mezzanine PIECE, that piece amount is captured HERE for exposure
+   *  disclosure only — it is NEVER the gating loanAmount (that's the WHOLE
+   *  loan on `loanTerms.loanAmount`) and NEVER a credit metric. Null when the
+   *  loan is whole or when the LLM fallback did not run / could not cite a
+   *  piece. Sourced from the LLM fallback; the deterministic regex path leaves
+   *  it null (the MS block does not disambiguate whole/piece). */
+  readonly loanAmountTrustPiece: number | null;
 }
 
 /**
@@ -143,6 +162,13 @@ export interface AsrAdapterDeps {
    *  sub-extractors already wear. Returns null when neither name matched. */
   readonly parseParties:
     (pages: readonly string[]) => Promise<PartiesExtraction | null>;
+  /** ★ LLM-primary loan-terms FALLBACK deps. The de-anchor path (regex null /
+   *  missing loanAmount → LLM) passes these through to extractAsrLoanTermsLlm.
+   *  Production uses live Sonnet + the env credit gate; tests inject a stub LLM
+   *  seam + in-memory cache to exercise the logic deterministically without a
+   *  live call. Undefined ⇒ the extractor's own defaults (real call, env gate,
+   *  no cache). */
+  readonly loanTermsLlm?: ExtractAsrLoanTermsLlmDeps;
 }
 
 export const DEFAULT_ASR_DEPS: AsrAdapterDeps = {
@@ -304,13 +330,34 @@ export async function runAsrAdapterOnDocument(
   const hasRrf = rentRollFallback !== null;
   const hasParties = parties !== null;
 
-  // v0.3.0 — Loan-terms block. Synchronous regex parser; runs after the
-  // async sub-extractors so its result is deterministic w.r.t. the parsed
-  // doc text and there's no need to allSettled-wrap (it cannot throw on
-  // well-formed text and returns EMPTY_RESULT on empty input).
-  const loanTermsResult = extractAsrLoanTerms(doc);
-  const loanTerms = loanTermsResult.loanTerms;
-  const loanTermsWarnings = loanTermsResult.warnings;
+  // v0.3.0 — Loan-terms block. Deterministic regex parser first (fast + free +
+  // reproducible). Runs after the async sub-extractors so its result is
+  // deterministic w.r.t. the parsed doc text.
+  const regexResult = extractAsrLoanTerms(doc);
+  let loanTerms = regexResult.loanTerms;
+  let loanTermsWarnings: readonly string[] = regexResult.warnings;
+  let loanAmountTrustPiece: number | null = null;
+
+  // v0.5.0 — DE-ANCHOR. When the regex found no MS anchor (loanTerms === null)
+  // OR anchored but produced a null gating loanAmount, fall back to the
+  // LLM-primary reader over the WHOLE ASR text. This fixes non-MS layouts
+  // (640/BMO) that the single `Original Principal Balance:` anchor missed.
+  // The LLM path is credit-gated + fail-safe: no credits / error → all-null →
+  // engine refuses (today's honest floor). Sunroad hits the regex and never
+  // reaches here (free path preserved).
+  const needsLlmFallback = loanTerms === null || loanTerms.loanAmount === null;
+  if (needsLlmFallback) {
+    const llm = await extractAsrLoanTermsLlm(doc.rawText, bufferHash, deps.loanTermsLlm);
+    if (llm.loanTerms !== null) {
+      loanTerms = llm.loanTerms;
+      loanTermsWarnings = [...regexResult.warnings, ...llm.warnings];
+    } else if (llm.warnings.length > 0) {
+      // No usable loan terms, but surface the LLM's data-quality warnings
+      // (e.g. whole-not-piece hold) into the memo channel.
+      loanTermsWarnings = [...regexResult.warnings, ...llm.warnings];
+    }
+    loanAmountTrustPiece = llm.loanAmountTrustPiece;
+  }
   const hasLoanTerms = loanTerms !== null;
 
   if (!hasAsr && !hasPm && !hasRrf && !hasParties && !hasLoanTerms) {
@@ -350,6 +397,7 @@ export async function runAsrAdapterOnDocument(
       parties,
       loanTerms,
       loanTermsWarnings,
+      loanAmountTrustPiece,
     },
     sourceRefs: refs,
     adapterVersion: ASR_ADAPTER_VERSION,

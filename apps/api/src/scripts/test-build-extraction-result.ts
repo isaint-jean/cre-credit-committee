@@ -215,6 +215,7 @@ function asrOkOutcome(opts: {
       parties: null,
       loanTerms: null,
       loanTermsWarnings: [],
+      loanAmountTrustPiece: null,
     },
     sourceRefs: refs,
     adapterVersion: '0.1.0',
