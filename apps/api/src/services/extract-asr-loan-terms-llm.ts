@@ -474,6 +474,33 @@ export function parseLoanTermsLlmResponse(
   //   the words; the arithmetic is deterministic here).
   const termMonths = citeTermPhrase('termPhrase', term.value, term.sourceQuote, normalizedDoc, traces);
 
+  // ★ FULL-TERM INTEREST-ONLY → amortization = 0 (deterministic, definitional —
+  // NOT a fabrication, NOT LLM-coaxed). A loan whose interest-only period covers
+  // the FULL term genuinely does not amortize, so 0 is the HONEST value, derived
+  // from the cited "interest-only" phrase (a real equivalence, like fifth=5th).
+  // ★ NARROW: fires ONLY for full-term IO — the IO period ≥ term, OR a whole-loan
+  // "interest-only" statement with NO separate (partial) IO period. A partial-IO
+  // or amortizing loan (IO period < term) keeps its own amortization (or honest
+  // null) — we NEVER zero out a real amortization schedule.
+  let amortizationResolved = amortization;
+  if (amortizationResolved === null && termMonths !== null) {
+    const knownPartialIo = interestOnlyPeriod !== null && interestOnlyPeriod < termMonths;
+    const fullTermIoByPeriod = interestOnlyPeriod !== null && interestOnlyPeriod >= termMonths;
+    const ioMatch = knownPartialIo ? null : normalizedDoc.match(/interest[-\s]?only/i);
+    const ioQuote = ioMatch ? ioMatch[0] : null;
+    if (fullTermIoByPeriod || (interestOnlyPeriod === null && ioQuote !== null)) {
+      amortizationResolved = 0;
+      const evidence = fullTermIoByPeriod
+        ? `interest-only period ${interestOnlyPeriod}mo ≥ term ${termMonths}mo`
+        : (ioQuote as string);
+      traces.push({ field: 'amortizationMonths', sourceQuote: evidence, cited: true });
+      warnings.push(
+        `Loan-terms LLM: full-term interest-only → amortization = 0 (a full-term IO loan does `
+        + `not amortize; derived from the cited "${evidence}", not fabricated).`,
+      );
+    }
+  }
+
   // ★ Guard: never let the piece masquerade as the whole. If the whole is null
   // but a piece was cited, we do NOT promote it — the engine refuses on a null
   // whole loanAmount rather than gate on a piece (whole-not-piece discipline).
@@ -510,7 +537,7 @@ export function parseLoanTermsLlmResponse(
     }
   }
 
-  const allNull = loanAmount === null && coupon === null && amortization === null
+  const allNull = loanAmount === null && coupon === null && amortizationResolved === null
     && interestOnlyPeriod === null && maturityDate === null && termMonths === null;
   if (allNull) {
     return { loanTerms: null, loanAmountTrustPiece, traces, warnings };
@@ -520,7 +547,7 @@ export function parseLoanTermsLlmResponse(
     loanTerms: {
       loanAmount,
       interestRate: coupon,
-      amortization,
+      amortization: amortizationResolved,
       interestOnlyPeriod,
       termMonths,
       maturityDate,
