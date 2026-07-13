@@ -546,6 +546,30 @@ export interface ASRExtraction {
   readonly priorDebtPayoff: number | null;
 
   /**
+   * Dollar amount of NEW sponsor equity contributed alongside the loan — the
+   * "sponsor equity contribution" / "new equity" line in the ASR's Sources &
+   * Uses table (e.g. "a new $104.1MM sponsor equity contribution to refinance
+   * $500.0MM of existing debt" in the 640 5th Avenue ASR). null when the deal
+   * is not a refinance, when the line is not present, or when extraction cannot
+   * identify it — cited/honest-null exactly like `priorDebtPayoff`.
+   *
+   * Used by the data-integrity gate's REFI_BELOW_PRIOR_PAYOFF check to
+   * RECONCILE the sources of a deleveraging refinance: when the loan alone is
+   * below the prior payoff, the gate checks whether
+   *   loanAmount + sponsorEquity ≥ priorDebtPayoff
+   * — if so, the sources cover the payoff (a confirmed deleveraging refi) and
+   * the finding downgrades from HARD halt to a SOFT review flag. A null / absent
+   * sponsorEquity CANNOT confirm the reconciliation, so the HARD halt stays
+   * (conservative fallback — never soften on an unconfirmed reconciliation).
+   *
+   * Additive widening — older ASRExtraction records persist with this field
+   * absent at the JSON layer; readers must treat undefined and null identically
+   * (both = "not extracted"), so this is declared OPTIONAL. The gate's reader
+   * coalesces `?? null` and the extractor always writes it explicitly.
+   */
+  readonly sponsorEquity?: number | null;
+
+  /**
    * The ASR's Sources & Uses table, parsed deterministically from the PDF
    * text (no LLM). Display metadata for the Property & Loan Summary S&U block
    * (rows 27-32). Every field is nullable and follows the honest-blank rule:
@@ -784,6 +808,14 @@ export interface SourcesAndUses {
   readonly capitalExpenditures: number | null;
   /** Uses: closing costs. */
   readonly closingCosts: number | null;
+  /**
+   * Sources side: new sponsor / borrower equity contributed alongside the loan
+   * (the "sponsor equity contribution" / "new equity" line). Populated on a
+   * cash-in refinance where the sponsor tops up the loan to cover the payoff
+   * (e.g. 640 5th Avenue's "$104.1MM sponsor equity contribution"). null when
+   * absent — distinct from `returnOfEquity` (cash OUT to the sponsor).
+   */
+  readonly sponsorEquity?: number | null;
   /** Acquisition price. null for a refinance (no purchase). */
   readonly purchasePrice: number | null;
   /** Total cost basis (land + building + improvements + TIs), if stated. */

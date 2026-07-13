@@ -10,7 +10,9 @@
  *      physically-impossible ratios; SOFT warns on out-of-normal-range
  *      ratios. Bands in config.ts.
  *   3. Cross-consistency (HARD on contradiction)
- *        ★ refinance && loanAmount < priorDebtPayoff  → HARD halt.
+ *        ★ refinance && loanAmount < priorDebtPayoff  → reconcile the sources:
+ *          loan + sponsorEquity ≥ priorDebtPayoff (confirmed deleveraging) →
+ *          SOFT review flag; else / sponsorEquity null → HARD halt.
  *        debtServiceAnnual vs annualDebtService(terms) off >5% → flag.
  *        impliedValue (NOI/capRate) vs appraisedValue diverge >50% → flag.
  *
@@ -257,10 +259,24 @@ function runCrossConsistencyGate(
   const loanAmount = nullableNumber(loan.loanAmount.adjusted);
 
   // ★ THE LOAD-BEARING CHECK
-  // refinance && loanAmount < priorDebtPayoff → HARD halt.
+  // refinance && loanAmount < priorDebtPayoff → the loan alone does not cover
+  // the payoff. RECONCILE THE SOURCES before halting: a DELEVERAGING refinance
+  // (new loan + new sponsor equity ≥ prior payoff) is legitimate — the sponsor
+  // is paying debt DOWN, not underfunding it. When the sources reconcile this
+  // downgrades to a SOFT review flag (analyst sees it, underwrite proceeds).
+  // When they do NOT reconcile — the loan + equity still fall short, OR the
+  // sponsor equity is null/unknown so we CANNOT confirm the reconciliation —
+  // the HARD halt stays (genuine data-integrity concern: where is the money
+  // coming from?). Conservative fallback: null sponsorEquity → HARD halt.
   const loanPurpose = args.propertyMetadata?.loanPurpose ?? null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const priorDebtPayoff = (args.extraction.asr as any)?.priorDebtPayoff ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sponsorEquityRaw = (args.extraction.asr as any)?.sponsorEquity ?? null;
+  const sponsorEquity =
+    typeof sponsorEquityRaw === 'number' && Number.isFinite(sponsorEquityRaw) && sponsorEquityRaw > 0
+      ? sponsorEquityRaw
+      : null;
   if (
     loanPurpose === 'Refinance' &&
     typeof priorDebtPayoff === 'number' &&
@@ -270,18 +286,52 @@ function runCrossConsistencyGate(
     Number.isFinite(loanAmount) &&
     loanAmount < priorDebtPayoff
   ) {
-    out.push({
-      layer: 'cross_consistency',
-      severity: 'HARD',
-      check: 'REFI_BELOW_PRIOR_PAYOFF',
-      title: 'Loan amount less than prior debt being refinanced',
-      message:
-        `Loan $${formatMoney(loanAmount)} is less than the $${formatMoney(priorDebtPayoff)} ` +
-        `being refinanced — a refinance cannot underfund the payoff. Verify the ` +
-        `loan amount against the ASR loan-terms section (Original Principal ` +
-        `Balance / Cut-Off Balance) before any verdict.`,
-      values: { loanAmount, priorDebtPayoff },
-    });
+    // Sources reconcile only when we HAVE a sponsor-equity figure AND the loan
+    // plus that equity covers the payoff. Null equity → cannot confirm → HARD.
+    const sourcesReconcile =
+      sponsorEquity !== null && loanAmount + sponsorEquity >= priorDebtPayoff;
+    if (sourcesReconcile) {
+      out.push({
+        layer: 'cross_consistency',
+        severity: 'SOFT',
+        check: 'REFI_DELEVERAGING',
+        title: 'Deleveraging refinance — loan below prior payoff, sources reconcile',
+        message:
+          `Loan $${formatMoney(loanAmount)} is below the $${formatMoney(priorDebtPayoff)} ` +
+          `prior debt being refinanced, but a new $${formatMoney(sponsorEquity)} sponsor ` +
+          `equity contribution covers the gap (loan + equity = ` +
+          `$${formatMoney(loanAmount + sponsorEquity)} ≥ $${formatMoney(priorDebtPayoff)} payoff). ` +
+          `This is a confirmed DELEVERAGING refinance — the sponsor is paying debt down, ` +
+          `not underfunding the payoff. Review flag: confirm the sponsor-equity contribution ` +
+          `against the ASR Sources & Uses table.`,
+        values: {
+          loanAmount,
+          priorDebtPayoff,
+          sponsorEquity,
+          sourcesTotal: loanAmount + sponsorEquity,
+        },
+      });
+    } else {
+      out.push({
+        layer: 'cross_consistency',
+        severity: 'HARD',
+        check: 'REFI_BELOW_PRIOR_PAYOFF',
+        title: 'Loan amount less than prior debt being refinanced',
+        message:
+          `Loan $${formatMoney(loanAmount)} is less than the $${formatMoney(priorDebtPayoff)} ` +
+          `being refinanced` +
+          (sponsorEquity === null
+            ? `, and no sponsor-equity contribution is stated to cover the gap — the sources ` +
+              `do not reconcile. `
+            : ` even with the stated $${formatMoney(sponsorEquity)} sponsor equity ` +
+              `(loan + equity = $${formatMoney(loanAmount + sponsorEquity)} < ` +
+              `$${formatMoney(priorDebtPayoff)} payoff) — the sources do not reconcile. `) +
+          `A refinance cannot underfund the payoff. Verify the loan amount against the ASR ` +
+          `loan-terms section (Original Principal Balance / Cut-Off Balance) and the sponsor ` +
+          `equity in the Sources & Uses table before any verdict.`,
+        values: { loanAmount, priorDebtPayoff, sponsorEquity },
+      });
+    }
   }
 
   // FLAG — engine debt service vs formula.

@@ -49,7 +49,8 @@ function buildPrompt(text: string): string {
     '  "impliedValue": <dollar amount or null>,',
     '  "impliedCapRate": <fraction 0-1 OR percent number, e.g. 0.065 or 6.5, or null>,',
     '  "underwrittenNOI": <annual dollar amount or null>,',
-    '  "priorDebtPayoff": <dollar amount of existing loan being refinanced, or null>',
+    '  "priorDebtPayoff": <dollar amount of existing loan being refinanced, or null>,',
+    '  "sponsorEquity": <dollar amount of NEW sponsor/borrower equity contributed alongside the loan, or null>',
     '}',
     '',
     'Rules:',
@@ -58,6 +59,7 @@ function buildPrompt(text: string): string {
     '- impliedCapRate is the broker implied cap rate. May appear as decimal (0.065) or percent (6.5). Either form is acceptable; the parser normalizes.',
     '- underwrittenNOI is the broker stabilized/pro-forma NOI (annual dollars). May appear as "Year 1 NOI", "Stabilized NOI", "Underwritten NOI", or similar.',
     '- priorDebtPayoff is the dollar amount of EXISTING debt being refinanced — the "Loan Payoff" / "Existing Loan Payoff" / "Refinance Existing Debt" / "Prior CMBS Payoff" line in the Sources & Uses table. Only populate on refinance deals where the source explicitly states the amount; null when the source is silent or the deal is an acquisition (not a refinance).',
+    '- sponsorEquity is the dollar amount of NEW sponsor / borrower equity contributed alongside the loan — the "Sponsor Equity Contribution" / "New Equity" / "Borrower Equity" line on the SOURCES side of the Sources & Uses table (it tops up the loan to fund the uses). It is NOT the "Return of Equity" / "Equity Return" cash going OUT to the sponsor. Only populate when the source explicitly states a new-equity contribution (common on a cash-in / deleveraging refinance where the new loan alone is below the prior payoff); null when the source is silent or the deal fully funds from the loan.',
     '- Numbers only (no strings with commas or $ signs in the JSON output). Use null when uncertain.',
     '',
     '--- DOCUMENT TEXT ---',
@@ -117,7 +119,7 @@ export function parseSourcesAndUses(rawText: string): SourcesAndUses | null {
     const n = Number(m[1].replace(/[$,\s]/g, ''));
     return Number.isFinite(n) ? n : null;
   };
-  // "$91.6 million" → 91_600_000
+  // "$91.6 million" / "$104.1MM" → 91_600_000 / 104_100_000
   const millions = (re: RegExp): number | null => {
     const m = re.exec(rawText);
     if (!m || m[1] === undefined) return null;
@@ -129,12 +131,30 @@ export function parseSourcesAndUses(rawText: string): SourcesAndUses | null {
   // "(1)" / "1" / "" — `\s*\(?\d*\)?` absorbs all three before the dollar value.
   const su: SourcesAndUses = {
     loanAmount:           dollars(/Loan Amount\s+\$([\d,]+)/i),
-    loanPayoff:           dollars(/Loan Payoff\s*\(?\d*\)?\s+\$([\d,]+)/i),
+    // Prior debt being refinanced. Primary surface is the "Loan Payoff" S&U
+    // line (Sunroad). Some issuers (e.g. 640 5th Ave / BMO) instead label it
+    // "Existing Debt" and/or state it only in prose ("refinance $500.0MM of
+    // existing debt"); the BMO S&U table renders value-first with no delimiter
+    // ("...500,000,000Existing Debt..."). Try, in order: the Loan-Payoff line,
+    // the prose "$500.0MM ... existing debt", then the value-first table line.
+    loanPayoff:
+      dollars(/Loan Payoff\s*\(?\d*\)?\s+\$([\d,]+)/i) ??
+      millions(/\$([\d.]+)\s*(?:MM|million)\s+of\s+existing\s+debt/i) ??
+      dollars(/([\d,]{9,})\s*Existing Debt/i),
     // Final ASR labels it "Equity Return"; prelim "Return of Equity".
     returnOfEquity:       dollars(/(?:Equity Return|Return of Equity)\s*\(?\d*\)?\s+\$([\d,]+)/i),
     unfundedObligations:  dollars(/Unfunded Obligations\s*\(?\d*\)?\s+\$([\d,]+)/i),
     capitalExpenditures:  dollars(/Capital Expenditures\s+\$([\d,]+)/i),
     closingCosts:         dollars(/Closing Costs\s+\$([\d,]+)/i),
+    // New sponsor/borrower equity on the SOURCES side. Two surfaces: an S&U
+    // table line ("Sponsor Equity Contribution  $104,100,000") OR narrative
+    // prose ("a new $104.1MM sponsor equity contribution"). Prefer the full-
+    // dollar table line; fall back to the "$104.1MM"/"million" prose form.
+    // NOT "Return of Equity" (cash OUT to the sponsor).
+    sponsorEquity:
+      dollars(/(?:Sponsor|Borrower|New)\s+Equity(?:\s+Contribution)?\s*\(?\d*\)?\s+\$([\d,]+)/i) ??
+      millions(/\$([\d.]+)\s*(?:MM|million)\s+(?:new\s+)?(?:sponsor|borrower|new)\s+equity/i) ??
+      millions(/(?:new\s+)?(?:sponsor|borrower|new)\s+equity\s+(?:contribution\s+)?of\s+\$([\d.]+)\s*(?:MM|million)/i),
     purchasePrice:        dollars(/Purchase Price\s+\$([\d,]+)/i),
     totalCostBasis:       millions(/total cost basis of \$([\d.]+)\s*million/i),
     // Final-ASR DISTINCT use-lines (6 uses; the binding layer compresses to the
@@ -262,8 +282,12 @@ export function parseAsrAiResponse(responseText: string | unknown): ASRExtractio
   const impliedCapRate = asCapRate(r.impliedCapRate);
   const underwrittenNOI = asMoney(r.underwrittenNOI);
   const priorDebtPayoff = asMoney(r.priorDebtPayoff);
+  const sponsorEquity = asMoney(r.sponsorEquity);
 
-  if (impliedValue === null && impliedCapRate === null && underwrittenNOI === null && priorDebtPayoff === null) {
+  if (
+    impliedValue === null && impliedCapRate === null && underwrittenNOI === null &&
+    priorDebtPayoff === null && sponsorEquity === null
+  ) {
     return null;
   }
 
@@ -272,6 +296,7 @@ export function parseAsrAiResponse(responseText: string | unknown): ASRExtractio
     impliedCapRate,
     underwrittenNOI,
     priorDebtPayoff,
+    sponsorEquity,
   };
 }
 
@@ -318,11 +343,16 @@ export async function extractASR(document: ParsedDocument): Promise<ASRExtractio
 
   if (llm === null && sourcesAndUses === null && environmentalSummary === null && marketRent === null && underwrittenCashFlows === null) return null;
   const base: ASRExtraction = llm ?? {
-    impliedValue: null, impliedCapRate: null, underwrittenNOI: null, priorDebtPayoff: null,
+    impliedValue: null, impliedCapRate: null, underwrittenNOI: null,
+    priorDebtPayoff: null, sponsorEquity: null,
   };
   return {
     ...base,
     priorDebtPayoff: sourcesAndUses?.loanPayoff ?? base.priorDebtPayoff,
+    // Prefer the deterministic S&U parse for the gate-critical sponsor-equity
+    // figure (table line or "$104.1MM" prose) over the LLM free-text read —
+    // exactly as priorDebtPayoff prefers sourcesAndUses.loanPayoff.
+    sponsorEquity: sourcesAndUses?.sponsorEquity ?? base.sponsorEquity,
     sourcesAndUses,
     environmentalSummary,
     marketRent,

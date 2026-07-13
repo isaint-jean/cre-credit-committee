@@ -182,6 +182,7 @@ export function buildPortfolioExtractionResult(args: {
       impliedCapRate: aggValue > 0 && aggNoi > 0 ? aggNoi / aggValue : null,
       underwrittenNOI: aggNoi,
       priorDebtPayoff: null,
+      sponsorEquity: null,
     },
     parties: null,
     loanTerms: {
