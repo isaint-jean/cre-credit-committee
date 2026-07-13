@@ -807,6 +807,20 @@ export interface LoanTermsExtraction {
   readonly interestOnlyPeriod: number | null;      // months
   readonly maturityDate: ISODateTime | null;
   /**
+   * Original loan TERM in months (e.g. a "5-year" loan → 60). OPTIONAL for
+   * back-compat: the deterministic MS regex path and legacy persisted records
+   * do NOT set this — they express term implicitly via `maturityDate`, and
+   * `buildTermMonths` derives months from `maturityDate − analysisAsOfDate`.
+   *
+   * The issuer-tolerant LLM fallback (`extract-asr-loan-terms-llm.ts`) sets
+   * this when the ASR states a loan TERM ("5-year" / "60-month") but does NOT
+   * state a maturity date and carries no origination anchor to derive one
+   * (e.g. 640 Fifth Ave's BMO ASR). In that case `maturityDate` stays null and
+   * `buildTermMonths` falls back to this explicit term so the engine no longer
+   * throws `JE_TERM_MONTHS_MISSING`. Null / absent = term not extractable.
+   */
+  readonly termMonths?: number | null;
+  /**
    * Provenance tag for the loan-terms record. Optional for back-compat —
    * legacy persisted records (and the caller-supplied / route-form-field
    * path) do not carry this field; line-item builders treat absent as

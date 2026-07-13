@@ -420,22 +420,34 @@ export function buildInterestRate(args: {
  * amortization. termMonths is the maturity duration. Architecture pre-supposes LoanTerms
  * supplies this. If LoanTerms is missing, throws.
  *
- * Note: `LoanTermsExtraction` doesn't have an explicit `termMonths` field today — the contract
- * has `amortization` (months), `interestOnlyPeriod` (months), and `maturityDate` (date).
- * `termMonths` is computed from `maturityDate - analysisAsOfDate` if present. This builder
- * returns the value or throws.
+ * `termMonths` is the maturity DURATION. Two honest sources, in precedence order:
+ *   1. `maturityDate − analysisAsOfDate` — the primary path. A stated maturity
+ *      date is the authoritative anchor (MS regex path; any source that carries
+ *      an explicit maturity date).
+ *   2. `LoanTermsExtraction.termMonths` — the explicit-term fallback. Set by the
+ *      issuer-tolerant LLM extractor when the ASR states a loan TERM ("5-year")
+ *      but no maturity date and no origination anchor to derive one (e.g. 640's
+ *      BMO ASR). Reading it directly clears `JE_TERM_MONTHS_MISSING` on the same
+ *      honest fact the ASR states.
+ * Absent both → throws `JE_TERM_MONTHS_MISSING` (fail-closed floor).
  */
 export function buildTermMonths(args: {
   readonly extraction: ExtractionResult;
   readonly analysisAsOfDate: string;
 }): AdjustedLineItem {
   const maturityDate = args.extraction.loanTerms?.maturityDate ?? null;
-  const raw = maturityDate !== null ? computeMonthsBetween(args.analysisAsOfDate, maturityDate) : null;
+  const fromMaturity = maturityDate !== null
+    ? computeMonthsBetween(args.analysisAsOfDate, maturityDate)
+    : null;
+  // Precedence: an explicit maturity date wins; else fall back to the extracted
+  // loan TERM (issuer-tolerant LLM path). Both express the same duration.
+  const explicitTerm = args.extraction.loanTerms?.termMonths ?? null;
+  const raw = fromMaturity ?? (explicitTerm !== null && explicitTerm > 0 ? explicitTerm : null);
 
   return requireRaw({
     raw,
     extractionSource: args.extraction.loanTerms?.source ?? 'BANK',
-    insufficientDataMessage: 'JE_TERM_MONTHS_MISSING: maturity date not provided in loan terms',
+    insufficientDataMessage: 'JE_TERM_MONTHS_MISSING: neither a maturity date nor a loan term was provided in loan terms',
   });
 }
 

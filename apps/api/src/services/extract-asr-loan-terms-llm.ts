@@ -10,6 +10,27 @@
  * deterministic path can't find the block (or can't find `loanAmount`), it reads
  * the WHOLE ASR text with the LLM and extracts structured loan terms.
  *
+ * ★ FULL LOAN-TERMS SET (P1 → this extension). P1 filled only the gating
+ * `loanAmount`. But clearing `JE_LOAN_AMOUNT_MISSING` only surfaced the NEXT
+ * fail-closed gate, `JE_TERM_MONTHS_MISSING` (`buildTermMonths` needs a term /
+ * maturity). This module now extracts ALL FIVE loan terms the engine reads:
+ * loanAmount (WHOLE), termMonths, maturityDate, coupon (interest rate), and
+ * amortization (+ interest-only). Each carries its own cite-or-discard quote and
+ * independently returns null when genuinely absent (null-not-fabricate).
+ *
+ * ★ TERM-vs-MATURITY (why termMonths exists). The 640 ASR states the loan TERM
+ * in prose ("a $400,000,000, 5-year, fixed rate, interest-only loan") but no
+ * maturity date and no origination/note date to derive one. So:
+ *   - We have the LLM cite the verbatim TERM PHRASE ("5-year"); WE normalize it
+ *     to months deterministically (the LLM never does the arithmetic silently —
+ *     it returns the phrase, we convert + verify the phrase is in the quote).
+ *   - If the ASR states an origination/note date AND a term, we derive
+ *     maturityDate = originationDate + termMonths.
+ *   - If neither a maturity date nor an origination anchor is present (640),
+ *     maturityDate stays null and `termMonths` flows through as the explicit
+ *     fallback `buildTermMonths` reads → `JE_TERM_MONTHS_MISSING` cleared on the
+ *     honest fact the ASR actually states.
+ *
  * COMPOSITION, not greenfield. This is the union of two already-proven patterns:
  *   - `extract-asr.ts` — full-doc read, `callAIWithContinuation` on CLAUDE_MODEL,
  *     STRICT-JSON-nulls discipline ("Missing fields must be null"), tolerant
@@ -56,7 +77,7 @@ import { env } from '../config/env.js';
 
 /** Bump when the prompt / schema / normalization changes — participates in the
  *  cache key so a version bump cleanly re-extracts (no stale reads). */
-export const ASR_LOAN_TERMS_LLM_VERSION = '1.0.0';
+export const ASR_LOAN_TERMS_LLM_VERSION = '2.0.0';
 
 /** Cap the LLM's view of the doc (matches extract-asr.ts's 80K slice — a safe
  *  ceiling; loan terms live in the first pages but we pass the whole doc so a
@@ -185,10 +206,20 @@ const SYSTEM_PROMPT = [
   'FIELDS:',
   '- coupon: the annual interest rate. Return as a decimal fraction (7.91% ->',
   '  0.0791) OR as the percent number (7.91) — either is fine, the caller',
-  '  normalizes. Null if the document does not state a numeric rate.',
+  '  normalizes. Null if the document does not state a numeric rate. A "fixed',
+  '  rate" label with NO number is null (the label is not a rate).',
   '- amortizationMonths: original amortization term in months. 0 for full-term',
   '  interest-only. Null if not stated.',
   '- interestOnlyMonths: interest-only period in months. Null if not stated.',
+  '- termPhrase: the VERBATIM loan-term phrase EXACTLY as written, e.g.',
+  '  "5-year", "60-month", "ten year". This is the loan TERM / tenor (time to',
+  '  maturity), NOT the amortization and NOT the interest-only period. Copy the',
+  '  words as-is; do NOT convert to a number yourself. Null if no term is stated.',
+  '- originationDate: the loan origination / note / closing date as MM/DD/YYYY,',
+  '  ONLY if the document explicitly states the loan\'s origination/note/closing',
+  '  date. Do NOT use an appraisal "effective" date, a lease date, or a report',
+  '  date — those are not the loan origination date. Null if not explicitly',
+  '  stated for the loan itself.',
   '- maturityDate: loan maturity as MM/DD/YYYY. Null if not stated.',
 ].join('\n');
 
@@ -201,6 +232,8 @@ function buildUserPrompt(text: string): string {
     '  "coupon":                { "value": <number|null>, "sourceQuote": <string|null> },',
     '  "amortizationMonths":    { "value": <number|null>, "sourceQuote": <string|null> },',
     '  "interestOnlyMonths":    { "value": <number|null>, "sourceQuote": <string|null> },',
+    '  "termPhrase":            { "value": <string|null>, "sourceQuote": <string|null> },',
+    '  "originationDate":       { "value": <string|null>, "sourceQuote": <string|null> },',
     '  "maturityDate":          { "value": <string|null>, "sourceQuote": <string|null> }',
     '}',
     '',
@@ -252,6 +285,69 @@ function toIso(v: unknown): ISODateTime | null {
   return `${year}-${mm}-${dd}T00:00:00.000Z` as ISODateTime;
 }
 
+/** Number words 0..20 (+ tens) for "ten year" / "twenty-year" style phrases. */
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+  fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  twenty: 20, thirty: 30, forty: 40,
+};
+
+/**
+ * ★ TERM-PHRASE → MONTHS (deterministic; the LLM never does the arithmetic).
+ * Parses the verbatim term phrase into a month count:
+ *   "5-year" / "5 year" / "5yr" / "five-year" / "ten year"  → years × 12
+ *   "60-month" / "60 mo" / "60mos"                           → months as-is
+ * Returns null when no year/month quantity can be read. This is the ONLY place
+ * that converts a term into months — keeps the arithmetic out of the model. */
+export function termPhraseToMonths(v: unknown): number | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim().toLowerCase();
+  if (s.length === 0) return null;
+
+  // Quantity (numeric or number-word) immediately preceding a year/month unit,
+  // tolerating parentheses / dashes / spaces between them. This handles both the
+  // clean prose form ("5-year", "60-month", "ten year") AND the ASR summary-
+  // table form ("Five (5) Year", "Five (5) YearTerm"). We allow up to a handful
+  // of non-alphanumeric separators (spaces, dashes, parens) between the quantity
+  // and the unit so "5) year" / "five (5) year" both resolve.
+  // The trailing `(?:term\b|\b)` also matches the PDF-flattened "YearTerm" form
+  // (where "Year Term:" collapsed to "YearTerm:") without matching "yearly".
+  const unitRe = /(\d+(?:\.\d+)?|[a-z]+)[\s)\-(.]{0,4}(years?|yrs?|yr|months?|mos?|mo)(?:term\b|\b)/g;
+  let m: RegExpExecArray | null;
+  while ((m = unitRe.exec(s)) !== null) {
+    const qtyRaw = m[1] ?? '';
+    const unit = m[2] ?? '';
+    let qty: number | null = null;
+    if (/^\d/.test(qtyRaw)) {
+      const n = Number(qtyRaw);
+      qty = Number.isFinite(n) ? n : null;
+    } else {
+      qty = NUMBER_WORDS[qtyRaw] ?? null;
+    }
+    if (qty === null || qty <= 0) continue;
+    if (/^y/.test(unit)) return Math.round(qty * 12);
+    return Math.round(qty); // months
+  }
+  return null;
+}
+
+/** Add whole months to an ISO date, returning a new ISO datetime (UTC). Used to
+ *  derive maturityDate = originationDate + termMonths when no maturity is
+ *  stated. Uses calendar-month arithmetic (clamps day overflow). */
+function addMonthsIso(baseIso: ISODateTime, months: number): ISODateTime | null {
+  const d = new Date(baseIso);
+  if (!Number.isFinite(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  const mo = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const target = new Date(Date.UTC(y, mo + months, 1));
+  // Clamp the day to the target month's length.
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return target.toISOString() as ISODateTime;
+}
+
 /* ----------------------------- cite-or-discard ----------------------------- */
 
 /** Normalize whitespace for the presence check (PDF extraction collapses /
@@ -288,6 +384,35 @@ function citeOrDiscard<T>(
   traces.push({ field, sourceQuote: quote, cited });
   if (!cited) return null; // fabricated / mis-cited → discard.
   return value;
+}
+
+/**
+ * ★ CITE-OR-DISCARD for the TERM PHRASE. Stricter than `citeOrDiscard`: the
+ * quote must (a) appear in the doc AND (b) itself contain the verbatim term
+ * phrase — so the term is pinned to the sentence that actually states it, not
+ * merely to some present-but-unrelated quote. Returns the NORMALIZED months
+ * (the arithmetic is done here, deterministically — never by the model).
+ */
+function citeTermPhrase(
+  field: string,
+  rawPhrase: unknown,
+  rawQuote: unknown,
+  normalizedDoc: string,
+  traces: LoanTermsFieldTrace[],
+): number | null {
+  const phrase = typeof rawPhrase === 'string' ? rawPhrase.trim() : '';
+  const months = termPhraseToMonths(phrase);
+  const quote = typeof rawQuote === 'string' ? rawQuote.trim() : '';
+  if (months === null || phrase.length === 0 || quote.length === 0) {
+    traces.push({ field, sourceQuote: quote.length > 0 ? quote : null, cited: false });
+    return null;
+  }
+  const quoteInDoc = normalizedDoc.includes(normalizeWs(quote));
+  const phraseInQuote = normalizeWs(quote).includes(normalizeWs(phrase));
+  const cited = quoteInDoc && phraseInQuote;
+  traces.push({ field, sourceQuote: quote, cited });
+  if (!cited) return null; // un-grounded or quote doesn't state the term → discard.
+  return months;
 }
 
 /* --------------------------------- parser ---------------------------------- */
@@ -329,6 +454,8 @@ export function parseLoanTermsLlmResponse(
   const coup = fieldOf(o, 'coupon');
   const amort = fieldOf(o, 'amortizationMonths');
   const io = fieldOf(o, 'interestOnlyMonths');
+  const term = fieldOf(o, 'termPhrase');
+  const orig = fieldOf(o, 'originationDate');
   const mat = fieldOf(o, 'maturityDate');
 
   // ★ WHOLE is the gating loanAmount. Cite-or-discard each field.
@@ -337,7 +464,15 @@ export function parseLoanTermsLlmResponse(
   const coupon = citeOrDiscard('coupon', coup.value, coup.sourceQuote, normalizedDoc, toFraction, traces);
   const amortization = citeOrDiscard('amortizationMonths', amort.value, amort.sourceQuote, normalizedDoc, toMonths, traces);
   const interestOnlyPeriod = citeOrDiscard('interestOnlyMonths', io.value, io.sourceQuote, normalizedDoc, toMonths, traces);
-  const maturityDate = citeOrDiscard('maturityDate', mat.value, mat.sourceQuote, normalizedDoc, toIso, traces);
+  const originationDate = citeOrDiscard('originationDate', orig.value, orig.sourceQuote, normalizedDoc, toIso, traces);
+  const maturityDateStated = citeOrDiscard('maturityDate', mat.value, mat.sourceQuote, normalizedDoc, toIso, traces);
+
+  // ★ termMonths — extra guard beyond cite-or-discard: the cited quote must
+  //   itself CONTAIN the verbatim term phrase (not just appear in the doc). This
+  //   pins the term to the actual sentence stating it and blocks a quote that is
+  //   present-but-unrelated. WE normalize the phrase to months (the LLM returns
+  //   the words; the arithmetic is deterministic here).
+  const termMonths = citeTermPhrase('termPhrase', term.value, term.sourceQuote, normalizedDoc, traces);
 
   // ★ Guard: never let the piece masquerade as the whole. If the whole is null
   // but a piece was cited, we do NOT promote it — the engine refuses on a null
@@ -357,8 +492,26 @@ export function parseLoanTermsLlmResponse(
     );
   }
 
+  // ★ MATURITY DATE — precedence:
+  //   1. an explicitly-stated (and cited) maturity date wins.
+  //   2. else, if BOTH an origination/note date AND a term were cited, DERIVE
+  //      maturityDate = originationDate + termMonths (analyst-standard).
+  //   3. else null — the term still reaches the engine via `termMonths`, and
+  //      `buildTermMonths` reads it directly (no fabricated date).
+  let maturityDate: ISODateTime | null = maturityDateStated;
+  if (maturityDate === null && originationDate !== null && termMonths !== null) {
+    const derived = addMonthsIso(originationDate, termMonths);
+    if (derived !== null) {
+      maturityDate = derived;
+      warnings.push(
+        `Loan-terms LLM: maturity date not stated — DERIVED as origination `
+        + `(${originationDate.slice(0, 10)}) + ${termMonths}mo term = ${derived.slice(0, 10)}.`,
+      );
+    }
+  }
+
   const allNull = loanAmount === null && coupon === null && amortization === null
-    && interestOnlyPeriod === null && maturityDate === null;
+    && interestOnlyPeriod === null && maturityDate === null && termMonths === null;
   if (allNull) {
     return { loanTerms: null, loanAmountTrustPiece, traces, warnings };
   }
@@ -369,6 +522,7 @@ export function parseLoanTermsLlmResponse(
       interestRate: coupon,
       amortization,
       interestOnlyPeriod,
+      termMonths,
       maturityDate,
       source: 'ASR',
     },
