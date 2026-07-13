@@ -177,6 +177,26 @@ export function bankNoiCascade(
   ) {
     cs.push({ tier: 'SELLER_UW', value: extraction.sellerUw.underwrittenNOI });
   }
+  // ★ ASR tier — LAST RESORT (2026-07-12, 640/Yardi remediation). When every
+  // operating-statement source is null (the deterministic CF parser AND its LLM
+  // fallback found nothing, and there is no seller-UW summary), the ASR's own
+  // stated UNDERWRITTEN NOI is the last cited income anchor available. Ranked
+  // DEAD LAST — below every actual/seller source — so it NEVER displaces a real
+  // operating statement: it only rescues the NOI ceiling on deals where the CF
+  // extraction produced nothing at all (the 640 pattern, where the spine would
+  // otherwise collapse onto a rent-roll-only stub with NO cap). The value is a
+  // cited disclosure (extract-asr's underwrittenNOI), so it stays honest; when
+  // absent the tier is inert and the cascade falls through to MANUAL/null
+  // exactly as before (no regression on Sunroad or any deal with a readable CF).
+  if (
+    extraction.t12Actual === null &&
+    extraction.inPlace === null &&
+    extraction.sellerUwOperatingStatement === null &&
+    extraction.sellerUw === null &&
+    extraction.asr !== null
+  ) {
+    cs.push({ tier: 'ASR', value: extraction.asr.underwrittenNOI });
+  }
   return cs;
 }
 

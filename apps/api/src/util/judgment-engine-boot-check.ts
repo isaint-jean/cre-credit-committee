@@ -24,7 +24,7 @@ import { computeContentHash } from './content-hash.js';
 // numeric living outside the rule registry / penalty maps is imported here so
 // a silent re-tune of any value moves the manifest hash and trips the boot
 // check, replacing the prior "manual bump" convention with an automatic gate.
-import { NOI_DIVERGENCE_THRESHOLD } from '../services/judgment/noi-divergence.js';
+import { NOI_DIVERGENCE_THRESHOLD, ASR_NOI_DIVERGENCE_RATIO } from '../services/judgment/noi-divergence.js';
 import {
   CAP_RATE_FLOOR,
   CAP_RATE_CEILING,
@@ -71,6 +71,7 @@ function buildJudgmentEngineHashSnapshot() {
     deskConstants: {
       // noi-divergence.ts
       NOI_DIVERGENCE_THRESHOLD,
+      ASR_NOI_DIVERGENCE_RATIO,
       // apply-cap-rate-stress.ts
       CAP_RATE_FLOOR,
       CAP_RATE_CEILING,

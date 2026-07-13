@@ -93,7 +93,7 @@ import {
 
 import { evaluateManifestoRule } from './manifesto-evaluator.js';
 import { applyNoiCap } from './noi-cap.js';
-import { checkNoiDivergence } from './noi-divergence.js';
+import { checkNoiDivergence, checkAsrNoiDivergence } from './noi-divergence.js';
 import {
   computeConfidenceReduction,
   type PenaltyEntry,
@@ -487,6 +487,27 @@ export function applyJudgmentAdjustments(args: ApplyJudgmentAdjustmentsArgs): Ad
       ruleId: 'JE_NOI_BELOW_TRAILING_ACTUAL',
       delta: finalNoi - ref,
       reason: `concluded NOI ${Math.round(finalNoi).toLocaleString('en-US')} is ${(divergence.shortfallPct * 100).toFixed(1)}% below trailing-12 actual ${Math.round(ref).toLocaleString('en-US')}`,
+    });
+  }
+
+  // ★ ASR-NOI cross-check (2026-07-12 — 640/Yardi remediation P2 seed). The ASR
+  // discloses the issuer's own underwritten NOI; when the concluded NOI diverges
+  // from it by ≥ 2× in EITHER direction, that is a structural gap no legitimate
+  // conservatism explains — the arithmetic that would have caught the 640 stub
+  // ($8.3M concluded vs $56.2M ASR-disclosed = 6.8×). Review signal, not a halt:
+  // the conclusion stands (delta 0), but the contradiction is surfaced so a stub
+  // NOI cannot be silently published against an ASR that says otherwise.
+  const asrDivergence = checkAsrNoiDivergence({
+    derivedNoi: finalNoi,
+    asrDisclosedNoi: extraction.asr?.underwrittenNOI ?? null,
+  });
+  if (asrDivergence !== null && asrDivergence.flagged) {
+    const asrNoi = extraction.asr!.underwrittenNOI!;
+    const dir = asrDivergence.concludedBelow ? 'below' : 'above';
+    noiCapAdjustments.push({
+      ruleId: 'JE_NOI_DIVERGES_FROM_ASR',
+      delta: 0, // review signal only — the concluded NOI stands.
+      reason: `concluded NOI ${Math.round(finalNoi).toLocaleString('en-US')} is ${asrDivergence.ratio.toFixed(1)}× ${dir} the ASR's disclosed underwritten NOI ${Math.round(asrNoi).toLocaleString('en-US')} — verify income extraction (possible operating-statement read failure).`,
     });
   }
 

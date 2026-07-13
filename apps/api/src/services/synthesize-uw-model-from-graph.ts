@@ -67,6 +67,10 @@ import type { RecordGraphStore } from '../storage/record-graph-store.js';
 const _TOP_LEVEL_INFO_RULE_IDS: ReadonlySet<string> = new Set([
   'JE_NOI_BELOW_TRAILING_ACTUAL',
   'JE_PERIOD_LABEL_MISMATCH',
+  // ASR-NOI cross-check (2026-07-12) — a review signal (delta 0) that the
+  // concluded NOI diverges ≥2× from the ASR's disclosed underwritten NOI.
+  // Non-load-bearing: the conclusion stands, only the contradiction surfaces.
+  'JE_NOI_DIVERGES_FROM_ASR',
 ]);
 
 /**

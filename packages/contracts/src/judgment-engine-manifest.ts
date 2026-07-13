@@ -136,4 +136,15 @@ export const JUDGMENT_ENGINE_MANIFEST: JudgmentEngineManifest = {
   // The version bump anchors the AdjustedInputs body grow (NoiDivergenceFacts field
   // added to AdjustedMetrics) and the documented AnalysisId cascade (5th in series).
   '1.11': 'd0950410bd1fc7027d1fd910771f3be7368818824cdf429ed42fb57eb810d081' as ContentHash,
+  // ASR-NOI cross-check + income LLM-fallback remediation (2026-07-12, 640/Yardi).
+  // One new rule literal (JE_NOI_DIVERGES_FROM_ASR — a review signal, delta 0,
+  // fires when the concluded NOI diverges ≥2× from the ASR's disclosed underwritten
+  // NOI) AND one new desk constant (ASR_NOI_DIVERGENCE_RATIO = 2.0, noi-divergence.ts,
+  // folded into the hashed deskConstants). Both move the snapshot hash: the rule
+  // registry change (rules ∈ snapshot) and the new deskConstant. Also (not hashed):
+  // bankNoiCascade gains an ASR last-resort tier (extraction.asr.underwrittenNOI,
+  // ranked dead-last, inert unless every operating-statement source is null) and the
+  // CF adapter (v0.3.0) gains an LLM-primary operating-statement fallback for
+  // Yardi/MRI GL exports the deterministic parser can't read. No penalty-map entry.
+  '1.12': '4fc33733e8882f276049e0272c7405e7ca802ce3aa00b3176b5e5af2f2e8f34b' as ContentHash,
 };

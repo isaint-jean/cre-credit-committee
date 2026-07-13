@@ -131,6 +131,14 @@ export const JudgmentEngineRules = {
   // ONLY — inPlace and sellerUw are seller projections that would dilute the signal.
   // No penalty-map entry — informational review signal, conclusion stands.
   JE_NOI_BELOW_TRAILING_ACTUAL:                     'JE_NOI_BELOW_TRAILING_ACTUAL',
+  // 2026-07-12 (640/Yardi income remediation) — ASR-NOI cross-check. Fires when
+  // the ASR's disclosed underwritten NOI (extraction.asr.underwrittenNOI) is
+  // present AND the concluded NOI diverges from it by ≥ 2× in EITHER direction.
+  // The arithmetic that would have caught the 640 stub ($8.3M concluded vs
+  // $56.2M ASR-disclosed = 6.8×). Pushed to topLevelAdjustments with delta = 0
+  // (review signal, conclusion stands). Threshold in noi-divergence.ts
+  // (ASR_NOI_DIVERGENCE_RATIO). No penalty-map entry — informational.
+  JE_NOI_DIVERGES_FROM_ASR:                         'JE_NOI_DIVERGES_FROM_ASR',
   JE_RENT_GROWTH_DEFAULTED:                         'JE_RENT_GROWTH_DEFAULTED',
   JE_EXPENSE_GROWTH_DEFAULTED:                      'JE_EXPENSE_GROWTH_DEFAULTED',
   JE_MONTHLY_CAPEX_DEFAULTED:                       'JE_MONTHLY_CAPEX_DEFAULTED',
