@@ -64,6 +64,11 @@ import {
   extractAsrLoanTermsLlm,
   type ExtractAsrLoanTermsLlmDeps,
 } from '../../extract-asr-loan-terms-llm.js';
+import {
+  extractRentRollFromDocumentLlm,
+  type ExtractRentRollLlmDeps,
+  type RentRollCompleteness,
+} from '../../extract-rent-roll-from-document-llm.js';
 import { parsePartiesFromAsrText } from '../../extract-parties-from-asr.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 import { projectToRentRollExtraction } from './rent-roll.adapter.js';
@@ -86,8 +91,17 @@ import { projectToRentRollExtraction } from './rent-roll.adapter.js';
  *            text → structured loan terms, gating on the WHOLE loan (piece is a
  *            separate labeled field). Fixes non-MS ASRs (e.g. 640/BMO) that
  *            broke the single-anchor regex. Sunroad still resolves via the free
- *            regex path (no LLM). Bumped to cache-bust a re-extract. */
-export const ASR_ADAPTER_VERSION = '0.5.0';
+ *            regex path (no LLM). Bumped to cache-bust a re-extract.
+ *    0.6.0 — DE-ANCHORED rent roll + COMPLETENESS GUARD. When the best-effort
+ *            document rent-roll read under-reads (null OR a roll whose Σ rents
+ *            can't be PROVEN complete), an LLM-primary FALLBACK
+ *            (extractRentRollFromDocumentLlm) reads ALL tenants over the whole
+ *            doc, then a completeness guard reconciles Σ rents to the roll's own
+ *            stated total. Only a RECONCILED roll is emitted as the fallback;
+ *            an UNRECONCILED (partial) roll is dropped to null so income-
+ *            concentration + rollover stay EXCLUDED (never scored on a partial
+ *            roll). Fixes 640/Vornado ANNUALREP under-read. Bumped to cache-bust. */
+export const ASR_ADAPTER_VERSION = '0.6.0';
 
 /**
  * One outcome value covers three ExtractionResult-relevant fields PLUS one
@@ -110,6 +124,15 @@ export interface AsrAdapterValue {
   readonly propertyMetadata: PropertyMetadata | null;
   readonly rentRollFallback: RentRollExtraction | null;
   readonly rentRollFallbackTyped: RentRoll | null;
+  /** ★ Completeness verdict for the LLM-primary rent-roll fallback, when it ran.
+   *  null when the LLM fallback did not fire (deterministic read sufficed, or no
+   *  rent-roll data at all). When present with reconciled=false, the fallback's
+   *  roll was DROPPED (rentRollFallback null) — a partial roll is never emitted,
+   *  keeping concentration / rollover excluded. Observability / audit only.
+   *  Optional so pre-existing test fixtures that build AsrAdapterValue literals
+   *  don't need updating; production always sets it (null when the LLM fallback
+   *  did not fire). */
+  readonly rentRollCompleteness?: RentRollCompleteness | null;
   /** Counterparty identity (borrower / sponsor / guarantor) from the ASR.
    *  Null when the regex matched neither name — same "absent" semantic as
    *  propertyMetadata-null (sub-extractor returned no usable data). */
@@ -169,6 +192,13 @@ export interface AsrAdapterDeps {
    *  live call. Undefined ⇒ the extractor's own defaults (real call, env gate,
    *  no cache). */
   readonly loanTermsLlm?: ExtractAsrLoanTermsLlmDeps;
+  /** ★ LLM-primary rent-roll FALLBACK deps. The de-anchor path (deterministic
+   *  doc read under-reads → LLM reads all tenants + completeness guard) passes
+   *  these through to extractRentRollFromDocumentLlm. Production uses live Sonnet
+   *  + the env credit gate; tests inject a stub LLM seam + in-memory cache to
+   *  exercise the logic deterministically. Undefined ⇒ the extractor's own
+   *  defaults (real call, env gate, no cache). */
+  readonly rentRollLlm?: ExtractRentRollLlmDeps;
 }
 
 export const DEFAULT_ASR_DEPS: AsrAdapterDeps = {
@@ -299,9 +329,52 @@ export async function runAsrAdapterOnDocument(
 
   // Project rent-roll legacy → spine shape (reuses rent-roll.adapter.ts's
   // documented lossy projection — same field mapping, same caveats).
-  const rentRollFallback = rentRollLegacy === null
+  let rentRollFallback = rentRollLegacy === null
     ? null
     : projectToRentRollExtraction(rentRollLegacy);
+  let rentRollTyped: RentRoll | null = rentRollLegacy;
+  let rentRollCompleteness: RentRollCompleteness | null = null;
+
+  // v0.6.0 — DE-ANCHOR the rent roll + COMPLETENESS GUARD. The best-effort
+  // document rent-roll read (deps.extractRentRoll) UNDER-READS a dense,
+  // non-standard roll (640's Vornado ANNUALREP: a tenant spans a multi-line
+  // block terminated by "TENANT TOTAL:"). An under-read roll silently mis-prices
+  // tenant concentration + drops rollover from applicability. We fire the
+  // LLM-primary reader over the WHOLE doc, then RECONCILE Σ tenant rents to the
+  // roll's own stated total to PROVE completeness (rows-dropped is invisible
+  // without the arithmetic). Decision:
+  //   - LLM reconciles (proven complete) → use the LLM roll (replaces under-read).
+  //   - LLM does NOT reconcile → DROP the rent roll to null. We do NOT trust the
+  //     deterministic under-read either (it's unproven), so concentration /
+  //     rollover stay EXCLUDED — the honest floor, never scoring a partial roll.
+  //   - LLM did not fire (no credits, empty doc) → keep the deterministic result
+  //     (today's behavior; free path preserved).
+  // Only run when the ASR doc actually carries a rent-roll signal (a "TENANT
+  // TOTAL" / "RENT ROLL" marker), so a plain ASR with no roll never pays for a
+  // call. Sunroad's roll comes via the dedicated rent_roll_file slot (a separate
+  // adapter), so this ASR-side path does not disturb it.
+  const docHasRentRollSignal =
+    /rent\s*roll|tenant\s*total|annualized\s+tenant/i.test(doc.rawText);
+  if (docHasRentRollSignal) {
+    const rrLlm = await extractRentRollFromDocumentLlm(
+      doc.rawText, bufferHash, 'asr_table', deps.rentRollLlm,
+    );
+    if (rrLlm.llmCalled || rrLlm.fromCache) {
+      rentRollCompleteness = rrLlm.completeness;
+      if (rrLlm.rentRoll !== null && rrLlm.completeness.reconciled) {
+        // Proven-complete roll wins — replaces the under-read.
+        rentRollTyped = rrLlm.rentRoll;
+        rentRollFallback = projectToRentRollExtraction(rrLlm.rentRoll);
+      } else if (rrLlm.rentRoll !== null && !rrLlm.completeness.reconciled) {
+        // Read something, but could NOT prove it complete → EXCLUDE the roll.
+        // Dropping to null makes deriveTopTenantShare / deriveRolloverShare
+        // return null downstream → dims route to HITL/N-A (never scored partial).
+        rentRollTyped = null;
+        rentRollFallback = null;
+      }
+      // rrLlm.rentRoll === null (no citeable tenants) → keep deterministic result.
+    }
+  }
 
   // 'failed' if all three sub-extractors rejected. Reachable as of v0.2.0
   // (Ticket I #6): extractASR is now an AI call that can throw on
@@ -393,7 +466,11 @@ export async function runAsrAdapterOnDocument(
       rentRollFallback,
       // Phase 1 (rent-roll-node): carry the typed RentRoll alongside the lossy
       // projection. Non-null whenever rentRollFallback is non-null (same source).
-      rentRollFallbackTyped: rentRollLegacy,
+      // v0.6.0: this is the RECONCILED-LLM roll when the completeness guard won,
+      // the deterministic roll otherwise, or null when an unreconciled roll was
+      // dropped — kept in lockstep with rentRollFallback above.
+      rentRollFallbackTyped: rentRollTyped,
+      rentRollCompleteness,
       parties,
       loanTerms,
       loanTermsWarnings,
