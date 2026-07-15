@@ -435,7 +435,17 @@ export class SqliteStore {
       legacy_status: string | null;
       created_at: string;
     }>;
-    if (exact.length > 0) {
+    // ★ Only SHORT-CIRCUIT when Pass 1 actually BRIDGED to a legacy analysis. The
+    // LEFT JOIN binds `analyses.graph_revision_id = rle.revision_id` (a specific
+    // envelope revision) — but a deal's legacy row points its graph_revision_id
+    // at the CURRENT head, which need not equal the per-envelope revision_id the
+    // extraction chain surfaces first. So Pass 1 can return extraction rows with a
+    // NULL legacy_id even though a legacy analysis exists (this stranded 640 at
+    // analyzed:false → a false "partial documents"). When no row bridged, fall
+    // THROUGH to Pass 2's normalized-name rescue rather than returning the
+    // graph-only rows early. Pass 1 still wins whenever it found the legacy link.
+    const exactBridged = exact.filter((r) => r.legacy_id !== null);
+    if (exactBridged.length > 0) {
       return exact.map((r) => ({
         legacyId: r.legacy_id,
         graphId: r.graph_id,
@@ -443,6 +453,17 @@ export class SqliteStore {
         createdAt: r.created_at,
       }));
     }
+    // Pass-1 found extraction rows but none bridged to a legacy analysis. Keep
+    // them as a FALLBACK: a genuine pure-graph deal (no legacy row to name-match)
+    // must still resolve to its graphId, not "". Pass 2 only OVERRIDES this when
+    // it positively matches a legacy analysis by normalized name.
+    const pass1GraphOnly = (): Array<{ legacyId: string | null; graphId: string; status: string | null; createdAt: string }> =>
+      exact.map((r) => ({
+        legacyId: r.legacy_id,
+        graphId: r.graph_id,
+        status: r.legacy_status,
+        createdAt: r.created_at,
+      }));
 
     // PASS 2 — pool-mediated normalized-property-name fallback (DEAL END-TO-END
     // Slice 1). Bridges the pool/engine identity gap: a pool LoanInPool's
@@ -457,7 +478,10 @@ export class SqliteStore {
     // normalized strings.
     //
     // Honesty constraints:
-    //   - Only consulted when Pass 1 returned zero — Pass 1 behavior is untouched.
+    //   - Consulted when Pass 1 found no BRIDGED legacy analysis (zero rows, OR
+    //     rows whose LEFT JOIN to analyses was null). Pass 1's bridged result
+    //     still wins; this only rescues the unbridged case + falls back to the
+    //     graph-only rows when it can't positively name-match.
     //   - Pool table must have a row for the incoming dealRef; else found:false.
     //     (We do not normalize arbitrary inputs as property names — that would
     //     turn dealRefs unrelated to any pool loan into false-positive matches.)
@@ -470,10 +494,10 @@ export class SqliteStore {
       WHERE deal_ref = ?
       LIMIT 1
     `).get(dealRef) as { originator_loan_ref: string | null } | undefined;
-    if (!poolRow || !poolRow.originator_loan_ref) return [];
+    if (!poolRow || !poolRow.originator_loan_ref) return pass1GraphOnly();
 
     const targetKey = normalizePropertyName(poolRow.originator_loan_ref);
-    if (targetKey === null) return [];
+    if (targetKey === null) return pass1GraphOnly();
 
     // Walk every analysis that's linked to a graph revision. N is small in
     // practice (one analysis per loan ever underwritten); pulling candidates
@@ -503,6 +527,7 @@ export class SqliteStore {
     const matches = candidates.filter((c) =>
       normalizeAnalysisNameForMatch(c.legacy_name) === targetKey
     );
+    if (matches.length === 0) return pass1GraphOnly();
     return matches.map((r) => ({
       legacyId: r.legacy_id,
       graphId: r.graph_id,
