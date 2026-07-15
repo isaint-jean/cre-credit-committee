@@ -23,7 +23,7 @@ import type {
   IntakeFieldResult,
 } from './intake-completeness.service.js';
 import { summarizeIntakeFields } from './intake-completeness.service.js';
-import { listPoolDocs } from './data-room-store.service.js';
+import { listPoolDocs, listHeldDocs } from './data-room-store.service.js';
 import {
   gatherDealDocTexts,
   sourceOneField,
@@ -94,10 +94,14 @@ export async function augmentIntakeCompletenessWithSourcing(
   );
   if (targets.length === 0) return base;
 
-  // docSetHash from the MANIFEST (no parse) → cheap cache peek.
-  const entries = listPoolDocs(poolId).filter((d) => d.loanInPoolId === loanInPoolId);
-  if (entries.length === 0) return base; // no docs to search → base stands
-  const fileHashes = entries.map((e) => e.fileHash);
+  // docSetHash from the MANIFEST (no parse) → cheap cache peek. Must include the
+  // SAME set gatherDealDocTexts searches — ROUTED + HELD docs (FIX 3) — so adding
+  // a held doc busts the cache and it gets searched (else a new held file would
+  // be silently missed behind a stale cache).
+  const routedHashes = listPoolDocs(poolId).filter((d) => d.loanInPoolId === loanInPoolId).map((d) => d.fileHash);
+  const heldHashes = listHeldDocs(poolId).filter((h) => h.hintLoanInPoolId === loanInPoolId).map((h) => h.fileHash);
+  const fileHashes = [...routedHashes, ...heldHashes];
+  if (fileHashes.length === 0) return base; // no docs to search → base stands
   const dsh = docSetHashFromFileHashes(fileHashes);
 
   // Peek the cache; only gather+parse if something is uncached.
