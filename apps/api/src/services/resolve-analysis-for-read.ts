@@ -78,25 +78,38 @@ export function resolveAnalysisForRead(
     return null;
   }
 
-  // Recover the bridged legacy row (name + read-time overlays). The legacy
-  // row's graph_revision_id points at the lineage HEAD revision, which IS the
-  // latest envelope's revisionId.
+  // ★ CANONICAL RESOLUTION (fires for EVERY graph read) — resolve to the deal's
+  // CANONICAL scored analysis so the deal page and pool coverage always agree on
+  // which copy of a deal is authoritative. A deal_ref can carry more than one
+  // chain (640: the original 26027996/8c454c15 [60.24, has LTV] AND a duplicate
+  // 82fe3bf7 minted on the c9de8c37 chain by the 2026-07-15 agent-incident). The
+  // UI navigating to the duplicate showed no verdict/LTV + the wrong
+  // completeness. getCanonicalScoredAnalysisId picks the ORIGINAL (earliest
+  // analysis) — the SAME rule pool coverage now uses — so both surfaces converge.
+  const rootMeta = store.getRootRefAndName(id);
+  if (rootMeta?.dealRef) {
+    const canonicalId = store.getCanonicalScoredAnalysisId(rootMeta.dealRef);
+    if (canonicalId !== null) {
+      const canonical = store.getLatestRevisionInLineage(canonicalId);
+      if (canonical !== null) return canonical; // the canonical scored deal
+    }
+  }
+
+  // No canonical scored analysis for this deal_ref → recover THIS chain's own
+  // bridged legacy row (name + read-time overlays). Its graph_revision_id points
+  // at the lineage HEAD, which IS the latest envelope's revisionId.
   const legacy = store.getAnalysisByGraphRevisionId(envelope.revisionId);
   if (legacy !== null) {
-    // Defensive: ensure the graph link is the HEAD revision so the memo's
-    // envelope walk + resolveNoiBasis resolve the latest chain even if the
-    // stored value ever drifts.
     return legacy.graphRevisionId === envelope.revisionId
       ? legacy
       : { ...legacy, graphRevisionId: envelope.revisionId };
   }
 
-  // Pure-graph deal — no legacy analyses row. Synthesize the minimal Analysis
-  // the no-LLM memo reconstruction needs: graphRevisionId (HEAD) + name. All
-  // memo substrate is read from the graph spine via graphRevisionId; overlays
-  // (appraisalExtraction) are honestly absent for a deal that never had a
-  // legacy row.
-  const rootMeta = store.getRootRefAndName(id);
+  // Genuine pure-graph deal — no legacy row anywhere for this deal_ref.
+  // Synthesize the minimal Analysis the no-LLM memo reconstruction needs:
+  // graphRevisionId (HEAD) + name. All memo substrate is read from the graph
+  // spine via graphRevisionId; overlays (appraisalExtraction) are honestly
+  // absent for a deal that never had a legacy row.
   return synthesizePureGraphAnalysis({
     id,
     name: rootMeta?.name ?? id,

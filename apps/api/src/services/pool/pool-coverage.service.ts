@@ -102,7 +102,7 @@ export interface LoanCoverage {
 /* -------------------------------------------------------------------------- */
 
 export interface PoolCoverageStores {
-  readonly sqliteStore: Pick<SqliteStore, 'lookupAnalysisByDealRef' | 'getAnalysis'>;
+  readonly sqliteStore: Pick<SqliteStore, 'lookupAnalysisByDealRef' | 'getAnalysis' | 'getCanonicalScoredAnalysisId'>;
   readonly recordGraphStore: RecordGraphStore;
   /** Data-room doc presence for the un-analyzed fallback path. */
   readonly listPoolDocs: typeof listPoolDocs;
@@ -282,10 +282,11 @@ export function computeLoanCoverage(input: {
 }): LoanCoverage {
   const s = stores();
 
-  // Resolve the loan's analysis root (latest-wins) — the SAME lookup MembershipTable
-  // / resolveLoanForRoot / deriveClearedForDealRef run per row.
-  const matches = s.sqliteStore.lookupAnalysisByDealRef(input.dealRef);
-  const legacyId = matches.find((m) => m.legacyId !== null)?.legacyId ?? null;
+  // Resolve the loan's CANONICAL scored analysis — the SAME rule the deal page
+  // (resolveAnalysisForRead) uses, so coverage and the deal page never disagree on
+  // which copy of a deal is canonical (640 has a duplicate `82fe3bf7` from the
+  // agent-incident; the earliest/original `26027996` is canonical).
+  const legacyId = s.sqliteStore.getCanonicalScoredAnalysisId(input.dealRef);
 
   if (legacyId !== null) {
     const fromLedger = coverageFromLedger(legacyId);

@@ -537,6 +537,60 @@ export class SqliteStore {
   }
 
   /**
+   * ★ The CANONICAL scored analysis id for a deal_ref — the EARLIEST-created
+   * legacy analysis among the deal's chains. A deal_ref can accrue duplicate
+   * chains (a stray early drop; or a duplicate analysis minted by an errant
+   * re-underwrite — 640 gained `82fe3bf7` on the `c9de8c37` chain from the
+   * 2026-07-15 agent-fired-underwrite incident). The ORIGINAL analysis is the
+   * deal's canonical identity; later SEPARATE-lineage analyses are artifacts (a
+   * genuine re-underwrite APPENDS to the same analysis, it does not fork a new
+   * legacy row). ★ BOTH the deal-page read (resolveAnalysisForRead) and pool
+   * coverage resolve through THIS so the two surfaces can never disagree on which
+   * copy of a deal is canonical. Returns null when no scored analysis exists.
+   */
+  getCanonicalScoredAnalysisId(dealRef: string): string | null {
+    // Gather EVERY graph-backed copy of the deal, robust to a deal_ref split
+    // across chains: (a) exact-deal_ref bridged analyses, PLUS (b) analyses whose
+    // NORMALIZED property-name matches the deal (640 gained a duplicate whose
+    // extraction deal_ref differs — '640 5th avenue' vs the pool's
+    // 'bmark2024v8-640-5th-avenue' — but both share the name). Canonical = the
+    // EARLIEST-created ANALYSIS (the original; a genuine re-underwrite APPENDS to
+    // it, so a later separate row is a duplicate/artifact).
+    const candidates = new Map<string, string>(); // legacyId → analysis.created_at
+    const add = (id: string): void => {
+      const r = this.db
+        .prepare('SELECT created_at FROM analyses WHERE id = ? AND graph_revision_id IS NOT NULL')
+        .get(id) as { created_at: string } | undefined;
+      if (r) candidates.set(id, r.created_at);
+    };
+    for (const m of this.lookupAnalysisByDealRef(dealRef)) if (m.legacyId) add(m.legacyId);
+
+    const poolRow = this.db
+      .prepare('SELECT originator_loan_ref FROM loan_in_pool WHERE deal_ref = ? LIMIT 1')
+      .get(dealRef) as { originator_loan_ref: string | null } | undefined;
+    // Name-key: prefer the pool's normalized property name; else derive it from a
+    // candidate analysis's name (so the artifact's OWN deal_ref, which has no pool
+    // row, still finds the whole name-family and picks the original).
+    let targetKey = poolRow?.originator_loan_ref ? normalizePropertyName(poolRow.originator_loan_ref) : null;
+    if (targetKey === null && candidates.size > 0) {
+      const anyId = [...candidates.keys()][0]!;
+      const nm = this.db.prepare('SELECT name FROM analyses WHERE id = ?').get(anyId) as { name: string } | undefined;
+      if (nm?.name) targetKey = normalizeAnalysisNameForMatch(nm.name);
+    }
+    if (targetKey !== null) {
+      const all = this.db
+        .prepare('SELECT id, name, created_at FROM analyses WHERE graph_revision_id IS NOT NULL')
+        .all() as Array<{ id: string; name: string; created_at: string }>;
+      for (const c of all) {
+        if (normalizeAnalysisNameForMatch(c.name) === targetKey) candidates.set(c.id, c.created_at);
+      }
+    }
+
+    const sorted = [...candidates.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    return sorted[0]?.[0] ?? null; // earliest analysis = original = canonical
+  }
+
+  /**
    * Phase A (forward root→loan resolver) — FORWARD counterpart of
    * `lookupAnalysisByDealRef`. Given a graph ROOT (`lineage_root_id`, 64-hex),
    * return that root's extraction `deal_ref` and its human `analyses.name`.
