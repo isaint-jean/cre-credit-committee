@@ -36,7 +36,7 @@ import { createHash } from 'node:crypto';
 import { callAIWithContinuation, extractJSON } from './ai-analysis.service.js';
 import { CLAUDE_MODEL } from '../config/llm-model.js';
 import { env } from '../config/env.js';
-import { listPoolDocs } from './data-room-store.service.js';
+import { listPoolDocs, listHeldDocs } from './data-room-store.service.js';
 import { blobStore } from '../storage/blob-store.js';
 import type { ContentHash } from '@cre/contracts';
 import { parseDocument } from './document-parser.service.js';
@@ -77,14 +77,25 @@ export interface FieldQuery {
   readonly preferDocTypes: readonly string[];
 }
 
+/**
+ * ★ THREE outcomes — the trust distinction:
+ *   'found'       the search located the fact (cited).
+ *   'absent'      the search RAN and the fact is in NO document → an EARNED blank.
+ *   'unavailable' the search COULD NOT run (no credits / LLM error / no doc text)
+ *                 → "we don't know yet" — NEVER a confirmed missing. Not cached,
+ *                 so it retries once the search is available again.
+ */
+export type SourcingStatus = 'found' | 'absent' | 'unavailable';
+
 export interface FieldSourcingResult {
   readonly id: string;
   readonly found: boolean;
   readonly value: string | null;
   readonly sourceQuote: string | null;
   readonly docName: string | null;
-  /** true only when a live LLM call was made this invocation (false on cache hit
-   *  / no-credits skip / fail-safe). */
+  readonly status: SourcingStatus;
+  /** true only when a live LLM call COMPLETED this invocation (false on cache
+   *  hit / no-credits skip / error). */
   readonly searched: boolean;
 }
 
@@ -137,17 +148,30 @@ export function exhaustiveSourcingCreditsAvailable(): boolean {
 /* ----------------------------- doc gathering ------------------------------ */
 
 /**
- * Gather + parse the text of EVERY document routed to a pool loan (the deal's
- * whole doc set — extracted or not). Best-effort per doc: a parse failure drops
- * that one doc (logged) rather than failing the pass.
+ * Gather + parse the text of EVERY document ON the deal — ROUTED docs AND HELD
+ * (un-routed) docs hinted to this loan. ★ Doctrine: "search every document I gave
+ * it" includes files still in the held tray (a file Isabelle dropped is a file
+ * she gave it, routed or not — e.g. occupancy files with no doc-type to route to).
+ * Best-effort per doc: a parse failure drops that one doc (logged), never fails
+ * the pass.
  */
 export async function gatherDealDocTexts(
   poolId: string,
   loanInPoolId: string,
 ): Promise<DealDocText[]> {
-  const entries = listPoolDocs(poolId).filter((d) => d.loanInPoolId === loanInPoolId);
+  // Routed docs (by loan) + HELD docs hinted to this loan. Same shape, one set.
+  const routed = listPoolDocs(poolId)
+    .filter((d) => d.loanInPoolId === loanInPoolId)
+    .map((d) => ({ docType: d.docType, fileName: d.fileName, fileHash: d.fileHash, mimeType: d.mimeType }));
+  const held = listHeldDocs(poolId)
+    .filter((h) => h.hintLoanInPoolId === loanInPoolId)
+    .map((h) => ({ docType: h.hintDocType ?? 'held', fileName: h.fileName, fileHash: h.fileHash, mimeType: h.mimeType }));
+
   const out: DealDocText[] = [];
-  for (const e of entries) {
+  const seen = new Set<string>();
+  for (const e of [...routed, ...held]) {
+    if (seen.has(e.fileHash)) continue; // a held file already routed → count once
+    seen.add(e.fileHash);
     try {
       const bytes = await blobStore.getBlob(e.fileHash as ContentHash);
       if (bytes === null) continue; // blob missing → skip this doc (best-effort)
@@ -253,14 +277,20 @@ function buildUserPrompt(query: FieldQuery, bundle: string): string {
   ].join('\n');
 }
 
-const NOT_FOUND = (id: string, searched: boolean): FieldSourcingResult => ({
-  id, found: false, value: null, sourceQuote: null, docName: null, searched,
+/** 'absent' — the search RAN and found the fact NOWHERE → an EARNED blank (cached). */
+const ABSENT = (id: string): FieldSourcingResult => ({
+  id, found: false, value: null, sourceQuote: null, docName: null, status: 'absent', searched: true,
+});
+/** 'unavailable' — the search COULD NOT run (no credits / error / no text). NEVER
+ *  a confirmed missing; NOT cached (retries when the search is available again). */
+const UNAVAILABLE = (id: string): FieldSourcingResult => ({
+  id, found: false, value: null, sourceQuote: null, docName: null, status: 'unavailable', searched: false,
 });
 
 /**
  * Exhaustively source ONE field across the deal's docs. Cache → credit-gate →
- * LLM search → cite-or-discard. Returns found (value+quote+docName) or a
- * searched=true honest not-found (the blank is now EARNED).
+ * LLM search → cite-or-discard. Returns 'found' (value+quote+docName), 'absent'
+ * (EARNED blank), or 'unavailable' (could-not-search — NOT a confirmed missing).
  */
 export async function sourceOneField(
   query: FieldQuery,
@@ -273,16 +303,16 @@ export async function sourceOneField(
   const llmCall = deps.llmCall ?? callAIWithContinuation;
   const hasCredits = deps.creditsAvailable ?? exhaustiveSourcingCreditsAvailable;
 
-  if (docs.length === 0) return NOT_FOUND(query.id, false);
+  if (docs.length === 0) return UNAVAILABLE(query.id); // nothing to search → unknown, not absent
 
   const key = buildCacheKey(docSetHash, query.id, version);
   const hit = cache.get(key);
-  if (hit) return { ...hit, searched: false };
+  if (hit) return { ...hit, searched: false }; // only 'found'/'absent' are ever cached
 
-  if (!hasCredits()) return NOT_FOUND(query.id, false); // skipped, not searched — no false blank claim
+  if (!hasCredits()) return UNAVAILABLE(query.id); // ★ could-not-search — NOT a false blank
 
   const { bundle, cappedByDoc } = buildBundle(query, docs);
-  if (bundle.trim().length === 0) return NOT_FOUND(query.id, false);
+  if (bundle.trim().length === 0) return UNAVAILABLE(query.id);
 
   let raw: string;
   try {
@@ -296,7 +326,7 @@ export async function sourceOneField(
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(`[ExhaustiveSourcing] search failed for ${query.id}:`, err);
-    return NOT_FOUND(query.id, false); // fail-safe — not a searched blank
+    return UNAVAILABLE(query.id); // ★ fail-safe → 'unavailable', NOT a searched blank
   }
 
   let parsed: unknown;
@@ -316,13 +346,13 @@ export async function sourceOneField(
       if (normalizeWs(text).includes(nq)) { citedDoc = name; break; }
     }
     result = citedDoc
-      ? { id: query.id, found: true, value: value ?? quote, sourceQuote: quote, docName: docName ?? citedDoc, searched: true }
-      : NOT_FOUND(query.id, true); // un-citeable → discard → EARNED honest blank
+      ? { id: query.id, found: true, value: value ?? quote, sourceQuote: quote, docName: docName ?? citedDoc, status: 'found', searched: true }
+      : ABSENT(query.id); // un-citeable → discard → EARNED honest blank
   } else {
-    result = NOT_FOUND(query.id, true); // searched, genuinely not found
+    result = ABSENT(query.id); // searched, genuinely not found
   }
 
-  cache.put(key, result);
+  cache.put(key, result); // only 'found'/'absent' reach here → 'unavailable' never cached
   return result;
 }
 

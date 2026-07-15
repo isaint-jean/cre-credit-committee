@@ -225,6 +225,12 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   { id: 'insurance', label: 'Insurance', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
   { id: 'closing', label: 'Closing', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
   { id: 'leases', label: 'Leases', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
+  // occupancy / lease-up history — operating data adjacent to the rent roll but
+  // NOT a composer input (no occupancy extractor). Before this existed, occupancy
+  // files an analyst dropped had no home in the taxonomy → they auto-held forever
+  // (data_room_held) → invisible to routing AND (until FIX 3a) to the exhaustive
+  // search. Homed in 'Excels' beside the operating data it belongs with.
+  { id: 'occupancy', label: 'Occupancy / lease-up history', category: 'Excels', tier: 'room_only', slot: null, engineInput: null },
   // ── LOOSE FITS — honestly homed in 'General', never force-filed ──────────────
   // sponsor_pfs (sponsor personal financial statement / REO schedule) is a
   // borrower CREDIT doc — not a legal instrument, not a third-party report, not a

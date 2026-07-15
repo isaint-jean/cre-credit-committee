@@ -201,7 +201,7 @@ function main(): void {
   assertSameSet(stored, ['seller_uw', 't12'], 'tier=stored roster');
   assertSameSet(
     roomOnly,
-    ['loan_terms', 'legal', 'title', 'insurance', 'closing', 'leases', 'sponsor_pfs', 'phase_i_esa', 'om'],
+    ['loan_terms', 'legal', 'title', 'insurance', 'closing', 'leases', 'occupancy', 'sponsor_pfs', 'phase_i_esa', 'om'],
     'tier=room_only roster',
   );
   assert(SLOTTED_DOC_TYPES.length === 7, `expected 7 slotted doc types, got ${SLOTTED_DOC_TYPES.length}`);
@@ -250,6 +250,7 @@ function main(): void {
     insurance: 'Legal',
     closing: 'Legal',
     leases: 'Legal',
+    occupancy: 'Excels',
     loan_terms: 'Legal',
     sponsor_pfs: 'General',
     om: 'General',

@@ -102,6 +102,11 @@ export interface IntakeFieldResult {
   readonly sourceQuote?: string;
   /** The document the exhaustive search cited (document-search only). */
   readonly sourceDoc?: string;
+  /** ★ For an UNSOURCED field, whether the exhaustive search reached a verdict:
+   *   'searched'    → searched every doc, genuinely not found (EARNED blank).
+   *   'unavailable' → the search could NOT run (credits/error) → UNVERIFIED, not a
+   *                   confirmed missing. Omitted when no search was attempted. */
+  readonly searchStatus?: 'searched' | 'unavailable';
 }
 
 export interface IntakeCompletenessSummary {
@@ -114,6 +119,10 @@ export interface IntakeCompletenessSummary {
   readonly requiredMissing: readonly IntakeFieldResult[];
   /** Deal-aware: fields that don't apply to THIS deal (not gaps). */
   readonly notApplicable: readonly IntakeFieldResult[];
+  /** ★ True when the exhaustive document search could NOT run for ≥1 field
+   *  (credits/error). Their blanks are UNVERIFIED — the UI must say so and NOT
+   *  present them as confirmed missing. */
+  readonly searchUnavailable: boolean;
 }
 
 export interface IntakeCompleteness {
@@ -306,5 +315,6 @@ export function summarizeIntakeFields(
       f.criticality.startsWith('Required'),
   );
 
-  return { sourced, total, needs, decisionBlanks, requiredMissing, notApplicable };
+  const searchUnavailable = fields.some((f) => f.searchStatus === 'unavailable');
+  return { sourced, total, needs, decisionBlanks, requiredMissing, notApplicable, searchUnavailable };
 }

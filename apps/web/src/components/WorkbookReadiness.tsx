@@ -60,11 +60,19 @@ function NeedRow({ f }: { f: IntakeFieldResult }): React.ReactElement {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-text-primary">{f.field}</span>
-          <span
-            className={'rounded px-1.5 py-px font-mono text-[9.5px] ' + meta.text + ' ' + meta.bg}
-          >
-            {meta.label}
-          </span>
+          {f.searchStatus === 'unavailable' ? (
+            // ★ Could-not-search → UNVERIFIED, never "confirmed missing".
+            <span className="rounded bg-[#FBECC8] px-1.5 py-px font-mono text-[9.5px] text-warn" title="The document search could not run (credits/error). This field is UNVERIFIED — not confirmed missing.">
+              unverified — search unavailable
+            </span>
+          ) : (
+            <span
+              className={'rounded px-1.5 py-px font-mono text-[9.5px] ' + meta.text + ' ' + meta.bg}
+              title={f.searchStatus === 'searched' ? 'Searched every document on the deal — genuinely not found.' : undefined}
+            >
+              {f.searchStatus === 'searched' ? 'searched — not found' : meta.label}
+            </span>
+          )}
           {f.criticality.startsWith('Required') ? (
             <span className="rounded bg-[#F3E2DB] px-1.5 py-px font-mono text-[9.5px] text-warn">
               required
@@ -220,6 +228,18 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
       {exportError !== null ? (
         <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2.5 text-xs text-red-800">
           Could not create the workbook: {exportError}
+        </div>
+      ) : null}
+
+      {summary.searchUnavailable ? (
+        // ★ Wholesale search failure — the blanks below are UNVERIFIED, NOT
+        // confirmed missing. Loud + distinct so a failed search is never mistaken
+        // for "these facts aren't in your documents."
+        <div className="mb-4 rounded-lg border-l-4 border-warn bg-[#FBECC8] px-3 py-2.5 text-xs text-text-primary">
+          <span className="font-semibold">⚠ Document search unavailable.</span> The exhaustive search
+          couldn’t run (AI credits/error), so the unsourced fields below are <span className="font-semibold">unverified</span> —
+          they have <span className="font-semibold">not</span> been confirmed missing. They may well be in your documents;
+          re-open this once the search is available.
         </div>
       ) : null}
 

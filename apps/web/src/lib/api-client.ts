@@ -93,6 +93,10 @@ export interface IntakeFieldResult {
   readonly sourcedBy?: 'extraction' | 'document-search';
   readonly sourceQuote?: string;
   readonly sourceDoc?: string;
+  /** For an UNSOURCED field: 'searched' = searched every doc, genuinely absent
+   *  (earned); 'unavailable' = the search could not run (credits/error) →
+   *  UNVERIFIED, not confirmed missing. */
+  readonly searchStatus?: 'searched' | 'unavailable';
 }
 export interface IntakeCompleteness {
   readonly fields: readonly IntakeFieldResult[];
@@ -103,6 +107,9 @@ export interface IntakeCompleteness {
     readonly decisionBlanks: readonly IntakeFieldResult[];
     readonly requiredMissing: readonly IntakeFieldResult[];
     readonly notApplicable?: readonly IntakeFieldResult[];
+    /** True when the document search could not run for ≥1 field — their blanks
+     *  are UNVERIFIED and must NOT be shown as confirmed missing. */
+    readonly searchUnavailable?: boolean;
   };
   // Route-echoed export params (the panel's always-on "Create workbook" CTA).
   readonly dealId: string;

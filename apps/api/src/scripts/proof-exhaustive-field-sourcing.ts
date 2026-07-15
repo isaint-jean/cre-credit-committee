@@ -29,32 +29,38 @@ const deps = (llmCall: ExhaustiveLlmCall, cache = new InMemoryExhaustiveSourcing
   ({ llmCall, cache, creditsAvailable: () => credits });
 
 (async () => {
-  // 1 — found + quote present in a doc → populated, cited to that doc.
+  // 1 — found + quote present in a doc → status 'found', cited to that doc.
   const r1 = await sourceOneField(Q('environmental_status'), DOCS, DSH,
     deps(stub({ found: true, value: 'No RECs identified', sourceQuote: 'no evidence of recognized environmental conditions', docName: 'ESA.pdf' })));
-  ok(r1.found && r1.searched && r1.docName === 'ESA.pdf', '★ found + citeable quote → found=true, cited to ESA.pdf (got ' + JSON.stringify([r1.found, r1.docName]) + ')');
+  ok(r1.status === 'found' && r1.docName === 'ESA.pdf', '★ found + citeable quote → status FOUND, cited to ESA.pdf (got ' + JSON.stringify([r1.status, r1.docName]) + ')');
 
-  // 2 — CITE-OR-DISCARD: quote NOT present in any doc → discarded → EARNED blank.
+  // 2 — CITE-OR-DISCARD: quote NOT in any doc → status 'absent' (EARNED blank), searched=true.
   const r2 = await sourceOneField(Q('in_place_noi'), DOCS, DSH,
     deps(stub({ found: true, value: '$99,999,999', sourceQuote: 'a figure that is not in any document', docName: 'T12.xlsx' })));
-  ok(!r2.found && r2.searched, '★ un-citeable quote → DISCARDED (found=false) but searched=true (earned blank; got ' + JSON.stringify([r2.found, r2.searched]) + ')');
+  ok(r2.status === 'absent' && r2.searched, '★ un-citeable quote → DISCARDED → status ABSENT (earned blank; got ' + JSON.stringify([r2.status, r2.searched]) + ')');
 
-  // 3 — CACHE replay: 2nd call with the SAME cache → no LLM, searched=false.
+  // 3 — CACHE replay: 2nd call with the SAME cache → no LLM, searched=false, status kept.
   const sharedCache = new InMemoryExhaustiveSourcingCache();
   let calls = 0;
   const counting: ExhaustiveLlmCall = async (o) => { calls++; return stub({ found: true, value: 'NOI', sourceQuote: 'Net Operating Income 53799654', docName: 'T12.xlsx' })(o); };
   const c1 = await sourceOneField(Q('in_place_noi'), DOCS, DSH, deps(counting, sharedCache));
   const c2 = await sourceOneField(Q('in_place_noi'), DOCS, DSH, deps(counting, sharedCache));
-  ok(c1.found && c1.searched && c2.found && !c2.searched && calls === 1, '★ CACHE: 1st searches (calls=1), 2nd replays $0 (searched=false; calls=' + calls + ')');
+  ok(c1.status === 'found' && c1.searched && c2.status === 'found' && !c2.searched && calls === 1, '★ CACHE: 1st searches (calls=1), 2nd replays $0 (searched=false; calls=' + calls + ')');
 
-  // 4 — NO CREDITS → skipped without a call; NOT a searched blank (searched=false).
+  // 4 — ★ NO CREDITS → status 'unavailable' (COULD-NOT-SEARCH), NOT a confirmed missing.
   const r4 = await sourceOneField(Q('opex'), DOCS, DSH, deps(stub({ found: true, sourceQuote: 'Total Operating Expenses 19449959', docName: 'T12.xlsx' }), new InMemoryExhaustiveSourcingCache(), false));
-  ok(!r4.found && !r4.searched, '★ no credits → skipped, found=false + searched=false (no false blank claim; got ' + JSON.stringify([r4.found, r4.searched]) + ')');
+  ok(r4.status === 'unavailable' && !r4.searched, '★ no credits → status UNAVAILABLE (not a false blank; got ' + JSON.stringify([r4.status, r4.searched]) + ')');
 
-  // 5 — LLM throws → FAIL-SAFE (found=false, searched=false, never crashes).
+  // 5 — LLM throws → FAIL-SAFE → status 'unavailable', never crashes.
   const thrower: ExhaustiveLlmCall = async () => { throw new Error('boom'); };
   const r5 = await sourceOneField(Q('gpr'), DOCS, DSH, deps(thrower));
-  ok(!r5.found && !r5.searched, '★ LLM error → fail-safe found=false, no crash (got ' + JSON.stringify([r5.found, r5.searched]) + ')');
+  ok(r5.status === 'unavailable', '★ LLM error → fail-safe status UNAVAILABLE, no crash (got ' + r5.status + ')');
+
+  // 6 — ★ 'unavailable' is NOT cached → retries when the search is available again.
+  const retryCache = new InMemoryExhaustiveSourcingCache();
+  await sourceOneField(Q('gpr'), DOCS, DSH, deps(thrower, retryCache));           // unavailable (not cached)
+  const r6 = await sourceOneField(Q('gpr'), DOCS, DSH, deps(stub({ found: true, value: 'GPR', sourceQuote: 'Net Operating Income 53799654', docName: 'T12.xlsx' }), retryCache));
+  ok(r6.status === 'found', '★ unavailable NOT cached → a later working search still finds it (got ' + r6.status + ')');
 
   console.log('\n  RESULT: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail === 0 ? 0 : 1);

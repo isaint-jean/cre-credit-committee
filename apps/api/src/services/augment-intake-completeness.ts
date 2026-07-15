@@ -110,7 +110,20 @@ export async function augmentIntakeCompletenessWithSourcing(
   }
 
   if (uncached.length > 0) {
-    if (!hasCredits()) return base; // can't search → don't touch the base (no false blanks)
+    if (!hasCredits()) {
+      // ★ CANNOT SEARCH (no credits). DON'T silently return base — that would make
+      // a failed search indistinguishable from "genuinely missing" (the exact
+      // bug). Mark every un-searched target UNAVAILABLE so the UI shows them as
+      // UNVERIFIED, not confirmed missing. No gather/parse (nothing to search).
+      for (const f of uncached) {
+        results.set(f.id, {
+          id: f.id, found: false, value: null, sourceQuote: null, docName: null,
+          status: 'unavailable', searched: false,
+        });
+      }
+      const applied = applyResults(base.fields, results);
+      return { fields: applied, summary: summarizeIntakeFields(applied) };
+    }
     const docs = await gatherDealDocTexts(poolId, loanInPoolId);
     if (docs.length === 0) return base;
     // Search the uncached fields CONCURRENTLY — first-load latency = the slowest
@@ -126,11 +139,19 @@ export async function augmentIntakeCompletenessWithSourcing(
     for (const s of searched) if (s) results.set(s[0], s[1]);
   }
 
-  // Apply results to the field roster.
-  const upgraded: IntakeFieldResult[] = base.fields.map((f) => {
+  const upgraded = applyResults(base.fields, results);
+  return { fields: upgraded, summary: summarizeIntakeFields(upgraded) };
+}
+
+/** Apply the per-field sourcing results — the THREE outcomes — to the roster. */
+function applyResults(
+  fields: readonly IntakeFieldResult[],
+  results: Map<string, FieldSourcingResult>,
+): IntakeFieldResult[] {
+  return fields.map((f) => {
     const r = results.get(f.id);
     if (!r) return f;
-    if (r.found) {
+    if (r.status === 'found') {
       // Sourcing hit → populated + citation. Applicability hit (GSA) → the field
       // DOES apply and its evidence exists, so it becomes a normal sourced field.
       return {
@@ -141,15 +162,16 @@ export async function augmentIntakeCompletenessWithSourcing(
         ...(r.docName ? { sourceDoc: r.docName } : {}),
       };
     }
-    // Not found. For an APPLICABILITY probe that actually ran the search, the
-    // field does not apply to this deal → not-applicable (not a gap). For a
-    // sourcing probe, the search ran and found nothing → an EARNED honest blank
-    // (state unchanged: in-PDF-not-extracted / not-in-any-doc).
-    if (APPLICABILITY_QUERIES[f.id] && r.searched) {
-      return { ...f, state: 'not-applicable' };
+    if (r.status === 'unavailable') {
+      // ★ COULD NOT SEARCH (credits/error) → leave the base missing state but flag
+      // it UNVERIFIED. Never a confirmed missing; the UI must say "search
+      // unavailable — unverified" so a failed search is NOT mistaken for a gap.
+      return { ...f, searchStatus: 'unavailable' as const };
     }
-    return f;
+    // r.status === 'absent' → the search RAN and found nothing anywhere.
+    if (APPLICABILITY_QUERIES[f.id]) {
+      return { ...f, state: 'not-applicable' as const }; // GSA: no gov tenant → n/a
+    }
+    return { ...f, searchStatus: 'searched' as const }; // EARNED blank
   });
-
-  return { fields: upgraded, summary: summarizeIntakeFields(upgraded) };
 }
