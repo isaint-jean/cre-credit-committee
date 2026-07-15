@@ -19,7 +19,7 @@ import { sideAccent } from '@/lib/side-accent';
 // Per-state chrome, mirroring the mockup's FSTATE map. `not-in-any-doc` gets the
 // "add source" affordance; `in-PDF-not-extracted` gets "confirm / enter".
 const STATE_META: Record<
-  Exclude<IntakeState, 'populated' | 'decision-blank'>,
+  Exclude<IntakeState, 'populated' | 'decision-blank' | 'not-applicable'>,
   { label: string; text: string; bg: string; cta: string }
 > = {
   'in-PDF-not-extracted': {
@@ -262,13 +262,30 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
             {populated.map((f) => (
               <span
                 key={f.id}
+                title={
+                  f.sourcedBy === 'document-search'
+                    ? `Found by searching the deal's documents${f.sourceDoc ? ` — ${f.sourceDoc}` : ''}${f.sourceQuote ? `: “${f.sourceQuote}”` : ''}`
+                    : undefined
+                }
                 className="rounded bg-[#E2F0E8] px-1.5 py-px font-mono text-[10px] text-cleared"
               >
                 {f.field}
+                {f.sourcedBy === 'document-search' ? <span className="ml-1 opacity-60">⌕</span> : null}
               </span>
             ))}
           </div>
+          <p className="mt-2 font-mono text-[10px] text-text-secondary">
+            <span className="opacity-60">⌕</span> = found by searching every document on the deal (hover for the source + quote).
+          </p>
         </details>
+      ) : null}
+
+      {(data.summary.notApplicable?.length ?? 0) > 0 ? (
+        <div className="mt-3 border-t border-line pt-3 text-xs text-text-secondary">
+          <span className="font-mono text-[11px]">Not applicable to this deal:</span>{' '}
+          {data.summary.notApplicable!.map((f) => f.field).join(', ')} — searched the documents; this deal doesn’t have it
+          (e.g. no government anchor tenant), so it isn’t counted as missing.
+        </div>
       ) : null}
     </section>
   );

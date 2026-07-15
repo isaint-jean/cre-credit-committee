@@ -76,7 +76,8 @@ export type IntakeState =
   | 'populated'
   | 'in-PDF-not-extracted'
   | 'not-in-any-doc'
-  | 'decision-blank';
+  | 'decision-blank'
+  | 'not-applicable';
 export interface IntakeFieldResult {
   readonly id: string;
   readonly section: string;
@@ -87,6 +88,11 @@ export interface IntakeFieldResult {
   readonly sources: readonly string[];
   readonly criticality: string;
   readonly tier: string;
+  /** 'extraction' = from the graph; 'document-search' = found by the exhaustive
+   *  sourcing pass (carries the citation below). */
+  readonly sourcedBy?: 'extraction' | 'document-search';
+  readonly sourceQuote?: string;
+  readonly sourceDoc?: string;
 }
 export interface IntakeCompleteness {
   readonly fields: readonly IntakeFieldResult[];
@@ -96,6 +102,7 @@ export interface IntakeCompleteness {
     readonly needs: readonly IntakeFieldResult[];
     readonly decisionBlanks: readonly IntakeFieldResult[];
     readonly requiredMissing: readonly IntakeFieldResult[];
+    readonly notApplicable?: readonly IntakeFieldResult[];
   };
   // Route-echoed export params (the panel's always-on "Create workbook" CTA).
   readonly dealId: string;
