@@ -77,7 +77,7 @@ import { env } from '../config/env.js';
 
 /** Bump when the prompt / schema / normalization changes — participates in the
  *  cache key so a version bump cleanly re-extracts (no stale reads). */
-export const ASR_LOAN_TERMS_LLM_VERSION = '2.0.0';
+export const ASR_LOAN_TERMS_LLM_VERSION = '2.2.0';
 
 /** Cap the LLM's view of the doc (matches extract-asr.ts's 80K slice — a safe
  *  ceiling; loan terms live in the first pages but we pass the whole doc so a
@@ -332,6 +332,43 @@ export function termPhraseToMonths(v: unknown): number | null {
   return null;
 }
 
+/**
+ * ★ ANCHOR #3 — DOC-GROUNDED TERM (deterministic; LLM-quote-INDEPENDENT). Scans
+ * the DOCUMENT itself for the loan-term phrase stated beside the loan figure,
+ * instead of trusting whichever span the LLM happened to quote. A loan-
+ * presentation sentence states the amount then the term ("$400,000,000, 5-year,
+ * fixed rate, interest-only loan"), so we find every occurrence of the figure
+ * and read a short window AFTER it for a term phrase. Because it reads the doc —
+ * not the LLM output — the term is the SAME on every run (no LLM non-determinism
+ * can drop it). Returns { months, window } (window cited as the sourceQuote) or
+ * null when no plausible term sits beside the figure (honest floor preserved).
+ */
+export function deriveTermFromDocFigure(
+  loanAmount: number,
+  normalizedDoc: string,
+): { months: number; window: string } | null {
+  if (!Number.isFinite(loanAmount) || loanAmount <= 0) return null;
+  // The figure as the ASR writes it, with thousands separators. normalizeWs only
+  // lowercased + collapsed whitespace — digits and commas are untouched.
+  const grouped = loanAmount.toLocaleString('en-US'); // e.g. "400,000,000"
+  const WINDOW = 45; // short enough to stay inside the loan-presentation clause.
+  let from = 0;
+  for (;;) {
+    const idx = normalizedDoc.indexOf(grouped, from);
+    if (idx < 0) break;
+    const start = idx + grouped.length;
+    const after = normalizedDoc.slice(start, start + WINDOW);
+    const months = termPhraseToMonths(after);
+    // Plausible LOAN term only (1..50yr) — rejects a stray unit ("30 months"
+    // capped-reserve language) that isn't a tenor.
+    if (months !== null && months >= 12 && months <= 600) {
+      return { months, window: `${grouped}${after}`.trim() };
+    }
+    from = start;
+  }
+  return null;
+}
+
 /** Add whole months to an ISO date, returning a new ISO datetime (UTC). Used to
  *  derive maturityDate = originationDate + termMonths when no maturity is
  *  stated. Uses calendar-month arithmetic (clamps day overflow). */
@@ -472,7 +509,59 @@ export function parseLoanTermsLlmResponse(
   //   pins the term to the actual sentence stating it and blocks a quote that is
   //   present-but-unrelated. WE normalize the phrase to months (the LLM returns
   //   the words; the arithmetic is deterministic here).
-  const termMonths = citeTermPhrase('termPhrase', term.value, term.sourceQuote, normalizedDoc, traces);
+  const termFromField = citeTermPhrase('termPhrase', term.value, term.sourceQuote, normalizedDoc, traces);
+
+  // ★ MULTI-ANCHOR TERM (robustness to re-runs — NOT a patch). The dedicated
+  //   `termPhrase` field can come back uncited on a FRESH LLM re-extraction
+  //   (temp-0 is greedy but not bit-identical run-to-run; the model may quote a
+  //   different span, or omit the field). That single-field dependency is exactly
+  //   what blocked a 640 re-score (JE_TERM_MONTHS_MISSING) after an adapter
+  //   version bump busted the composer cache and forced a fresh extract.
+  //   ★ THE FIX: the loan-amount quote we ALREADY cited and trust routinely
+  //   states the term in the same breath — 640's is "a $400,000,000, 5-year,
+  //   fixed rate, interest-only loan". So when the dedicated field yields no
+  //   term, read it straight out of the loanAmountWhole sourceQuote. That quote
+  //   was already verified present in the doc by loanAmount's own cite-or-discard
+  //   — reusing it introduces NO new extraction and NO new LLM variance.
+  //   ★ SAME HONEST FLOOR: we only derive when (a) loanAmount itself is cited and
+  //   (b) that quote genuinely parses to a term; otherwise termMonths stays null
+  //   and the engine refuses (JE_TERM_MONTHS_MISSING) — no fabrication.
+  let termMonths = termFromField;
+  if (termMonths === null && loanAmount !== null) {
+    // ANCHOR #2 — the already-cited loan-amount quote, WHEN it carries the term
+    // ("a $400,000,000, 5-year, ... loan"). Cheap; works when the LLM quotes the
+    // full descriptive sentence. But the LLM may quote a TERSE amount ("$400,000,000")
+    // on a fresh run — so this alone is not enough (it's what let 640 re-fail).
+    const wholeQuote = typeof whole.sourceQuote === 'string' ? whole.sourceQuote.trim() : '';
+    const wholeQuoteCited = wholeQuote.length > 0 && normalizedDoc.includes(normalizeWs(wholeQuote));
+    if (wholeQuoteCited) {
+      const derived = termPhraseToMonths(wholeQuote);
+      if (derived !== null) {
+        termMonths = derived;
+        traces.push({ field: 'termPhrase', sourceQuote: wholeQuote, cited: true });
+        warnings.push(
+          `Loan-terms LLM: dedicated term phrase not cited on this run — DERIVED term = ${derived}mo `
+          + `from the already-cited loan-amount quote ("${wholeQuote}"). Multi-anchor #2.`,
+        );
+      }
+    }
+    // ★ ANCHOR #3 — DOC-GROUNDED figure-window scan (the robust one). Reads the
+    // term straight out of the DOCUMENT beside the loan figure, independent of
+    // which span the LLM quoted → the term reads the SAME on every run. THIS is
+    // what makes the term robust to LLM non-determinism (the 640 re-score failure).
+    if (termMonths === null) {
+      const win = deriveTermFromDocFigure(loanAmount, normalizedDoc);
+      if (win !== null) {
+        termMonths = win.months;
+        traces.push({ field: 'termPhrase', sourceQuote: win.window, cited: true });
+        warnings.push(
+          `Loan-terms LLM: term phrase not cited by the LLM on this run — DERIVED term = ${win.months}mo `
+          + `by reading the document beside the loan figure ("${win.window}"). Multi-anchor #3 `
+          + `(doc-grounded, LLM-quote-independent) → deterministic across re-runs.`,
+        );
+      }
+    }
+  }
 
   // ★ FULL-TERM INTEREST-ONLY → amortization = 0 (deterministic, definitional —
   // NOT a fabrication, NOT LLM-coaxed). A loan whose interest-only period covers

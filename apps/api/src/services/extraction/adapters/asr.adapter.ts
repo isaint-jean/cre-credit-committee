@@ -100,8 +100,21 @@ import { projectToRentRollExtraction } from './rent-roll.adapter.js';
  *            stated total. Only a RECONCILED roll is emitted as the fallback;
  *            an UNRECONCILED (partial) roll is dropped to null so income-
  *            concentration + rollover stay EXCLUDED (never scored on a partial
- *            roll). Fixes 640/Vornado ANNUALREP under-read. Bumped to cache-bust. */
-export const ASR_ADAPTER_VERSION = '0.6.0';
+ *            roll). Fixes 640/Vornado ANNUALREP under-read. Bumped to cache-bust.
+ *    0.6.1 — MULTI-ANCHOR TERM. extractAsrLoanTermsLlm now derives termMonths
+ *            from the already-cited loan-amount quote when the dedicated
+ *            termPhrase field returns uncited on a fresh re-extraction — the term
+ *            reads the same every run (fixes the 640 re-score's
+ *            JE_TERM_MONTHS_MISSING, an LLM-non-determinism failure). Bumped to
+ *            cache-bust the poisoned null-term extraction.
+ *    0.6.2 — MULTI-ANCHOR TERM #3 (doc-grounded). 0.6.1 derived the term from
+ *            the LLM's loan-amount QUOTE, but that quote varies run-to-run (a
+ *            fresh 640 run cited a terse "$400,000,000" with no term → re-failed
+ *            JE_TERM_MONTHS_MISSING). extractAsrLoanTermsLlm now reads the term
+ *            straight from the DOCUMENT beside the loan figure
+ *            (deriveTermFromDocFigure) — LLM-quote-independent, so the term is
+ *            deterministic across re-runs. Bumped to cache-bust. */
+export const ASR_ADAPTER_VERSION = '0.6.2';
 
 /**
  * One outcome value covers three ExtractionResult-relevant fields PLUS one

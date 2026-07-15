@@ -133,6 +133,15 @@ export async function appendSourceDocToDeal(
     interestRate: pl.interestRate.adjusted,
     amortization: pl.amortizationMonths.adjusted,
     interestOnlyPeriod: pl.ioPeriodMonths.adjusted,
+    // ★ CARRY termMonths. buildTermMonths reads maturityDate−asOf FIRST, then
+    // falls back to loanTerms.termMonths. A deal with a stated maturityDate
+    // (Sunroad) survived on that first path — but a TERM-ONLY deal with NO
+    // maturity (640: "$400,000,000, 5-year, interest-only", maturityDate null)
+    // has ONLY the termMonths fallback. Omitting it here dropped the parent's
+    // 60mo term on every re-score → JE_TERM_MONTHS_MISSING, regardless of what
+    // the fresh extraction found (this override is PRIMARY over it). Inherit the
+    // parent's adjusted term so the append carries the deal's real economics.
+    termMonths: pl.termMonths.adjusted,
     maturityDate: pl.maturityDate,
   };
 
