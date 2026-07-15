@@ -76,9 +76,24 @@ function NeedRow({ f }: { f: IntakeFieldResult }): React.ReactElement {
           {f.sources.length > 0 ? <> · usually in {f.sources.join(' / ')}</> : null}
         </div>
       </div>
+      {/*
+        Inline field-entry / add-source is not built yet — there is no endpoint to
+        confirm-or-enter a value or attach a source from here. Rather than leave a
+        dead-clickable button (which silently no-ops), render it HONESTLY DISABLED
+        with the real path in the title: add/confirm the fact in the deal room's
+        data room, then re-underwrite. Re-enable with an onClick when that flow
+        exists.
+      */}
       <button
         type="button"
-        className="whitespace-nowrap rounded-md border border-line bg-white px-2.5 py-1 font-mono text-[10.5px] text-text-primary"
+        disabled
+        aria-disabled="true"
+        title={
+          f.state === 'not-in-any-doc'
+            ? 'No source yet. Add the document to the deal room’s data room, then re-underwrite. (Inline entry isn’t available yet.)'
+            : 'This fact is in a document but wasn’t auto-extracted. Confirm it in the deal room’s data room, then re-underwrite. (Inline entry isn’t available yet.)'
+        }
+        className="cursor-not-allowed whitespace-nowrap rounded-md border border-line bg-white px-2.5 py-1 font-mono text-[10.5px] text-text-secondary opacity-50"
       >
         {meta.cta}
       </button>
