@@ -279,12 +279,17 @@
       ],
       "criticality": "Required",
       "tier": "A",
-      "notes": "Sunroad: piece DY was non-comparable",
-      "extraction_key": "none — not extracted today",
+      "notes": "Sunroad: piece DY was non-comparable. The whole loan IS loanTerms.loanAmount — per whole-vs-piece doctrine the extracted loanAmount is ALWAYS the whole ($400M for 640 = $300M senior + $100M mezz); the trust PIECE lives on loanAmountTrustPiece (exposure only). Bound to it here so a whole loan the engine already scored on is not reported unsourced.",
+      "extraction_key": "loanTerms.loanAmount",
       "fallback_keys": [
-        "annexA.pariPassuCombination.combinedCutOffBalance"
+        "annexA.pariPassuCombination.combinedCutOffBalance",
+        "sourcesAndUses.loanAmount",
+        "asr.sourcesAndUses.loanAmount"
       ],
-      "source_doc_types": []
+      "source_doc_types": [
+        "loan_terms",
+        "asr"
+      ]
     },
     {
       "id": "maturity",
