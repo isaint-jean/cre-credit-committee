@@ -548,6 +548,7 @@ analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => 
   // sourceDocumentKinds — the SAME derivation as render.routes.ts:871-889:
   // graphRevisionId → envelope → doctrineEvaluation → ExtractionResult.sourceDocuments.
   let sourceDocumentKinds: import('@cre/contracts').SourceDocumentKind[] = [];
+  let graphExtractionResult: import('@cre/contracts').ExtractionResult | null = null;
   try {
     const envelope = analysis.graphRevisionId
       ? recordGraphStore.getRevisionEnvelope(analysis.graphRevisionId as GraphRevisionIdType)
@@ -555,16 +556,34 @@ analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => 
     const doctrine = envelope
       ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId)
       : null;
-    const er = doctrine
+    graphExtractionResult = doctrine
       ? recordGraphStore.getExtractionResult(doctrine.extractionResultId)
       : null;
-    sourceDocumentKinds = (er?.sourceDocuments ?? []).map((d) => d.kind);
+    sourceDocumentKinds = (graphExtractionResult?.sourceDocuments ?? []).map((d) => d.kind);
   } catch {
     // best-effort — a missing graph chain leaves kinds empty; overlays still count.
   }
 
+  // ★ DATA-AVAILABILITY, not doc-slot presence. The K resolver reads the spine
+  // sub-records (loanTerms / inPlace / t12Actual / rentRoll / asr) off
+  // `analysis.extractionResult` — but projectLegacyAnalysisFromGraph never sets
+  // that field, so for a graph-native / pool-appended deal (e.g. 640) genuinely
+  // EXTRACTED data showed as "missing": loan_amount ($400M in er.loanTerms), the
+  // as-is value + cap rate (er.asr.impliedValue/impliedCapRate), and the ASR's
+  // embedded rent roll (er.rentRoll, 19 units) all read empty. Attach the graph
+  // ExtractionResult the score actually consumed so completeness reflects what we
+  // HAVE, not whether a separate doc of kind X exists. (No production consumer
+  // reads analysis.extractionResult off a projected row — only this K resolver.)
+  // Attach as an untyped add-on: the K resolver reads it via
+  // `(analysis as { extractionResult?: unknown }).extractionResult` (Analysis has
+  // no typed slot for it — the classic-ingest path stored it, graph-native deals
+  // don't). Double-cast is the intended escape hatch for that seam.
+  const analysisForCompleteness = graphExtractionResult
+    ? ({ ...analysis, extractionResult: graphExtractionResult } as unknown as typeof analysis)
+    : analysis;
+
   const result = computeIntakeCompleteness({
-    analysis,
+    analysis: analysisForCompleteness,
     sourceDocumentKinds,
     overlayPresence: {
       t12Extraction: !!analysis.t12Extraction,
