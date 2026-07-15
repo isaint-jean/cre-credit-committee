@@ -184,6 +184,7 @@ function coverageFromLedger(legacyAnalysisId: string): {
   // sourceDocumentKinds — SAME derivation as analysis.routes intake-completeness:
   // graphRevisionId → envelope → doctrineEvaluation → ExtractionResult.sourceDocuments.
   let sourceDocumentKinds: SourceDocumentKind[] = [];
+  let graphExtractionResult: import('@cre/contracts').ExtractionResult | null = null;
   try {
     const envelope = analysis.graphRevisionId
       ? s.recordGraphStore.getRevisionEnvelope(analysis.graphRevisionId as GraphRevisionIdType)
@@ -191,14 +192,25 @@ function coverageFromLedger(legacyAnalysisId: string): {
     const doctrine = envelope
       ? s.recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId)
       : null;
-    const er = doctrine ? s.recordGraphStore.getExtractionResult(doctrine.extractionResultId) : null;
-    sourceDocumentKinds = (er?.sourceDocuments ?? []).map((d) => d.kind);
+    graphExtractionResult = doctrine ? s.recordGraphStore.getExtractionResult(doctrine.extractionResultId) : null;
+    sourceDocumentKinds = (graphExtractionResult?.sourceDocuments ?? []).map((d) => d.kind);
   } catch {
     // best-effort — a missing graph chain leaves kinds empty; overlays still count.
   }
 
+  // ★ DATA-AVAILABILITY, not doc-slots (identical to analysis.routes
+  // intake-completeness, commit 3c7ca2a). Attach the graph ExtractionResult so the
+  // K resolver resolves against the spine data the score consumed — otherwise a
+  // graph-native deal's covered doc-types (ASR + its embedded rent roll) read as
+  // MISSING here too, producing a false "partial" with ASR/Rent-roll falsely
+  // listed. Cash-flow / T-12 stays honestly missing when there's no operating
+  // statement.
+  const analysisForLedger = graphExtractionResult
+    ? ({ ...analysis, extractionResult: graphExtractionResult } as unknown as typeof analysis)
+    : analysis;
+
   const ledger = computeIntakeCompleteness({
-    analysis,
+    analysis: analysisForLedger,
     sourceDocumentKinds,
     overlayPresence: {
       t12Extraction: !!analysis.t12Extraction,
