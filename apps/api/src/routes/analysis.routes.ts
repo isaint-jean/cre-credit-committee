@@ -34,6 +34,8 @@ import { createRevision, type RevisionDelta } from '../services/revision-creator
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import { renderMemoForAnalysis } from '../services/render-memo/render-memo-for-analysis.js';
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
+import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
+import { augmentIntakeCompletenessWithSourcing } from '../services/augment-intake-completeness.js';
 import {
   applyRevisionDelta,
   InvalidDeltaError,
@@ -522,7 +524,7 @@ analysisRoutes.get('/:id/handbook-evaluation', (req: Request, res: Response) => 
 // governed compose pipeline is untouched (annexA stays null → whole_loan_balance
 // resolves the honest not-in-any-doc). Reuses the same PRESENCE derivation the
 // export route computes at render.routes.ts (sourceDocumentKinds ∪ overlays).
-analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => {
+analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Response) => {
   // Unified-Read: resolve for both id formats. The graph-id case recovers the
   // bridged legacy row (its uuid id is the dealId the panel echoes for the
   // /underwriting/export CTA; the export path is legacy-uuid based today).
@@ -549,10 +551,12 @@ analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => 
   // graphRevisionId → envelope → doctrineEvaluation → ExtractionResult.sourceDocuments.
   let sourceDocumentKinds: import('@cre/contracts').SourceDocumentKind[] = [];
   let graphExtractionResult: import('@cre/contracts').ExtractionResult | null = null;
+  let lineageRootId: string | null = null;
   try {
     const envelope = analysis.graphRevisionId
       ? recordGraphStore.getRevisionEnvelope(analysis.graphRevisionId as GraphRevisionIdType)
       : null;
+    lineageRootId = envelope?.lineageRootId ?? null;
     const doctrine = envelope
       ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId)
       : null;
@@ -594,10 +598,29 @@ analysisRoutes.get('/:id/intake-completeness', (req: Request, res: Response) => 
       appraisalExtraction: !!analysis.appraisalExtraction,
     },
   });
+  // ★ EXHAUSTIVE SOURCING PASS — before returning any field as "missing", search
+  // EVERY document routed to the deal for it (not just the 5 the graph extracted).
+  // 640 carries 10 docs (ESA, appraisals, cash-flow workbooks, seller UW) whose
+  // facts the graph never read; this sources environmental status, NOI, values,
+  // etc. from them, and marks deal-inapplicable fields (GSA on a non-GSA deal)
+  // not-applicable. Cached (docSetHash+field); credit-gated + fail-safe → on no
+  // credits / any error the base result passes through unchanged (never a false
+  // blank). Best-effort: a resolution/search failure returns the base result.
+  let finalResult = result;
+  try {
+    const loanRef = lineageRootId ? resolveLoanForRoot(lineageRootId) : null;
+    if (loanRef && loanRef.resolved) {
+      finalResult = await augmentIntakeCompletenessWithSourcing(
+        result, loanRef.poolId, loanRef.loanInPoolId,
+      );
+    }
+  } catch {
+    // best-effort — the exhaustive pass never blocks the advisory read.
+  }
   // Echo the export params the panel needs so its always-on "Create workbook"
   // CTA can call /underwriting/export without a second round-trip. dealId is the
   // stored analysis id (legacy uuid); assetClass drives the render schema.
-  res.json({ ...result, dealId: stored.id, assetClass: analysis.assetType });
+  res.json({ ...finalResult, dealId: stored.id, assetClass: analysis.assetType });
 });
 
 // GET /api/analyses/:id/memo — Credit Committee Memorandum HTML.

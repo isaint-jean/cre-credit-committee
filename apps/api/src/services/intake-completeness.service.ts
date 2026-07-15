@@ -62,7 +62,11 @@ export type IntakeState =
   | 'populated'
   | 'in-PDF-not-extracted'
   | 'not-in-any-doc'
-  | 'decision-blank';
+  | 'decision-blank'
+  // ★ Deal-aware: the field does not apply to THIS deal (e.g. GSA lease terms on a
+  //   deal with no government tenant). Excluded from needs/requiredMissing/total —
+  //   NOT a gap. Set by the deal-aware augmentation, never by the base bindings.
+  | 'not-applicable';
 
 export interface IntakeFieldBinding {
   readonly id: string;
@@ -90,6 +94,14 @@ export interface IntakeFieldResult {
   readonly sources: readonly SourceDocumentKind[];
   readonly criticality: string;
   readonly tier: string;
+  /** Provenance when sourced. 'extraction' = resolved from the graph
+   *  ExtractionResult; 'document-search' = found by the exhaustive sourcing pass
+   *  (carries the citation below). Omitted when unsourced. */
+  readonly sourcedBy?: 'extraction' | 'document-search';
+  /** Verbatim quote the exhaustive search cited (document-search only). */
+  readonly sourceQuote?: string;
+  /** The document the exhaustive search cited (document-search only). */
+  readonly sourceDoc?: string;
 }
 
 export interface IntakeCompletenessSummary {
@@ -100,6 +112,8 @@ export interface IntakeCompletenessSummary {
   readonly decisionBlanks: readonly IntakeFieldResult[];
   /** Required-criticality fields NOT populated — warns loudly, never blocks. */
   readonly requiredMissing: readonly IntakeFieldResult[];
+  /** Deal-aware: fields that don't apply to THIS deal (not gaps). */
+  readonly notApplicable: readonly IntakeFieldResult[];
 }
 
 export interface IntakeCompleteness {
@@ -263,22 +277,34 @@ export function computeIntakeCompleteness(input: IntakeCompletenessInput): Intak
     };
   });
 
+  return { fields, summary: summarizeIntakeFields(fields) };
+}
+
+/**
+ * Derive the summary from a field roster. Exported so the deal-aware exhaustive-
+ * sourcing augmentation can RE-derive it after upgrading field states (populated
+ * by document search / not-applicable by deal-awareness) without duplicating the
+ * roll-up rules.
+ */
+export function summarizeIntakeFields(
+  fields: readonly IntakeFieldResult[],
+): IntakeCompletenessSummary {
   const decisionBlanks = fields.filter((f) => f.state === 'decision-blank');
+  const notApplicable = fields.filter((f) => f.state === 'not-applicable');
   const needs = fields.filter(
     (f) => f.state === 'in-PDF-not-extracted' || f.state === 'not-in-any-doc',
   );
   const sourced = fields.filter((f) => f.state === 'populated').length;
-  // total = the sourceable universe (exclude decision-blanks — they are not "missing").
-  const total = fields.length - decisionBlanks.length;
+  // total = the sourceable universe: exclude decision-blanks AND not-applicable
+  // (neither is a "missing" gap for this deal).
+  const total = fields.length - decisionBlanks.length - notApplicable.length;
   const requiredMissing = fields.filter(
     (f) =>
       f.state !== 'populated' &&
       f.state !== 'decision-blank' &&
+      f.state !== 'not-applicable' &&
       f.criticality.startsWith('Required'),
   );
 
-  return {
-    fields,
-    summary: { sourced, total, needs, decisionBlanks, requiredMissing },
-  };
+  return { sourced, total, needs, decisionBlanks, requiredMissing, notApplicable };
 }
