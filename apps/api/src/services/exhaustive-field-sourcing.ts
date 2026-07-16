@@ -40,23 +40,30 @@ import { listPoolDocs, listHeldDocs } from './data-room-store.service.js';
 import { blobStore } from '../storage/blob-store.js';
 import type { ContentHash } from '@cre/contracts';
 import { parseDocument } from './document-parser.service.js';
+import * as XLSX from 'xlsx';
 
 /** Bump when the prompt / query roster / capping changes (participates in the
  *  cache key so a version bump cleanly re-searches). */
-export const EXHAUSTIVE_SOURCING_VERSION = '1.0.0';
+export const EXHAUSTIVE_SOURCING_VERSION = '1.1.0';
 
 export const EXHAUSTIVE_SOURCING_MODEL: string =
   process.env['EXHAUSTIVE_SOURCING_MODEL'] ?? CLAUDE_MODEL;
 
-/** Per-doc character cap. Summaries / conclusion tables sit early (640 ESA's REC
- *  conclusion is at char ~9K of 8.25M); we take the head plus keyword windows so
- *  a deep fact in a large doc is still reachable without blowing the context. */
-const HEAD_CHARS = 24_000;
-const WINDOW_CHARS = 1_400;
-const MAX_WINDOWS_PER_DOC = 8;
-const MAX_DOC_CHARS = HEAD_CHARS + WINDOW_CHARS * MAX_WINDOWS_PER_DOC;
-/** Total budget across all docs passed for one field's search. */
-const MAX_BUNDLE_CHARS = 110_000;
+// ★ "Search the WHOLE document." A medium doc (≤ FULL_DOC_THRESHOLD) is passed
+// ENTIRE — the 24K head cap used to drop the ASR's cash flow (opex/NOI at char
+// ~46-51K of 53K). Only a genuinely huge doc (appraisals 1M+, ESA 8M) is reduced
+// — and then via head + keyword windows mined across its FULL length (not just a
+// head slice), so a keyword-locatable deep section is still reached. A truncated
+// huge doc is FLAGGED in the bundle (never a silent skip).
+// 90K covers the whole ASR (53K) AND the structured seller UW (86K) — the two
+// docs that carry the cash flow / opex / NOI. Only the truly huge docs
+// (appraisals 1M+, ESA 8M, PCA 133K) fall to head + full-length keyword windows.
+const FULL_DOC_THRESHOLD = 90_000;
+const HEAD_CHARS = 28_000;
+const WINDOW_CHARS = 2_500;
+const MAX_WINDOWS_PER_DOC = 30;
+/** Per-doc cap in the bundle → no single huge doc squeezes the others out. */
+const PER_DOC_BUDGET = 90_000;
 
 /* ------------------------------ types ------------------------------------- */
 
@@ -175,8 +182,15 @@ export async function gatherDealDocTexts(
     try {
       const bytes = await blobStore.getBlob(e.fileHash as ContentHash);
       if (bytes === null) continue; // blob missing → skip this doc (best-effort)
-      const parsed = await parseDocument(bytes, e.fileName, e.mimeType);
-      const text = parsed.rawText ?? '';
+      // ★ FIX 2 — xlsx via the STRUCTURED reader (citeable cells), not the
+      // flattened number-soup rawText that defeats cite-or-discard.
+      let text: string;
+      if (isXlsx(e.fileName, e.mimeType)) {
+        text = structuredXlsxText(bytes);
+        if (text.trim().length === 0) text = (await parseDocument(bytes, e.fileName, e.mimeType)).rawText ?? '';
+      } else {
+        text = (await parseDocument(bytes, e.fileName, e.mimeType)).rawText ?? '';
+      }
       if (text.trim().length > 0) {
         out.push({ docType: e.docType, fileName: e.fileName, fileHash: e.fileHash, text });
       }
@@ -188,17 +202,68 @@ export async function gatherDealDocTexts(
   return out;
 }
 
+/* ------------------------------ xlsx (FIX 2) ------------------------------- */
+
+function isXlsx(fileName: string, mimeType: string): boolean {
+  return /\.xlsx?$/i.test(fileName)
+    || /spreadsheetml|ms-excel/i.test(mimeType);
+}
+
+function fmtCell(v: unknown): string {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    // Keep integers/2dp readable AND greppable; the LLM cites this exact string.
+    return Number.isInteger(v) ? v.toLocaleString('en-US') : String(Math.round(v * 100) / 100);
+  }
+  return String(v).replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * ★ FIX 2 — STRUCTURED xlsx text (cell-referenced, label↔value preserved). The
+ * default xlsx→rawText flattens a sheet to a number-soup ("Real Estate Taxes
+ * 10456087.17 33.24 …") that defeats cite-or-discard — a real find can't be
+ * quoted. This emits one line per non-empty row with EACH cell's address, so the
+ * label sits beside its value and the LLM can cite a VERIFIABLE quote like
+ * `Financials!R14: A14=Real Estate Taxes | B14=10,456,087`. Cite-or-discard stays
+ * intact — we just give it a citeable form.
+ */
+export function structuredXlsxText(buffer: Buffer): string {
+  let wb: XLSX.WorkBook;
+  try { wb = XLSX.read(buffer, { type: 'buffer' }); } catch { return ''; }
+  const lines: string[] = [];
+  for (const sheetName of wb.SheetNames) {
+    const sheet = wb.Sheets[sheetName];
+    const ref = sheet?.['!ref'];
+    if (!ref) continue;
+    const range = XLSX.utils.decode_range(ref);
+    lines.push(`===== SHEET: ${sheetName} =====`);
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      const cells: string[] = [];
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+        if (cell && cell.v !== null && cell.v !== undefined && String(cell.v).trim() !== '') {
+          cells.push(`${XLSX.utils.encode_cell({ r, c })}=${fmtCell(cell.v)}`);
+        }
+      }
+      if (cells.length > 0) lines.push(`${sheetName}!R${r + 1}: ${cells.join(' | ')}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 /* ------------------------------ capping ----------------------------------- */
 
 function normalizeWs(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-/** Head + keyword-windows: the doc head (where summaries/conclusions live) plus
- *  short windows around each keyword hit, so a deep fact in a large doc surfaces
- *  without passing the whole document. */
-function capDoc(text: string, keywords: readonly string[]): string {
-  if (text.length <= HEAD_CHARS) return text;
+/** ★ FIX 1 — return the doc so the WHOLE of it is searchable. A medium doc
+ *  (≤ FULL_DOC_THRESHOLD) is returned ENTIRE (the 53K ASR now carries its deep
+ *  cash flow at char ~51K, not just a 24K head slice). Only a genuinely huge doc
+ *  is reduced — and then to head + keyword windows mined across its FULL length,
+ *  so a keyword-locatable deep section is still reached. Returns { text,
+ *  truncated } so the caller can FLAG a reduced doc (never a silent skip). */
+function excerptDoc(text: string, keywords: readonly string[]): { text: string; truncated: boolean } {
+  if (text.length <= FULL_DOC_THRESHOLD) return { text, truncated: false };
   const head = text.slice(0, HEAD_CHARS);
   const windows: string[] = [];
   const lower = text.toLowerCase();
@@ -206,7 +271,7 @@ function capDoc(text: string, keywords: readonly string[]): string {
   for (const kw of keywords) {
     if (taken >= MAX_WINDOWS_PER_DOC) break;
     const k = kw.toLowerCase();
-    let from = HEAD_CHARS; // only mine BEYOND the head (head already included)
+    let from = HEAD_CHARS; // hits within the head are already covered
     let idx = lower.indexOf(k, from);
     while (idx >= 0 && taken < MAX_WINDOWS_PER_DOC) {
       const start = Math.max(0, idx - Math.floor(WINDOW_CHARS / 2));
@@ -217,33 +282,7 @@ function capDoc(text: string, keywords: readonly string[]): string {
     }
   }
   const combined = head + (windows.length > 0 ? '\n…\n' + windows.join('\n…\n') : '');
-  return combined.slice(0, MAX_DOC_CHARS);
-}
-
-/** Order docs by the field's preferred types, cap each, and pack up to the
- *  bundle budget. Returns the labelled bundle + the capped per-doc text (for the
- *  cite-or-discard presence check). */
-function buildBundle(
-  query: FieldQuery,
-  docs: DealDocText[],
-): { bundle: string; cappedByDoc: Map<string, string> } {
-  const rank = (d: DealDocText): number => {
-    const i = query.preferDocTypes.indexOf(d.docType);
-    return i < 0 ? query.preferDocTypes.length + 1 : i;
-  };
-  const ordered = [...docs].sort((a, b) => rank(a) - rank(b));
-  const cappedByDoc = new Map<string, string>();
-  const parts: string[] = [];
-  let budget = MAX_BUNDLE_CHARS;
-  for (const d of ordered) {
-    if (budget <= 0) break;
-    const capped = capDoc(d.text, query.keywords).slice(0, budget);
-    if (capped.trim().length === 0) continue;
-    cappedByDoc.set(d.fileName, capped);
-    parts.push(`===== DOCUMENT: ${d.fileName} (type: ${d.docType}) =====\n${capped}`);
-    budget -= capped.length;
-  }
-  return { bundle: parts.join('\n\n'), cappedByDoc };
+  return { text: combined.slice(0, PER_DOC_BUDGET), truncated: true };
 }
 
 /* -------------------------------- search ---------------------------------- */
@@ -258,8 +297,11 @@ const SYSTEM_PROMPT = [
   '',
   'RULES:',
   '- found=true ONLY if the documents literally state the fact. Copy a SHORT',
-  '  verbatim "sourceQuote" (exact substring) from the document that states it,',
-  '  and put that document\'s name in "docName".',
+  '  verbatim "sourceQuote" (exact substring, ONE line / ≤200 chars) from the',
+  '  document that states it, and put that document\'s name in "docName".',
+  '- "value" MUST be CONCISE: a single figure or a short phrase (e.g. a total, or',
+  '  "$21,293,412 total operating expenses"). NEVER enumerate every line item /',
+  '  year — that overflows the response. One representative figure + the quote.',
   '- If the fact is not stated in ANY provided document, return',
   '  { "found": false, "value": null, "sourceQuote": null, "docName": null }.',
   '- NEVER infer, compute, or guess. No verbatim quote → found=false.',
@@ -311,48 +353,60 @@ export async function sourceOneField(
 
   if (!hasCredits()) return UNAVAILABLE(query.id); // ★ could-not-search — NOT a false blank
 
-  const { bundle, cappedByDoc } = buildBundle(query, docs);
-  if (bundle.trim().length === 0) return UNAVAILABLE(query.id);
+  // ★ SEARCH EACH DOC SEPARATELY, in relevance order, early-stopping on the first
+  // cited find. A single giant multi-doc bundle DILUTES the signal — the LLM
+  // finds opex in a focused 90K seller-UW prompt but misses it in a 220K blob.
+  // Per-doc = the honest "search every document" (each in full via excerptDoc) +
+  // reliable. Cost-bounded: relevant docs first, stop when found (a field sourced
+  // in the seller UW never pays to scan the 8M ESA).
+  const rank = (d: DealDocText): number => {
+    const i = query.preferDocTypes.indexOf(d.docType);
+    return i < 0 ? query.preferDocTypes.length + 1 : i;
+  };
+  const ordered = [...docs].sort((a, b) => rank(a) - rank(b));
 
-  let raw: string;
-  try {
-    raw = await llmCall({
-      model: EXHAUSTIVE_SOURCING_MODEL,
-      max_tokens: 700,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserPrompt(query, bundle) }],
-      temperature: 0,
-    });
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn(`[ExhaustiveSourcing] search failed for ${query.id}:`, err);
-    return UNAVAILABLE(query.id); // ★ fail-safe → 'unavailable', NOT a searched blank
-  }
-
-  let parsed: unknown;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
-  const o = (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : null;
-  const found = o?.['found'] === true;
-  const value = typeof o?.['value'] === 'string' ? (o['value'] as string).trim() : null;
-  const quote = typeof o?.['sourceQuote'] === 'string' ? (o['sourceQuote'] as string).trim() : null;
-  const docName = typeof o?.['docName'] === 'string' ? (o['docName'] as string).trim() : null;
-
-  // CITE-OR-DISCARD — the quote must literally appear in some capped doc text.
-  let result: FieldSourcingResult;
-  if (found && quote && quote.length > 0) {
-    const nq = normalizeWs(quote);
-    let citedDoc: string | null = null;
-    for (const [name, text] of cappedByDoc) {
-      if (normalizeWs(text).includes(nq)) { citedDoc = name; break; }
+  let anyCompleted = false;
+  for (const d of ordered) {
+    const ex = excerptDoc(d.text, query.keywords);
+    if (ex.text.trim().length === 0) continue;
+    let raw: string;
+    try {
+      raw = await llmCall({
+        model: EXHAUSTIVE_SOURCING_MODEL,
+        max_tokens: 1200,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: buildUserPrompt(query, `===== DOCUMENT: ${d.fileName} (type: ${d.docType}) =====\n${ex.text}`) }],
+        temperature: 0,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[ExhaustiveSourcing] search failed for ${query.id} in ${d.fileName}:`, err);
+      continue; // this doc couldn't be searched; try the next (fail-safe)
     }
-    result = citedDoc
-      ? { id: query.id, found: true, value: value ?? quote, sourceQuote: quote, docName: docName ?? citedDoc, status: 'found', searched: true }
-      : ABSENT(query.id); // un-citeable → discard → EARNED honest blank
-  } else {
-    result = ABSENT(query.id); // searched, genuinely not found
+    anyCompleted = true;
+    let parsed: unknown;
+    try { parsed = extractJSON(raw); } catch { parsed = null; }
+    const o = (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : null;
+    if (o?.['found'] !== true) continue;
+    const value = typeof o['value'] === 'string' ? (o['value'] as string).trim() : null;
+    const quote = typeof o['sourceQuote'] === 'string' ? (o['sourceQuote'] as string).trim() : null;
+    // CITE-OR-DISCARD — the quote must literally appear in THIS doc's excerpt.
+    if (quote && quote.length > 0 && normalizeWs(ex.text).includes(normalizeWs(quote))) {
+      const result: FieldSourcingResult = {
+        id: query.id, found: true, value: value ?? quote, sourceQuote: quote,
+        docName: d.fileName, status: 'found', searched: true,
+      };
+      cache.put(key, result);
+      return result;
+    }
+    // found=true but un-citeable → discard, keep searching other docs.
   }
 
-  cache.put(key, result); // only 'found'/'absent' reach here → 'unavailable' never cached
+  // No doc yielded a cited find. If at least one search COMPLETED → EARNED blank;
+  // if every doc errored → unavailable (could-not-search, NOT a false blank).
+  if (!anyCompleted) return UNAVAILABLE(query.id);
+  const result = ABSENT(query.id);
+  cache.put(key, result);
   return result;
 }
 

@@ -42,10 +42,11 @@ const deps = (llmCall: ExhaustiveLlmCall, cache = new InMemoryExhaustiveSourcing
   // 3 — CACHE replay: 2nd call with the SAME cache → no LLM, searched=false, status kept.
   const sharedCache = new InMemoryExhaustiveSourcingCache();
   let calls = 0;
-  const counting: ExhaustiveLlmCall = async (o) => { calls++; return stub({ found: true, value: 'NOI', sourceQuote: 'Net Operating Income 53799654', docName: 'T12.xlsx' })(o); };
-  const c1 = await sourceOneField(Q('in_place_noi'), DOCS, DSH, deps(counting, sharedCache));
-  const c2 = await sourceOneField(Q('in_place_noi'), DOCS, DSH, deps(counting, sharedCache));
-  ok(c1.status === 'found' && c1.searched && c2.status === 'found' && !c2.searched && calls === 1, '★ CACHE: 1st searches (calls=1), 2nd replays $0 (searched=false; calls=' + calls + ')');
+  // Quote is in the FIRST doc (ESA) so the per-doc search early-stops after 1 call.
+  const counting: ExhaustiveLlmCall = async (o) => { calls++; return stub({ found: true, value: 'no RECs', sourceQuote: 'no evidence of recognized environmental conditions', docName: 'ESA.pdf' })(o); };
+  const c1 = await sourceOneField(Q('environmental_status'), DOCS, DSH, deps(counting, sharedCache));
+  const c2 = await sourceOneField(Q('environmental_status'), DOCS, DSH, deps(counting, sharedCache));
+  ok(c1.status === 'found' && c1.searched && c2.status === 'found' && !c2.searched && calls === 1, '★ CACHE: 1st searches+early-stops (calls=1), 2nd replays $0 (searched=false; calls=' + calls + ')');
 
   // 4 — ★ NO CREDITS → status 'unavailable' (COULD-NOT-SEARCH), NOT a confirmed missing.
   const r4 = await sourceOneField(Q('opex'), DOCS, DSH, deps(stub({ found: true, sourceQuote: 'Total Operating Expenses 19449959', docName: 'T12.xlsx' }), new InMemoryExhaustiveSourcingCache(), false));
