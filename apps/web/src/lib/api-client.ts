@@ -98,8 +98,18 @@ export interface IntakeFieldResult {
    *  UNVERIFIED, not confirmed missing. */
   readonly searchStatus?: 'searched' | 'unavailable';
 }
+export interface AssumedInput {
+  readonly path: string;
+  readonly label: string;
+  readonly assumedValue: number | null;
+  readonly ruleId: string | null;
+  readonly reason: string | null;
+  readonly feedsCoverage: boolean;
+}
 export interface IntakeCompleteness {
   readonly fields: readonly IntakeFieldResult[];
+  /** Verdict inputs that are ASSUMED (benchmark/default), not sourced from docs. */
+  readonly assumedInputs?: readonly AssumedInput[];
   readonly summary: {
     readonly sourced: number;
     readonly total: number;

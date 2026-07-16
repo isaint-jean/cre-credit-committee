@@ -36,6 +36,7 @@ import { renderMemoForAnalysis } from '../services/render-memo/render-memo-for-a
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { augmentIntakeCompletenessWithSourcing } from '../services/augment-intake-completeness.js';
+import { getAssumedInputs } from '../services/assumed-inputs.service.js';
 import {
   applyRevisionDelta,
   InvalidDeltaError,
@@ -552,6 +553,7 @@ analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Respons
   let sourceDocumentKinds: import('@cre/contracts').SourceDocumentKind[] = [];
   let graphExtractionResult: import('@cre/contracts').ExtractionResult | null = null;
   let lineageRootId: string | null = null;
+  let assumedInputs: import('../services/assumed-inputs.service.js').AssumedInput[] = [];
   try {
     const envelope = analysis.graphRevisionId
       ? recordGraphStore.getRevisionEnvelope(analysis.graphRevisionId as GraphRevisionIdType)
@@ -564,6 +566,11 @@ analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Respons
       ? recordGraphStore.getExtractionResult(doctrine.extractionResultId)
       : null;
     sourceDocumentKinds = (graphExtractionResult?.sourceDocuments ?? []).map((d) => d.kind);
+    // ★ FIX 4 — which verdict inputs are ASSUMED (benchmark-substituted / defaulted),
+    // not sourced from documents? A B-piece buyer must know 640's 6.5% rate + the
+    // debt service it drives are assumptions, not facts.
+    const adjustedInputs = envelope ? recordGraphStore.getAdjustedInputs(envelope.adjustedInputsId) : null;
+    if (adjustedInputs) assumedInputs = getAssumedInputs(adjustedInputs);
   } catch {
     // best-effort — a missing graph chain leaves kinds empty; overlays still count.
   }
@@ -620,7 +627,7 @@ analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Respons
   // Echo the export params the panel needs so its always-on "Create workbook"
   // CTA can call /underwriting/export without a second round-trip. dealId is the
   // stored analysis id (legacy uuid); assetClass drives the render schema.
-  res.json({ ...finalResult, dealId: stored.id, assetClass: analysis.assetType });
+  res.json({ ...finalResult, dealId: stored.id, assetClass: analysis.assetType, assumedInputs });
 });
 
 // GET /api/analyses/:id/memo — Credit Committee Memorandum HTML.

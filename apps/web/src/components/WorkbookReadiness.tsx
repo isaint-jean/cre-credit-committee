@@ -252,6 +252,25 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
         </div>
       ) : null}
 
+      {(data.assumedInputs?.length ?? 0) > 0 ? (
+        <div className="mb-4 rounded-lg border-l-4 border-[#C99A2E] bg-[#FBF3DD] px-3 py-2.5 text-xs text-text-primary">
+          <div className="mb-1 font-semibold">Assumed inputs — used by the score, NOT sourced from the documents</div>
+          <div className="text-text-secondary">
+            {data.assumedInputs!.map((a) => {
+              const v = a.assumedValue;
+              const disp = v == null ? '—' : v > 0 && v < 1 ? `${(v * 100).toFixed(2)}%` : Math.abs(v) >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v.toLocaleString();
+              return (
+                <span key={a.path} className="mr-3 inline-block whitespace-nowrap" title={a.reason ?? a.ruleId ?? ''}>
+                  <span className="font-mono">{a.label}: {disp}</span>
+                  {a.feedsCoverage ? <span className="ml-1 rounded bg-[#F3E2DB] px-1 py-px font-mono text-[9px] text-warn">drives DSCR/coverage</span> : null}
+                </span>
+              );
+            })}
+          </div>
+          <div className="mt-1 text-[11px] text-text-secondary">These are market-benchmark / default assumptions (e.g. 640’s rate — the ASR is pre-pricing and states no coupon). Coverage metrics rest on them.</div>
+        </div>
+      ) : null}
+
       {summary.needs.length > 0 ? (
         <>
           <div className="mb-2 font-mono text-[11px] text-text-secondary">
