@@ -105,6 +105,7 @@ export interface AssumedInput {
   readonly ruleId: string | null;
   readonly reason: string | null;
   readonly feedsCoverage: boolean;
+  readonly note?: string;
 }
 export interface IntakeCompleteness {
   readonly fields: readonly IntakeFieldResult[];

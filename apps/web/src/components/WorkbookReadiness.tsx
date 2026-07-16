@@ -260,9 +260,10 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
               const v = a.assumedValue;
               const disp = v == null ? '—' : v > 0 && v < 1 ? `${(v * 100).toFixed(2)}%` : Math.abs(v) >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v.toLocaleString();
               return (
-                <span key={a.path} className="mr-3 inline-block whitespace-nowrap" title={a.reason ?? a.ruleId ?? ''}>
+                <span key={a.path} className="mr-3 inline-block whitespace-nowrap" title={a.note ?? a.reason ?? a.ruleId ?? ''}>
                   <span className="font-mono">{a.label}: {disp}</span>
                   {a.feedsCoverage ? <span className="ml-1 rounded bg-[#F3E2DB] px-1 py-px font-mono text-[9px] text-warn">drives DSCR/coverage</span> : null}
+                  {a.note ? <span className="ml-1 rounded bg-paper px-1 py-px font-mono text-[9px] text-text-secondary">display only ⓘ</span> : null}
                 </span>
               );
             })}

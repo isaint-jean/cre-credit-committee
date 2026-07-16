@@ -28,6 +28,28 @@ export interface AssumedInput {
   readonly reason: string | null;
   /** True for inputs that feed DSCR / debt-yield / coverage (the load-bearing ones). */
   readonly feedsCoverage: boolean;
+  /** Clarifying note (e.g. why a $0 reserve line item is not the real burden). */
+  readonly note?: string;
+}
+
+/**
+ * ★ Recurring-capital note. TI / LC / replacement-reserve LINE ITEMS default to 0
+ * in AdjustedInputs (workbook display), but the SCORE's coverage does NOT read
+ * them — sustainable NCF applies the asset-class NCF/NOI ratio (KBRA/DBRS
+ * convention; Office ~0.89 = ~11% recurring-capital haircut) precisely BECAUSE
+ * granular line items aren't extracted. So a $0 reserve line is a display default,
+ * NOT a flatter — and sourcing it INTO coverage would double-count the ratio.
+ * This note stops the panel misreading "reserves = 0" as "no reserve applied".
+ */
+const RECURRING_CAPITAL_NOTE =
+  'Display default. Coverage already carries recurring capital (TI/LC + reserves) via the asset-class '
+  + 'sustainable-NCF ratio (Office ~0.89 = ~11% haircut) — not this $0 line item. Sourcing it into '
+  + 'coverage would double-count.';
+
+function noteFor(path: string): string | undefined {
+  return /capitalReserves\.|tenantImprovements|leasingCommissions|replacementReserves|upfrontTiLc/i.test(path)
+    ? RECURRING_CAPITAL_NOTE
+    : undefined;
 }
 
 /** Friendly labels + coverage-dependency for the load-bearing loan/income paths. */
@@ -69,6 +91,7 @@ export function getAssumedInputs(adjustedInputs: unknown): AssumedInput[] {
         const sub = (node.adjustments ?? []).find((a) => a.ruleId && looksSubstituted(a.ruleId));
         const label = LABELS[path];
         if (sub || label) {
+          const note = noteFor(path);
           out.push({
             path,
             label: label?.label ?? path,
@@ -76,6 +99,7 @@ export function getAssumedInputs(adjustedInputs: unknown): AssumedInput[] {
             ruleId: sub?.ruleId ?? null,
             reason: sub?.reason ?? null,
             feedsCoverage: label?.feedsCoverage ?? false,
+            ...(note ? { note } : {}),
           });
         }
       }
