@@ -46,8 +46,11 @@ export function annualDebtService(args: {
 }
 
 /**
- * Remaining principal at month `termMonths` in a fully-amortizing loan.
- * If `termMonths >= amortizationMonths`, returns 0 (loan paid off at maturity).
+ * Remaining principal at month `termMonths`.
+ *   - INTEREST-ONLY (`amortizationMonths <= 0`): pays NO principal → the WHOLE
+ *     balance balloons at maturity → returns loanAmount. Mirrors
+ *     annualDebtService()'s IO branch.
+ *   - AMORTIZING: if `termMonths >= amortizationMonths`, returns 0 (paid off).
  *
  * Formula (continuously compounded equivalent for monthly payments):
  *   B(t) = P × (1+r)^t - M × ((1+r)^t - 1) / r
@@ -60,6 +63,12 @@ export function maturityBalance(args: {
   readonly termMonths: number;
 }): number {
   if (args.loanAmount <= 0) return 0;
+  // ★ IO loan: no amortization → no principal paydown → the WHOLE balance
+  // balloons at maturity. The `termMonths >= amortizationMonths` gate below
+  // assumes an amortizing loan and would return 0 for IO (e.g. 60 >= 0), silently
+  // zeroing every IO deal's balloon — the SAME bug annualDebtService() already
+  // fixed ("the prior 'return 0' gate silently broke DSCR for every IO-only deal").
+  if (args.amortizationMonths <= 0) return args.loanAmount;
   if (args.termMonths >= args.amortizationMonths) return 0;
   if (args.termMonths <= 0) return args.loanAmount;
 
