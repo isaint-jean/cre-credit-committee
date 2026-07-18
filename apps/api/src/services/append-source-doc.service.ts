@@ -31,8 +31,10 @@ import type { InputSlots } from './extraction/extractor-outcome.js';
 import type { SourceDocSlot } from '@cre/shared';
 import type {
   AssetType, ISODateTime, LibrarySnapshotId, MarketBenchmarksId, CreditManifestoId,
-  RevisionId, ExtractionResult,
+  RevisionId, ExtractionResult, RentRoll, PropertyMetadata, LoanTermsExtraction,
+  ExtractionResultId, RentRollId,
 } from '@cre/contracts';
+import { computeBufferContentHash } from '../util/content-hash.js';
 
 /** deal-doc slot → composer InputSlots field. null = not a composer input.
  *  ★ INGEST-CRITICAL — this map drives the composer slot assembly below; do NOT
@@ -53,6 +55,29 @@ export const SLOT_TO_INPUT: Record<SourceDocSlot, keyof InputSlots | null> = {
 export interface OverlayDivergence {
   readonly overlay: 't12Extraction' | 'sourcesAndUses';
   readonly detail: string;
+}
+
+/**
+ * ★ PARENT CARRY-FORWARD (pure, creditless). Reuse the parent's FROZEN extraction
+ * verbatim — income / value / rent-roll / asr / etc. all carry unchanged — and
+ * override ONLY loanTerms with the AdjustedInputs reconstruction (the existing
+ * term-carry). NO re-extraction, NO LLM (no llmCall parameter — creditless by
+ * construction). This is what makes a re-score deterministic: the child's
+ * extraction is byte-identical to the parent's for every field the new doc didn't
+ * change. Exported so the determinism invariant is unit-tested without an ingest
+ * or any model call.
+ */
+export function composeFromParentCarry(args: {
+  readonly parentEr: ExtractionResult;
+  readonly parentRentRoll: RentRoll | null;
+  readonly parentPropertyMetadata: PropertyMetadata | null;
+  readonly loanTerms: LoanTermsExtraction;
+}): { extractionResult: ExtractionResult; propertyMetadata: PropertyMetadata | null; rentRoll: RentRoll | null } {
+  return {
+    extractionResult: { ...args.parentEr, loanTerms: args.loanTerms },
+    propertyMetadata: args.parentPropertyMetadata,
+    rentRoll: args.parentRentRoll,
+  };
 }
 
 export interface AppendSourceDocArgs {
@@ -157,13 +182,41 @@ export async function appendSourceDocToDeal(
     if (key !== null) slots[key] = { buffer: d.bytes, filename: d.filename };
   }
 
-  // 3. Re-extract the FULL set (same composer, same adapters — no new extractor).
-  const composed = await build({
-    slots: slots as InputSlots,
-    analysisAsOfDate: doctrineEval.analysisAsOfDate,
-    dealRef: analysis.name ?? args.analysisId,
-    loanTerms,
-  });
+  // 3. ★ PARENT CARRY-FORWARD (append-determinism, item #1b). A re-score that
+  //    re-extracts income / rent-roll FRESH DRIFTS: 640's re-score dropped NOI to
+  //    a worse-sourced figure + lost concentration (a non-reconciling fresh roll)
+  //    → 60→66 on WORSE inputs. The append ALREADY carries loan-terms; extend that
+  //    carry to the WHOLE extraction. When the appended doc adds NO NEW CONTENT
+  //    (a re-score re-firing the SAME docs — its bytes already in the parent), we
+  //    reuse the parent's FROZEN extraction verbatim: deterministic, byte-identical
+  //    to the parent, ZERO re-extraction, ZERO LLM (pure data reuse).
+  const parentEr = graph.getExtractionResult(doctrineEval.extractionResultId as ExtractionResultId);
+  const parentRentRoll = doctrineEval.rentRollId
+    ? graph.getRentRoll(doctrineEval.rentRollId as RentRollId)
+    : null;
+  const parentPm = parentEr
+    ? graph.getPropertyMetadataByExtractionResultId(doctrineEval.extractionResultId as ExtractionResultId)
+    : null;
+  const newDocHash = computeBufferContentHash(args.newDoc.bytes);
+  const parentDocHashes = new Set((parentEr?.sourceDocuments ?? []).map((d) => d.contentHash));
+  const introducesNewContent = parentEr === null || !parentDocHashes.has(newDocHash);
+
+  let composed: { extractionResult: ExtractionResult; propertyMetadata: PropertyMetadata | null; rentRoll: RentRoll | null };
+  if (parentEr !== null && !introducesNewContent) {
+    // ★ CARRY-FORWARD — no new content → reuse the parent's frozen extraction.
+    composed = composeFromParentCarry({ parentEr, parentRentRoll, parentPropertyMetadata: parentPm, loanTerms });
+  } else {
+    // Genuinely-new content (or no parent extraction) → re-extract the full set.
+    // FOLLOW-UP: a per-slot merge (carry the parent for slots the new doc didn't
+    // touch) needs the content-addressed extractionResult.id recompute; the
+    // PRIMARY drift (a re-score re-firing the SAME docs) is the carry branch above.
+    composed = await build({
+      slots: slots as InputSlots,
+      analysisAsOfDate: doctrineEval.analysisAsOfDate,
+      dealRef: analysis.name ?? args.analysisId,
+      loanTerms,
+    });
+  }
 
   // 4. PRESERVE-AND-FLAG overlay divergences (own channel; PRESERVE is automatic).
   const overlayDivergences = compareOverlays(analysis as never, composed.extractionResult);
