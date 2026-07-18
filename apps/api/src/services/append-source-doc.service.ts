@@ -187,25 +187,44 @@ export async function appendSourceDocToDeal(
   if (parentAdjustedInputs === null) throw new Error(`append: parent adjusted inputs not found`);
   const lineageRoot = parentEnv.lineageRootId; // deal-doc store key (stable across revisions)
 
-  // Reconstruct the parent's CURRENT (adjusted) loan economics into the
+  // Reconstruct the parent's CURRENT loan economics into the
   // LoanTermsExtraction the composer expects, so the child re-extraction carries
-  // the deal's loan terms — not a blank. Source of truth = parent AdjustedInputs
-  // (inherit the adjusted terms, not the raw original).
+  // the deal's loan terms — not a blank. Source of truth = parent AdjustedInputs.
+  //
+  // ★ PROVENANCE-PRESERVING CARRY (re-score-never-downgrades-disclosure). A field
+  // that was ASSUMED in the parent — raw === null with a substitution / benchmark
+  // / default adjustment (e.g. 640's interest rate: the ASR is pre-pricing, so
+  // judgment SUBSTITUTED 6.5% from the market benchmark and flagged
+  // JE_INTEREST_RATE_SUBSTITUTED_FROM_BENCHMARK) — must carry the RAW null, NOT
+  // the adjusted value. Carrying the adjusted 0.065 makes the child present the
+  // rate as a SOURCED bank rate (raw 0.065, substitution flag gone) → the
+  // "interest rate is an assumption" disclosure the assumed-inputs surface exists
+  // to show silently vanishes on a re-score. Carrying null re-runs the SAME
+  // substitution against the SAME (carried) benchmark → identical value AND
+  // identical disclosure. Genuinely-extracted / derived-and-carried fields
+  // (loanAmount, term) are NOT assumed → carry the adjusted value (preserves the
+  // 7d4fd9a term-carry). INVARIANT: an assumed input stays flagged assumed
+  // through the append carry — never downgraded to sourced.
   const pl = parentAdjustedInputs.loan;
+  const carry = (li: { raw: number | null; adjusted: number | null; adjustments?: ReadonlyArray<{ ruleId?: string }> }): number | null => {
+    const assumed = li.raw === null
+      && (li.adjustments ?? []).some((a) => /SUBSTITUT|BENCHMARK|DEFAULT/i.test(a.ruleId ?? ''));
+    return assumed ? null : li.adjusted;
+  };
   const loanTerms: import('@cre/contracts').LoanTermsExtraction = {
-    loanAmount: pl.loanAmount.adjusted,
-    interestRate: pl.interestRate.adjusted,
-    amortization: pl.amortizationMonths.adjusted,
-    interestOnlyPeriod: pl.ioPeriodMonths.adjusted,
+    loanAmount: carry(pl.loanAmount),
+    interestRate: carry(pl.interestRate),
+    amortization: carry(pl.amortizationMonths),
+    interestOnlyPeriod: carry(pl.ioPeriodMonths),
     // ★ CARRY termMonths. buildTermMonths reads maturityDate−asOf FIRST, then
     // falls back to loanTerms.termMonths. A deal with a stated maturityDate
     // (Sunroad) survived on that first path — but a TERM-ONLY deal with NO
     // maturity (640: "$400,000,000, 5-year, interest-only", maturityDate null)
     // has ONLY the termMonths fallback. Omitting it here dropped the parent's
     // 60mo term on every re-score → JE_TERM_MONTHS_MISSING, regardless of what
-    // the fresh extraction found (this override is PRIMARY over it). Inherit the
-    // parent's adjusted term so the append carries the deal's real economics.
-    termMonths: pl.termMonths.adjusted,
+    // the fresh extraction found (this override is PRIMARY over it). termMonths is
+    // extracted/derived (not benchmark-substituted) so `carry` returns its value.
+    termMonths: carry(pl.termMonths),
     maturityDate: pl.maturityDate,
   };
 
@@ -269,8 +288,11 @@ export async function appendSourceDocToDeal(
     //   fresh run 0). Only ADOPT the fresh roll when it is at least as complete as
     //   the parent's; otherwise carry the parent's frozen roll. So a bad
     //   re-extraction can never DOWNGRADE a deal's concentration data.
-    const parentUnits = (parentRentRoll?.units?.length ?? (parentEr.rentRoll?.units?.length ?? 0));
-    const freshUnits = (fresh.rentRoll?.units?.length ?? (fresh.extractionResult.rentRoll?.units?.length ?? 0));
+    //   Count via the lossy RentRollExtraction projection on the ExtractionResult
+    //   (`.units`) — the typed RentRoll carries `.lines`, but the projection's
+    //   unit count is the completeness signal every consumer reads.
+    const parentUnits = parentEr.rentRoll?.units?.length ?? 0;
+    const freshUnits = fresh.extractionResult.rentRoll?.units?.length ?? 0;
     composed = freshUnits >= parentUnits && freshUnits > 0
       ? composeFromParentCarryWithFreshRentRoll({ parentEr, parentPropertyMetadata: parentPm, fresh, loanTerms })
       : composeFromParentCarry({ parentEr, parentRentRoll, parentPropertyMetadata: parentPm, loanTerms });
