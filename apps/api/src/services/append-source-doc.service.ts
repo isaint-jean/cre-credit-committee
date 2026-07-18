@@ -34,7 +34,8 @@ import type {
   RevisionId, ExtractionResult, RentRoll, PropertyMetadata, LoanTermsExtraction,
   ExtractionResultId, RentRollId,
 } from '@cre/contracts';
-import { computeBufferContentHash } from '../util/content-hash.js';
+import { computeBufferContentHash, computeExtractionResultId } from '../util/content-hash.js';
+import { ASR_ADAPTER_VERSION } from './extraction/adapters/asr.adapter.js';
 
 /** deal-doc slot → composer InputSlots field. null = not a composer input.
  *  ★ INGEST-CRITICAL — this map drives the composer slot assembly below; do NOT
@@ -77,6 +78,44 @@ export function composeFromParentCarry(args: {
     extractionResult: { ...args.parentEr, loanTerms: args.loanTerms },
     propertyMetadata: args.parentPropertyMetadata,
     rentRoll: args.parentRentRoll,
+  };
+}
+
+/**
+ * ★ PER-SLOT MERGE — carry the parent's frozen extraction, but take the FRESH
+ * rent-roll field. Used when the rent-roll extractor IMPROVED (parent asr 0.5.0 →
+ * current 0.6.2 = the 5afa5f5 reconciling roll): re-extract to get the reconciled
+ * 24-tenant roll so concentration prices, while income / value / loan-terms stay
+ * BYTE-IDENTICAL to the parent (field-level, not all-or-nothing — no
+ * re-extraction drift). The content-addressed extractionResult.id is RECOMPUTED
+ * (ingest trusts it and does not recompute) so the child's id reflects the new
+ * rent-roll content. Only `rentRoll` (+ its extractorVersion) changes; every other
+ * field is the parent's frozen value.
+ */
+export function composeFromParentCarryWithFreshRentRoll(args: {
+  readonly parentEr: ExtractionResult;
+  readonly parentPropertyMetadata: PropertyMetadata | null;
+  readonly fresh: { extractionResult: ExtractionResult; rentRoll: RentRoll | null };
+  readonly loanTerms: LoanTermsExtraction;
+}): { extractionResult: ExtractionResult; propertyMetadata: PropertyMetadata | null; rentRoll: RentRoll | null } {
+  const parent = args.parentEr as unknown as Record<string, unknown>;
+  const fresh = args.fresh.extractionResult as unknown as Record<string, unknown>;
+  const { id: _dropId, ...parentBody } = parent; // id recomputed below from the new content
+  const childBody = {
+    ...parentBody,
+    rentRoll: fresh['rentRoll'], // ★ ONLY the rent-roll field is fresh (the reconciled roll)
+    loanTerms: args.loanTerms,
+    extractorVersions: {
+      ...(parent['extractorVersions'] as Record<string, unknown> ?? {}),
+      rentRoll: (fresh['extractorVersions'] as Record<string, unknown> | undefined)?.['rentRoll']
+        ?? (parent['extractorVersions'] as Record<string, unknown> | undefined)?.['rentRoll'],
+    },
+  };
+  const id = computeExtractionResultId(childBody);
+  return {
+    extractionResult: { id, ...childBody } as unknown as ExtractionResult,
+    propertyMetadata: args.parentPropertyMetadata,
+    rentRoll: args.fresh.rentRoll,
   };
 }
 
@@ -200,16 +239,43 @@ export async function appendSourceDocToDeal(
   const newDocHash = computeBufferContentHash(args.newDoc.bytes);
   const parentDocHashes = new Set((parentEr?.sourceDocuments ?? []).map((d) => d.contentHash));
   const introducesNewContent = parentEr === null || !parentDocHashes.has(newDocHash);
+  // ★ Rent-roll extractor improved? The reconciling roll (5afa5f5) ships in the
+  //   ASR adapter, so an asr-version bump (parent 0.5.0 → current 0.6.2) means a
+  //   re-extract would read the FULL reconciled roll the parent under-read. Only
+  //   then do we re-extract — a PLAIN re-score (matching version) still carries
+  //   byte-identical (determinism fix intact).
+  const parentAsrVersion = (parentEr?.extractorVersions as Record<string, unknown> | undefined)?.['asr'];
+  const rentRollExtractorImproved = parentEr !== null
+    && typeof parentAsrVersion === 'string' && parentAsrVersion !== ASR_ADAPTER_VERSION;
 
   let composed: { extractionResult: ExtractionResult; propertyMetadata: PropertyMetadata | null; rentRoll: RentRoll | null };
-  if (parentEr !== null && !introducesNewContent) {
-    // ★ CARRY-FORWARD — no new content → reuse the parent's frozen extraction.
+  if (parentEr !== null && !introducesNewContent && !rentRollExtractorImproved) {
+    // ★ CARRY-FORWARD — no new content, no extractor change → reuse the parent's
+    //   frozen extraction verbatim (deterministic, byte-identical, ZERO LLM).
     composed = composeFromParentCarry({ parentEr, parentRentRoll, parentPropertyMetadata: parentPm, loanTerms });
+  } else if (parentEr !== null && rentRollExtractorImproved) {
+    // ★ PER-SLOT MERGE — the rent-roll extractor improved. Re-extract to get the
+    //   reconciled roll (concentration prices), but carry income / value /
+    //   loan-terms BYTE-IDENTICAL from the parent — ONLY the rent-roll field
+    //   changes. id recomputed from the new content.
+    const fresh = await build({
+      slots: slots as InputSlots,
+      analysisAsOfDate: doctrineEval.analysisAsOfDate,
+      dealRef: analysis.name ?? args.analysisId,
+      loanTerms,
+    });
+    // ★ NEVER-REGRESS GUARD. The rent-roll LLM is non-deterministic — a run can
+    //   return FEWER tenants than the parent already has (640: parent 19 units, a
+    //   fresh run 0). Only ADOPT the fresh roll when it is at least as complete as
+    //   the parent's; otherwise carry the parent's frozen roll. So a bad
+    //   re-extraction can never DOWNGRADE a deal's concentration data.
+    const parentUnits = (parentRentRoll?.units?.length ?? (parentEr.rentRoll?.units?.length ?? 0));
+    const freshUnits = (fresh.rentRoll?.units?.length ?? (fresh.extractionResult.rentRoll?.units?.length ?? 0));
+    composed = freshUnits >= parentUnits && freshUnits > 0
+      ? composeFromParentCarryWithFreshRentRoll({ parentEr, parentPropertyMetadata: parentPm, fresh, loanTerms })
+      : composeFromParentCarry({ parentEr, parentRentRoll, parentPropertyMetadata: parentPm, loanTerms });
   } else {
     // Genuinely-new content (or no parent extraction) → re-extract the full set.
-    // FOLLOW-UP: a per-slot merge (carry the parent for slots the new doc didn't
-    // touch) needs the content-addressed extractionResult.id recompute; the
-    // PRIMARY drift (a re-score re-firing the SAME docs) is the carry branch above.
     composed = await build({
       slots: slots as InputSlots,
       analysisAsOfDate: doctrineEval.analysisAsOfDate,
