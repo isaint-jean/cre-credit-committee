@@ -81,6 +81,7 @@ import { EXTRACTION_ENGINE_VERSION } from '@cre/contracts';
 import { computeExtractionResultId } from '../../util/content-hash.js';
 import { runCfAdapter } from './adapters/cf.adapter.js';
 import { runRentRollAdapter } from './adapters/rent-roll.adapter.js';
+import { runRentRollPdfAdapter } from './adapters/rent-roll-pdf.adapter.js';
 import { runAsrAdapter } from './adapters/asr.adapter.js';
 import { runPcaAdapter } from './adapters/pca.adapter.js';
 import { runAppraisalAdapter } from './adapters/appraisal.adapter.js';
@@ -88,6 +89,7 @@ import type {
   ExtractorOutcome,
   ExtractionSlot,
   InputSlots,
+  SlotInput,
 } from './extractor-outcome.js';
 import type { BuildReport, SlotReport } from './build-report.js';
 import { pickRentRoll } from './pick-rent-roll.js';
@@ -146,6 +148,7 @@ export interface BuildExtractionResultOutput {
 export interface BuildExtractionResultDeps {
   readonly runCfAdapter: typeof runCfAdapter;
   readonly runRentRollAdapter: typeof runRentRollAdapter;
+  readonly runRentRollPdfAdapter: typeof runRentRollPdfAdapter;
   readonly runAsrAdapter: typeof runAsrAdapter;
   readonly runPcaAdapter: typeof runPcaAdapter;
   readonly runAppraisalAdapter: typeof runAppraisalAdapter;
@@ -154,10 +157,20 @@ export interface BuildExtractionResultDeps {
 export const DEFAULT_COMPOSER_DEPS: BuildExtractionResultDeps = {
   runCfAdapter,
   runRentRollAdapter,
+  runRentRollPdfAdapter,
   runAsrAdapter,
   runPcaAdapter,
   runAppraisalAdapter,
 };
+
+/** A dedicated rent-roll doc may land in the rent_roll slot as a PDF (exported
+ *  roll) rather than an XLSX. Sniff the PDF magic bytes ("%PDF-") so the
+ *  composer routes it to the LLM-primary PDF reader instead of the XLSX parser.
+ *  A dedicated roll doc — PDF or XLSX — always beats the ASR-embedded narrative. */
+function isPdfSlot(slot: SlotInput | undefined): boolean {
+  if (slot === undefined || slot.buffer.length < 5) return false;
+  return slot.buffer.subarray(0, 5).toString('latin1') === '%PDF-';
+}
 
 /* ------------------------------- internal --------------------------------- */
 
@@ -348,8 +361,13 @@ export async function buildExtractionResult(
   const cfP = args.slots.sellerCfXlsx
     ? deps.runCfAdapter(args.slots.sellerCfXlsx)
     : Promise.resolve(null);
+  // Dedicated rent-roll slot: an XLSX runs the deterministic parser; a PDF
+  // (an exported roll — 640's Vornado ANNULREP) routes to the LLM-primary
+  // reader instead of silently falling through to the ASR narrative fallback.
   const rrP = args.slots.rentRollXlsx
-    ? deps.runRentRollAdapter(args.slots.rentRollXlsx)
+    ? (isPdfSlot(args.slots.rentRollXlsx)
+        ? deps.runRentRollPdfAdapter(args.slots.rentRollXlsx)
+        : deps.runRentRollAdapter(args.slots.rentRollXlsx))
     : Promise.resolve(null);
   const asrP = args.slots.asrPdf
     ? deps.runAsrAdapter(args.slots.asrPdf)

@@ -244,6 +244,12 @@ function makeDeps(b: DepBehaviorMap = {}): BuildExtractionResultDeps {
       if (b.rr === undefined) throw new Error('RR adapter called but no behavior set');
       return b.rr;
     },
+    // Rent-roll PDF adapter — these tests feed a non-PDF SLOT buffer, so the
+    // composer's isPdfSlot sniff routes to runRentRollAdapter and this is never
+    // invoked; throw loudly if a future PDF-slot test forgets to set behavior.
+    runRentRollPdfAdapter: async (_slot: SlotInput) => {
+      throw new Error('Rent-roll PDF adapter called but no behavior set in this test');
+    },
     runAsrAdapter: async (_slot: SlotInput) => {
       if (b.asr === 'throw') throw new Error('ASR adapter unexpected throw');
       if (b.asr === undefined) throw new Error('ASR adapter called but no behavior set');
