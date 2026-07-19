@@ -97,6 +97,12 @@ function makeMockStore(opts: {
     getLatestRevisionByLineageRoot(_rootId: RevisionId) {
       return opts.envelope ?? null;
     },
+    // Non-root resolution helper (widened interface). The mock treats every id as
+    // a root, so a revision lookup never needs the lineage-root round-trip;
+    // return null so the handler's primary (root) lookup path is what's exercised.
+    getRevisionEnvelope(_revisionId: RevisionId) {
+      return null;
+    },
     getLatestHandbookEvaluationForAdjustedInputs(adjustedInputsId: string) {
       opts.onLookup?.(adjustedInputsId);
       return opts.evaluation ?? null;

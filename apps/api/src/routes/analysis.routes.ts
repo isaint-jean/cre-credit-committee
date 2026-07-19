@@ -45,7 +45,7 @@ import {
   ParentRevisionNotFoundError,
   type RevisionDelta as GraphRevisionDelta,
 } from '../services/apply-revision-delta.js';
-import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger, type AssetType as ContractsAssetType } from '@cre/contracts';
+import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger, type AssetType as ContractsAssetType, type RevisionLineageEnvelope } from '@cre/contracts';
 import { requirePermission } from '../middleware/require-permission.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
@@ -461,7 +461,7 @@ analysisRoutes.get('/:id', (req: Request, res: Response) => {
   }
 
   if (format === 'graph') {
-    handleGraphRead(req, res, recordGraphStore);
+    handleGraphRead(req, res, recordGraphStore, store);
     return;
   }
 
@@ -810,13 +810,52 @@ function handleLegacyRevision(req: Request, res: Response): void {
  * (for routing) and the internal evaluation anchor (for workflow / audit / committee
  * lookups, until issue #23 unifies them).
  */
+/**
+ * Resolve a graph `:id` (root, HEAD, or any revision on the lineage) to the
+ * AUTHORITATIVE current-head envelope to render.
+ *
+ * WHY (the render-less-head 404): the naïve `getLatestRevisionByLineageRoot(id)`
+ * has two failure modes that blanked the whole analysis view for a re-scored
+ * deal: (1) it only matches a lineage ROOT, so a non-root HEAD id → null → 404;
+ * (2) "latest by ordinal" is AMBIGUOUS when a lineage has branches (640's
+ * rolled-back siblings are all ordinal-1 children of the same root) — it can pick
+ * a stale sibling, not the current head. The ONLY authoritative head is the
+ * deal's canonical `analyses.graph_revision_id`. `resolveAnalysisForRead` already
+ * resolves that (canonical scored analysis → its graphRevisionId) and, as of the
+ * non-root fix, handles any revision id — so route through it when the sqlite
+ * store is available. Fall back to the graph-native latest (with non-root
+ * handling) when it isn't (route tests pass only the graph store, and pure-graph
+ * deals have no legacy head pointer).
+ */
+function resolveGraphHeadEnvelope(
+  id: RevisionId,
+  graphStore: RecordGraphStore,
+  sqliteStore?: SqliteStore,
+): RevisionLineageEnvelope | null {
+  if (sqliteStore !== undefined) {
+    const analysis = resolveAnalysisForRead(id, graphStore, sqliteStore);
+    if (analysis !== null && typeof analysis.graphRevisionId === 'string' && analysis.graphRevisionId.length > 0) {
+      const headEnv = graphStore.getRevisionEnvelope(analysis.graphRevisionId as RevisionId);
+      if (headEnv !== null) return headEnv;
+    }
+  }
+  // Graph-native fallback: latest by lineage root, resolving a non-root id via
+  // its envelope so a head/child id still lands on its lineage's latest.
+  const byRoot = graphStore.getLatestRevisionByLineageRoot(id);
+  if (byRoot !== null) return byRoot;
+  const self = graphStore.getRevisionEnvelope(id);
+  if (self !== null) return graphStore.getLatestRevisionByLineageRoot(self.lineageRootId as RevisionId);
+  return null;
+}
+
 export function handleGraphRead(
   req: Request,
   res: Response,
   graphStore: RecordGraphStore,
+  sqliteStore?: SqliteStore,
 ): void {
-  const lineageRootId = req.params.id as RevisionId;
-  const envelope = graphStore.getLatestRevisionByLineageRoot(lineageRootId);
+  const id = req.params.id as RevisionId;
+  const envelope = resolveGraphHeadEnvelope(id, graphStore, sqliteStore);
   if (envelope === null) {
     res.status(404).json({
       error: 'ANALYSIS_NOT_FOUND',
@@ -833,7 +872,7 @@ export function handleGraphRead(
     };
     res.status(200).json({
       ...meta.rendered,
-      lineageRootId,
+      lineageRootId: envelope.lineageRootId,
       revisionOrdinal: envelope.revisionOrdinal,
     });
   } catch (e) {
@@ -870,11 +909,20 @@ export function handleHandbookEvaluationRead(
   res: Response,
   graphStore: HandbookEvaluationReadStore,
 ): void {
-  const lineageRootId = req.params.id as RevisionId;
+  const id = req.params.id as RevisionId;
 
-  // Resolve the lineageRootId to the latest revision envelope. Same pattern
-  // as handleGraphRead — content-hash root → latest envelope on that lineage.
-  const envelope = graphStore.getLatestRevisionByLineageRoot(lineageRootId);
+  // Resolve to the latest revision envelope. Same non-root-robust pattern as
+  // handleGraphRead: a re-scored deal's HEAD is a non-root revision, so try the
+  // id as a root, then recover its lineage root via the envelope and walk to
+  // latest. Without this a head id → null → a spurious 404 (silently caught by
+  // the client, but the eval is then invisible).
+  let envelope = graphStore.getLatestRevisionByLineageRoot(id);
+  if (envelope === null) {
+    const self = graphStore.getRevisionEnvelope(id);
+    if (self !== null) {
+      envelope = graphStore.getLatestRevisionByLineageRoot(self.lineageRootId as RevisionId);
+    }
+  }
   if (envelope === null) {
     res.status(404).json({
       error: 'ANALYSIS_NOT_FOUND',

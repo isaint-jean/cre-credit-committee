@@ -127,6 +127,9 @@ export class RegistryUnresolvableError extends Error {
  */
 export interface HandbookEvaluationReadStore {
   getLatestRevisionByLineageRoot(lineageRootId: RevisionId): RevisionLineageEnvelope | null;
+  // Lets the handler resolve a non-root revision id (a re-scored HEAD) to its
+  // lineage root before walking to latest — same robustness as handleGraphRead.
+  getRevisionEnvelope(revisionId: RevisionId): RevisionLineageEnvelope | null;
   getLatestHandbookEvaluationForAdjustedInputs(adjustedInputsId: string): HandbookEvaluation | null;
 }
 

@@ -71,12 +71,28 @@ export function resolveAnalysisForRead(
     return store.getLatestRevisionInLineage(id);
   }
 
-  // format === 'graph' — id is the lineageRootId. Resolve the LATEST envelope on
-  // that lineage the SAME way handleGraphRead does.
-  const envelope = recordGraphStore.getLatestRevisionByLineageRoot(id as RevisionId);
+  // format === 'graph' — the id is a 64-hex revision id. Historically this was
+  // ASSUMED to be the lineage ROOT (getLatestRevisionByLineageRoot only matches a
+  // root). But a surface can pass ANY revision on the lineage — most importantly
+  // the current HEAD (a re-scored deal's head is an ordinal-≥1 child, NOT the
+  // root). getLatestRevisionByLineageRoot(head) → null → a spurious 404 that
+  // blanks the whole analysis view. Resolve robustly: try the id as a root first;
+  // if that misses, recover its lineage root via the revision envelope and walk
+  // to the latest from there. So a root, a head, or any intermediate revision all
+  // resolve.
+  let envelope = recordGraphStore.getLatestRevisionByLineageRoot(id as RevisionId);
+  if (envelope === null) {
+    const self = recordGraphStore.getRevisionEnvelope(id as RevisionId);
+    if (self !== null) {
+      envelope = recordGraphStore.getLatestRevisionByLineageRoot(self.lineageRootId as RevisionId);
+    }
+  }
   if (envelope === null) {
     return null;
   }
+  // The resolved lineage root (stable across the chain) — use it for canonical
+  // resolution below, NOT the passed id (which may be a non-root head/child).
+  const lineageRootId = envelope.lineageRootId;
 
   // ★ CANONICAL RESOLUTION (fires for EVERY graph read) — resolve to the deal's
   // CANONICAL scored analysis so the deal page and pool coverage always agree on
@@ -86,7 +102,7 @@ export function resolveAnalysisForRead(
   // UI navigating to the duplicate showed no verdict/LTV + the wrong
   // completeness. getCanonicalScoredAnalysisId picks the ORIGINAL (earliest
   // analysis) — the SAME rule pool coverage now uses — so both surfaces converge.
-  const rootMeta = store.getRootRefAndName(id);
+  const rootMeta = store.getRootRefAndName(lineageRootId);
   if (rootMeta?.dealRef) {
     const canonicalId = store.getCanonicalScoredAnalysisId(rootMeta.dealRef);
     if (canonicalId !== null) {
@@ -111,10 +127,10 @@ export function resolveAnalysisForRead(
   // spine via graphRevisionId; overlays (appraisalExtraction) are honestly
   // absent for a deal that never had a legacy row.
   return synthesizePureGraphAnalysis({
-    id,
-    name: rootMeta?.name ?? id,
+    id: lineageRootId,
+    name: rootMeta?.name ?? lineageRootId,
     graphRevisionId: envelope.revisionId,
-    lineageRootId: id,
+    lineageRootId,
     revisionOrdinal: envelope.revisionOrdinal,
   });
 }
