@@ -37,7 +37,7 @@
  *   AdjustedInputs as a precedence input for the loan atoms; it does not
  *   modify or replace it.
  */
-import type { AssetProfile, RentRoll } from '@cre/contracts';
+import type { AssetProfile, RentRoll, AsrCashFlowLadder, OperatingStatementExtraction } from '@cre/contracts';
 import { ASSET_TYPE_LABELS } from '@cre/contracts';
 import type {
   AdjustedInputs,
@@ -473,11 +473,62 @@ function buildSourcesUsesAtoms(analysis: Analysis): Record<string, number | null
  * ADDITIVE — the existing t12/issuerUw atoms are untouched; P5 wires these into
  * cells (B/D/F + the now-fillable H/L PGI). All-null when the table is absent.
  */
+/**
+ * ★ T12 FALLBACK MAPPER. Map the deal's separately-extracted T-12 ACTUALS
+ * (`OperatingStatementExtraction`, from `er.t12Actual` → `analysis.t12Extraction`,
+ * e.g. parsed from a historical-financials workbook) into the ASR cash-flow
+ * ladder shape the Operating-History T12 column (H) reads. Used ONLY as a
+ * fallback when the ASR's own `underwrittenCashFlows.t12` ladder is absent (640's
+ * BMO ASR format doesn't carry it) — so the column populates from data the graph
+ * ALREADY holds, no re-extraction. Purely a shape adaptation; every value is a
+ * direct field carry except `otherRevenue`, recovered as totalIncome − GPR
+ * (mirrors the engine's JE_OTHER_INCOME_RECOVERED_FROM_TOTAL so the column foots:
+ * base rent + other = potential gross). Fields the actuals don't separate
+ * (commercial reimbursement, parking, EGR/NCF subtotals) stay null — the template
+ * subtotal formulas derive them from the leaves.
+ */
+function mapT12ActualToLadder(t12: OperatingStatementExtraction): AsrCashFlowLadder {
+  const gpr = t12.income.grossPotentialRent;
+  const total = t12.income.totalIncome;
+  const otherRevenue =
+    typeof total === 'number' && typeof gpr === 'number' ? total - gpr : (t12.income.otherIncome ?? null);
+  return {
+    baseRentalRevenue: gpr,
+    commercialReimbursementRevenue: null,
+    parkingIncome: null,
+    otherRevenue,
+    potentialGrossRevenue: total,
+    vacancyLoss: t12.vacancyLoss,
+    effectiveGrossRevenue: null,
+    realEstateTaxes: t12.expenses.taxes,
+    insurance: t12.expenses.insurance,
+    utilities: t12.expenses.utilities,
+    repairsAndMaintenance: t12.expenses.repairsMaintenance,
+    managementFee: t12.expenses.managementFees,
+    generalAndAdministrative: t12.expenses.generalAndAdmin,
+    totalExpenses: t12.expenses.totalOperatingExpenses,
+    netOperatingIncome: t12.noi,
+    replacementReserves: t12.belowNoiAdjustments.replacementReserves,
+    tenantImprovements: t12.belowNoiAdjustments.tenantImprovements,
+    leasingCommissions: t12.belowNoiAdjustments.leasingCommissions,
+    netCashFlow: null,
+  };
+}
+
 function buildAsrCashFlowColumnAtoms(
   analysis: Analysis,
   column: 'y2021' | 'y2022' | 'y2023' | 't12' | 'uw' | 'appraisal',
 ): Record<string, number | null> {
-  const c = analysis.underwrittenCashFlows?.[column];
+  let c: AsrCashFlowLadder | null | undefined = analysis.underwrittenCashFlows?.[column];
+  // ★ T12 column fallback (creditless, no re-extraction): when the ASR's own T12
+  // ladder is absent but the deal's T-12 ACTUALS were extracted separately, map
+  // those actuals in so Operating-History Column H populates from data the graph
+  // already has. ONLY the 't12' column, ONLY when the ASR ladder is missing — the
+  // uw/appraisal/historical columns and deals whose ASR ladder IS present (e.g.
+  // Sunroad) read exactly as before.
+  if ((c === null || c === undefined) && column === 't12' && analysis.t12Extraction) {
+    c = mapT12ActualToLadder(analysis.t12Extraction);
+  }
   // P5 derived atoms. economicOccupancy reproduces the template's r6 (so the
   // r10 vacancy formula -PGI*(1-occ) computes the source's vacancy): for UW
   // vacancyLoss −507,278 / PGI 12,997,217 → occ 0.961 (matches key L6); for
