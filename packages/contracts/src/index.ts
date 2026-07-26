@@ -132,5 +132,9 @@ export * from './committee-memo-manifest.js';
 // engine record is read or written by this layer; pool types are additive.
 export * from './pool.js';
 
+// HumanSponsorAssessment — the sanctioned human→dim-9 bridge (provenance locked
+// to 'human'). Carried on AdjustedInputs so entering one is a new scored head.
+export * from './sponsor-assessment.js';
+
 // Typed error payloads
 export * from './errors.js';

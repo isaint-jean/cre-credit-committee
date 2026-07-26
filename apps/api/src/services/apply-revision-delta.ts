@@ -34,6 +34,7 @@ import type {
   AdjustedMetrics,
   AssetProfile,
   DoctrineEvaluation,
+  HumanSponsorAssessment,
   LibrarySnapshot,
   NarrativeFacts,
   RevisionId,
@@ -136,7 +137,14 @@ export type RevisionDelta =
   // short-circuit is bypassed, and the child gets a distinct revisionId purely
   // from parentRevisionId (the locked 3-field hash). The reason rides
   // args.adjustmentOrigin; provenance.inputDiff is empty.
-  | { readonly kind: 'doctrine-recompute' };
+  | { readonly kind: 'doctrine-recompute' }
+  // The sanctioned human→dim-9 bridge. A reviewer enters an explicit
+  // HumanSponsorAssessment (after reading a DD finding as CONTEXT — never
+  // auto-populated). It rides onto the child AdjustedInputs body, changing its
+  // content-hash → new AdjustedInputsId → new head. dim-9 resolves from
+  // HITL/inert to a real ±0.20 modifier; the score moves because a HUMAN judged.
+  // No numeric overrides; inputDiff records the sponsorAssessment addition.
+  | { readonly kind: 'sponsor-assessment'; readonly assessment: HumanSponsorAssessment };
 
 /* -------------------------------- args/result ------------------------------ */
 
@@ -538,6 +546,13 @@ export async function applyRevisionDelta(
     // to the parent (childAdjustedInputsId === parent's) → an EMPTY inputDiff,
     // the honest record for an inputs-unchanged re-score.
     childBody = recomputeDerivedFields(childBody, narrativeFacts);
+  } else if (args.delta.kind === 'sponsor-assessment') {
+    // The human judgment rides onto AdjustedInputs verbatim. No numeric recompute
+    // (no line items changed) — only the qualitative dim-9 input is (re)set. The
+    // new/changed assessment makes childAdjustedInputsId differ from the parent's,
+    // so a distinct head mints; entering the identical assessment (same factors,
+    // same enteredAt) hashes equal → idempotent no-op via the short-circuit below.
+    childBody = { ...parentBody, sponsorAssessment: args.delta.assessment };
   }
 
   // e. Compute child AdjustedInputs id and the would-be childRevisionId.
@@ -643,7 +658,14 @@ export async function applyRevisionDelta(
       rentRoll,
     },
     store,
-    { llmCall: deps.llmCall, externalDd: deps.externalDd },
+    {
+      llmCall: deps.llmCall,
+      externalDd: deps.externalDd,
+      // Carry the parent head's frozen external-DD forward so a re-score (inputs
+      // edit or sponsor-assessment entry) keeps the §4/§6 external signal visible
+      // — a fresh DD fetch, if enabled, still wins over the carried context.
+      carryForwardExternalDD: store.getDoctrineRenderSnapshot(parentEnvelope.doctrineEvaluationId)?.externalDD,
+    },
   );
   const envelope: RevisionLineageEnvelope = {
     revisionId: childRevisionId,

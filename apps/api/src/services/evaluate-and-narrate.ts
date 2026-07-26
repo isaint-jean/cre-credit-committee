@@ -70,6 +70,7 @@ import {
 } from './mitigation/compose-mitigations.js';
 import type { EvaluateDealResult } from '../doctrine-clean/scoring/evaluate-deal.js';
 import { evaluateDeal } from '../doctrine-clean/index.js';
+import { toDoctrineSponsorAssessment } from './sponsor-assessment-bridge.js';
 import { computeMaturityBalance } from '../doctrine-clean/dimensions/refinance-feasibility.js';
 import {
   computeDoctrineRenderSnapshotId,
@@ -99,6 +100,15 @@ export interface EvaluateAndNarrateDeps {
     readonly braveSearch?: ExternalDDDeps['braveSearch'];
     readonly llm?: ExternalDDDeps['llm'];
   };
+  /**
+   * Carry a prior head's frozen external-DD forward onto this snapshot when DD
+   * is NOT re-run at this mint (e.g. a revision that only changes inputs or
+   * enters a sponsor assessment). External-DD is deal-level CONTEXT — a re-score
+   * should not silently drop it, so §4/§6 keep showing the external signal
+   * alongside the new score. Used only when the mint's own DD run produced
+   * nothing (opt-in DD, when enabled, takes precedence — a fresh fetch wins).
+   */
+  readonly carryForwardExternalDD?: SnapshotExternalDD;
 }
 
 export interface EvaluateAndNarrateResult {
@@ -285,7 +295,10 @@ export async function evaluateAndNarrate(
       const aiPrime  = recomputeAiAtLoan(args.adjustedInputs, newLoanAmount);
       const uwPrime  = synthesizeUwModelFromInputs(aiPrime, args.propertyMetadata);
       const bagPrime = { ...dealBag, loanAmount: newLoanAmount };
-      const dealResultPrime = evaluateDeal(bagPrime);
+      // Carry the human sponsor assessment (loan-independent) through the L'
+      // recompute so dim-9 is consistent between the head and the composed
+      // mitigation state. Absent → null → HITL, unchanged.
+      const dealResultPrime = evaluateDeal(bagPrime, toDoctrineSponsorAssessment(args.adjustedInputs.sponsorAssessment ?? null));
       return {
         adjustedInputs: aiPrime,
         uwModel: uwPrime,
@@ -340,6 +353,13 @@ export async function evaluateAndNarrate(
       );
       externalDD = undefined;
     }
+  }
+  // Carry a prior head's external-DD forward when this mint didn't fetch its own
+  // (a fresh fetch always wins). Keeps the external signal visible in §4/§6
+  // across a re-score (e.g. entering a sponsor assessment) instead of silently
+  // dropping deal-level context.
+  if (externalDD === undefined && deps.carryForwardExternalDD !== undefined) {
+    externalDD = deps.carryForwardExternalDD;
   }
 
   // Read-instead-of-recompute snapshot (PR i). Captured here — AFTER the

@@ -26,6 +26,7 @@ import type {
 import type { SourceTier } from './source-tier.js';
 import type { JudgmentEngineRuleId } from './judgment-engine-rules.js';
 import type { CreditManifestoRuleId } from './manifesto.js';
+import type { HumanSponsorAssessment } from './sponsor-assessment.js';
 
 /**
  * Data-confidence axis. v1.9 widens the v1.6 binary into a 3-tier ordinal:
@@ -491,4 +492,18 @@ export interface AdjustedInputs {
    * distrust second (2 possible). Each entry deduplicated.
    */
   readonly dataQualityFlags: readonly JudgmentEngineRuleId[];
+
+  /**
+   * The sanctioned human→dim-9 bridge (optional; absent on the corpus default).
+   * When a HUMAN reviewer enters an explicit `HumanSponsorAssessment` (after
+   * reading a DD finding as context — NEVER auto-populated from it), it rides
+   * here so that the assessment is part of the content-hashed inputs: a new
+   * assessment → new AdjustedInputsId → new RevisionId → NEW SCORED HEAD,
+   * attributed to who/when. The doctrine scorer extracts the five factors to
+   * resolve dim-9 from HITL/inert to a real ±0.20 modifier; the memo renders the
+   * provenance. Absent → dim-9 stays HITL (`evaluateDeal` receives null). This
+   * is a qualitative doctrine input (not a numerical line item), which is why it
+   * sits at the top level rather than inside `metrics`.
+   */
+  readonly sponsorAssessment?: HumanSponsorAssessment | null;
 }

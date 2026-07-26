@@ -63,8 +63,10 @@ import { computeSignedLeaseCreditedNoi } from './judgment/signed-lease-credit.js
 import type {
   EvaluateDealResult,
   OperatorSuppliedValue,
+  SponsorAssessment,
 } from '../doctrine-clean/index.js';
 import type { DealBag } from '../doctrine-clean/scoring/evaluate-deal.js';
+import { toDoctrineSponsorAssessment } from './sponsor-assessment-bridge.js';
 import type { DoctrineEvaluationId } from '@cre/contracts';
 import { runDataIntegrityGate, type DataIntegrityReport } from './data-integrity/gate.js';
 
@@ -395,7 +397,14 @@ export async function evaluateFromAdjustedInputs(
         ? signedLeaseCredit.noi
         : undefined,
   });
-  const dealResult = evaluateDeal(dealBag);
+  // Dim-9 human bridge: when a HUMAN sponsor assessment rides on the (content-
+  // hashed) AdjustedInputs, the scorer resolves dim-9 from HITL/inert to a real
+  // ±0.20 modifier. Absent → null → dim-9 stays HITL. The assessment is NEVER
+  // derived here — it can only have arrived as an explicit human input on this
+  // deal's AdjustedInputs (see HumanSponsorAssessment; provenance locked 'human').
+  const sponsorAssessment: SponsorAssessment | null =
+    toDoctrineSponsorAssessment(args.adjustedInputs.sponsorAssessment ?? null);
+  const dealResult = evaluateDeal(dealBag, sponsorAssessment);
 
   // Compute a content-hash id over the bundle so re-running with identical
   // upstream records is idempotent (same id; same persisted bytes).

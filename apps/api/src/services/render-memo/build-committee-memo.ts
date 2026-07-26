@@ -24,7 +24,7 @@
  *
  * NO EXTERNAL DEPS: inline CSS only; opens identically offline, prints cleanly.
  */
-import type { NarrativeEvaluation, JudgmentEngineRuleId, SnapshotExternalDD } from '@cre/contracts';
+import type { NarrativeEvaluation, JudgmentEngineRuleId, SnapshotExternalDD, HumanSponsorAssessment, SponsorFactorRating } from '@cre/contracts';
 import { COMMITTEE_MEMO_VERSION } from '@cre/contracts';
 import {
   projectAuthoritativeNumbers,
@@ -152,6 +152,14 @@ export interface BuildCommitteeMemoInput {
    * re-decide safety.
    */
   readonly externalDD?: SnapshotExternalDD;
+  /**
+   * The human-entered SponsorAssessment for this deal (from AdjustedInputs).
+   * When present, §4 renders it as the committee's explicit judgment — DISTINCT
+   * from the external-DD finding — and the "cannot evaluate" structural blank is
+   * suppressed (the committee DID evaluate, via the reviewer). Absent → the
+   * existing honest-blank stands. NEVER derived from a finding.
+   */
+  readonly humanSponsorAssessment?: HumanSponsorAssessment;
 }
 
 /** A single assumed (non-sourced) input surfaced in Underwriting Validation. */
@@ -314,6 +322,36 @@ export function externalDDBlock(
       </div>`;
 }
 
+/**
+ * Human sponsor-assessment block (§4). Renders the reviewer's OWN five-factor
+ * judgment, attributed to who + when — DISTINCT from the external-DD finding
+ * (which is context the reviewer read, not the score input). The two are never
+ * conflated: the DD block says "external searches indicated …"; THIS block says
+ * "the committee's assessment, entered by …". The assessment is the sanctioned
+ * human→dim-9 input; the memo shows both the external signal AND the human's
+ * call on it.
+ *
+ * Exported for the render test (distinct-from-DD proof); called by §4.
+ */
+export function humanSponsorAssessmentBlock(h: HumanSponsorAssessment): string {
+  const enteredOn = String(h.enteredAt).slice(0, 10);
+  const rows: Array<[string, SponsorFactorRating]> = [
+    ['Experience & track record', h.experience],
+    ['Financial strength', h.financialStrength],
+    ['Alignment / skin-in-the-game', h.alignment],
+    ['Prior credit events', h.priorCreditEvents],
+    ['Management quality', h.managementQuality],
+  ];
+  const items = rows.map(([label, v]) => `<li><strong>${esc(label)}:</strong> ${esc(v)}</li>`).join('');
+  const note = h.note ? `<p class="memo-prose">Reviewer note: ${esc(h.note)}</p>` : '';
+  return `
+      <div class="memo-human-assessment">
+        <p class="memo-prose"><strong>The committee’s sponsor assessment.</strong> Entered ${esc(enteredOn)} by ${esc(h.enteredBy)} as an explicit human judgment. Any external searches shown above are context the reviewer weighed; this five-factor assessment is the committee’s own call, not a value derived from those searches:</p>
+        <ul class="memo-analysis-list">${items}</ul>
+        ${note}
+      </div>`;
+}
+
 /** Honest-blank callout — the committee CANNOT assess something because data is
  *  missing. Never filler; states the gap plainly. */
 function honestBlank(leadSentence: string, missing: readonly string[]): string {
@@ -439,10 +477,22 @@ function renderKeyCreditRisks(narrative: NarrativeEvaluation, findings: readonly
 /* ----------------------------- §4 Sponsor Assessment -------------------- */
 
 function renderSponsorAssessment(input: BuildCommitteeMemoInput): string {
-  // Honest-blank: sponsor quality is not surfaced by CMBS-style filings in a
-  // structured form, so the committee cannot evaluate it. State the gap plainly
-  // rather than filling it. (PART-4 honesty wiring may extend the missing list
-  // from the deal's own flags.)
+  // External-DD (person lane) — context the reviewer reads. When the sponsor
+  // could not be searched (no name), the block is empty; when searched, it shows
+  // the guard-approved findings or the honest "searched, nothing specific" null.
+  const dd = externalDDBlock(input.externalDD, 'person', 'the sponsor');
+
+  // When a HUMAN has entered a sponsor assessment, THAT is the committee's
+  // evaluation — the "cannot evaluate" structural blank no longer applies (the
+  // committee DID evaluate, via the reviewer's explicit judgment). Show the
+  // human assessment + the DD context, distinctly.
+  if (input.humanSponsorAssessment !== undefined) {
+    const human = humanSponsorAssessmentBlock(input.humanSponsorAssessment);
+    return section('sponsor_assessment', `${dd}${human}`);
+  }
+
+  // No human assessment → the structural honest-blank stands (the committee
+  // cannot evaluate sponsor quality from the file), plus any DD context.
   const blank = honestBlank(
     'The committee cannot reasonably evaluate sponsor quality because the deal file does not include the information a sponsor assessment requires:',
     [
@@ -452,11 +502,6 @@ function renderSponsorAssessment(input: BuildCommitteeMemoInput): string {
       'disclosure of any prior credit events (workouts, discounted payoffs, defaults)',
     ],
   );
-  // External-DD (person lane) — additive to the structural blank. When the
-  // sponsor could not be searched (no name), the block is empty and only the
-  // structural blank shows (could-not-search); when searched, it shows the
-  // guard-approved findings or the honest "searched, nothing specific" null.
-  const dd = externalDDBlock(input.externalDD, 'person', 'the sponsor');
   return section('sponsor_assessment', `${blank}${dd}`);
 }
 

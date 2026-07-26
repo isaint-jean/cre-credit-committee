@@ -192,6 +192,10 @@ export function renderMemoForAnalysis(
       // the existing honest-blank (could-not-search). The renderer displays the
       // guard's already-approved decisions verbatim.
       externalDD: snapshot.externalDD,
+      // Human sponsor assessment (dim-9 bridge) rides on the scored head's
+      // AdjustedInputs. When present, §4 renders it as the committee's judgment,
+      // distinct from the DD finding. Absent → honest-blank stands.
+      humanSponsorAssessment: adjustedInputs.sponsorAssessment ?? undefined,
       renderSource,
       dataConfidence: adjustedInputs.dataConfidence,
       dataQualityFlags: adjustedInputs.dataQualityFlags,
@@ -268,6 +272,8 @@ export function renderMemoForAnalysis(
     dataConfidence: adjustedInputs.dataConfidence,
     dataQualityFlags: adjustedInputs.dataQualityFlags,
     assumedInputs,
+    // Human sponsor assessment also renders on the recompute-fallback path.
+    humanSponsorAssessment: adjustedInputs.sponsorAssessment ?? undefined,
     narrativeVersionNote,
   });
   return { ok: true, html };

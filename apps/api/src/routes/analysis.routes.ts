@@ -46,6 +46,7 @@ import {
   type RevisionDelta as GraphRevisionDelta,
 } from '../services/apply-revision-delta.js';
 import { REVISION_TRIGGERS, type RevisionId, type RevisionTrigger, type AssetType as ContractsAssetType, type RevisionLineageEnvelope } from '@cre/contracts';
+import { isSponsorFactorRating, type HumanSponsorAssessment } from '@cre/contracts';
 import { requirePermission } from '../middleware/require-permission.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
@@ -979,7 +980,7 @@ export async function handleGraphRevision(
   // engine-mirrored vacancy+concessions) is the service's job; surfaces as InvalidDeltaError.
   const body = req.body as
     | {
-        delta?: { kind?: string; overrides?: unknown };
+        delta?: { kind?: string; overrides?: unknown; assessment?: unknown };
         triggerSource?: string;
         adjustmentOrigin?: unknown;
       }
@@ -992,13 +993,53 @@ export async function handleGraphRevision(
     res.status(400).json({ error: 'INVALID_BODY', message: 'body.delta is required' });
     return;
   }
-  if (body.delta.kind !== 'adjusted-input-overrides' || !Array.isArray(body.delta.overrides)) {
+  const deltaKind = body.delta.kind;
+  const isOverrides = deltaKind === 'adjusted-input-overrides' && Array.isArray(body.delta.overrides);
+  const isSponsorAssessment = deltaKind === 'sponsor-assessment';
+  if (!isOverrides && !isSponsorAssessment) {
     res.status(400).json({
       error: 'INVALID_BODY',
-      message: "body.delta must be { kind: 'adjusted-input-overrides', overrides: [...] }",
+      message: "body.delta must be { kind: 'adjusted-input-overrides', overrides: [...] } or { kind: 'sponsor-assessment', assessment: {...} }",
     });
     return;
   }
+
+  // Build the human sponsor assessment from the request. THE INVARIANT: every
+  // factor is taken from the reviewer's explicit input — never derived from a
+  // DD finding (there is no code path that reads a finding here). Provenance is
+  // stamped 'human' and the server stamps who (authenticated reviewer) + when.
+  let sponsorAssessmentInput: HumanSponsorAssessment | null = null;
+  if (isSponsorAssessment) {
+    const a = body.delta.assessment as Record<string, unknown> | undefined;
+    const factors = ['experience', 'financialStrength', 'alignment', 'priorCreditEvents', 'managementQuality'] as const;
+    if (!a || typeof a !== 'object') {
+      res.status(400).json({ error: 'INVALID_BODY', message: 'sponsor-assessment requires delta.assessment with the five factors' });
+      return;
+    }
+    for (const f of factors) {
+      if (!isSponsorFactorRating(a[f])) {
+        res.status(400).json({ error: 'INVALID_BODY', message: `delta.assessment.${f} must be one of Strong|Neutral|Weak|Severe (reviewer must set each factor)` });
+        return;
+      }
+    }
+    const enteredBy = req.user?.email ?? (typeof a.enteredBy === 'string' && a.enteredBy.length > 0 ? a.enteredBy : null);
+    if (enteredBy === null) {
+      res.status(400).json({ error: 'INVALID_BODY', message: 'sponsor-assessment requires an attributed reviewer (authenticated, or delta.assessment.enteredBy)' });
+      return;
+    }
+    sponsorAssessmentInput = {
+      experience:        a.experience as never,
+      financialStrength: a.financialStrength as never,
+      alignment:         a.alignment as never,
+      priorCreditEvents: a.priorCreditEvents as never,
+      managementQuality: a.managementQuality as never,
+      enteredBy,
+      enteredAt:         new Date().toISOString(),
+      ...(typeof a.note === 'string' && a.note.length > 0 ? { note: a.note } : {}),
+      provenance:        'human',
+    };
+  }
+
   const triggerSource: RevisionTrigger =
     body.triggerSource !== undefined && (REVISION_TRIGGERS as readonly string[]).indexOf(body.triggerSource) >= 0
       ? (body.triggerSource as RevisionTrigger)
@@ -1023,10 +1064,12 @@ export async function handleGraphRevision(
     return;
   }
 
-  const delta: GraphRevisionDelta = {
-    kind: 'adjusted-input-overrides',
-    overrides: body.delta.overrides as ReadonlyArray<{ path: string; value: number }>,
-  };
+  const delta: GraphRevisionDelta = isSponsorAssessment
+    ? { kind: 'sponsor-assessment', assessment: sponsorAssessmentInput! }
+    : {
+        kind: 'adjusted-input-overrides',
+        overrides: body.delta.overrides as ReadonlyArray<{ path: string; value: number }>,
+      };
 
   try {
     const result = await applyRevisionDelta(
