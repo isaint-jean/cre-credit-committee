@@ -312,11 +312,23 @@ async function buildExecutiveSummary(
     'executive_summary',
   );
 
+  // Gate-deferral (§1/§13 consistency): when the data gate fires — income
+  // unvalidated, or the doctrine returned InsufficientData — the executive
+  // summary's HEADLINE must defer to the gate, not lead with the structural
+  // rating. We pass the gate state to the prompt so §1 and §13 state the same
+  // bottom line. When the gate has NOT fired, §1 leads with the rating as usual.
+  const gateFired =
+    input.dataConfidence === 'unvalidated' ||
+    (auth?.ratingRecommendation === 'InsufficientData');
+  const gateStatusLine = gateFired
+    ? `FIRED — the underwritten income is unvalidated (no independent cash-flow source), so the committee cannot issue a recommendation. Pending items before a recommendation: ${enumerateMissingDocs(input.dataQualityFlags)}.`
+    : 'NOT fired — the underwritten income is validated for a recommendation; lead with the rating.';
+
   // v1.6 path: clean-doctrine authoritative numbers PRIMARY; handbook
   // observations qualitative-only (metric strings stripped by template).
   // v1.5 fallback: legacy handbook-only prompt.
   const prompt = auth !== null
-    ? buildExecutiveSummaryPromptV1_6(auth, formattedFlags)
+    ? buildExecutiveSummaryPromptV1_6(auth, formattedFlags, gateStatusLine)
     : buildExecutiveSummaryPrompt(formattedFlags);
   const llmOutput = await llm({
     model: NARRATIVE_LLM_MODEL,

@@ -127,4 +127,13 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // the rating recommendation remain permitted. Hash registered via
   // `npm run narrative-engine:print-hash`.
   '1.10': '3db2de67c54cbdf284d3ea98c5ff2c5533d6233f0b9de56632d12fc158463519' as ContentHash,
+  // v1.11 — §1/§13 consistency: executive-summary gate-deferral (2026-07-26).
+  // The v1.6 executive-summary template gains a DATA GATE STATUS line and a
+  // headline-verdict directive: when the data gate has fired (income
+  // unvalidated / doctrine InsufficientData), §1's headline MUST be the gated
+  // verdict ("Insufficient data to recommend — refer back pending …"), with the
+  // structural rating mentioned only as context — so §1 and §13 state the same
+  // bottom line. When the gate has not fired, §1 leads with the rating as
+  // before (validated path unchanged). Hash via `npm run narrative-engine:print-hash`.
+  '1.11': '128f29a6bb4fd5707acbf0e2de77ffb93d5a5e0310ecfe58d8c68d2c45a2b812' as ContentHash,
 };

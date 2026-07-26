@@ -467,6 +467,18 @@ export function scrubResidualIdentifiers(text: string): string {
     .replace(/\bdebt-yield\b/gi, 'debt yield')
     .replace(/\brefinance-feasibility\b/gi, 'refinancing')
     .replace(/\bsponsor-borrower-quality\b/gi, 'sponsor quality')
+    // Mitigation lever identifiers → plain English (lowercase, to read inside
+    // reconciliation prose like "superseded by the proceeds reduction").
+    .replace(/\breduce_proceeds\b/gi, 'proceeds reduction')
+    .replace(/\brequire_amortization\b/gi, 'amortization')
+    .replace(/\brequire_guaranty\b/gi, 'sponsor guaranty')
+    .replace(/\bin_place_cash_management\b/gi, 'cash-management lockbox')
+    .replace(/\bspringing_cash_management\b/gi, 'springing cash trap')
+    .replace(/\bfund_reserve\b/gi, 'funded reserve')
+    .replace(/\bcondition_precedent\b/gi, 'closing condition')
+    .replace(/\bcash_sweep_refi_reserve\b/gi, 'cash-sweep refinance reserve')
+    .replace(/\bleverage_band_recourse\b/gi, 'leverage-band recourse')
+    .replace(/\bspringing_dscr_recourse\b/gi, 'springing coverage recourse')
     // Raw dotted AdjustedInputs field paths (camelCase final segment) → plain
     // English (e.g. "loan.interestRate" → "interest rate"). Guarded on a
     // camelCase last segment so ordinary "e.g"/"U.S" text is untouched.

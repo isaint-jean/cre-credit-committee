@@ -363,10 +363,14 @@ export const MITIGATION_SUGGESTIONS_RECONCILIATION_HEADER_V1_6 =
 
 /** ----- v1.6 slot templates (replace v1.5 at the producer call sites) ----- */
 
-export const EXECUTIVE_SUMMARY_PROMPT_TEMPLATE_V1_6 = `Compose a single executive-summary paragraph (4-6 sentences) for the credit committee. Lead with the clean-doctrine rating + headline restructuring ask, and state the valuation basis explicitly.
+export const EXECUTIVE_SUMMARY_PROMPT_TEMPLATE_V1_6 = `Compose a single executive-summary paragraph (4-6 sentences) for the credit committee. Its headline verdict MUST match the committee's bottom line, and it must state the valuation basis explicitly.
+
+DATA GATE STATUS: {{gate_status}}
 
 Requirements:
-- Lead with the rating recommendation and the headline restructuring ask (proceeds reduction to L', if any) from the AUTHORITATIVE NUMBERS block below — use the figures verbatim.
+- HEADLINE VERDICT — read the DATA GATE STATUS line above:
+  * If the gate has FIRED: your headline MUST be the gated verdict — lead with "Insufficient data to recommend — refer back pending [the pending items named in the gate status]." Mention the structural rating recommendation ONLY as context, never as the headline (e.g., "the structural profile would support Approve With Conditions, but the committee cannot recommend on unvalidated income"). The paragraph's bottom line must be the gated verdict, not the rating.
+  * If the gate has NOT fired: lead with the rating recommendation and the headline restructuring ask (proceeds reduction to L', if any) from the AUTHORITATIVE NUMBERS block below — use the figures verbatim.
 - State the valuation basis line VERBATIM from the block (e.g., "valuation basis: operator-supplied"). When the basis is operator-supplied, the memo MUST disclose it.
 - NARRATIVE-FIRST: do NOT state any leverage ratio (loan-to-value / LTV), coverage ratio (DSCR), or debt-yield percentage in this paragraph. Those figures belong only to the Credit Structure section later in the memo. You MAY cite the concluded value and the stressed value in dollars as the value story.
 - Do NOT introduce quantitative figures not in the AUTHORITATIVE NUMBERS block.
@@ -627,7 +631,7 @@ export function renderComposedMitigationsList(view: ComposedMitigationView): str
   if (view.reconciliationNotes.length > 0) {
     blocks.push('');
     blocks.push(MITIGATION_SUGGESTIONS_RECONCILIATION_HEADER_V1_6);
-    for (const n of view.reconciliationNotes) blocks.push(`  • ${n}`);
+    for (const n of view.reconciliationNotes) blocks.push(`  • ${scrubResidualIdentifiers(n)}`);
   }
   if (view.covenantMagnitudesAtFinalLoan.length > 0) {
     blocks.push('');
@@ -647,8 +651,10 @@ function authBlock(a: AuthoritativeNumbers): string { return renderAuthoritative
 export function buildExecutiveSummaryPromptV1_6(
   auth: AuthoritativeNumbers,
   qualitativeHandbook: readonly FormattedFlag[],
+  gateStatusLine: string,
 ): string {
   return EXECUTIVE_SUMMARY_PROMPT_TEMPLATE_V1_6
+    .replace('{{gate_status}}', gateStatusLine)
     .replace('{{auth_numbers_block}}', authBlock(auth))
     .replace('{{auth_numbers_instruction}}', AUTHORITATIVE_NUMBERS_INSTRUCTION_V1_6)
     .replace('{{handbook_qualitative}}', renderHandbookSupportingObservations(qualitativeHandbook));
