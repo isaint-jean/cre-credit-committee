@@ -1060,6 +1060,28 @@ export class RecordGraphStore {
     return row ? this.parseRow<NarrativeEvaluation>(row) : null;
   }
 
+  /**
+   * Graceful-degradation fallback for the memo route. Returns the LATEST
+   * narrative for an AdjustedInputs REGARDLESS of engine version. Used when the
+   * exact-version lookup misses — a NARRATIVE_ENGINE_VERSION bump must NOT
+   * orphan every persisted memo. The caller prefers the exact-version narrative
+   * (pin-faithful) and falls back to this only when none exists at the current
+   * version, then discloses the served version in the memo footer. Returns null
+   * only when the deal has NO narrative at any version (chain never narrated).
+   */
+  getLatestNarrativeForAdjustedInputsAnyVersion(
+    adjustedInputsId: string,
+  ): NarrativeEvaluation | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, payload FROM narratives
+         WHERE adjusted_inputs_id = ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(adjustedInputsId) as RecordRow | undefined;
+    return row ? this.parseRow<NarrativeEvaluation>(row) : null;
+  }
+
   /* ----------------------- mitigation_proposal_sets ---------------------- */
 
   insertMitigationProposalSet(record: MitigationProposalSet): { inserted: boolean } {

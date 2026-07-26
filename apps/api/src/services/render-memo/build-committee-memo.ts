@@ -106,6 +106,13 @@ export interface BuildCommitteeMemoInput {
   /** Footer "render source" banner (snapshot vs HEAD recompute). */
   readonly renderSource?: MemoRenderSource;
   /**
+   * Graceful-degradation note. Set by the memo route when the narrative served
+   * is not at the current engine version (the exact-version lookup missed and
+   * the route fell back to the latest available narrative). Disclosed in the
+   * footer so the reader knows the prose is from a prior engine version.
+   */
+  readonly narrativeVersionNote?: string;
+  /**
    * Data-integrity gate report (SOFT + provenance WARN findings) — the
    * "exists-but-unreliable" side of Data Quality Review (§10).
    */
@@ -940,6 +947,7 @@ function renderFooter(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers
         &nbsp;·&nbsp; Valuation basis: ${esc(basisLabel)}
         &nbsp;·&nbsp; ${esc(input.memoDate)}</div>
       ${renderRenderSourceBanner(input.renderSource)}
+      ${input.narrativeVersionNote ? `<div class="memo-render-source memo-render-source-recompute">${esc(input.narrativeVersionNote)}</div>` : ''}
       <div class="memo-footer-fine">
         Figures sourced from the structured AuthoritativeNumbers projection + composed
         mitigation package. Leverage is read against the stressed value. No internal

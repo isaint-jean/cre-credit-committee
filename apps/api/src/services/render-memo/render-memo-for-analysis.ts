@@ -72,9 +72,20 @@ export function renderMemoForAnalysis(
   if (envelope === null) {
     return { ok: false, reason: `Revision envelope ${link.slice(0, 16)}… not found in the graph spine.`, code: 'ENVELOPE_MISSING' };
   }
-  const narrative = store.getLatestNarrativeForAdjustedInputs(envelope.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
+  // Prefer the exact-version narrative (pin-faithful). On a miss, DEGRADE
+  // GRACEFULLY to the latest narrative at ANY version rather than orphaning the
+  // memo — a NARRATIVE_ENGINE_VERSION bump must not blank every working memo.
+  // The served version is disclosed in the footer when it differs from HEAD.
+  let narrative = store.getLatestNarrativeForAdjustedInputs(envelope.adjustedInputsId, NARRATIVE_ENGINE_VERSION);
+  let narrativeVersionNote: string | undefined;
   if (narrative === null) {
-    return { ok: false, reason: `Narrative (engine v${NARRATIVE_ENGINE_VERSION}) not found for this analysis. The chain may not have completed the narrative stage.`, code: 'NARRATIVE_MISSING' };
+    narrative = store.getLatestNarrativeForAdjustedInputsAnyVersion(envelope.adjustedInputsId);
+    if (narrative !== null && narrative.engineVersion !== NARRATIVE_ENGINE_VERSION) {
+      narrativeVersionNote = `Served from narrative engine v${narrative.engineVersion} (the latest available for this deal); the current engine is v${NARRATIVE_ENGINE_VERSION}. Re-narrate to refresh.`;
+    }
+  }
+  if (narrative === null) {
+    return { ok: false, reason: `No narrative found for this analysis at any engine version. The chain may not have completed the narrative stage.`, code: 'NARRATIVE_MISSING' };
   }
   const doctrine = store.getDoctrineEvaluation(envelope.doctrineEvaluationId);
   if (doctrine === null) {
@@ -184,6 +195,7 @@ export function renderMemoForAnalysis(
       appraisalDisclosure,
       noiBasis,
       dataIntegrityReport,
+      narrativeVersionNote,
     });
     return { ok: true, html };
   }
@@ -251,6 +263,8 @@ export function renderMemoForAnalysis(
     dataIntegrityReport,
     dataConfidence: adjustedInputs.dataConfidence,
     dataQualityFlags: adjustedInputs.dataQualityFlags,
+    assumedInputs,
+    narrativeVersionNote,
   });
   return { ok: true, html };
 }
