@@ -371,6 +371,17 @@ export interface ExternalDDResult {
   readonly cached: { person: boolean; property: boolean };
   /** The frozen fetch timestamp the findings are pinned to. */
   readonly retrievedAt: string;
+  /**
+   * The §4 subject actually searched (sponsor/borrower), or `null` when no
+   * name was available and the person lane could NOT run. Distinguishes
+   * searched-but-empty from could-not-search downstream (memo §4).
+   */
+  readonly personSubject: string | null;
+  /**
+   * The §6 subject actually searched (property market/area), or `null` when no
+   * address/market was available and the market lane could NOT run.
+   */
+  readonly marketSubject: string | null;
 }
 
 /** Build the STRICT identity description handed to the classifier (names the
@@ -450,10 +461,16 @@ export async function runExternalDueDiligence(
   const allDropped: DroppedResult[] = [];
   const rawCounts = { person: 0, property: 0 };
   const cached = { person: false, property: false };
+  // The subject actually searched per lane, or null when the lane had no key
+  // (could-not-search). Load-bearing for §4/§6's (searched-empty vs could-not-
+  // search) distinction — set ONLY when that lane's queries were non-empty.
+  let personSubject: string | null = null;
+  let marketSubject: string | null = null;
 
   const personQueries = buildPersonQueries(input);
   if (personQueries.length > 0) {
     const subjectLabel = input.sponsorName ?? input.borrowerName ?? 'the deal sponsor/borrower';
+    personSubject = subjectLabel;
     const { results, fromCache } = await cachedUnionSearch(subjectLabel, 'person', personQueries, doBrave, deps.store, input.retrievedAt);
     queries.push(...personQueries);
     rawCounts.person = results.length;
@@ -469,6 +486,7 @@ export async function runExternalDueDiligence(
   if (propQueries.length > 0) {
     const area = [input.submarket ?? input.city, input.state].filter(Boolean).join(', ');
     const subject = area.length > 0 ? area : (input.propertyAddress ?? 'the property submarket');
+    marketSubject = subject;
     const { results, fromCache } = await cachedUnionSearch(subject, 'property_market', propQueries, doBrave, deps.store, input.retrievedAt);
     queries.push(...propQueries);
     rawCounts.property = results.length;
@@ -482,7 +500,7 @@ export async function runExternalDueDiligence(
 
   const guarded = guardFindings(allFindings);
   const status: ExternalDDResult['status'] = guarded.length > 0 ? 'findings' : 'no_findings_surfaced';
-  return { status, queries, guarded, dropped: allDropped, rawCounts, cached, retrievedAt: input.retrievedAt };
+  return { status, queries, guarded, dropped: allDropped, rawCounts, cached, retrievedAt: input.retrievedAt, personSubject, marketSubject };
 }
 
 /* ----------------------- at-mint snapshot producer ----------------------- */
@@ -502,7 +520,7 @@ export async function runExternalDueDiligence(
  * findings were built over — matches the fetch-cache row), not from wall-clock.
  */
 export function buildExternalDDSnapshot(
-  result: Pick<ExternalDDResult, 'status' | 'guarded' | 'retrievedAt'>,
+  result: Pick<ExternalDDResult, 'status' | 'guarded' | 'retrievedAt' | 'personSubject' | 'marketSubject'>,
   analysisAsOfDate: string,
 ): SnapshotExternalDD {
   return {
@@ -514,5 +532,7 @@ export function buildExternalDDSnapshot(
     })),
     retrievedAt: result.retrievedAt as SnapshotExternalDD['retrievedAt'],
     analysisAsOfDate: analysisAsOfDate as SnapshotExternalDD['analysisAsOfDate'],
+    personSubject: result.personSubject,
+    marketSubject: result.marketSubject,
   };
 }

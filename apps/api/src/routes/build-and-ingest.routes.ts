@@ -94,8 +94,10 @@ import {
   ingestExtractionResult,
   IngestionError,
   type IngestExtractionResultArgs,
+  type IngestExtractionResultDeps,
   type IngestionResult,
 } from '../services/ingest-extraction-result.js';
+import { env } from '../config/env.js';
 import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
 import { cityStateToMarketLiquidity } from '../services/metro-tier-lookup.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
@@ -133,7 +135,7 @@ export interface BuildAndIngestDeps {
   readonly buildExtractionResult:
     (args: BuildExtractionResultArgs) => Promise<BuildExtractionResultOutput>;
   readonly ingestExtractionResult:
-    (args: IngestExtractionResultArgs, store: RecordGraphStore) => Promise<IngestionResult>;
+    (args: IngestExtractionResultArgs, store: RecordGraphStore, deps?: IngestExtractionResultDeps) => Promise<IngestionResult>;
   readonly recordGraphStore: RecordGraphStore;
   /** Tier B of issue #10. Bytes are persisted before the composer runs so
    *  the SourceDocumentRef.contentHash refs in the resulting ExtractionResult
@@ -486,6 +488,10 @@ export function makeBuildAndIngestHandler(
           propertyMetadata: composed.propertyMetadata,
         },
         deps.recordGraphStore,
+        // External DD at mint (§4/§6) — gated by the EXTERNAL_DD_AT_MINT
+        // deployment flag (default OFF, so the test suite never fires live web
+        // searches at mint).
+        { externalDd: { enabled: env.externalDdAtMint } },
       );
     } catch (e) {
       if (e instanceof IngestionError) {

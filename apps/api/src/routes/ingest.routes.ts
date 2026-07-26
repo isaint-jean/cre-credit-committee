@@ -42,6 +42,7 @@ import {
 } from '../services/ingest-extraction-result.js';
 import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
+import { env } from '../config/env.js';
 
 export const ingestRoutes = Router();
 
@@ -125,6 +126,8 @@ ingestRoutes.post('/', async (req: Request, res: Response) => {
         rentRoll: null,
       },
       recordGraphStore,
+      // External DD at mint (§4/§6) — gated by EXTERNAL_DD_AT_MINT (default OFF).
+      { externalDd: { enabled: env.externalDdAtMint } },
     );
     return res.status(201).json({
       rootId: result.rootId,

@@ -24,7 +24,7 @@
  *
  * NO EXTERNAL DEPS: inline CSS only; opens identically offline, prints cleanly.
  */
-import type { NarrativeEvaluation, JudgmentEngineRuleId } from '@cre/contracts';
+import type { NarrativeEvaluation, JudgmentEngineRuleId, SnapshotExternalDD } from '@cre/contracts';
 import { COMMITTEE_MEMO_VERSION } from '@cre/contracts';
 import {
   projectAuthoritativeNumbers,
@@ -141,6 +141,17 @@ export interface BuildCommitteeMemoInput {
    * sourced figure. Optional.
    */
   readonly assumedInputs?: readonly AssumedInputForMemo[];
+  /**
+   * External due-diligence findings frozen at mint (v1.2+ snapshot). When
+   * present, §4 (Sponsor) renders the person-lane result and §6 (Market)
+   * renders the property_market-lane result — each as one of three honest
+   * states (findings / searched-empty / could-not-search). Absent on <1.2
+   * snapshots and on the recompute fallback: both lanes keep the existing
+   * honest-blank (could-not-search). EVERYTHING here already passed the guard
+   * at mint — the renderer displays the guard's decision verbatim, it does NOT
+   * re-decide safety.
+   */
+  readonly externalDD?: SnapshotExternalDD;
 }
 
 /** A single assumed (non-sourced) input surfaced in Underwriting Validation. */
@@ -239,6 +250,58 @@ function section(id: Exclude<MemoSectionId, 'header' | 'footer'>, innerHtml: str
       <h2 class="memo-section-title">${MEMO_SECTION_HEADINGS[id]}</h2>
       ${innerHtml}
     </section>`;
+}
+
+/**
+ * External-DD block for §4 (person lane) / §6 (property_market lane). Renders
+ * the guard's ALREADY-DECIDED output frozen in the snapshot — it does NOT
+ * re-run the guard. Three honest states, NEVER collapsed:
+ *
+ *   (c) could-not-search — `externalDD` absent, OR this lane's subject is null
+ *       (no sponsor name / no market key). Returns '' — the section's existing
+ *       honest-blank ("cannot assess because X is missing") stands alone.
+ *       "We couldn't look."
+ *   (b) searched-empty — lane subject present but no renderable finding. Renders
+ *       the HONEST NULL: "searched, nothing specific surfaced" — explicitly NOT
+ *       a clean bill of health. "We looked and found nothing."
+ *   (a) findings — the deduped, guard-approved rendered strings (a repeated
+ *       generic "further diligence" line collapses to one).
+ *
+ * `laneNoun` names the subject in the null sentence ("the sponsor" /
+ * "the property’s market"). Everything rendered already passed the guard.
+ *
+ * Exported for the render test (three-state proof); called by §4 and §6.
+ */
+export function externalDDBlock(
+  externalDD: SnapshotExternalDD | undefined,
+  lane: 'person' | 'property_market',
+  laneNoun: string,
+): string {
+  if (externalDD === undefined) return '';
+  const laneSubject = lane === 'person' ? externalDD.personSubject : externalDD.marketSubject;
+  if (laneSubject === null) return '';                 // (c) could-not-search
+  const asOf = String(externalDD.analysisAsOfDate).slice(0, 10);
+  // Guard-approved, non-blank rendered strings for THIS lane, deduped.
+  const rendered = Array.from(new Set(
+    externalDD.findings
+      .filter(f => f.finding.subjectType === lane && f.rendered !== null)
+      .map(f => f.rendered as string),
+  ));
+  if (rendered.length === 0) {
+    // (b) searched-empty → honest null. Absence is not a clean finding.
+    return `
+      <div class="memo-external-dd memo-external-dd-null">
+        <p class="memo-prose"><strong>External diligence.</strong> External searches on ${esc(laneNoun)} surfaced nothing specific to confirm or flag as of ${esc(asOf)}. This reflects a search that returned nothing specific — not an affirmative finding that ${esc(laneNoun)} is clean.</p>
+      </div>`;
+  }
+  // (a) findings — render the guard's verbatim strings (reported speech +
+  // caveat, or the generic diligence prompt for suppressed specifics).
+  const items = rendered.map(r => `<li>${esc(r)}</li>`).join('');
+  return `
+      <div class="memo-external-dd memo-external-dd-findings">
+        <p class="memo-prose"><strong>External diligence.</strong> External searches on ${esc(laneNoun)} surfaced the following as of ${esc(asOf)}. These are third-party reports the committee should independently verify — not findings established by this analysis:</p>
+        <ul class="memo-analysis-list">${items}</ul>
+      </div>`;
 }
 
 /** Honest-blank callout — the committee CANNOT assess something because data is
@@ -365,7 +428,7 @@ function renderKeyCreditRisks(narrative: NarrativeEvaluation, findings: readonly
 
 /* ----------------------------- §4 Sponsor Assessment -------------------- */
 
-function renderSponsorAssessment(_input: BuildCommitteeMemoInput): string {
+function renderSponsorAssessment(input: BuildCommitteeMemoInput): string {
   // Honest-blank: sponsor quality is not surfaced by CMBS-style filings in a
   // structured form, so the committee cannot evaluate it. State the gap plainly
   // rather than filling it. (PART-4 honesty wiring may extend the missing list
@@ -379,7 +442,12 @@ function renderSponsorAssessment(_input: BuildCommitteeMemoInput): string {
       'disclosure of any prior credit events (workouts, discounted payoffs, defaults)',
     ],
   );
-  return section('sponsor_assessment', blank);
+  // External-DD (person lane) — additive to the structural blank. When the
+  // sponsor could not be searched (no name), the block is empty and only the
+  // structural blank shows (could-not-search); when searched, it shows the
+  // guard-approved findings or the honest "searched, nothing specific" null.
+  const dd = externalDDBlock(input.externalDD, 'person', 'the sponsor');
+  return section('sponsor_assessment', `${blank}${dd}`);
 }
 
 /* ----------------------------- §5 Tenant Analysis ----------------------- */
@@ -399,7 +467,7 @@ function renderTenantAnalysis(findings: readonly CleanDoctrineFinding[]): string
 
 /* ----------------------------- §6 Market & Competitive Position --------- */
 
-function renderMarketPosition(): string {
+function renderMarketPosition(input: BuildCommitteeMemoInput): string {
   // Structural honest-blank: submarket / comparable data is not in the deal
   // file today for any deal on this pipeline.
   const blank = honestBlank(
@@ -410,7 +478,12 @@ function renderMarketPosition(): string {
       'submarket vacancy, absorption, and supply data',
     ],
   );
-  return section('market_position', blank);
+  // External-DD (property_market lane) — additive to the structural blank.
+  // Empty when the market could not be resolved (could-not-search); otherwise
+  // the guard-approved distress findings or the honest "searched, nothing
+  // specific" null.
+  const dd = externalDDBlock(input.externalDD, 'property_market', 'the property’s market');
+  return section('market_position', `${blank}${dd}`);
 }
 
 /* ----------------------------- §7 Exit & Refinance Analysis ------------- */
@@ -1102,7 +1175,7 @@ function renderHtml(
     key_credit_risks:          () => renderKeyCreditRisks(input.narrative, findings),
     sponsor_assessment:        () => renderSponsorAssessment(input),
     tenant_analysis:           () => renderTenantAnalysis(findings),
-    market_position:           () => renderMarketPosition(),
+    market_position:           () => renderMarketPosition(input),
     exit_refinance:            () => renderExitRefinance(auth),
     appraisal_value_challenge: () => renderAppraisalValueChallenge(auth, input.appraisalDisclosure),
     underwriting_validation:   () => renderUnderwritingValidation(input),

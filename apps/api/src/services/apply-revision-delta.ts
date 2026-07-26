@@ -64,6 +64,12 @@ import type { RecordGraphStore } from '../storage/record-graph-store.js';
  */
 export interface ApplyRevisionDeltaDeps {
   readonly llmCall?: LLMCallFn;
+  /**
+   * External DD at mint (v1.2 snapshot). Pass-through to `evaluateAndNarrate` —
+   * OPT-IN, default OFF. The revision route sets `{ enabled: true }` so a
+   * re-scored deal's §4/§6 get external-DD; direct-call tests omit it.
+   */
+  readonly externalDd?: import('./evaluate-and-narrate.js').EvaluateAndNarrateDeps['externalDd'];
 }
 
 /* ---------------------------------- errors --------------------------------- */
@@ -637,7 +643,7 @@ export async function applyRevisionDelta(
       rentRoll,
     },
     store,
-    { llmCall: deps.llmCall },
+    { llmCall: deps.llmCall, externalDd: deps.externalDd },
   );
   const envelope: RevisionLineageEnvelope = {
     revisionId: childRevisionId,

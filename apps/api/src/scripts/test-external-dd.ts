@@ -326,6 +326,25 @@ void (async () => {
     assertEqual(minted.status, 'findings', 'snapshot preserves the honest status');
     assertEqual(minted.findings.length, 1, 'the single guard-approved finding is frozen');
     assertEqual(minted.findings[0]!.decision, 'render', 'the render decision is frozen verbatim');
+    assertEqual(minted.personSubject, 'Sunroad Holding Corporation', 'the §4 lane records the sponsor subject searched');
+    assertEqual(minted.marketSubject, 'San Diego, CA', 'the §6 lane records the market subject searched (city/state present)');
+  }
+
+  console.log('At-mint snapshot — per-lane searchability: searched-empty vs could-not-search:');
+  {
+    const AS_OF = '2026-07-26T00:00:00.000Z';
+    // A deal with a MARKET key but NO sponsor/borrower name (the 640 shape):
+    // §6 lane searches (marketSubject set), §4 lane cannot (personSubject null).
+    const brave = async (): Promise<ResearchResult[]> => [];
+    const llm = async (): Promise<string> => JSON.stringify([]);
+    const run = await runExternalDueDiligence(
+      { sponsorName: null, borrowerName: null, propertyAddress: '100 Main St', city: 'Austin', state: 'TX', submarket: 'Downtown', assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: brave as never, llm: llm as never },
+    );
+    const snap = buildExternalDDSnapshot(run, AS_OF);
+    assertEqual(snap.personSubject, null, '§4 personSubject is null → could-not-search (no sponsor name)');
+    assert(snap.marketSubject !== null, '§6 marketSubject is set → the market lane DID search');
+    assertEqual(snap.status, 'no_findings_surfaced', 'market lane searched, nothing surfaced (honest null)');
   }
 
   console.log('At-mint snapshot — an honest null (searched, nothing surfaced) is frozen as such:');

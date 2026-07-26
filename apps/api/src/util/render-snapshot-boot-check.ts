@@ -137,6 +137,8 @@ export function performRenderSnapshotBootCheck(): void {
       ],
       retrievedAt: '2026-07-26T00:00:00.000Z' as never,
       analysisAsOfDate: '2026-07-26T00:00:00.000Z' as never,
+      personSubject: 'Test Sponsor',
+      marketSubject: 'San Diego, CA',
     },
   };
   const synthetic: DoctrineRenderSnapshot = {
@@ -195,12 +197,15 @@ export function performRenderSnapshotBootCheck(): void {
     fetched.externalDD.findings.length !== 1 ||
     fetched.externalDD.findings[0]!.decision !== 'render' ||
     fetched.externalDD.findings[0]!.rendered !== 'A court judgment was recorded against the sponsor.' ||
-    fetched.externalDD.retrievedAt !== '2026-07-26T00:00:00.000Z'
+    fetched.externalDD.retrievedAt !== '2026-07-26T00:00:00.000Z' ||
+    fetched.externalDD.personSubject !== 'Test Sponsor' ||
+    fetched.externalDD.marketSubject !== 'San Diego, CA'
   ) {
     throw new RenderSnapshotBootCheckError(
       `round-trip externalDD lost: got status=${fetched.externalDD?.status}, ` +
       `findings=${fetched.externalDD?.findings.length}, decision=${fetched.externalDD?.findings[0]?.decision}, ` +
-      `retrievedAt=${fetched.externalDD?.retrievedAt}`,
+      `retrievedAt=${fetched.externalDD?.retrievedAt}, personSubject=${fetched.externalDD?.personSubject}, ` +
+      `marketSubject=${fetched.externalDD?.marketSubject}`,
     );
   }
 

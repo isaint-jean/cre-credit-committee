@@ -80,12 +80,17 @@ export const SNAPSHOT_PRODUCER_VERSION = '1.2' as const;
  *   1.2 — adds optional `externalDD` field: the guard-approved external
  *         due-diligence findings frozen at mint (rendered ExternalFinding
  *         objects + render decisions + sources + retrievedAt +
- *         no_findings_surfaced status), pinned to a frozen fetch timestamp
- *         and the analysis as-of date. Reader treats a <1.2 snapshot as "no
- *         externalDD field" → the external-DD block falls back to honest-blank
- *         (searched-nothing-surfaced is NOT the same as never-searched).
- *         Forward-only: new evals stamp 1.2; existing 1.0/1.1 snapshots stay
- *         valid + readable for their original fields.
+ *         no_findings_surfaced status + per-lane searchability subjects),
+ *         pinned to a frozen fetch timestamp and the analysis as-of date.
+ *         Reader treats a <1.2 snapshot as "no externalDD field" → the
+ *         external-DD block falls back to honest-blank (searched-nothing-
+ *         surfaced is NOT the same as never-searched). Forward-only: new evals
+ *         stamp 1.2; existing 1.0/1.1 snapshots stay valid + readable for their
+ *         original fields. (The externalDD sub-shape was refined — adding the
+ *         per-lane `personSubject`/`marketSubject` keys — while landing the
+ *         first real producer; safe without a version bump because no snapshot
+ *         had ever been persisted WITH the field emitted, so no reader can
+ *         observe the earlier sub-shape.)
  */
 export type SnapshotProducerVersion = '1.0' | '1.1' | '1.2';
 
@@ -247,6 +252,21 @@ export interface SnapshotExternalFinding {
  * (matches the fetch-cache row's `retrieved_at`). `analysisAsOfDate` pins the
  * deal's as-of date so the DD is reproducible against a fixed point in time,
  * independent of when the memo is re-rendered.
+ *
+ * PER-LANE SEARCHABILITY (`personSubject` / `marketSubject`) — load-bearing for
+ * the memo's honesty. The two DD lanes have INDEPENDENT subject keys: §4 Sponsor
+ * searches a sponsor/borrower NAME; §6 Market searches a property ADDRESS/market.
+ * A deal can be searchable in one lane and not the other (e.g. an address but no
+ * sponsor name). Each field is the subject actually searched, or `null` when that
+ * lane had NO subject key (could-not-search). The renderer MUST keep three states
+ * distinct and never collapse them:
+ *   (a) FINDINGS          — the lane's subject is non-null AND findings surfaced.
+ *   (b) SEARCHED-EMPTY    — the lane's subject is non-null but no finding surfaced
+ *       ('no_findings_surfaced for this lane'): "searched, nothing specific" —
+ *       NOT a clean bill of health.
+ *   (c) COULD-NOT-SEARCH  — the lane's subject is `null`: fall back to the memo's
+ *       existing "cannot assess because X is missing" honest-blank.
+ * "We looked and found nothing" (b) ≠ "we couldn't look" (c).
  */
 export interface SnapshotExternalDD {
   readonly status: 'findings' | 'no_findings_surfaced';
@@ -256,6 +276,16 @@ export interface SnapshotExternalDD {
   readonly retrievedAt: ISODateTime;
   /** The deal's as-of date — the fixed point the DD is reproducible against. */
   readonly analysisAsOfDate: ISODateTime;
+  /**
+   * §4 lane: the sponsor/borrower subject actually searched, or `null` when no
+   * sponsor/borrower name was available (could-not-search → §4 honest-blank).
+   */
+  readonly personSubject: string | null;
+  /**
+   * §6 lane: the property market/area subject actually searched, or `null` when
+   * no address/market was available (could-not-search → §6 honest-blank).
+   */
+  readonly marketSubject: string | null;
 }
 
 /**

@@ -25,6 +25,7 @@
     "check:engines": "npm run check:doctrine && npm run check:judgment-engine && npm run check:narrative-engine && npm run check:mitigation-engine && npm run check:committee-memo && npm run check:model-a-boundary && npm run check:render-snapshot",
     "test:external-finding": "tsx src/scripts/test-external-finding.ts",
     "test:external-dd": "tsx src/scripts/test-external-dd.ts",
+    "test:external-dd-memo-render": "tsx src/scripts/test-external-dd-memo-render.ts",
     "test:judgment-engine-rules": "tsx src/scripts/test-judgment-engine-rules.ts",
     "test:manifesto-contract": "tsx src/scripts/test-manifesto-contract.ts",
     "test:library-snapshot-producer": "tsx src/scripts/test-library-snapshot-producer.ts",

@@ -188,6 +188,10 @@ export function renderMemoForAnalysis(
       composedMitigationPackage: composedFromSnapshot(snapshot),
       auth: snapshot.authoritativeNumbers,
       findings: cleanDoctrineFindingsFromSnapshot(snapshot),
+      // v1.2+ external DD frozen at mint. Absent on <1.2 snapshots → §4/§6 keep
+      // the existing honest-blank (could-not-search). The renderer displays the
+      // guard's already-approved decisions verbatim.
+      externalDD: snapshot.externalDD,
       renderSource,
       dataConfidence: adjustedInputs.dataConfidence,
       dataQualityFlags: adjustedInputs.dataQualityFlags,

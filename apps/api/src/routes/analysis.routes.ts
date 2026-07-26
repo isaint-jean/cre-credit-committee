@@ -71,6 +71,7 @@ import { computeWorkbookCoverage } from '../services/compute-workbook-coverage.j
 // blocks export). Sibling to document-completeness; the read route below is its
 // only surface.
 import { computeIntakeCompleteness } from '../services/intake-completeness.service.js';
+import { env } from '../config/env.js';
 import type { RevisionId as GraphRevisionIdType } from '@cre/contracts';
 
 export const analysisRoutes = Router();
@@ -1036,6 +1037,8 @@ export async function handleGraphRevision(
         adjustmentOrigin,
       },
       graphStore,
+      // External DD at mint (§4/§6) — gated by EXTERNAL_DD_AT_MINT (default OFF).
+      { externalDd: { enabled: env.externalDdAtMint } },
     );
     res.status(201).json({
       rootId,

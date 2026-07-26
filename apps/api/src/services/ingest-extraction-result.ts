@@ -86,6 +86,12 @@ export interface IngestExtractionResultDeps {
    * by script/test today.
    */
   readonly manualInputs?: import('@cre/contracts').ManualInputs;
+  /**
+   * External DD at mint (v1.2 snapshot). Pass-through to `evaluateAndNarrate` —
+   * OPT-IN, default OFF. Production mint routes set `{ enabled: true }` so
+   * §4/§6 get real external-DD; direct-call tests omit it (no live web).
+   */
+  readonly externalDd?: import('./evaluate-and-narrate.js').EvaluateAndNarrateDeps['externalDd'];
 }
 
 /* ------------------------------- error type -------------------------------- */
@@ -330,7 +336,7 @@ export async function ingestExtractionResult(
       rentRoll,
     },
     store,
-    { llmCall: deps.llmCall, manualInputs: deps.manualInputs },
+    { llmCall: deps.llmCall, manualInputs: deps.manualInputs, externalDd: deps.externalDd },
   );
 
   /* Post-gate PM cache link. evaluateFromAdjustedInputs inserts the

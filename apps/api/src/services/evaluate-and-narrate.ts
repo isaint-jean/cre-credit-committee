@@ -36,6 +36,7 @@ import type {
   MitigationProposalSet,
   NarrativeEvaluation,
   SnapshotDimOutput,
+  SnapshotExternalDD,
   SnapshotRating,
 } from '@cre/contracts';
 import {
@@ -54,6 +55,13 @@ import {
   type EvaluateFromAdjustedInputsArgs,
 } from './evaluate-from-adjusted-inputs.js';
 import { synthesizeUwModelFromInputs } from './synthesize-uw-model-from-graph.js';
+import {
+  runExternalDueDiligence,
+  buildExternalDDSnapshot,
+  type ExternalDDInput,
+  type ExternalDDDeps,
+} from './external-dd.service.js';
+import { braveSearch } from './research.service.js';
 import { produceMitigations } from './mitigation/produce-mitigations.js';
 import {
   composeMitigations,
@@ -74,6 +82,23 @@ export interface EvaluateAndNarrateDeps {
   /** Optional analyst-supplied manual inputs threaded into the
    *  LLM_CONTEXT evaluator. See run-llm-context-check.ts. */
   readonly manualInputs?: import('@cre/contracts').ManualInputs;
+  /**
+   * External DD at mint (v1.2 snapshot field). OPT-IN — default OFF: when this
+   * is absent or `enabled !== true`, no DD runs and the snapshot's `externalDD`
+   * field is omitted (§4/§6 keep the existing honest-blank). This is deliberate:
+   * the Brave API key loads from `.env` in every process, so a key-presence gate
+   * would silently fire live web searches inside every test that mints. Callers
+   * that WANT DD (the production mint routes; the DD-mint scripts; the DD tests)
+   * set `enabled: true`. `braveSearch` / `llm` are injectable so tests run
+   * deterministically without the network; production omits them (live Brave +
+   * live classifier). Any DD failure degrades gracefully — the field is omitted,
+   * the mint proceeds.
+   */
+  readonly externalDd?: {
+    readonly enabled?: boolean;
+    readonly braveSearch?: ExternalDDDeps['braveSearch'];
+    readonly llm?: ExternalDDDeps['llm'];
+  };
 }
 
 export interface EvaluateAndNarrateResult {
@@ -269,6 +294,54 @@ export async function evaluateAndNarrate(
     },
   });
 
+  // External DD at mint (v1.2 snapshot field). OPT-IN via deps.externalDd —
+  // default OFF (see EvaluateAndNarrateDeps). When enabled, runs the cached
+  // fetch → guard chain for the sponsor/borrower (person lane) + property market
+  // (property_market lane), keyed off the extraction's parties + address/market,
+  // and freezes the guard-approved output into `externalDD`. The store IS the
+  // fetch cache (getDdFetch/insertDdFetch), so a re-mint of the same subject
+  // is free. Pinned to `args.analysisAsOfDate` for reproducibility: same subject
+  // + as-of → byte-identical frozen DD, independent of when the mint runs.
+  //
+  // GRACEFUL DEGRADATION: any failure (no API key, network error, classifier
+  // error) is caught and the field is left absent — the mint never breaks on
+  // external-web flakiness. Absent externalDD → §4/§6 keep the honest-blank.
+  //
+  // EVERYTHING FROZEN HAS PASSED THE GUARD. The guard (computeRenderDecision)
+  // is the single choke point; the mint stores its decisions, the renderer
+  // displays them. No re-decision at render time.
+  let externalDD: SnapshotExternalDD | undefined = undefined;
+  if (deps.externalDd?.enabled === true) {
+    try {
+      const ddInput: ExternalDDInput = {
+        sponsorName:     args.extraction.parties?.sponsorName ?? null,
+        borrowerName:    args.extraction.parties?.borrowerName ?? null,
+        propertyAddress: args.extraction.appraisal?.addressFull ?? args.propertyMetadata?.address ?? null,
+        city:            args.extraction.appraisal?.city ?? args.propertyMetadata?.city ?? null,
+        state:           args.extraction.appraisal?.state ?? args.propertyMetadata?.state ?? null,
+        submarket:       args.propertyMetadata?.submarket ?? null,
+        // assetType is identity-context only (not a query/subject key) — the
+        // AssetProfile carries the deal's canonical property type.
+        assetType:       (args.assetProfile.propertyType as string | null) ?? null,
+        // Pin the fetch timestamp to the deal's as-of date (not wall-clock) so
+        // the frozen DD is reproducible against a fixed point in time.
+        retrievedAt:     args.analysisAsOfDate,
+      };
+      const ddResult = await runExternalDueDiligence(ddInput, {
+        store,
+        braveSearch: deps.externalDd.braveSearch ?? braveSearch,
+        llm:         deps.externalDd.llm,
+      });
+      externalDD = buildExternalDDSnapshot(ddResult, args.analysisAsOfDate);
+    } catch (err) {
+      console.warn(
+        '[evaluate-and-narrate] external DD at mint failed; snapshot externalDD omitted:',
+        (err as Error)?.message ?? err,
+      );
+      externalDD = undefined;
+    }
+  }
+
   // Read-instead-of-recompute snapshot (PR i). Captured here — AFTER the
   // doctrine eval is bridged + composed package exists, BEFORE buildNarrative
   // runs (forward-only by design, the snapshot is independent of the
@@ -321,15 +394,13 @@ export async function evaluateAndNarrate(
       contractedNoi,           // null when predicate=false (stabilized)
       divergenceReason:   NOI_BASIS_DIVERGENCE_REASON,
     },
-    // v1.2 — the snapshot SHAPE now carries an optional `externalDD` field
-    // (guard-approved external-DD findings frozen at mint). The producer
-    // (`buildExternalDDSnapshot`) + fetch-cache determinism are built + proven,
-    // but external DD is NOT invoked at mint yet (that touches the live web +
-    // is a separate wiring task). We therefore stamp 1.2 and OMIT externalDD:
-    // the extract fn only hashes the field when present, so a 1.2 snapshot with
-    // no externalDD hashes over exactly its 1.1-era fields; the reader falls
-    // back to honest-blank. When DD-at-mint lands, populate this from
-    // `buildExternalDDSnapshot(runExternalDueDiligence(...), analysisAsOfDate)`.
+    // v1.2 — guard-approved external-DD findings frozen at mint (§4/§6 memo
+    // render source). `externalDD` is `undefined` when DD was disabled (default)
+    // or degraded; the extract fn only hashes the field WHEN present, so a 1.2
+    // snapshot without it hashes over exactly its 1.1-era fields (id-stable for
+    // the DD-off path) and the reader falls back to honest-blank. When present,
+    // it enters the hash boundary — a re-mint with different DD yields a new id.
+    externalDD,
   }) as Pick<DoctrineRenderSnapshot,
     | 'doctrineEvaluationId'
     | 'snapshotProducerVersion'
@@ -337,7 +408,8 @@ export async function evaluateAndNarrate(
     | 'dimOutputs'
     | 'authoritativeNumbers'
     | 'composedMitigationPackage'
-    | 'noiBasis'>;
+    | 'noiBasis'
+    | 'externalDD'>;
   const snapshotBody: Omit<DoctrineRenderSnapshot, 'id'> = {
     ...sanitizedBody,
     capturedAt: new Date().toISOString(),
