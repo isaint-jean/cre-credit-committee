@@ -51,6 +51,7 @@ import {
   OPEN_ITEMS_PRINCIPLE_THEME_V1_8,
   OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8,
 } from '../services/narrative/prompt-templates.js';
+import { assertCommitteeVoiceComplete } from '../services/narrative/committee-voice.js';
 import { computeContentHash } from './content-hash.js';
 
 export class NarrativeEngineBootCheckError extends Error {
@@ -107,6 +108,12 @@ export function computeCurrentNarrativeEngineHash(): string {
 }
 
 export function performNarrativeEngineBootCheck(): void {
+  // Committee-voice mapping layer (memo v2): assert every judgment-engine
+  // rule, doctrine reason code, and dimension has a committee-voice sentence.
+  // Backs the type system against `as`-cast escapes so a missing translation
+  // fails fast at startup rather than leaking a raw identifier into a memo.
+  assertCommitteeVoiceComplete();
+
   const expectedHash = NARRATIVE_ENGINE_MANIFEST[NARRATIVE_ENGINE_VERSION];
   if (!expectedHash || expectedHash === '__NARRATIVE_ENGINE_V1_HASH__') {
     throw new NarrativeEngineBootCheckError(
