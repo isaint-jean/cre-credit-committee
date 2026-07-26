@@ -172,6 +172,8 @@ export function renderMemoForAnalysis(
       auth: snapshot.authoritativeNumbers,
       findings: cleanDoctrineFindingsFromSnapshot(snapshot),
       renderSource,
+      dataConfidence: adjustedInputs.dataConfidence,
+      dataQualityFlags: adjustedInputs.dataQualityFlags,
       appraisalDisclosure,
       noiBasis,
       dataIntegrityReport,
@@ -240,6 +242,8 @@ export function renderMemoForAnalysis(
     appraisalDisclosure,
     noiBasis,
     dataIntegrityReport,
+    dataConfidence: adjustedInputs.dataConfidence,
+    dataQualityFlags: adjustedInputs.dataQualityFlags,
   });
   return { ok: true, html };
 }

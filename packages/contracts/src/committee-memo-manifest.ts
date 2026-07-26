@@ -64,4 +64,17 @@ export const COMMITTEE_MEMO_MANIFEST: CommitteeMemoManifest = {
   //
   // Hash placeholder pending `npm run committee-memo:print-hash`.
   '1.2': '66e0d2b819da8187b05ae23c1cd1152229b88fbe2c2a544e753479c53fe06544' as ContentHash,
+  // v2.0 (2026-07-26) — memo v2 MAJOR restructure to Isabelle's institutional
+  // 13-section, narrative-first order. MEMO_SECTION_ORDER is re-architected
+  // (Investment Overview, Investment Merits, Key Credit Risks, Sponsor
+  // Assessment, Tenant Analysis, Market & Competitive Position, Exit & Refinance
+  // Analysis, Appraisal & Value Challenge, Underwriting Validation, Data Quality
+  // Review, Credit Structure, Investment Committee View, Final Recommendation);
+  // MEMO_SECTION_HEADINGS is replaced with the 13 new h2 strings. §1–10 are
+  // narrative and do not lead with ratios; §11 Credit Structure is the first
+  // place leverage ratios and sized mitigants appear. Restructure titles /
+  // subheads / callout labels / null sentinel are unchanged (the restructuring
+  // callout now lives inside Credit Structure). Hash registered via
+  // `npm run committee-memo:print-hash`.
+  '2.0': '086a6d1c1ea268f295d5325ce205595e2eadfecb558050fb1e2518d09aa9c6d2' as ContentHash,
 };

@@ -40,42 +40,49 @@
 
 /** Render order of the memo's top-level <section>s. Drift here changes
  *  document structure even if heading copy is unchanged. */
+/**
+ * v2.0 — Isabelle's institutional 13-section structure (memo v2). NARRATIVE-
+ * FIRST: sections 1–10 build the investment case, the risks, the evidence, the
+ * exit, and the validation as narrative — they do NOT lead with LTV / DSCR /
+ * scores. Section 11 (Credit Structure) is the FIRST place leverage ratios and
+ * sized mitigants appear. Sections 12–13 return to the thesis and the verdict.
+ */
 export const MEMO_SECTION_ORDER = [
   'header',
-  'executive_summary',
-  'stressed_credit_profile',
-  'restructuring_package',
-  'sponsor_burden',
-  'risk_assessment',
-  'committee_recommendation',
-  // v1.1 — Open Items / Data Required (Phase C). Renders the deterministic
-  // narrative.openItemsAndDataRequired prose. Appended AFTER committee_
-  // recommendation so the reader's last substantive section is the verdict;
-  // the open items list reads as a follow-on diligence punch list rather
-  // than mixing with the committee's accept/condition language.
-  'open_items',
-  // v1.2 — Data Quality (data-integrity gate SOFT + provenance WARN
-  // findings). DISTINCT from Open Items: open_items = "missing data the
-  // verdict couldn't evaluate"; data_quality = "data we DID evaluate but
-  // is suspect or unsourced". Appended after open_items so the diligence
-  // surfaces read as a sequence: verdict → what couldn't be evaluated →
-  // what was evaluated but is shaky. Suppressed entirely when the report
-  // has no findings (renderer returns '').
-  'data_quality',
+  'investment_overview',        // 1 — the deal, in plain terms
+  'investment_merits',          // 2 — the case for the deal
+  'key_credit_risks',           // 3 — loss paths in plain English
+  'sponsor_assessment',         // 4 — sponsor read (honest-blank when absent)
+  'tenant_analysis',            // 5 — tenancy / concentration / rollover
+  'market_position',            // 6 — submarket (honest-blank when absent)
+  'exit_refinance',             // 7 — can the loan exit at maturity (narrative)
+  'appraisal_value_challenge',  // 8 — is the value real (narrative)
+  'underwriting_validation',    // 9 — does the underwriting hold up (assumptions)
+  'data_quality_review',        // 10 — what's missing vs what's unreliable
+  'credit_structure',           // 11 — FIRST ratios / leverage / sized mitigants
+  'committee_view',             // 12 — the committee's synthesis
+  'final_recommendation',       // 13 — the thesis surviving the numbers
   'footer',
 ] as const;
 export type MemoSectionId = (typeof MEMO_SECTION_ORDER)[number];
 
-/** Visible heading strings keyed by section id. The restructuring section
- *  has a variant title (cut vs. hold), surfaced separately below. */
-export const MEMO_SECTION_HEADINGS: Readonly<Record<Exclude<MemoSectionId, 'header' | 'footer' | 'restructuring_package'>, string>> = {
-  executive_summary:        'Executive Summary',
-  stressed_credit_profile:  'Stressed Credit Profile',
-  sponsor_burden:           'Sponsor Burden',
-  risk_assessment:          'Risk Assessment',
-  committee_recommendation: 'Committee Recommendation',
-  open_items:               'Open Items / Data Required',
-  data_quality:             'Data Quality',
+/** Visible heading strings keyed by section id (all sections except the
+ *  structural header/footer). The restructuring callout inside Credit Structure
+ *  keeps its own cut/hold variant title, surfaced separately below. */
+export const MEMO_SECTION_HEADINGS: Readonly<Record<Exclude<MemoSectionId, 'header' | 'footer'>, string>> = {
+  investment_overview:       'Investment Overview',
+  investment_merits:         'Investment Merits',
+  key_credit_risks:          'Key Credit Risks',
+  sponsor_assessment:        'Sponsor Assessment',
+  tenant_analysis:           'Tenant Analysis',
+  market_position:           'Market & Competitive Position',
+  exit_refinance:            'Exit & Refinance Analysis',
+  appraisal_value_challenge: 'Appraisal & Value Challenge',
+  underwriting_validation:   'Underwriting Validation',
+  data_quality_review:       'Data Quality Review',
+  credit_structure:          'Credit Structure',
+  committee_view:            'Investment Committee View',
+  final_recommendation:      'Final Recommendation',
 } as const;
 
 /** Centerpiece section title — variant by whether the recommended package
