@@ -26,6 +26,17 @@ export interface User {
 
 const DB_PATH = path.join(process.cwd(), 'data', 'cre.db');
 
+/** Canonical-ranking quality signals for one graph-backed analysis
+ *  (getCanonicalScoredAnalysisId). Higher spineScore / validated / scored and a
+ *  more recent createdAt rank better; archived is excluded outright. */
+interface AnalysisCanonicalQuality {
+  readonly archived: boolean;
+  readonly scored: boolean;      // coverage gate NOT fired (validly scored)
+  readonly spineScore: number;   // 2 appraisal-anchored, 1 ASR-anchored, 0 unsourced
+  readonly validated: boolean;   // income validated (trailing actuals)
+  readonly createdAt: string;
+}
+
 export class SqliteStore {
   private db: Database.Database;
 
@@ -593,8 +604,57 @@ export class SqliteStore {
       }
     }
 
-    const sorted = [...candidates.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-    return sorted[0]?.[0] ?? null; // earliest analysis = original = canonical
+    // Rank by QUALITY, not time. (1) EXCLUDE archived — an archived copy is
+    // never the canonical the app opens (closes the archive-completeness gap:
+    // list-hide AND resolver-exclude). (2) Among the rest, prefer the BEST-
+    // SOURCED, validly-scored copy: a validly-scored analysis (coverage gate not
+    // fired) beats an insufficient-data one; a sourced valuation spine
+    // (appraisal > ASR > neither) and validated income beat unsourced; tie-break
+    // on the most recent ingest. This is correct whether later ingests IMPROVED
+    // the deal (Sunroad: a later ingest added the appraisal → pick it) or DRIFTED
+    // (a later duplicate artifact is worse-sourced → the original still wins).
+    const ranked = [...candidates.keys()]
+      .map((id) => ({ id, q: this.analysisCanonicalQuality(id) }))
+      .filter((c): c is { id: string; q: AnalysisCanonicalQuality } => c.q !== null && !c.q.archived)
+      .sort((a, b) => {
+        if (a.q.scored !== b.q.scored) return a.q.scored ? -1 : 1;           // validly-scored first
+        if (a.q.spineScore !== b.q.spineScore) return b.q.spineScore - a.q.spineScore; // appraisal > ASR > none
+        if (a.q.validated !== b.q.validated) return a.q.validated ? -1 : 1;  // validated income first
+        return b.q.createdAt.localeCompare(a.q.createdAt);                   // else most recent
+      });
+    return ranked[0]?.id ?? null; // best-sourced non-archived copy = canonical
+  }
+
+  /**
+   * Canonical-ranking quality signals for one graph-backed analysis. Resolves
+   * the analysis's HEAD revision → doctrine eval (coverage gate + score),
+   * adjusted inputs (income confidence), and extraction (appraisal / ASR
+   * presence). Returns null when the analysis has no resolvable graph chain.
+   */
+  private analysisCanonicalQuality(legacyId: string): AnalysisCanonicalQuality | null {
+    const r = this.db.prepare(`
+      SELECT a.archived AS archived, a.created_at AS createdAt,
+        json_extract(d.payload, '$.coverage.insufficientCoverageGate') AS gate,
+        json_extract(ai.payload, '$.dataConfidence') AS dc,
+        (json_extract(er.payload, '$.appraisal') IS NOT NULL) AS hasAppraisal,
+        (json_extract(er.payload, '$.asr') IS NOT NULL) AS hasAsr
+      FROM analyses a
+      JOIN revision_lineage_envelopes e ON e.revision_id = a.graph_revision_id
+      JOIN doctrine_evaluations d ON d.id = e.doctrine_evaluation_id
+      JOIN adjusted_inputs ai ON ai.id = e.adjusted_inputs_id
+      LEFT JOIN extraction_results er ON er.id = d.extraction_result_id
+      WHERE a.id = ?
+    `).get(legacyId) as
+      | { archived: number; createdAt: string; gate: number | null; dc: string | null; hasAppraisal: number; hasAsr: number }
+      | undefined;
+    if (r === undefined) return null;
+    return {
+      archived: r.archived === 1,
+      scored: r.gate !== 1,                                   // coverage gate NOT fired
+      spineScore: r.hasAppraisal ? 2 : r.hasAsr ? 1 : 0,       // sourced valuation spine
+      validated: r.dc === 'validated',
+      createdAt: r.createdAt,
+    };
   }
 
   /**
