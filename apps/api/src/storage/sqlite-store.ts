@@ -257,6 +257,13 @@ export class SqliteStore {
         if (!has('graph_revision_id')) {
           this.db.exec('ALTER TABLE analyses ADD COLUMN graph_revision_id TEXT');
         }
+        // Soft-archive primitive (deal-lifecycle base). Nullable-default-0 so
+        // every existing deal stays active (archived=0). Reversible: flip to 0
+        // to restore. This is the first use of the flag that a future
+        // disposition doctrine (Cleared/Closed/Expired/Withdrawn) will build on.
+        if (!has('archived')) {
+          this.db.exec('ALTER TABLE analyses ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+        }
         // Backfill lineage_root_id = id for any existing rows where it's NULL.
         // parent_analysis_id stays NULL (these are root revisions). revision_ordinal stays 0.
         this.db.exec(`UPDATE analyses SET lineage_root_id = id WHERE lineage_root_id IS NULL`);
@@ -631,9 +638,30 @@ export class SqliteStore {
     return { dealRef: row.deal_ref, name: row.name ?? null };
   }
 
-  listAnalyses(): AnalysisSummary[] {
+  /**
+   * Soft-archive primitive. Flips analyses.archived. Reversible — pass false to
+   * restore. Returns false when the id doesn't exist. Touches ONLY the analyses
+   * row; the graph spine + content-addressed blobs are untouched.
+   */
+  setAnalysisArchived(id: string, archived: boolean): boolean {
+    const result = this.db
+      .prepare('UPDATE analyses SET archived = ?, updated_at = updated_at WHERE id = ?')
+      .run(archived ? 1 : 0, id);
+    return result.changes > 0;
+  }
+
+  /** Whether an analysis is archived. Null when the id doesn't exist. */
+  isAnalysisArchived(id: string): boolean | null {
+    const row = this.db.prepare('SELECT archived FROM analyses WHERE id = ?').get(id) as { archived?: number } | undefined;
+    return row === undefined ? null : row.archived === 1;
+  }
+
+  listAnalyses(includeArchived = false): AnalysisSummary[] {
+    // Soft-archive: the deal list hides archived deals by default. Pass
+    // includeArchived to retrieve them (nothing is lost — archived deals stay
+    // in the table and are one flag-flip from active).
     const rows = this.db.prepare(
-      'SELECT id, name, asset_type, status, credit_score_overall, risk_tier, created_at, updated_at, data, parent_analysis_id, lineage_root_id, revision_ordinal FROM analyses ORDER BY created_at DESC'
+      `SELECT id, name, asset_type, status, credit_score_overall, risk_tier, created_at, updated_at, data, parent_analysis_id, lineage_root_id, revision_ordinal FROM analyses ${includeArchived ? '' : 'WHERE archived = 0'} ORDER BY created_at DESC`
     ).all() as any[];
 
     return rows.map((r) => {

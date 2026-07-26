@@ -222,8 +222,10 @@ analysisRoutes.post('/', uploadAnalysisFiles as any, async (req: Request, res: R
 });
 
 // GET /api/analyses — List all
-analysisRoutes.get('/', (_req: Request, res: Response) => {
-  const analyses = store.listAnalyses();
+analysisRoutes.get('/', (req: Request, res: Response) => {
+  // Soft-archive: hide archived deals by default; ?includeArchived=true retrieves them.
+  const includeArchived = req.query['includeArchived'] === 'true';
+  const analyses = store.listAnalyses(includeArchived);
   res.json({ analyses });
 });
 
@@ -703,6 +705,30 @@ analysisRoutes.get('/:id/status', (req: Request, res: Response) => {
     currentStep: analysis.currentStep,
     error: analysis.error,
   });
+});
+
+// POST /api/analyses/:id/archive — soft-archive (hide from the default deal
+// list). Reversible via /restore. Touches only the analyses row; graph history
+// + blobs are preserved. The base primitive for a future deal-lifecycle
+// (Cleared/Closed/Expired/Withdrawn) disposition doctrine.
+analysisRoutes.post('/:id/archive', (req: Request, res: Response) => {
+  const ok = store.setAnalysisArchived(req.params.id, true);
+  if (!ok) {
+    res.status(404).json({ error: 'Analysis not found' });
+    return;
+  }
+  res.json({ success: true, archived: true });
+});
+
+// POST /api/analyses/:id/restore — un-archive (flip archived → false). Proves
+// the archive is genuinely reversible, not a soft-delete-that's-really-a-delete.
+analysisRoutes.post('/:id/restore', (req: Request, res: Response) => {
+  const ok = store.setAnalysisArchived(req.params.id, false);
+  if (!ok) {
+    res.status(404).json({ error: 'Analysis not found' });
+    return;
+  }
+  res.json({ success: true, archived: false });
 });
 
 // DELETE /api/analyses/:id
