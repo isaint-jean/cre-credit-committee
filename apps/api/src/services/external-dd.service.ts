@@ -171,11 +171,11 @@ ${resultsBlock}`;
 
 type LlmFn = typeof callAIWithContinuation;
 
-async function classifyResults(
+export async function classifyResults(
   identity: string,
   subjectType: ExternalSubjectType,
   results: readonly ResearchResult[],
-  llm: LlmFn,
+  llm: LlmFn = callAIWithContinuation,
 ): Promise<ResultClassification[]> {
   if (results.length === 0) return [];
   const block = results.map((r, i) => `${i}. ${r.title} — ${r.snippet} (source: ${r.source})`).join('\n');
