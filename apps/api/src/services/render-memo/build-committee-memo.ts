@@ -288,10 +288,20 @@ export function externalDDBlock(
       .map(f => f.rendered as string),
   ));
   if (rendered.length === 0) {
-    // (b) searched-empty → honest null. Absence is not a clean finding.
+    // (b) searched-empty → honest null, one memo-tight sentence. The "not an
+    // affirmative … clean" caveat is the load-bearing half — never dropped.
+    // The person lane alone carries the "prior public credit events" clause:
+    // external search partially (public-only) speaks to the sponsor-assessment
+    // blank's "prior credit events" gap — it does NOT substitute for the
+    // missing disclosure, hence "partially speak to". The market lane speaks to
+    // market/distress, not credit events, so it omits the clause.
+    const priorCreditClause = lane === 'person'
+      ? ' — which can partially speak to prior public credit events —'
+      : '';
+    const cleanNoun = lane === 'person' ? 'the sponsor' : 'the market';
     return `
       <div class="memo-external-dd memo-external-dd-null">
-        <p class="memo-prose"><strong>External diligence.</strong> External searches on ${esc(laneNoun)} surfaced nothing specific to confirm or flag as of ${esc(asOf)}. This reflects a search that returned nothing specific — not an affirmative finding that ${esc(laneNoun)} is clean.</p>
+        <p class="memo-prose"><strong>External diligence.</strong> External searches${priorCreditClause} surfaced nothing specific on ${esc(laneNoun)} as of ${esc(asOf)}; this is not an affirmative finding that ${esc(cleanNoun)} is clean.</p>
       </div>`;
   }
   // (a) findings — render the guard's verbatim strings (reported speech +

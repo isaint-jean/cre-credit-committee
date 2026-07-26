@@ -63,15 +63,33 @@ console.log('State (c) could-not-search — lane subject null → no DD block:')
 }
 
 /* ---- (b) SEARCHED-EMPTY: subject present, no findings → honest null ------- */
-console.log('State (b) searched-empty — honest null, NOT clean:');
+console.log('State (b) searched-empty — honest null, NOT clean (tightened wording):');
 {
   const snap = dd({ personSubject: 'Acme Sponsor', status: 'no_findings_surfaced', findings: [] });
   const html = externalDDBlock(snap, 'person', 'the sponsor');
   assert(html !== '', 'searched-empty → a DD block IS rendered (distinct from could-not-search)');
-  assert(/surfaced nothing specific/.test(html), 'renders the honest "surfaced nothing specific" null');
+  assert(/surfaced nothing specific on the sponsor/.test(html), 'renders the tightened "surfaced nothing specific on the sponsor" null');
   assert(/as of 2026-07-26/.test(html), 'pins the as-of date');
-  assert(/not an affirmative finding/i.test(html) && /clean/i.test(html), 'explicitly says this is NOT a clean finding (absence ≠ clean)');
+  // Load-bearing honesty half — must survive the tightening.
+  assert(/this is not an affirmative finding that the sponsor is clean/.test(html), 'explicitly says this is NOT a clean finding (absence ≠ clean)');
   assert(!/no issues|all clear|nothing adverse|reputable/i.test(html), 'never asserts the sponsor is clean/without issues');
+  // One sentence — the old over-explained second sentence is gone.
+  assert(!/This reflects a search that returned nothing specific/.test(html), 'the old two-sentence over-explanation is gone (one memo-tight sentence)');
+  const sentences = html.replace(/<[^>]+>/g, ' ').replace(/External diligence\./, '').split('.').filter(s => s.trim().length > 3);
+  assert(sentences.length === 1, 'the null is a single sentence');
+  // CHANGE 2 — sponsor lane carries the prior-credit-events clause.
+  assert(/which can partially speak to prior public credit events/.test(html), 'sponsor lane connects to the "prior credit events" gap (partially, public-only)');
+  assert(/partially speak to/.test(html) && !/fully|substitutes|closes the gap/i.test(html), 'honest: "partially speak to" — never claims it closes the disclosure gap');
+}
+
+/* ---- (b) MARKET lane — tightened null, NO prior-credit-events clause ------ */
+console.log('State (b) searched-empty — market lane omits the credit-events clause:');
+{
+  const snap = dd({ marketSubject: 'Austin, TX', status: 'no_findings_surfaced', findings: [] });
+  const html = externalDDBlock(snap, 'property_market', 'the property’s market');
+  assert(/surfaced nothing specific on the property’s market/.test(html), 'market null names the property’s market');
+  assert(/this is not an affirmative finding that the market is clean/.test(html), 'market null keeps the not-clean caveat (subject: "the market")');
+  assert(!/prior public credit events/.test(html), 'market lane does NOT carry the sponsor-only credit-events clause');
 }
 
 /* ---- (b) vs (c) MUST read differently ------------------------------------ */
