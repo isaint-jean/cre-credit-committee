@@ -471,6 +471,23 @@ export class RecordGraphStore {
         PRIMARY KEY (principle_id, context_hash, handbook_engine_version, model_version)
       );
 
+      -- external-DD FETCH cache. Mirrors llm_principle_eval_cache: cache a
+      -- non-deterministic EXTERNAL result (a web search) keyed by a content
+      -- hash of the input context (+ engine version) so the whole DD chain is
+      -- reproducible AND cheap (no repeat Brave hits). We cache the RAW FETCH,
+      -- NOT the guard verdict — the guard re-runs fresh over cached raw so
+      -- guard-logic improvements re-apply without a re-fetch. retrieved_at is
+      -- the frozen fetch timestamp (pins the finding in time); created_at is
+      -- bookkeeping wall-clock.
+      CREATE TABLE IF NOT EXISTS web_dd_fetch_cache (
+        query_hash                TEXT NOT NULL,
+        dd_engine_version         TEXT NOT NULL,
+        result_payload            TEXT NOT NULL,
+        retrieved_at              TEXT NOT NULL,
+        created_at                TEXT NOT NULL,
+        PRIMARY KEY (query_hash, dd_engine_version)
+      );
+
       -- Option C / spec §4 — revision lineage. Two sibling tables:
       --   - envelopes: content-addressed (id = SHA-256 of RevisionIdHashInput,
       --     i.e. {parentRevisionId, adjustedInputsId, doctrineVersion}).
@@ -1463,6 +1480,45 @@ export class RecordGraphStore {
         args.modelVersion,
       ) as { result_payload: string } | undefined;
     return row === undefined ? null : row.result_payload;
+  }
+
+  /* -------------------------- web_dd_fetch_cache ------------------------------ */
+
+  /**
+   * Cache a raw external-DD web fetch. Idempotent under (queryHash,
+   * ddEngineVersion) — ON CONFLICT DO NOTHING. `resultPayload` is the canonical
+   * JSON of the raw ResearchResult[]; `retrievedAt` is the frozen fetch timestamp.
+   */
+  insertDdFetch(args: {
+    readonly queryHash: string;
+    readonly ddEngineVersion: string;
+    readonly resultPayload: string;
+    readonly retrievedAt: string;
+  }): { inserted: boolean } {
+    const result = this.db
+      .prepare(
+        `INSERT INTO web_dd_fetch_cache
+         (query_hash, dd_engine_version, result_payload, retrieved_at, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(query_hash, dd_engine_version) DO NOTHING`,
+      )
+      .run(args.queryHash, args.ddEngineVersion, args.resultPayload, args.retrievedAt, new Date().toISOString());
+    return { inserted: result.changes > 0 };
+  }
+
+  /** Lookup a cached DD fetch by (queryHash, ddEngineVersion). Returns the raw
+   *  payload + its frozen retrievedAt, or null on miss. */
+  getDdFetch(args: {
+    readonly queryHash: string;
+    readonly ddEngineVersion: string;
+  }): { readonly resultPayload: string; readonly retrievedAt: string } | null {
+    const row = this.db
+      .prepare(
+        `SELECT result_payload, retrieved_at FROM web_dd_fetch_cache
+         WHERE query_hash = ? AND dd_engine_version = ?`,
+      )
+      .get(args.queryHash, args.ddEngineVersion) as { result_payload: string; retrieved_at: string } | undefined;
+    return row === undefined ? null : { resultPayload: row.result_payload, retrievedAt: row.retrieved_at };
   }
 
   /* ------------------------- revision_lineage_envelopes ------------------------ */

@@ -33,12 +33,41 @@ import type {
   ExternalSubjectType,
   ExternalRenderDecision,
   ExternalSentiment,
+  SnapshotExternalDD,
 } from '@cre/contracts';
 import { renderExternalFinding } from '@cre/contracts';
 import type { ResearchResult } from '@cre/shared';
+import { createHash } from 'node:crypto';
 import { CLAUDE_MODEL } from '../config/llm-model.js';
 import { callAIWithContinuation } from './ai-analysis.service.js';
 import { braveSearch } from './research.service.js';
+import { canonicalize } from '../util/canonical-json.js';
+
+/**
+ * External-DD engine version — scopes the fetch cache + the at-mint snapshot.
+ * Bump when the query-builder or fetch semantics change so a stale cache row
+ * doesn't serve results from an older query set (mirrors model_version in
+ * llm_principle_eval_cache).
+ */
+export const EXTERNAL_DD_ENGINE_VERSION = '1.0' as const;
+
+/** The fetch-cache surface the orchestrator needs (a RecordGraphStore subset). */
+export interface DdFetchCache {
+  getDdFetch(args: { queryHash: string; ddEngineVersion: string }): { readonly resultPayload: string; readonly retrievedAt: string } | null;
+  insertDdFetch(args: { queryHash: string; ddEngineVersion: string; resultPayload: string; retrievedAt: string }): { inserted: boolean };
+}
+
+/**
+ * Content-hash key for a DD fetch — SHA-256 of the JCS-canonicalized input
+ * context (subject + subjectType + the exact query set + engine version).
+ * Same subject + same queries + same engine → same key → cache hit → no Brave
+ * call. Mirrors computeContextHash for llm_principle_eval_cache.
+ */
+export function ddQueryHash(subject: string, subjectType: ExternalSubjectType, queries: readonly string[]): string {
+  return createHash('sha256')
+    .update(canonicalize({ subject, subjectType, queries, ddEngineVersion: EXTERNAL_DD_ENGINE_VERSION }), 'utf8')
+    .digest('hex');
+}
 
 /* -------------------------- honest claimKind ----------------------------- */
 
@@ -316,6 +345,13 @@ export interface ExternalDDInput {
 export interface ExternalDDDeps {
   readonly braveSearch?: typeof braveSearch;
   readonly llm?: LlmFn;
+  /**
+   * Fetch cache (read-through). When present, the raw Brave results for a query
+   * set are cached by content-hash — a repeat run with the same subject +
+   * queries returns the cached raw with NO Brave call. The GUARD still runs
+   * fresh over the cached raw (we cache the FETCH, not the verdict).
+   */
+  readonly store?: DdFetchCache;
 }
 
 export interface ExternalDDResult {
@@ -331,6 +367,10 @@ export interface ExternalDDResult {
   readonly guarded: GuardedFinding[];
   readonly dropped: DroppedResult[];
   readonly rawCounts: { person: number; property: number };
+  /** Whether each search was served from the fetch cache (no Brave call). */
+  readonly cached: { person: boolean; property: boolean };
+  /** The frozen fetch timestamp the findings are pinned to. */
+  readonly retrievedAt: string;
 }
 
 /** Build the STRICT identity description handed to the classifier (names the
@@ -361,6 +401,38 @@ async function unionSearch(queries: readonly string[], doBrave: typeof braveSear
 }
 
 /**
+ * Read-through fetch cache. On a hit, returns the cached RAW results with NO
+ * Brave call (reproducible + cheap). On a miss, fetches, writes ON CONFLICT DO
+ * NOTHING, returns. The guard is NOT cached — the caller re-runs it fresh over
+ * whatever raw comes back.
+ */
+async function cachedUnionSearch(
+  subject: string,
+  subjectType: ExternalSubjectType,
+  queries: readonly string[],
+  doBrave: typeof braveSearch,
+  store: DdFetchCache | undefined,
+  retrievedAt: string,
+): Promise<{ results: ResearchResult[]; fromCache: boolean }> {
+  if (store !== undefined) {
+    const key = ddQueryHash(subject, subjectType, queries);
+    const hit = store.getDdFetch({ queryHash: key, ddEngineVersion: EXTERNAL_DD_ENGINE_VERSION });
+    if (hit !== null) {
+      try {
+        const results = JSON.parse(hit.resultPayload) as ResearchResult[];
+        return { results, fromCache: true };
+      } catch {
+        /* corrupt cache row — fall through to a fresh fetch */
+      }
+    }
+    const results = await unionSearch(queries, doBrave);
+    store.insertDdFetch({ queryHash: key, ddEngineVersion: EXTERNAL_DD_ENGINE_VERSION, resultPayload: JSON.stringify(results), retrievedAt });
+    return { results, fromCache: false };
+  }
+  return { results: await unionSearch(queries, doBrave), fromCache: false };
+}
+
+/**
  * Fetch → construct → guard, end to end. Person (sponsor + borrower) queries and
  * property-distress queries, unioned + deduped, classified against a strict
  * identity, built into findings, guarded. Returns guard-decided findings, a
@@ -377,14 +449,16 @@ export async function runExternalDueDiligence(
   const allFindings: ExternalFinding[] = [];
   const allDropped: DroppedResult[] = [];
   const rawCounts = { person: 0, property: 0 };
+  const cached = { person: false, property: false };
 
   const personQueries = buildPersonQueries(input);
   if (personQueries.length > 0) {
-    const results = await unionSearch(personQueries, doBrave);
+    const subjectLabel = input.sponsorName ?? input.borrowerName ?? 'the deal sponsor/borrower';
+    const { results, fromCache } = await cachedUnionSearch(subjectLabel, 'person', personQueries, doBrave, deps.store, input.retrievedAt);
     queries.push(...personQueries);
     rawCounts.person = results.length;
+    cached.person = fromCache;
     const identity = buildPersonIdentity(input);
-    const subjectLabel = input.sponsorName ?? input.borrowerName ?? 'the deal sponsor/borrower';
     const cls = await classifyResults(identity, 'person', results, llm);
     const { findings, dropped } = buildFindings(subjectLabel, 'person', results, cls, input.retrievedAt);
     allFindings.push(...findings);
@@ -393,11 +467,12 @@ export async function runExternalDueDiligence(
 
   const propQueries = buildPropertyDistressQueries(input);
   if (propQueries.length > 0) {
-    const results = await unionSearch(propQueries, doBrave);
-    queries.push(...propQueries);
-    rawCounts.property = results.length;
     const area = [input.submarket ?? input.city, input.state].filter(Boolean).join(', ');
     const subject = area.length > 0 ? area : (input.propertyAddress ?? 'the property submarket');
+    const { results, fromCache } = await cachedUnionSearch(subject, 'property_market', propQueries, doBrave, deps.store, input.retrievedAt);
+    queries.push(...propQueries);
+    rawCounts.property = results.length;
+    cached.property = fromCache;
     const identity = `the submarket/area "${subject}"${input.propertyAddress ? ` around ${input.propertyAddress}` : ''} — commercial-real-estate distress in THIS market; results about other markets are not the subject.`;
     const cls = await classifyResults(identity, 'property_market', results, llm);
     const { findings, dropped } = buildFindings(subject, 'property_market', results, cls, input.retrievedAt);
@@ -407,5 +482,37 @@ export async function runExternalDueDiligence(
 
   const guarded = guardFindings(allFindings);
   const status: ExternalDDResult['status'] = guarded.length > 0 ? 'findings' : 'no_findings_surfaced';
-  return { status, queries, guarded, dropped: allDropped, rawCounts };
+  return { status, queries, guarded, dropped: allDropped, rawCounts, cached, retrievedAt: input.retrievedAt };
+}
+
+/* ----------------------- at-mint snapshot producer ----------------------- */
+
+/**
+ * Freeze a DD run into the render-snapshot's `externalDD` field (v1.2+). Pure +
+ * deterministic — maps the guard-approved findings verbatim (finding + decision
+ * + rendered) and pins the frozen fetch timestamp + the deal's as-of date.
+ *
+ * Determinism (the point of this layer): the SAME `ExternalDDResult` + as-of
+ * date always produces a byte-identical `SnapshotExternalDD`, so the rendered DD
+ * is reproducible across re-renders and a later change to the live web cannot
+ * move a minted finding. `status` is preserved verbatim — `no_findings_surfaced`
+ * is an honest null (searched, nothing surfaced), never a clean bill of health.
+ *
+ * The `retrievedAt` comes from the RESULT (the frozen fetch timestamp the
+ * findings were built over — matches the fetch-cache row), not from wall-clock.
+ */
+export function buildExternalDDSnapshot(
+  result: Pick<ExternalDDResult, 'status' | 'guarded' | 'retrievedAt'>,
+  analysisAsOfDate: string,
+): SnapshotExternalDD {
+  return {
+    status: result.status,
+    findings: result.guarded.map((g) => ({
+      finding: g.finding,
+      decision: g.decision,
+      rendered: g.rendered,
+    })),
+    retrievedAt: result.retrievedAt as SnapshotExternalDD['retrievedAt'],
+    analysisAsOfDate: analysisAsOfDate as SnapshotExternalDD['analysisAsOfDate'],
+  };
 }

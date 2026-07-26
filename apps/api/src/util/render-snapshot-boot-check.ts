@@ -34,10 +34,10 @@ export class RenderSnapshotBootCheckError extends Error {
 }
 
 export function performRenderSnapshotBootCheck(): void {
-  // (1) Contract producer-version constant. v1.1 adds noiBasis (Option C).
-  if (SNAPSHOT_PRODUCER_VERSION !== '1.1') {
+  // (1) Contract producer-version constant. v1.1 adds noiBasis; v1.2 adds externalDD.
+  if (SNAPSHOT_PRODUCER_VERSION !== '1.2') {
     throw new RenderSnapshotBootCheckError(
-      `SNAPSHOT_PRODUCER_VERSION = '${SNAPSHOT_PRODUCER_VERSION}', expected '1.1' (Option C ships at 1.1). ` +
+      `SNAPSHOT_PRODUCER_VERSION = '${SNAPSHOT_PRODUCER_VERSION}', expected '1.2' (external-DD at-mint snapshot ships at 1.2). ` +
       `If you intend to bump the producer version again, extend SnapshotProducerVersion type, the ` +
       `reader's accepted set, and update this boot check.`,
     );
@@ -115,6 +115,29 @@ export function performRenderSnapshotBootCheck(): void {
       contractedNoi: 5_050_000,
       divergenceReason: 'other-income treatment',
     },
+    externalDD: {
+      status: 'findings' as const,
+      findings: [
+        {
+          finding: {
+            subjectType: 'person' as const,
+            subject: 'Test Sponsor',
+            claim: 'A court judgment was recorded against the sponsor.',
+            claimKind: 'public_record' as const,
+            verificationTier: 'external-corroborated' as const,
+            sentiment: 'negative' as const,
+            sources: [
+              { url: 'https://www.courtlistener.com/d/1', publisher: 'www.courtlistener.com', asOfDate: '2026-01-01T00:00:00.000Z' as never },
+            ],
+            retrievedAt: '2026-07-26T00:00:00.000Z' as never,
+          },
+          decision: 'render' as const,
+          rendered: 'A court judgment was recorded against the sponsor.',
+        },
+      ],
+      retrievedAt: '2026-07-26T00:00:00.000Z' as never,
+      analysisAsOfDate: '2026-07-26T00:00:00.000Z' as never,
+    },
   };
   const synthetic: DoctrineRenderSnapshot = {
     // Hash ONLY the locked subset (capturedAt is stamped-not-hashed). Same
@@ -165,6 +188,19 @@ export function performRenderSnapshotBootCheck(): void {
   if (fetched.noiBasis?.judgmentNoi !== 5_000_000 || fetched.noiBasis?.contractedNoi !== 5_050_000) {
     throw new RenderSnapshotBootCheckError(
       `round-trip noiBasis lost: got judgmentNoi=${fetched.noiBasis?.judgmentNoi}, contractedNoi=${fetched.noiBasis?.contractedNoi}`,
+    );
+  }
+  if (
+    fetched.externalDD?.status !== 'findings' ||
+    fetched.externalDD.findings.length !== 1 ||
+    fetched.externalDD.findings[0]!.decision !== 'render' ||
+    fetched.externalDD.findings[0]!.rendered !== 'A court judgment was recorded against the sponsor.' ||
+    fetched.externalDD.retrievedAt !== '2026-07-26T00:00:00.000Z'
+  ) {
+    throw new RenderSnapshotBootCheckError(
+      `round-trip externalDD lost: got status=${fetched.externalDD?.status}, ` +
+      `findings=${fetched.externalDD?.findings.length}, decision=${fetched.externalDD?.findings[0]?.decision}, ` +
+      `retrievedAt=${fetched.externalDD?.retrievedAt}`,
     );
   }
 

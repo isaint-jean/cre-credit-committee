@@ -39,7 +39,6 @@
 
 import {
   NARRATIVE_ENGINE_VERSION,
-  SNAPSHOT_PRODUCER_VERSION,
   type CrossCheckResult,
   type DoctrineComponentScore,
   type DoctrineEvaluation,
@@ -450,11 +449,20 @@ function projectCreditScore(
  *   Decline              → 'decline'
  *   InsufficientData     → 'further_review'   (legacy non-actionable)
  */
+/**
+ * Snapshot versions whose `rating.recommendation` this projection can read.
+ * The rating field is present + semantically stable across every version
+ * (1.1 added noiBasis, 1.2 added externalDD — neither touched rating), so all
+ * known versions map. Gating on the exact HEAD constant would regress every
+ * prior-version snapshot to 'further_review' the moment the producer bumps —
+ * this set is extended in lockstep with SnapshotProducerVersion instead.
+ */
+const RECOMMENDATION_READABLE_VERSIONS: readonly string[] = ['1.0', '1.1', '1.2'];
 function recommendationFromSnapshot(
   renderSnapshot: DoctrineRenderSnapshot | null,
 ): Recommendation {
   if (renderSnapshot === null) return 'further_review';
-  if (renderSnapshot.snapshotProducerVersion !== SNAPSHOT_PRODUCER_VERSION) return 'further_review';
+  if (!RECOMMENDATION_READABLE_VERSIONS.includes(renderSnapshot.snapshotProducerVersion)) return 'further_review';
   switch (renderSnapshot.rating.recommendation) {
     case 'Approve':                return 'approve';
     case 'ApproveWithConditions':  return 'approve_with_conditions';

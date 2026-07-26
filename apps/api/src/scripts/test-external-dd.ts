@@ -18,8 +18,13 @@ import {
   buildPersonQueries,
   buildPropertyDistressQueries,
   runExternalDueDiligence,
+  buildExternalDDSnapshot,
+  ddQueryHash,
+  EXTERNAL_DD_ENGINE_VERSION,
   type ResultClassification,
+  type DdFetchCache,
 } from '../services/external-dd.service.js';
+import { canonicalize } from '../util/canonical-json.js';
 
 let passed = 0, failed = 0;
 function ok(m: string): void { passed++; console.log(`  ok    ${m}`); }
@@ -188,6 +193,153 @@ void (async () => {
     );
     assertEqual(res.status, 'findings', 'a real match → status findings');
     assertEqual(res.guarded[0]!.decision, 'render', 'the public record renders');
+  }
+
+  /* ---- FETCH CACHE: read-through, no second Brave call ------------------- */
+  // An in-memory mirror of web_dd_fetch_cache (JCS key + version-scoped),
+  // exactly the shape RecordGraphStore.getDdFetch/insertDdFetch present.
+  function makeCache(): DdFetchCache & { rows: Map<string, { resultPayload: string; retrievedAt: string }> } {
+    const rows = new Map<string, { resultPayload: string; retrievedAt: string }>();
+    return {
+      rows,
+      getDdFetch({ queryHash, ddEngineVersion }) {
+        return rows.get(`${queryHash}::${ddEngineVersion}`) ?? null;
+      },
+      insertDdFetch({ queryHash, ddEngineVersion, resultPayload, retrievedAt }) {
+        const k = `${queryHash}::${ddEngineVersion}`;
+        if (rows.has(k)) return { inserted: false }; // ON CONFLICT DO NOTHING
+        rows.set(k, { resultPayload, retrievedAt });
+        return { inserted: true };
+      },
+    };
+  }
+
+  console.log('Fetch cache — read-through avoids a second Brave call:');
+  {
+    const cache = makeCache();
+    let braveCalls = 0;
+    const countingBrave = async (q: string): Promise<ResearchResult[]> => {
+      braveCalls++;
+      return q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
+    };
+    const stubYes = async (): Promise<string> =>
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+    const input = { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED };
+
+    const run1 = await runExternalDueDiligence(input, { braveSearch: countingBrave as never, llm: stubYes as never, store: cache });
+    const callsAfterRun1 = braveCalls;
+    assert(callsAfterRun1 > 0, 'first run hits Brave (cache miss → fetch)');
+    assertEqual(run1.cached.person, false, 'first run is not served from cache');
+
+    const run2 = await runExternalDueDiligence(input, { braveSearch: countingBrave as never, llm: stubYes as never, store: cache });
+    assertEqual(braveCalls, callsAfterRun1, 'second run makes ZERO additional Brave calls (served from cache)');
+    assertEqual(run2.cached.person, true, 'second run is served from the fetch cache');
+    assertEqual(run2.status, 'findings', 'cached raw still yields the same finding');
+    assertEqual(run2.guarded[0]!.decision, run1.guarded[0]!.decision, 'render decision is identical across the cached re-run');
+    assertEqual(JSON.stringify(run2.guarded), JSON.stringify(run1.guarded), 'guarded findings are byte-identical across the cached re-run');
+  }
+
+  console.log('Fetch cache — the RAW fetch is cached, not the verdict (guard re-runs fresh):');
+  {
+    // Same raw cached results, but a HARSHER guard on the re-run (llm now says the
+    // claim is worse). The cache returns the identical raw; the fresh guard re-scores.
+    const cache = makeCache();
+    let braveCalls = 0;
+    const brave = async (q: string): Promise<ResearchResult[]> => {
+      braveCalls++;
+      return q.includes('Sunroad') ? [R('Report on Sunroad Holding Corporation', 'https://somereportblog.wordpress.com/x', 'reported')] : [];
+    };
+    const input = { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED };
+    // Run 1: classifier says the item is about a namesake (dropped) — nothing surfaces.
+    const llmNo = async (): Promise<string> => JSON.stringify([{ index: 0, aboutSubject: 'no', sentiment: 'negative', reportedClaim: '', claimGroup: '' }]);
+    const run1 = await runExternalDueDiligence(input, { braveSearch: brave as never, llm: llmNo as never, store: cache });
+    const callsAfterRun1 = braveCalls;
+    assertEqual(run1.status, 'no_findings_surfaced', 'run 1: guard drops the namesake');
+    // Run 2: SAME cached raw (0 new Brave), but classifier now confirms identity → surfaces.
+    const llmYes = async (): Promise<string> => JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a reported concern', claimGroup: 'g1' }]);
+    const run2 = await runExternalDueDiligence(input, { braveSearch: brave as never, llm: llmYes as never, store: cache });
+    assertEqual(braveCalls, callsAfterRun1, 'run 2 fetched nothing new (raw served from cache)');
+    assertEqual(run2.cached.person, true, 'run 2 raw came from the cache');
+    assertEqual(run2.status, 'findings', 'yet the FRESH guard re-scored the cached raw and surfaced it (verdict not cached)');
+  }
+
+  console.log('Fetch cache — a later web change does NOT move the cached fetch (determinism):');
+  {
+    const cache = makeCache();
+    const input = { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED };
+    const stubYes = async (): Promise<string> =>
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+    const braveV1 = async (q: string): Promise<ResearchResult[]> =>
+      q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
+    // A DIFFERENT web tomorrow — extra results, changed text. Must not leak past the cache.
+    const braveV2 = async (q: string): Promise<ResearchResult[]> =>
+      q.includes('Sunroad') ? [R('BRAND NEW allegation vs Sunroad', 'https://tabloid.example/z', 'new'), R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
+    const first = await runExternalDueDiligence(input, { braveSearch: braveV1 as never, llm: stubYes as never, store: cache });
+    const later = await runExternalDueDiligence(input, { braveSearch: braveV2 as never, llm: stubYes as never, store: cache });
+    assertEqual(later.cached.person, true, 'the later render is pinned to the cached fetch');
+    assertEqual(later.rawCounts.person, first.rawCounts.person, 'the web change did NOT enlarge the pinned raw set');
+    assertEqual(JSON.stringify(later.guarded), JSON.stringify(first.guarded), 'the minted finding is byte-identical despite the web changing');
+    assertEqual(later.retrievedAt, RETRIEVED, 'retrievedAt stays pinned to the frozen fetch timestamp');
+  }
+
+  console.log('Fetch cache — the query hash is JCS-canonical + version-scoped:');
+  {
+    const h1 = ddQueryHash('Acme', 'person', ['b query', 'a query']);
+    const h2 = ddQueryHash('Acme', 'person', ['b query', 'a query']);
+    assertEqual(h1, h2, 'same inputs → same hash (deterministic)');
+    assert(h1 !== ddQueryHash('Acme', 'person', ['a query', 'b query']), 'query ORDER is part of the key (union order is meaningful)');
+    assert(h1 !== ddQueryHash('Acme', 'property_market', ['b query', 'a query']), 'subjectType is part of the key');
+    assert(typeof EXTERNAL_DD_ENGINE_VERSION === 'string' && EXTERNAL_DD_ENGINE_VERSION.length > 0, 'engine version is present (key is version-scoped)');
+  }
+
+  console.log('At-mint snapshot — frozen DD is byte-identical across re-renders + web changes:');
+  {
+    const AS_OF = '2026-07-26T00:00:00.000Z';
+    const cache = makeCache();
+    const input = { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED };
+    const stubYes = async (): Promise<string> =>
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+    const braveV1 = async (q: string): Promise<ResearchResult[]> =>
+      q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
+    // Tomorrow's web: a brand-new tabloid item + the original. Must not leak past the cache.
+    const braveV2 = async (q: string): Promise<ResearchResult[]> =>
+      q.includes('Sunroad') ? [R('BRAND NEW allegation vs Sunroad', 'https://tabloid.example/z', 'new'), R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
+
+    // Mint: run DD, freeze into a snapshot field pinned to the as-of date.
+    const mintRun = await runExternalDueDiligence(input, { braveSearch: braveV1 as never, llm: stubYes as never, store: cache });
+    const minted = buildExternalDDSnapshot(mintRun, AS_OF);
+    const mintedBytes = canonicalize(minted as unknown as Record<string, unknown>);
+
+    // Re-render #1: same everything → identical bytes (cache hit, 0 Brave).
+    const rerun1 = await runExternalDueDiligence(input, { braveSearch: braveV1 as never, llm: stubYes as never, store: cache });
+    const snap1 = buildExternalDDSnapshot(rerun1, AS_OF);
+    assertEqual(canonicalize(snap1 as unknown as Record<string, unknown>), mintedBytes, 're-render with identical inputs → byte-identical frozen DD');
+
+    // Re-render #2: the WEB CHANGED (braveV2), but the fetch is cached → the
+    // minted finding does not move.
+    const rerun2 = await runExternalDueDiligence(input, { braveSearch: braveV2 as never, llm: stubYes as never, store: cache });
+    const snap2 = buildExternalDDSnapshot(rerun2, AS_OF);
+    assertEqual(canonicalize(snap2 as unknown as Record<string, unknown>), mintedBytes, 'a later web change does NOT move the minted finding (frozen at mint)');
+
+    assertEqual(minted.retrievedAt, RETRIEVED, 'snapshot retrievedAt is pinned to the frozen fetch timestamp');
+    assertEqual(minted.analysisAsOfDate, AS_OF, 'snapshot analysisAsOfDate is pinned to the deal as-of date');
+    assertEqual(minted.status, 'findings', 'snapshot preserves the honest status');
+    assertEqual(minted.findings.length, 1, 'the single guard-approved finding is frozen');
+    assertEqual(minted.findings[0]!.decision, 'render', 'the render decision is frozen verbatim');
+  }
+
+  console.log('At-mint snapshot — an honest null (searched, nothing surfaced) is frozen as such:');
+  {
+    const AS_OF = '2026-07-26T00:00:00.000Z';
+    const brave = async (): Promise<ResearchResult[]> => [];
+    const llm = async (): Promise<string> => JSON.stringify([]);
+    const run = await runExternalDueDiligence(
+      { sponsorName: 'Nobody Notable LLC', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: brave as never, llm: llm as never },
+    );
+    const snap = buildExternalDDSnapshot(run, AS_OF);
+    assertEqual(snap.status, 'no_findings_surfaced', 'the honest null is frozen (searched, nothing surfaced — NOT clean)');
+    assertEqual(snap.findings.length, 0, 'no findings frozen');
   }
 
   console.log(`\n${failed === 0 ? '✓' : '✗'} external-dd: ${passed} passed, ${failed} failed`);

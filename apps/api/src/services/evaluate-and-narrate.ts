@@ -321,6 +321,15 @@ export async function evaluateAndNarrate(
       contractedNoi,           // null when predicate=false (stabilized)
       divergenceReason:   NOI_BASIS_DIVERGENCE_REASON,
     },
+    // v1.2 — the snapshot SHAPE now carries an optional `externalDD` field
+    // (guard-approved external-DD findings frozen at mint). The producer
+    // (`buildExternalDDSnapshot`) + fetch-cache determinism are built + proven,
+    // but external DD is NOT invoked at mint yet (that touches the live web +
+    // is a separate wiring task). We therefore stamp 1.2 and OMIT externalDD:
+    // the extract fn only hashes the field when present, so a 1.2 snapshot with
+    // no externalDD hashes over exactly its 1.1-era fields; the reader falls
+    // back to honest-blank. When DD-at-mint lands, populate this from
+    // `buildExternalDDSnapshot(runExternalDueDiligence(...), analysisAsOfDate)`.
   }) as Pick<DoctrineRenderSnapshot,
     | 'doctrineEvaluationId'
     | 'snapshotProducerVersion'

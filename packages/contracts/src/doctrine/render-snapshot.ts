@@ -46,6 +46,10 @@ import type {
 } from '../identity.js';
 import type { ISODateTime } from '../versioning.js';
 import type { MitigationProposal } from '../mitigation.js';
+import type {
+  ExternalFinding,
+  ExternalRenderDecision,
+} from '../external-finding.js';
 
 /**
  * Snapshot producer version. Bump when the snapshot SHAPE changes (e.g., adding
@@ -61,7 +65,7 @@ import type { MitigationProposal } from '../mitigation.js';
  * The version is stamped on every snapshot row so a future reader can replay
  * historical snapshots correctly.
  */
-export const SNAPSHOT_PRODUCER_VERSION = '1.1' as const;
+export const SNAPSHOT_PRODUCER_VERSION = '1.2' as const;
 /**
  * Snapshot producer version union — extend (don't replace) when bumping
  * `SNAPSHOT_PRODUCER_VERSION` so readers can carry historical version
@@ -73,8 +77,17 @@ export const SNAPSHOT_PRODUCER_VERSION = '1.1' as const;
  *         as "no noiBasis field" → callout falls back to deterministic
  *         recompute. Forward-only: new evals stamp 1.1; existing 1.0
  *         snapshots stay valid + readable for their original fields.
+ *   1.2 — adds optional `externalDD` field: the guard-approved external
+ *         due-diligence findings frozen at mint (rendered ExternalFinding
+ *         objects + render decisions + sources + retrievedAt +
+ *         no_findings_surfaced status), pinned to a frozen fetch timestamp
+ *         and the analysis as-of date. Reader treats a <1.2 snapshot as "no
+ *         externalDD field" → the external-DD block falls back to honest-blank
+ *         (searched-nothing-surfaced is NOT the same as never-searched).
+ *         Forward-only: new evals stamp 1.2; existing 1.0/1.1 snapshots stay
+ *         valid + readable for their original fields.
  */
-export type SnapshotProducerVersion = '1.0' | '1.1';
+export type SnapshotProducerVersion = '1.0' | '1.1' | '1.2';
 
 /* -------------------------------------------------------------------------- */
 /* §1. Sub-shapes                                                             */
@@ -198,6 +211,54 @@ export interface SnapshotNoiBasis {
 }
 
 /**
+ * A single guard-approved external-DD finding, frozen at mint (v1.2+).
+ *
+ * Carries the FULL `ExternalFinding` (subject, claim as reported speech,
+ * claimKind, verificationTier, sentiment, sources, retrievedAt), the pure
+ * defamation-guard `decision`, and the `rendered` string the memo would show
+ * (`null` when the decision suppresses/blanks). The renderer reads `rendered`
+ * verbatim — it does NOT re-run the guard at render time, so the minted memo
+ * is pin-faithful to the guard logic in force AT MINT.
+ *
+ * Storing the finding + decision + rendered together (not just the string)
+ * keeps the snapshot auditable: a reviewer can see WHY a claim rendered or was
+ * suppressed without re-deriving it.
+ */
+export interface SnapshotExternalFinding {
+  readonly finding: ExternalFinding;
+  readonly decision: ExternalRenderDecision;
+  /** The memo-ready text, or `null` when the guard suppressed/blanked the claim. */
+  readonly rendered: string | null;
+}
+
+/**
+ * External due-diligence snapshot (v1.2+). The guard-approved findings frozen
+ * at mint so a DD finding is reproducible: same subject + as-of date → the
+ * SAME rendered DD across re-renders, and a later change to the live web does
+ * NOT move the minted finding.
+ *
+ * `status`:
+ *   - `'findings'`             — one or more guard-approved findings surfaced.
+ *   - `'no_findings_surfaced'` — searched, nothing survived the guard. This is
+ *     an HONEST NULL, not a clean bill of health; the reader must render it as
+ *     "searched — nothing surfaced", never as "no issues".
+ *
+ * `retrievedAt` pins the frozen fetch timestamp the findings were built over
+ * (matches the fetch-cache row's `retrieved_at`). `analysisAsOfDate` pins the
+ * deal's as-of date so the DD is reproducible against a fixed point in time,
+ * independent of when the memo is re-rendered.
+ */
+export interface SnapshotExternalDD {
+  readonly status: 'findings' | 'no_findings_surfaced';
+  /** Guard-approved findings (may be empty even when searched — see `status`). */
+  readonly findings: readonly SnapshotExternalFinding[];
+  /** Frozen fetch timestamp the findings are pinned to (matches the fetch-cache row). */
+  readonly retrievedAt: ISODateTime;
+  /** The deal's as-of date — the fixed point the DD is reproducible against. */
+  readonly analysisAsOfDate: ISODateTime;
+}
+
+/**
  * Composed mitigation package snapshot.
  *
  * `proposals` and `initialProposals` use the contract-owned `MitigationProposal`
@@ -255,6 +316,13 @@ export interface DoctrineRenderSnapshotHashInput {
    * and reader gate on `snapshotProducerVersion` accordingly.
    */
   readonly noiBasis?: SnapshotNoiBasis;
+  /**
+   * v1.2+ — external due-diligence findings frozen at mint. Optional in the
+   * hash boundary so 1.0/1.1 snapshots' hash inputs don't include this field
+   * (preserves their id determinism). Producers writing at 1.2+ MUST emit this
+   * when DD ran; the boot check and reader gate on `snapshotProducerVersion`.
+   */
+  readonly externalDD?: SnapshotExternalDD;
 }
 
 export interface DoctrineRenderSnapshot {
@@ -303,6 +371,13 @@ export interface DoctrineRenderSnapshot {
    * checks `snapshotProducerVersion` before consuming.
    */
   readonly noiBasis?: SnapshotNoiBasis;
+
+  /**
+   * External due-diligence findings frozen at mint (v1.2+). Absent on
+   * 1.0/1.1 snapshots. Reader checks `snapshotProducerVersion` before
+   * consuming and falls back to honest-blank when absent.
+   */
+  readonly externalDD?: SnapshotExternalDD;
 }
 
 /**
@@ -319,9 +394,10 @@ export function extractDoctrineRenderSnapshotHashInput(
     | 'authoritativeNumbers'
     | 'composedMitigationPackage'> & {
     readonly noiBasis?: SnapshotNoiBasis;
+    readonly externalDD?: SnapshotExternalDD;
   },
 ): DoctrineRenderSnapshotHashInput {
-  const hashInput: DoctrineRenderSnapshotHashInput = {
+  let hashInput: DoctrineRenderSnapshotHashInput = {
     doctrineEvaluationId:    s.doctrineEvaluationId,
     snapshotProducerVersion: s.snapshotProducerVersion,
     rating:                  s.rating,
@@ -332,7 +408,12 @@ export function extractDoctrineRenderSnapshotHashInput(
   // v1.1+: include noiBasis when present. Producers at 1.1 must emit it;
   // 1.0 inputs omit the field entirely so historical 1.0 ids stay stable.
   if (s.noiBasis !== undefined) {
-    return { ...hashInput, noiBasis: s.noiBasis };
+    hashInput = { ...hashInput, noiBasis: s.noiBasis };
+  }
+  // v1.2+: include externalDD when present. 1.0/1.1 inputs omit it so their
+  // historical ids stay stable.
+  if (s.externalDD !== undefined) {
+    hashInput = { ...hashInput, externalDD: s.externalDD };
   }
   return hashInput;
 }

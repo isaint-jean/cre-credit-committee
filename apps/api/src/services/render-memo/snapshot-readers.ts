@@ -31,11 +31,11 @@ import type { ComposedMitigationPackage } from '../mitigation/compose-mitigation
 import { dimensionRiskSentence } from '../narrative/committee-voice.js';
 
 /**
- * Versions this reader recognizes. 1.0 + 1.1 — load both; 1.1's noiBasis is
- * optional on 1.0 (callout falls back to deterministic recompute). Future
- * versions extend this set in lockstep.
+ * Versions this reader recognizes. 1.0 + 1.1 + 1.2 — load all; 1.1's noiBasis
+ * and 1.2's externalDD are optional on older snapshots (each falls back to its
+ * own honest default when absent). Future versions extend this set in lockstep.
  */
-const SUPPORTED_PRODUCER_VERSIONS: readonly string[] = ['1.0', '1.1'];
+const SUPPORTED_PRODUCER_VERSIONS: readonly string[] = ['1.0', '1.1', '1.2'];
 
 /**
  * Load a snapshot keyed by doctrineEvaluationId. Returns null when the
