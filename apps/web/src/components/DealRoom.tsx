@@ -644,6 +644,22 @@ export function DealRoom({ id }: { id: string }) {
             <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 16 }}>
               <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3, marginBottom: 12 }}>{view.railTitle}</div>
               {score && (
+                score.riskTier === 'insufficient_data' ? (
+                  // Engine abstained (coverage gate) — the score is ABSENT, not 0.
+                  // Render "Insufficient data", never a "0/100" ring that reads as
+                  // a catastrophic score.
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                    <div style={{ width: 84, height: 84, borderRadius: '50%', flexShrink: 0, background: C.border, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.surface, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ ...num(C.ink3), fontSize: 24, fontWeight: 700, lineHeight: 1 }}>—</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Insufficient data</div>
+                      <div style={{ fontSize: 12, color: C.ink3 }}>engine abstained — no valuation source</div>
+                    </div>
+                  </div>
+                ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
                   <div style={{ width: 84, height: 84, borderRadius: '50%', flexShrink: 0, background: `conic-gradient(${view.accent} ${score.overall ?? 0}%, ${C.border} ${score.overall ?? 0}% 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.surface, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -656,6 +672,7 @@ export function DealRoom({ id }: { id: string }) {
                     <div style={{ fontSize: 12, color: C.ink3, textTransform: 'capitalize' }}>{score.recommendation?.replace(/_/g, ' ')}</div>
                   </div>
                 </div>
+                )
               )}
               {scenarioActive && (
                 <div style={{ fontSize: 11, color: C.amber, background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: '6px 8px', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -793,12 +810,20 @@ function CriteriaList({ items }: { items: ReadonlyArray<{ ruleName: string; resu
 
 function ScoreDetail({ score }: { score: { overall?: number; riskTier?: string; recommendation?: string; whyThisScore?: string; howToImprove?: string; categories?: ReadonlyArray<{ category: string; weightedScore: number; weight: number; score: number; maxScore: number; tier?: string | null; explanation?: string }> } | null | undefined }) {
   if (!score) return <WSEmpty label="No score." />;
+  const gated = score.riskTier === 'insufficient_data';
   return <div style={wsCol}>
     <div style={wsCard}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ ...num(C.ink), fontSize: 28, fontWeight: 700 }}>{score.overall}</span>
-        <span style={{ fontSize: 12, color: C.ink3, textTransform: 'capitalize' }}>/ 100 · {score.riskTier?.replace('_', ' ')} · {score.recommendation?.replace(/_/g, ' ')}</span>
+        {gated ? (
+          <span style={{ ...num(C.ink), fontSize: 20, fontWeight: 700 }}>Insufficient data</span>
+        ) : (
+          <>
+            <span style={{ ...num(C.ink), fontSize: 28, fontWeight: 700 }}>{score.overall}</span>
+            <span style={{ fontSize: 12, color: C.ink3, textTransform: 'capitalize' }}>/ 100 · {score.riskTier?.replace('_', ' ')} · {score.recommendation?.replace(/_/g, ' ')}</span>
+          </>
+        )}
       </div>
+      {gated && <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>The engine abstained from scoring — no valuation source to anchor the credit read.</div>}
       {score.whyThisScore && <div style={{ fontSize: 12, color: C.ink2, marginTop: 6, lineHeight: 1.5 }}>{score.whyThisScore}</div>}
       {score.howToImprove && <div style={{ fontSize: 12, color: C.ink2, marginTop: 4, lineHeight: 1.5 }}><strong>To improve:</strong> {score.howToImprove}</div>}
     </div>

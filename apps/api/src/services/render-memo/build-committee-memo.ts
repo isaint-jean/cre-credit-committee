@@ -224,6 +224,14 @@ function proseToHtml(prose: string): string {
   return lines.map(esc).join('<br>');
 }
 
+/** The memo defers to the data gate when the income is unvalidated OR the
+ *  doctrine abstained (coverage gate → InsufficientData). In both cases the memo
+ *  does not present a rating — header / §13 read "Insufficient data — refer
+ *  back"; a refusal to score is not a catastrophic score. */
+function memoGated(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): boolean {
+  return input.dataConfidence === 'unvalidated' || auth.ratingRecommendation === 'InsufficientData';
+}
+
 /** Section wrapper — one <section> + heading, given a section id and inner html. */
 function section(id: Exclude<MemoSectionId, 'header' | 'footer'>, innerHtml: string, extraClass = ''): string {
   return `
@@ -273,7 +281,7 @@ function addressedRiskLabel(p: MitigationProposal): string | null {
 function renderHeader(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
   // When the income underlying the rating is unvalidated, the memo does not
   // present a rating — it refers the deal back. The label matches §13's gate.
-  const ratingLabel = input.dataConfidence === 'unvalidated'
+  const ratingLabel = memoGated(input, auth)
     ? 'Insufficient data — refer back'
     : (auth.ratingRecommendation ?? MEMO_NULL_SENTINEL);
   return `
@@ -919,9 +927,12 @@ function renderCommitteeView(narrative: NarrativeEvaluation): string {
 
 function renderFinalRecommendation(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
   const rating = auth.ratingRecommendation ?? 'No recommendation stated';
-  const gated = input.dataConfidence === 'unvalidated';
+  const gated = memoGated(input, auth);
+  const abstained = auth.ratingRecommendation === 'InsufficientData';
   const displayRating = gated ? 'Insufficient data — refer back to committee' : rating;
-  const thesis = gated
+  const thesis = abstained
+    ? 'The engine abstained from issuing a rating: the valuation spine could not be resolved from the available documents, so the deal is unscored. The committee cannot recommend on an unscored deal — obtain an independent valuation source (an appraisal or pre-sale ASR) and re-underwrite before this returns to committee.'
+    : gated
     ? 'The investment thesis cannot yet survive the numbers: the income underlying every ratio is unvalidated, so the committee is not in a position to issue a final credit recommendation. Obtain an independent operating statement and re-underwrite before this deal returns to committee.'
     : (rating === 'Approve' || rating === 'ApproveWithConditions')
       ? 'The thesis set out in the Investment Overview survives the numbers in Credit Structure, provided the sized conditions above are implemented. The residual risk is held within the desk’s tolerance by the structure.'
