@@ -8,7 +8,7 @@ interface BraveSearchResult {
   age?: string;
 }
 
-async function braveSearch(query: string): Promise<ResearchResult[]> {
+export async function braveSearch(query: string): Promise<ResearchResult[]> {
   if (!env.braveSearchApiKey) {
     return [{
       title: 'Search API not configured',
