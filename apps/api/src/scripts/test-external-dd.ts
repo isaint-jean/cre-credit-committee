@@ -15,6 +15,9 @@ import {
   resultToSource,
   buildFindings,
   guardFindings,
+  buildPersonQueries,
+  buildPropertyDistressQueries,
+  runExternalDueDiligence,
   type ResultClassification,
 } from '../services/external-dd.service.js';
 
@@ -135,5 +138,58 @@ console.log('Invariant — nothing leaks un-guarded:');
   assert(accountedFor, 'every raw result is either a guarded finding-source OR explicitly dropped');
 }
 
-console.log(`\n${failed === 0 ? '✓' : '✗'} external-dd: ${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+/* ---- query builders (precision) ----------------------------------------- */
+console.log('Query precision — person queries:');
+{
+  const qs = buildPersonQueries({ sponsorName: 'Sunroad Holding Corporation', borrowerName: 'Sunroad Centrum Office One Partners, LP', city: 'San Diego', state: 'CA' });
+  assert(qs.some((q) => q.includes('San Diego') && q.includes('Sunroad Holding Corporation')), 'sponsor query is disambiguated with city/state');
+  assert(qs.some((q) => q.includes('Sunroad Centrum Office One Partners, LP')), 'the borrower LP is searched (more distinctive than the holding co)');
+  assert(new Set(qs).size === qs.length, 'queries are deduped');
+}
+console.log('Query precision — property-distress queries:');
+{
+  const qs = buildPropertyDistressQueries({ city: 'San Diego', submarket: 'Kearny Mesa', state: 'CA' });
+  assert(qs.length > 0 && qs.some((q) => q.includes('Kearny Mesa')), 'uses the submarket (radius), not an exact address');
+  assert(qs.every((q) => !q.includes('8620')), 'does NOT key on the exact street number (which returned 0)');
+  assertEqual(buildPropertyDistressQueries({ city: null, submarket: null, state: null }).length, 0, 'no area → no query');
+}
+
+/* ---- HONEST NULL + identity unweakened by disambiguation (async) --------- */
+// Wrapped in an async IIFE — the sync assertions above run first; these awaits
+// follow (top-level await is unavailable in the CJS build).
+void (async () => {
+  console.log('Honest null + strict identity through the full pipe (injected deps):');
+  {
+    // A namesake result surfaces (a DIFFERENT Miami developer), even though the query
+    // now carries city context. The classifier stub marks it identity:'no'.
+    const stubBrave = async (_q: string): Promise<ResearchResult[]> =>
+      [R('Rishi Kapoor fraud victims — Miami developer', 'https://news.example/kapoor', 'a different developer, not this sponsor')];
+    const stubLlmNo = async (): Promise<string> =>
+      JSON.stringify([{ index: 0, aboutSubject: 'no', sentiment: 'negative', reportedClaim: '', claimGroup: '' }]);
+    const res = await runExternalDueDiligence(
+      { sponsorName: 'Sunroad Holding Corporation', borrowerName: 'Sunroad Centrum Office One Partners, LP', propertyAddress: '8620 Spectrum Center Blvd', city: 'San Diego', state: 'CA', submarket: 'Kearny Mesa', assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: stubBrave as never, llm: stubLlmNo as never },
+    );
+    assertEqual(res.status, 'no_findings_surfaced', 'namesake dropped → status is no_findings_surfaced (NOT clean)');
+    assertEqual(res.guarded.length, 0, 'no findings surfaced');
+    assert(res.dropped.some((dd) => /identity no/.test(dd.reason)), 'the namesake (even with city context) is dropped by the identity guard');
+    assert(!JSON.stringify(res.guarded).includes('Rishi Kapoor'), "the stranger's scandal is NOT attributed to the sponsor (absent from guarded findings; it appears only in the transparent dropped list)");
+    assert(res.queries.some((q) => q.includes('San Diego')) && res.queries.some((q) => q.includes('Kearny Mesa')), 'the tightened queries WERE issued (disambiguation happened) — yet identity stayed strict');
+  }
+  console.log('Honest null — real match surfaces → status findings:');
+  {
+    const stubBrave = async (q: string): Promise<ResearchResult[]> =>
+      q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
+    const stubLlmYes = async (): Promise<string> =>
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+    const res = await runExternalDueDiligence(
+      { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: stubBrave as never, llm: stubLlmYes as never },
+    );
+    assertEqual(res.status, 'findings', 'a real match → status findings');
+    assertEqual(res.guarded[0]!.decision, 'render', 'the public record renders');
+  }
+
+  console.log(`\n${failed === 0 ? '✓' : '✗'} external-dd: ${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+})();

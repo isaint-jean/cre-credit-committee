@@ -23,20 +23,27 @@ const RETRIEVED_AT = '2026-07-26T00:00:00Z'; // frozen fetch timestamp (no wall-
   const pm: any = rgs.getPropertyMetadataByExtractionResultId(d.extractionResultId);
 
   const sponsorName = er.parties?.sponsorName ?? null;
+  const borrowerName = er.parties?.borrowerName ?? null;
   const address = er.appraisal?.addressFull ?? pm?.address ?? null;
   const city = er.appraisal?.city ?? pm?.city ?? null;
-  console.log('=== Sunroad ad9e9e90 search keys ===');
-  console.log('  sponsorName:', sponsorName);
-  console.log('  address:', address, '| city:', city);
-  console.log('  (borrowerName:', er.parties?.borrowerName, ')\n');
+  const state = er.appraisal?.state ?? pm?.state ?? null;
+  const submarket = pm?.submarket ?? null;
+  const assetType = (a.assetType as string | undefined) ?? pm?.assetType ?? null;
+  console.log('=== Sunroad ad9e9e90 search keys (disambiguation context) ===');
+  console.log('  sponsorName :', sponsorName);
+  console.log('  borrowerName:', borrowerName);
+  console.log('  address     :', address, '| city:', city, '| state:', state, '| submarket:', submarket, '| assetType:', assetType, '\n');
 
   console.log('Running live chain (Brave + LLM)…\n');
-  const res = await runExternalDueDiligence({ sponsorName, propertyAddress: address, city, retrievedAt: RETRIEVED_AT });
+  const res = await runExternalDueDiligence({
+    sponsorName, borrowerName, propertyAddress: address, city, state, submarket, assetType, retrievedAt: RETRIEVED_AT,
+  });
 
-  console.log('=== QUERIES ISSUED ===');
+  console.log('=== QUERIES ISSUED (tightened) ===');
   res.queries.forEach((q) => console.log('  •', q));
   console.log('\n=== RATE / QUALITY ===');
-  console.log(`  raw Brave results: sponsor=${res.rawCounts.sponsor}, property=${res.rawCounts.property}`);
+  console.log(`  raw Brave results (unioned+deduped): person=${res.rawCounts.person}, property=${res.rawCounts.property}`);
+  console.log(`  ★ STATUS: ${res.status}  ${res.status === 'no_findings_surfaced' ? '(searched, nothing surfaced — NOT a "clean" signal)' : ''}`);
 
   console.log('\n=== GUARDED FINDINGS (fetch → finding → guard) ===');
   if (res.guarded.length === 0) console.log('  (no findings survived construction)');
@@ -53,6 +60,5 @@ const RETRIEVED_AT = '2026-07-26T00:00:00Z'; // frozen fetch timestamp (no wall-
   for (const dr of res.dropped) console.log(`  ✗ [${dr.subjectType}] "${dr.title.slice(0,70)}" — ${dr.reason}`);
 
   console.log('\n=== INVARIANT CHECK ===');
-  const total = res.guarded.length + res.dropped.length;
-  console.log(`  ${res.rawCounts.sponsor + res.rawCounts.property} raw results → ${res.guarded.length} guarded findings + ${res.dropped.length} dropped (+ merges). Every result accounted for; none un-guarded.`);
+  console.log(`  ${res.rawCounts.person + res.rawCounts.property} raw results → ${res.guarded.length} guarded findings + ${res.dropped.length} dropped (+ merges). Every result accounted for; none un-guarded.`);
 })().catch((e) => { console.error('FATAL:', e?.message || e); process.exit(2); });

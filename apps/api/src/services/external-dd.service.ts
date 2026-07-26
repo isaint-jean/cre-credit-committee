@@ -6,20 +6,24 @@
  * THE INVARIANT (load-bearing): Brave returns RAW SEARCH RESULTS — raw material,
  * not findings. Every result is either CONVERTED into a structured
  * ExternalFinding and run through computeRenderDecision, or DROPPED. There is no
- * path from a raw result to any output that bypasses the guard. The service
- * returns guard-decided findings + a transparent list of what was dropped and why.
+ * path from a raw result to any output that bypasses the guard.
+ *
+ * QUERY PRECISION vs IDENTITY (critical separation): the query builders enrich
+ * the search with deal context (city/state, the borrower LP, submarket) so real
+ * signal surfaces — but that disambiguation improves only what we SEARCH, never
+ * how loosely we ACCEPT. The identity guard (the LLM classifier) stays STRICT:
+ * a result must be clearly about the SPECIFIC named entity to survive; a
+ * same-name/same-city stranger is still dropped. Proximity in a query is not
+ * identity.
  *
  * HONESTY IN CONSTRUCTION:
- *   - claimKind is DERIVED from the source domain (primary-record host → public_record;
- *     news host → reported_event; blog/unknown → allegation), and defaults DOWN when
- *     unsure — never guessed up.
- *   - sources are real (url + publisher + as-of), never fabricated; a result with no
- *     usable URL cannot become a corroborating source.
- *   - verificationTier is a conservative placeholder; the guard re-derives corroboration
- *     from the actual evidence (independent publishers / primary record) and ignores it.
- *   - FALSE-SUBJECT GUARD: an LLM classifies whether each result is actually about THIS
- *     subject (not a namesake) and whether it is adverse. Anything not clearly about the
- *     subject is DROPPED — a stranger's scandal is never attributed to this sponsor.
+ *   - claimKind is DERIVED from the source domain and defaults DOWN when unsure.
+ *   - sources are real (url + publisher + as-of), never fabricated.
+ *   - verificationTier is a placeholder; the guard re-derives corroboration from
+ *     the actual evidence.
+ *   - HONEST NULL: the result carries an explicit status — 'no_findings_surfaced'
+ *     (searched, nothing survived) is DISTINCT from any "clean" claim. Searching
+ *     and finding nothing is never a clean bill of health.
  */
 
 import type {
@@ -30,23 +34,20 @@ import type {
   ExternalRenderDecision,
   ExternalSentiment,
 } from '@cre/contracts';
-import { computeRenderDecision, renderExternalFinding } from '@cre/contracts';
+import { renderExternalFinding } from '@cre/contracts';
 import type { ResearchResult } from '@cre/shared';
 import { CLAUDE_MODEL } from '../config/llm-model.js';
 import { callAIWithContinuation } from './ai-analysis.service.js';
-import { searchSponsor, braveSearch } from './research.service.js';
+import { braveSearch } from './research.service.js';
 
 /* -------------------------- honest claimKind ----------------------------- */
 
-// Primary-record hosts (recorded documents — the highest-verifiability kind).
 const PRIMARY_RECORD_HOST =
   /(^|\.)gov(\.|$)|courts?\.|courtlistener|justia\.com\/(cases|dockets)|pacer|\.uscourts\.|county|assessor|recorder|\bclerk\b|sec\.gov/i;
-// Recognized news publishers (reported events).
 const NEWS_HOST =
-  /(reuters|apnews|ap\.org|bloomberg|wsj|nytimes|ft\.com|forbes|cnbc|bisnow|therealdeal|globest|commercialobserver|law360|bizjournals|latimes|sandiegouniontribune|washingtonpost|theguardian|npr|marketwatch|costar)\./i;
+  /(reuters|apnews|ap\.org|bloomberg|wsj|nytimes|ft\.com|forbes|cnbc|bisnow|therealdeal|globest|commercialobserver|law360|bizjournals|latimes|sandiegouniontribune|washingtonpost|theguardian|npr|marketwatch|costar|trepp)\./i;
 
-/** Derive claimKind HONESTLY from the source domain, defaulting DOWN (allegation)
- *  when the host isn't a recognized primary record or news outlet. */
+/** Derive claimKind HONESTLY from the source domain, defaulting DOWN (allegation). */
 export function deriveClaimKind(hostname: string): ExternalClaimKind {
   const h = hostname.toLowerCase();
   if (PRIMARY_RECORD_HOST.test(h)) return 'public_record';
@@ -54,7 +55,6 @@ export function deriveClaimKind(hostname: string): ExternalClaimKind {
   return 'allegation';
 }
 
-/** Strongest claimKind across a merged finding's sources. */
 function strongestKind(kinds: readonly ExternalClaimKind[]): ExternalClaimKind {
   if (kinds.includes('public_record')) return 'public_record';
   if (kinds.includes('reported_event')) return 'reported_event';
@@ -74,45 +74,96 @@ export function resultToSource(r: ResearchResult): ExternalSource | null {
     return null;
   }
   if (publisher.length === 0) return null;
-  // Brave 'age' is a human string ("2 weeks ago") or absent — we never fabricate a
-  // precise ISO date; the source's stated age is recorded verbatim, and the finding's
-  // retrievedAt separately pins the fetch time.
   const asOfDate =
     r.publishedDate && r.publishedDate.trim().length > 0 ? r.publishedDate.trim() : 'date not stated';
   return { url: r.url, publisher, asOfDate };
 }
 
+/* ---------------------- query builders (precision) ----------------------- */
+
+function dedupeStrings(xs: readonly string[]): string[] {
+  return [...new Set(xs.map((x) => x.trim()).filter((x) => x.length > 0))];
+}
+
+/**
+ * Targeted, disambiguated person queries. Enriches the bare entity name with deal
+ * context already in the graph (city/state) and — crucially — tries the borrower
+ * LP as well as the sponsor holding-co, because the borrower LP name is usually
+ * more distinctive than a generic holding-company name. Union + dedupe happen in
+ * the orchestrator. This improves what we SEARCH; the classifier still decides
+ * what we ACCEPT.
+ */
+export function buildPersonQueries(input: {
+  sponsorName: string | null;
+  borrowerName: string | null;
+  city: string | null;
+  state: string | null;
+}): string[] {
+  const loc = [input.city, input.state].filter(Boolean).join(' ');
+  const adverse = 'lawsuit OR bankruptcy OR fraud OR default OR litigation OR investigation';
+  const qs: string[] = [];
+  if (input.sponsorName) {
+    qs.push(`"${input.sponsorName}" ${loc} real estate ${adverse}`);
+    qs.push(`"${input.sponsorName}" real estate developer ${adverse}`);
+  }
+  if (input.borrowerName) {
+    qs.push(`"${input.borrowerName}" ${adverse}`);
+  }
+  return dedupeStrings(qs);
+}
+
+/**
+ * Neighborhood/radius property-distress queries. The prior address-exact +
+ * "foreclosure" query returned nothing; this keys on the submarket/city instead.
+ * These become subjectType 'property_market' (facts about a place — renders
+ * freely, low reputational risk).
+ */
+export function buildPropertyDistressQueries(input: {
+  city: string | null;
+  submarket: string | null;
+  state: string | null;
+}): string[] {
+  const area = input.submarket ?? input.city;
+  if (!area) return [];
+  const areaLoc = [area, input.state].filter(Boolean).join(' ');
+  const cityLoc = [input.city, input.state].filter(Boolean).join(' ');
+  return dedupeStrings([
+    `"${areaLoc}" commercial real estate foreclosure OR distressed OR "special servicing" OR delinquent`,
+    `"${cityLoc}" office CMBS "special servicing" OR delinquent OR foreclosure`,
+  ]);
+}
+
 /* ----------------------- LLM classification ------------------------------ */
 
-/** One classified result. `aboutSubject` is the false-subject guard: only 'yes'
- *  survives; 'no'/'uncertain' are dropped. `reportedClaim` is reported speech. */
 export interface ResultClassification {
   readonly index: number;
   readonly aboutSubject: 'yes' | 'no' | 'uncertain';
   readonly sentiment: ExternalSentiment;
-  readonly reportedClaim: string; // reported speech; '' when not about the subject
-  readonly claimGroup: string;    // slug of the underlying event, so independent sources about the SAME event merge
+  readonly reportedClaim: string;
+  readonly claimGroup: string;
 }
 
 const CLASSIFY_SYSTEM =
   'You are a due-diligence analyst screening web search results for a credit committee. ' +
-  'You NEVER assert anything as fact. Be conservative about identity: if you cannot confirm a ' +
-  'result is about the SPECIFIC named subject (not a different entity or person with a similar ' +
-  'name), mark it "uncertain". Phrase every claim as REPORTED SPEECH ("reported…", "a lawsuit ' +
-  'alleges…"), never "X did Y". Output ONLY a JSON array, no prose.';
+  'You NEVER assert anything as fact. IDENTITY IS STRICT: mark a result "yes" ONLY if it is clearly ' +
+  'about the SPECIFIC named entity (or one of the specific entities) described. A different company ' +
+  'or person that merely shares a name, city, or industry is "no". The subject description may include ' +
+  'location or deal context to help you understand WHO the subject is; that context is for your ' +
+  'understanding only and NEVER lowers the identity bar — proximity in the search terms is not ' +
+  'identity. If you cannot confirm the specific entity, use "uncertain". Phrase every claim as REPORTED ' +
+  'SPEECH ("reported…", "a lawsuit alleges…"), never "X did Y". Output ONLY a JSON array, no prose.';
 
-function buildClassifyPrompt(subject: string, subjectType: ExternalSubjectType, resultsBlock: string): string {
-  const kind = subjectType === 'person' ? 'commercial-real-estate sponsor/borrower entity' : 'property / location';
-  return `Subject (${subjectType}): "${subject}" — a ${kind}.
+function buildClassifyPrompt(identity: string, subjectType: ExternalSubjectType, resultsBlock: string): string {
+  return `Subject (${subjectType}): ${identity}
 
 For EACH numbered result, return an object:
 { "index": <n>,
-  "aboutSubject": "yes" | "no" | "uncertain",   // is this clearly about THIS specific subject, not a namesake?
-  "sentiment": "negative" | "neutral" | "positive",  // adverse event/risk = negative
-  "reportedClaim": "<one short REPORTED-SPEECH phrase, e.g. 'reported involvement in a 2019 loan-default lawsuit'; use \\"\\" if aboutSubject is not yes>",
-  "claimGroup": "<short slug of the underlying event so multiple sources about the SAME event share it, e.g. '2019-loan-default'; '' if none>" }
+  "aboutSubject": "yes" | "no" | "uncertain",   // clearly about the SPECIFIC entity above, not a namesake / same-city stranger?
+  "sentiment": "negative" | "neutral" | "positive",
+  "reportedClaim": "<one short REPORTED-SPEECH phrase; use \\"\\" if aboutSubject is not yes>",
+  "claimGroup": "<short slug of the underlying event so multiple sources about the SAME event share it; '' if none>" }
 
-Rules: default aboutSubject to "uncertain" unless the result clearly names the specific subject. reportedClaim must be reported speech, never a bare fact. Return ONLY the JSON array.
+Rules: default aboutSubject to "uncertain" unless the result clearly names the specific entity. Location/context in the subject description does NOT make a loose match acceptable. reportedClaim must be reported speech, never a bare fact. Return ONLY the JSON array.
 
 Results:
 ${resultsBlock}`;
@@ -121,7 +172,7 @@ ${resultsBlock}`;
 type LlmFn = typeof callAIWithContinuation;
 
 async function classifyResults(
-  subject: string,
+  identity: string,
   subjectType: ExternalSubjectType,
   results: readonly ResearchResult[],
   llm: LlmFn,
@@ -132,15 +183,14 @@ async function classifyResults(
     model: CLAUDE_MODEL,
     max_tokens: 1500,
     system: CLASSIFY_SYSTEM,
-    messages: [{ role: 'user', content: buildClassifyPrompt(subject, subjectType, block) }],
+    messages: [{ role: 'user', content: buildClassifyPrompt(identity, subjectType, block) }],
     temperature: 0,
   });
   return parseClassifications(out, results.length);
 }
 
-/** Parse the LLM JSON conservatively: malformed entries or out-of-range indices are
- *  dropped; an entry that doesn't clearly say aboutSubject:'yes' is treated as
- *  'uncertain' (→ dropped downstream). Never throws. */
+/** Parse the LLM JSON conservatively. Never throws; anything not clearly
+ *  aboutSubject:'yes' becomes 'uncertain' (→ dropped downstream). */
 export function parseClassifications(raw: string, resultCount: number): ResultClassification[] {
   const start = raw.indexOf('[');
   const end = raw.lastIndexOf(']');
@@ -170,12 +220,17 @@ export function parseClassifications(raw: string, resultCount: number): ResultCl
 
 /* ----------------------- finding construction ---------------------------- */
 
+export interface DroppedResult {
+  readonly subjectType: ExternalSubjectType;
+  readonly title: string;
+  readonly reason: string;
+}
+
 /**
  * Build ExternalFindings from a search's results + classifications. Applies the
- * false-subject guard (drops anything not clearly about the subject), drops
- * results with no usable source, and MERGES results sharing a claimGroup into one
- * finding with multiple independent sources (so genuine corroboration is
- * recognized). Every survivor is a structured finding — never a raw result.
+ * false-subject guard (drops namesakes and no-source results) and MERGES results
+ * sharing a claimGroup into one finding with multiple independent sources. Every
+ * survivor is a structured finding — never a raw result.
  */
 export function buildFindings(
   subject: string,
@@ -221,7 +276,7 @@ export function buildFindings(
       subject,
       claim: g.claim,
       claimKind: strongestKind(g.kinds),
-      verificationTier: 'external-unverified', // placeholder; the guard re-derives from evidence
+      verificationTier: 'external-unverified',
       sentiment: g.sentiment,
       sources: g.sources,
       retrievedAt,
@@ -230,24 +285,15 @@ export function buildFindings(
   return { findings, dropped };
 }
 
-export interface DroppedResult {
-  readonly subjectType: ExternalSubjectType;
-  readonly title: string;
-  readonly reason: string;
-}
-
 /* ----------------------- guard + orchestrator ---------------------------- */
 
 export interface GuardedFinding {
   readonly finding: ExternalFinding;
   readonly decision: ExternalRenderDecision;
-  /** The ONLY sanctioned committee-facing text (null when blank; generic prompt when
-   *  suppressed; caveated reported-speech when rendered). Not wired to the memo yet. */
   readonly rendered: string | null;
 }
 
-/** Run every finding through the defamation guard. The single choke point: nothing
- *  produces output except a guard-decided finding. */
+/** Run every finding through the defamation guard — the single choke point. */
 export function guardFindings(findings: readonly ExternalFinding[]): GuardedFinding[] {
   return findings.map((finding) => {
     const r = renderExternalFinding(finding);
@@ -257,65 +303,109 @@ export function guardFindings(findings: readonly ExternalFinding[]): GuardedFind
 
 export interface ExternalDDInput {
   readonly sponsorName: string | null;
+  readonly borrowerName: string | null;
   readonly propertyAddress: string | null;
   readonly city: string | null;
-  /** Frozen fetch timestamp — passed in, never wall-clock in the service (determinism). */
+  readonly state: string | null;
+  readonly submarket: string | null;
+  readonly assetType: string | null;
+  /** Frozen fetch timestamp — passed in, never wall-clock in the service. */
   readonly retrievedAt: string;
 }
 
 export interface ExternalDDDeps {
-  readonly searchSponsor?: typeof searchSponsor;
   readonly braveSearch?: typeof braveSearch;
   readonly llm?: LlmFn;
 }
 
 export interface ExternalDDResult {
+  /**
+   * HONEST NULL. 'findings' = at least one guard-decided finding surfaced (render
+   * OR suppress_specific — a real signal exists, even if the specific claim is
+   * suppressed). 'no_findings_surfaced' = we searched and nothing survived. The
+   * render layer MUST present the latter as "searched, nothing surfaced", NEVER as
+   * "clean" / "no issues".
+   */
+  readonly status: 'findings' | 'no_findings_surfaced';
   readonly queries: string[];
   readonly guarded: GuardedFinding[];
   readonly dropped: DroppedResult[];
-  readonly rawCounts: { sponsor: number; property: number };
+  readonly rawCounts: { person: number; property: number };
+}
+
+/** Build the STRICT identity description handed to the classifier (names the
+ *  specific entities; context is understanding-only, never a looser bar). */
+function buildPersonIdentity(input: ExternalDDInput): string {
+  const parts: string[] = [];
+  if (input.sponsorName) parts.push(`"${input.sponsorName}" (the sponsor)`);
+  if (input.borrowerName) parts.push(`"${input.borrowerName}" (the borrowing entity)`);
+  const who = parts.join(' or ');
+  const ctx = [input.city, input.state].filter(Boolean).join(', ');
+  const asset = input.assetType ? ` ${input.assetType}` : '';
+  return `${who} — parties to a${asset} commercial real-estate loan${ctx ? ` on a property in ${ctx}` : ''}. A different company or person with a similar name is NOT the subject.`;
+}
+
+async function unionSearch(queries: readonly string[], doBrave: typeof braveSearch): Promise<ResearchResult[]> {
+  const seen = new Set<string>();
+  const out: ResearchResult[] = [];
+  for (const q of queries) {
+    const rs = await doBrave(q);
+    for (const r of rs) {
+      if (r.url && r.url.length > 0 && !seen.has(r.url)) {
+        seen.add(r.url);
+        out.push(r);
+      }
+    }
+  }
+  return out;
 }
 
 /**
- * Fetch → construct → guard, end to end. Sponsor search → person findings;
- * property/foreclosure search → property_market findings. Returns guard-decided
- * findings + a transparent dropped list. No memo, no score, no cache.
+ * Fetch → construct → guard, end to end. Person (sponsor + borrower) queries and
+ * property-distress queries, unioned + deduped, classified against a strict
+ * identity, built into findings, guarded. Returns guard-decided findings, a
+ * transparent dropped list, and an honest-null status. No memo, no score, no cache.
  */
 export async function runExternalDueDiligence(
   input: ExternalDDInput,
   deps: ExternalDDDeps = {},
 ): Promise<ExternalDDResult> {
-  const doSponsor = deps.searchSponsor ?? searchSponsor;
   const doBrave = deps.braveSearch ?? braveSearch;
   const llm = deps.llm ?? callAIWithContinuation;
 
   const queries: string[] = [];
   const allFindings: ExternalFinding[] = [];
   const allDropped: DroppedResult[] = [];
-  const rawCounts = { sponsor: 0, property: 0 };
+  const rawCounts = { person: 0, property: 0 };
 
-  if (input.sponsorName && input.sponsorName.trim().length > 0) {
-    const { results, searchQuery } = await doSponsor(input.sponsorName);
-    queries.push(searchQuery);
-    rawCounts.sponsor = results.length;
-    const cls = await classifyResults(input.sponsorName, 'person', results, llm);
-    const { findings, dropped } = buildFindings(input.sponsorName, 'person', results, cls, input.retrievedAt);
+  const personQueries = buildPersonQueries(input);
+  if (personQueries.length > 0) {
+    const results = await unionSearch(personQueries, doBrave);
+    queries.push(...personQueries);
+    rawCounts.person = results.length;
+    const identity = buildPersonIdentity(input);
+    const subjectLabel = input.sponsorName ?? input.borrowerName ?? 'the deal sponsor/borrower';
+    const cls = await classifyResults(identity, 'person', results, llm);
+    const { findings, dropped } = buildFindings(subjectLabel, 'person', results, cls, input.retrievedAt);
     allFindings.push(...findings);
     allDropped.push(...dropped);
   }
 
-  if (input.propertyAddress && input.propertyAddress.trim().length > 0) {
-    const city = input.city ?? '';
-    const q = `foreclosure OR "notice of default" OR distressed OR REO near "${input.propertyAddress}" ${city}`.trim();
-    const results = await doBrave(q);
-    queries.push(q);
+  const propQueries = buildPropertyDistressQueries(input);
+  if (propQueries.length > 0) {
+    const results = await unionSearch(propQueries, doBrave);
+    queries.push(...propQueries);
     rawCounts.property = results.length;
-    const subject = `${input.propertyAddress}${city ? ', ' + city : ''}`;
-    const cls = await classifyResults(subject, 'property_market', results, llm);
+    const area = [input.submarket ?? input.city, input.state].filter(Boolean).join(', ');
+    const subject = area.length > 0 ? area : (input.propertyAddress ?? 'the property submarket');
+    const identity = `the submarket/area "${subject}"${input.propertyAddress ? ` around ${input.propertyAddress}` : ''} — commercial-real-estate distress in THIS market; results about other markets are not the subject.`;
+    const cls = await classifyResults(identity, 'property_market', results, llm);
     const { findings, dropped } = buildFindings(subject, 'property_market', results, cls, input.retrievedAt);
     allFindings.push(...findings);
     allDropped.push(...dropped);
   }
 
-  return { queries, guarded: guardFindings(allFindings), dropped: allDropped, rawCounts };
+  const guarded = guardFindings(allFindings);
+  const status: ExternalDDResult['status'] = guarded.length > 0 ? 'findings' : 'no_findings_surfaced';
+  return { status, queries, guarded, dropped: allDropped, rawCounts };
 }
