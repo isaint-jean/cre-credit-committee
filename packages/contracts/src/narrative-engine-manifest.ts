@@ -107,4 +107,16 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // constants land. The boot-check rejects mismatches so a stale hash
   // is caught at startup, not at runtime.
   '1.8': 'cabfd40f6aefbccfbe1f14c9728aa4cbf78d6446975e573df04e405829f19477' as ContentHash,
+  // v1.9 — memo v2 committee-voice scrub (2026-07-26). The narrative prompts
+  // no longer instruct the model to cite internal identifiers: NARRATIVE_SYSTEM_
+  // PROMPT forbids printing any dimension name/number, rule code, "P-" handbook
+  // citation, tier, or lever id, and presents assumptions as assumptions; the
+  // v1.5 executive/red-flag/mitigation templates and the v1.6 red-flag template
+  // drop their "cite the principle id" / "[dim-N]" / "[P-XX-N]" format directives.
+  // The per-deal render helpers (renderFlagList, renderCleanDoctrineFindings,
+  // renderHandbookSupportingObservations, renderComposedMitigationsList) now feed
+  // committee-voice sentences instead of raw ids, but those functions are not part
+  // of the hashed snapshot — the hash moves because the frozen template + system-
+  // prompt STRINGS changed. Hash registered via `npm run narrative-engine:print-hash`.
+  '1.9': 'e2a04d543cf549f8ef83ce3070144dc12e6164a40fd55034210f5c4d3e566e94' as ContentHash,
 };

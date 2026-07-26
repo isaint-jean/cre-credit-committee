@@ -58,6 +58,11 @@ import {
   MEMO_NULL_SENTINEL,
   type MemoSectionId,
 } from './committee-memo-format.js';
+import {
+  dimensionDisplayName,
+  concernLevelLabel,
+  leverDisplayName,
+} from '../narrative/committee-voice.js';
 
 /* --------------------------- public surface ------------------------------ */
 
@@ -240,19 +245,6 @@ function categorizeProposals(proposals: readonly MitigationProposal[]): {
   };
 }
 
-function leverDisplayName(lever: string): string {
-  switch (lever) {
-    case 'reduce_proceeds':           return 'Reduce proceeds';
-    case 'require_amortization':      return 'Require amortization';
-    case 'require_guaranty':          return 'Sponsor guaranty / partial recourse';
-    case 'in_place_cash_management':  return 'In-place cash management (hard lockbox)';
-    case 'springing_cash_management': return 'Springing cash management (concentration trap)';
-    case 'fund_reserve':              return 'Fund reserve (TI/LC)';
-    case 'condition_precedent':       return 'Conditions precedent';
-    default:                          return lever;
-  }
-}
-
 function renderHeader(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
   const ratingLabel = auth.ratingRecommendation ?? MEMO_NULL_SENTINEL;
   return `
@@ -363,7 +355,7 @@ function renderStressedCreditProfile(
   const rows: Array<[string, string, string]> = [
     ['Original loan amount',             '',                              fmtUsd(auth.originalLoanAmount)],
     ['Concluded value',                  '(operator-supplied basis)',      fmtUsd(auth.concludedValue)],
-    ['Doctrine-stressed value (dim 7)',  'cap-rate stress + sustainable-NCF haircut', fmtUsd(auth.stressedValue)],
+    ['Stressed value',                   'capitalization-rate stress + sustainable-cash-flow haircut', fmtUsd(auth.stressedValue)],
     ['Stressed LTV (at original loan)',  '',                              fmtPct(auth.stressedLtv)],
     ['Stressed LTV (at L′)',        '',                                   fmtPct(auth.stressedLtvAtFinalLoan)],
     ['Exit DSCR (raw, baseline)',        '',                              fmtDscr(auth.exitDscrBaseline)],
@@ -469,7 +461,7 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
       <h3 class="memo-callout-subhead">${MEMO_RESTRUCTURE_SUBHEADS.whyShape}</h3>
       <p>
         The doctrine-stressed LTV
-        (loan / dim-7 stressed value ${esc(fmtUsd(auth.stressedValue))})
+        (loan against the stressed value of ${esc(fmtUsd(auth.stressedValue))})
         is <strong>${esc(fmtPct(auth.stressedLtv))}</strong> — above the
         ${esc(fmtPct(ltvTrigger))} trigger but WITHIN the desk's structured
         leverage band. The exit DSCR is <strong>${esc(fmtDscr(auth.exitDscrBaseline))}</strong> —
@@ -484,7 +476,7 @@ function renderRestructuringPackage(auth: AuthoritativeNumbers, composed: Compos
       <h3 class="memo-callout-subhead">${MEMO_RESTRUCTURE_SUBHEADS.whyShape}</h3>
       <p>
         At the original loan amount, the doctrine-stressed LTV
-        (loan / dim-7 stressed value ${esc(fmtUsd(auth.stressedValue))})
+        (loan against the stressed value of ${esc(fmtUsd(auth.stressedValue))})
         was <strong>${esc(fmtPct(auth.stressedLtv))}</strong> — above the
         ${esc(fmtPct(ltvTrigger))} stressed-LTV trigger AND above the desk's
         structured-LTV ceiling. Above the ceiling, structural protections
@@ -595,7 +587,6 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
     <li class="memo-condition">
       <div class="memo-condition-head">
         <span class="memo-condition-name">${esc(name)}</span>${fundingChip}
-        <span class="memo-condition-id">${esc(p.id ?? '')}</span>
         ${sizingHtml}
       </div>
       <div class="memo-condition-title">${esc(p.title)}</div>
@@ -613,7 +604,7 @@ function renderSponsorBurden(profile: SponsorBurdenProfile, finalLoanAmount: num
     ? `<tr><td class="memo-td-label" colspan="3"><em>(no recourse-flavored levers in package)</em></td></tr>`
     : profile.recourseBreakdown.map(r => `
         <tr>
-          <td class="memo-td-label">${esc(r.lever)} <span class="memo-condition-id">${esc(r.proposalId)}</span></td>
+          <td class="memo-td-label">${esc(leverDisplayName(r.lever))}</td>
           <td class="memo-td-note">${esc(r.note)}</td>
           <td class="memo-td-num">${esc(fmtUsd(r.capUsd))}</td>
         </tr>`).join('');
@@ -687,8 +678,8 @@ function renderRiskAssessment(narrative: NarrativeEvaluation, findings: readonly
       <tbody>
         ${findings.map(f => `
           <tr>
-            <td class="memo-td-label">dim-${esc(String(f.dimNumber))} ${esc(f.dimensionId)}</td>
-            <td class="memo-td-tier">${esc(f.tier)}</td>
+            <td class="memo-td-label">${esc(dimensionDisplayName(f.dimensionId))}</td>
+            <td class="memo-td-tier">${esc(concernLevelLabel(f.tier))}</td>
             <td class="memo-td-note">${esc(f.headline)}</td>
           </tr>`).join('')}
       </tbody>

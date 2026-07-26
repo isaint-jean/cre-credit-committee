@@ -19,13 +19,13 @@
  * payload.
  */
 
-export const NARRATIVE_SYSTEM_PROMPT = `You are a senior commercial real estate credit analyst writing for an institutional credit committee. Your prose is concise, factual, and avoids hedging language. You cite specific metric values and principle ids when the input provides them. You never invent data: if a metric is missing from the input, you omit it rather than estimating.`;
+export const NARRATIVE_SYSTEM_PROMPT = `You are a senior commercial real estate credit analyst writing for an institutional credit committee. Your prose is concise, factual, and avoids hedging language. You cite specific metric values when the input provides them, and you refer to every risk by the plain-English credit question it raises. You NEVER print internal identifiers of any kind: no dimension names or numbers, no rule codes, no "P-" handbook citations, no tier or lever identifiers. If a fact is presented as an assumption, you present it as an assumption, never as a sourced figure. You never invent data: if a metric is missing from the input, you omit it rather than estimating.`;
 
 export const EXECUTIVE_SUMMARY_PROMPT_TEMPLATE = `Compose a single executive-summary paragraph (4-6 sentences) for the credit committee. The summary frames the deal's headline risks based on the handbook flags below.
 
 Requirements:
 - Lead with the most material risk. The flags are pre-sorted by severity (critical → high → medium → advisory).
-- Cite the principle id in parentheses when introducing each flag (e.g., "cash-out refinance scrutiny (P-II-3)").
+- Refer to each risk by the plain-English credit question it raises. Do NOT print any identifier, code, or "P-" citation.
 - Quote the metric value verbatim when one is provided.
 - Do NOT introduce risks not present in the flag list.
 - Do NOT recommend specific mitigations — that is a separate section.
@@ -44,11 +44,19 @@ Output the paragraph and nothing else (no headers, no bullet lists, no follow-up
  */
 import type { FormattedFlag } from './format-flags.js';
 import type { MitigationProposal } from '@cre/contracts';
+import {
+  dimensionDisplayName,
+  principleCreditQuestion,
+  leverDisplayName,
+} from './committee-voice.js';
 
 export function renderFlagList(flags: readonly FormattedFlag[]): string {
   if (flags.length === 0) return '(no flags fired for this injection point)';
+  // Committee-voice: name the risk by the plain-English credit question, never
+  // the principle id. The bare metric value is dropped from the prompt too —
+  // quantitative figures are the numbers sections' job, not the prose slots'.
   return flags
-    .map((f) => `- [${f.severity}] ${f.principleId} — ${f.message} (metric: ${f.metric})`)
+    .map((f) => `- (${f.severity}) On ${principleCreditQuestion(f.principleId)}: ${f.message}`)
     .join('\n');
 }
 
@@ -80,8 +88,8 @@ export const RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE = `Compose a red-flag assessmen
 
 Requirements:
 - Output a bulleted list, one bullet per flag, in the order provided (severity-sorted: critical → high → medium → advisory).
-- Each bullet starts with the principle id in square brackets, followed by a one-to-two-sentence assessment.
-  Format: \`- [P-XX-N] <assessment>\`
+- Each bullet names the risk by the plain-English credit question it raises, followed by a one-to-two-sentence assessment.
+  Format: \`- <plain-English credit question> — <assessment>\`. Do NOT print any identifier, code, or "P-" citation.
 - Quote the metric value verbatim when one is provided. Cite it explicitly (e.g., "metric value 8500000" or "Class B").
 - State the underlying risk concretely — what could go wrong, not just what fired.
 - Do NOT recommend mitigations — that is a separate section.
@@ -122,8 +130,8 @@ export const MITIGATION_SUGGESTIONS_PROMPT_TEMPLATE = `Compose a mitigation-sugg
 
 Requirements:
 - Output a bulleted list, one bullet per flag, in the order provided (severity-sorted: critical → high → medium → advisory).
-- Each bullet starts with the principle id in square brackets, followed by a one-to-two-sentence recommended action.
-  Format: \`- [P-XX-N] <recommended action>\`
+- Each bullet names the condition in plain English, followed by a one-to-two-sentence recommended action.
+  Format: \`- <plain-English condition name> — <recommended action>\`. Do NOT print any identifier, code, or "P-" citation.
 - The action must be CONCRETE and STRUCTURAL. Examples by category:
   * Escrow / reserve (e.g., "Require $X upfront reserve for capex," "Escrow Y months of debt service")
   * Covenant (e.g., "Add minimum DSCR covenant at 1.20x," "Cash sweep on excess cash flow above debt yield Z%")
@@ -376,8 +384,8 @@ export const RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE_V1_6 = `Compose a red-flag asse
 
 Requirements:
 - Output a bulleted list, primary section first, then a clearly-labeled "Supporting observations" sub-section.
-- For each clean-doctrine dimension finding: one bullet, in the order provided. Format: \`- [dim-N] <assessment>\`. Quote any figure from the AUTHORITATIVE NUMBERS block VERBATIM; do not introduce new figures.
-- For the supporting handbook observations: one bullet each, QUALITATIVE ONLY. Do NOT cite handbook metric values, LTV figures, value figures, or leverage figures. Those quantitative claims belong to the clean doctrine — already in the AUTHORITATIVE NUMBERS block above. Format: \`- [<principleId>] <qualitative assessment>\`.
+- For each primary risk finding: one bullet, in the order provided. Format: \`- <plain-English factor name> — <assessment>\`. Do NOT print any dimension name, number, or tier label; the finding text already names the factor in plain English. Quote any figure from the AUTHORITATIVE NUMBERS block VERBATIM; do not introduce new figures.
+- For the supporting handbook observations: one bullet each, QUALITATIVE ONLY. Do NOT cite handbook metric values, LTV figures, value figures, or leverage figures. Those quantitative claims belong to the AUTHORITATIVE NUMBERS block above. Format: \`- <plain-English credit question> — <qualitative assessment>\`. Do NOT print any "P-" identifier or code.
 - Do NOT recommend mitigations — that's a separate section.
 - Do NOT aggregate or roll up.
 - If clean-doctrine findings are empty AND supporting observations are empty, output: \`No red flags identified for this deal.\`
@@ -546,9 +554,12 @@ export interface CleanDoctrineFinding {
 export function renderCleanDoctrineFindings(
   findings: readonly CleanDoctrineFinding[],
 ): string {
-  if (findings.length === 0) return '(no risk-elevated clean-doctrine findings)';
+  if (findings.length === 0) return '(no risk-elevated findings)';
+  // Committee-voice: the factor is named in plain English (dimensionDisplayName)
+  // and the finding is a plain-English risk sentence (f.headline is now produced
+  // by committee-voice's dimensionRiskSentence). No dim id, number, or tier enum.
   return findings
-    .map((f) => `- [dim-${f.dimNumber} ${f.dimensionId}] tier=${f.tier} — ${f.headline}`)
+    .map((f) => `- ${dimensionDisplayName(f.dimensionId)} — ${f.headline}`)
     .join('\n');
 }
 
@@ -562,8 +573,10 @@ export function renderHandbookSupportingObservations(
   flags: readonly FormattedFlag[],
 ): string {
   if (flags.length === 0) return HANDBOOK_SUPPORTING_EMPTY_V1_6;
+  // Committee-voice: name the handbook observation by the plain-English credit
+  // question, never the principle id.
   return flags
-    .map((f) => `- [${f.principleId}] (${f.severity}) — ${f.message}`)
+    .map((f) => `- (${f.severity}) On ${principleCreditQuestion(f.principleId)}: ${f.message}`)
     .join('\n');
 }
 
@@ -593,17 +606,19 @@ export function renderComposedMitigationsList(view: ComposedMitigationView): str
   }
   const blocks: string[] = [MITIGATION_SUGGESTIONS_HEADER_V1_6, ''];
   for (const p of view.proposals) {
+    // Committee-voice: name the condition in plain English (leverDisplayName),
+    // never the proposal id. Drop the internal severity / riskReduction / target-
+    // metric tokens; the sized dollar figures and structural terms carry the
+    // substance a committee needs.
     const sizing: string[] = [];
-    if (p.requiredEquity !== undefined)  sizing.push(`requiredEquity ${fmtUsdV16(p.requiredEquity)}`);
-    if (p.requiredPaydown !== undefined) sizing.push(`requiredPaydown ${fmtUsdV16(p.requiredPaydown)}`);
-    if (p.requiredReserve !== undefined) sizing.push(`requiredReserve ${fmtUsdV16(p.requiredReserve)}`);
-    if (p.targetMetric)                  sizing.push(`binding metric: ${p.targetMetric}`);
+    if (p.requiredEquity !== undefined)  sizing.push(`sponsor equity ${fmtUsdV16(p.requiredEquity)}`);
+    if (p.requiredPaydown !== undefined) sizing.push(`principal paydown ${fmtUsdV16(p.requiredPaydown)}`);
+    if (p.requiredReserve !== undefined) sizing.push(`funded reserve ${fmtUsdV16(p.requiredReserve)}`);
     const lines: string[] = [];
-    lines.push(`- [${p.id}] severity=${p.severity}, riskReduction=${p.riskReduction} · ${p.title}`);
+    lines.push(`- ${leverDisplayName(p.lever)}: ${p.title}`);
     if (sizing.length > 0) lines.push(`  ${sizing.join(' · ')}`);
     lines.push(`  ${p.description}`);
     for (const s of p.structuralChanges) lines.push(`  • ${s}`);
-    if (p.principleIds.length > 0) lines.push(`  Cited principles: ${p.principleIds.join(', ')}`);
     blocks.push(lines.join('\n'));
   }
   if (view.reconciliationNotes.length > 0) {
@@ -613,9 +628,9 @@ export function renderComposedMitigationsList(view: ComposedMitigationView): str
   }
   if (view.covenantMagnitudesAtFinalLoan.length > 0) {
     blocks.push('');
-    blocks.push("Orthogonal covenant magnitudes resolved against L':");
+    blocks.push("Covenant magnitudes resolved against the reduced loan:");
     for (const c of view.covenantMagnitudesAtFinalLoan) {
-      blocks.push(`  ${c.lever} (${c.leverId}):`);
+      blocks.push(`  ${leverDisplayName(c.lever)}:`);
       for (const m of c.resolvedMagnitudes) blocks.push(`    ${m}`);
     }
   }

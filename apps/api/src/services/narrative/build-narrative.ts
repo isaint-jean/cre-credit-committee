@@ -77,7 +77,7 @@ import {
   OPEN_ITEMS_PRINCIPLE_THEME_V1_8,
   OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8,
 } from './prompt-templates.js';
-import { handbook as handbookData } from '@cre/handbook-data';
+import { dimensionRiskSentence, principleCreditQuestion } from './committee-voice.js';
 import type { EvaluateDealResult } from '../../doctrine-clean/scoring/evaluate-deal.js';
 import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
 import {
@@ -201,50 +201,13 @@ const DIM_NUMBER_BY_ID: Readonly<Record<string, number>> = {
 };
 
 /**
- * One-liner headline per dim, deterministic. Pulled from the dim's tier +
- * a derived-output figure when applicable. NO new computation; everything
- * traces to a published derivedOutput or rationale snippet.
+ * Committee-voice risk headline per dim. Delegates to the committee-voice
+ * mapping layer: a plain-English RISK claim in the handbook's language, NOT a
+ * metric restatement (metrics belong in the numbers sections of the memo, not
+ * the risk headline). No dimension id, tier enum, or raw metric ever appears.
  */
 function headlineFor(c: { dimensionId: string; tier: string; derivedOutputs?: Readonly<Record<string, number | string | null>> }): string {
-  const d = c.derivedOutputs ?? {};
-  const num = (k: string): number | null => {
-    const v = d[k];
-    return typeof v === 'number' && Number.isFinite(v) ? v : null;
-  };
-  switch (c.dimensionId) {
-    case 'cap-rate-valuation-stress': {
-      const va = num('valuationAggressiveness');
-      return va !== null ? `valuation aggressiveness ${(va * 100).toFixed(1)}%` : 'cap-rate stress applied';
-    }
-    case 'leverage-ltv': {
-      const sl = num('stressedLtv');
-      return sl !== null ? `stressed LTV ${(sl * 100).toFixed(2)}%` : 'stressed-LTV finding';
-    }
-    case 'coverage-dscr': {
-      const x = num('coverage');
-      return x !== null ? `sustainable DSCR ${x.toFixed(2)}x` : 'coverage finding';
-    }
-    case 'debt-yield': {
-      const x = num('debtYield');
-      return x !== null ? `debt yield ${(x * 100).toFixed(2)}%` : 'debt-yield finding';
-    }
-    case 'refinance-feasibility': {
-      const x = num('exitDscr');
-      return x !== null ? `exit DSCR ${x.toFixed(2)}x at the stressed take-out` : 'refinance-feasibility finding';
-    }
-    case 'income-concentration': {
-      const x = num('largestTenantShare');
-      return x !== null ? `largest-tenant share ${(x * 100).toFixed(1)}%` : 'concentration finding';
-    }
-    case 'rollover':
-      return 'tenant rollover within term';
-    case 'asset-class':
-      return 'asset-class tier elevated';
-    case 'sponsor-borrower-quality':
-      return 'sponsor-quality concern';
-    default:
-      return `${c.dimensionId}: ${c.tier}`;
-  }
+  return dimensionRiskSentence(c.dimensionId, c.tier);
 }
 
 /**
@@ -571,17 +534,6 @@ interface OpenItemsFragment {
   readonly openItemsConsumedSkippedPrincipleIds: readonly string[];
 }
 
-// Lookup of principle id → title for citation in the rendered prose.
-// Built once at module load; handbook-data is already a dependency of the
-// assembler so no new package coupling.
-const PRINCIPLE_TITLE_BY_ID: ReadonlyMap<string, string> = (() => {
-  const m = new Map<string, string>();
-  for (const p of handbookData.principles) {
-    m.set(p.id, p.title);
-  }
-  return m;
-})();
-
 // Parse "metric field 'cash_out_amount'" → "cash_out_amount". Robust to
 // minor format drift in the engine's diagnostic text.
 function extractMissingFieldToken(detail: string | undefined): string | null {
@@ -637,9 +589,10 @@ function buildOpenItemsAndDataRequired(
     if (items.length === 0) continue;
     lines.push(header);
     for (const s of items) {
-      const title = PRINCIPLE_TITLE_BY_ID.get(s.principleId) ?? '(title unavailable)';
+      // Committee-voice: cite the plain-English credit question the principle
+      // asks, never the "P-XX-N" identifier or the raw handbook title.
       const ask = renderOpenItemAsk(s);
-      lines.push(`- **${s.principleId} (${title})** — ${ask}`);
+      lines.push(`- **The committee cannot yet assess ${principleCreditQuestion(s.principleId)}.** ${ask}`);
     }
     lines.push('');
   }

@@ -310,6 +310,20 @@ const DIMENSION_RISK_SENTENCE: Readonly<Record<CanonicalDimensionId, Record<Seve
 };
 
 /**
+ * A plain-English concern-level label for a dimension's tier — for the compact
+ * findings table where a single word is wanted. Maps the internal tier enum to
+ * Moderate / Elevated / High; never emits the raw enum (e.g. 'distressed',
+ * 'iv', 'convergent-stress').
+ */
+export function concernLevelLabel(tier: string): string {
+  switch (severityOfTier(tier)) {
+    case 'severe': return 'High';
+    case 'high':   return 'Elevated';
+    default:       return 'Moderate';
+  }
+}
+
+/**
  * The committee-voice risk sentence for a dimension finding. `derivedOutputs`
  * is accepted for signature symmetry with the old headlineFor but is
  * deliberately unused — the sentence states the risk, not the number.

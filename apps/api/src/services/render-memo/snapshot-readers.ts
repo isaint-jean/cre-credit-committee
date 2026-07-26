@@ -28,6 +28,7 @@ import type {
   CleanDoctrineFinding,
 } from '../narrative/prompt-templates.js';
 import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
+import { dimensionRiskSentence } from '../narrative/committee-voice.js';
 
 /**
  * Versions this reader recognizes. 1.0 + 1.1 — load both; 1.1's noiBasis is
@@ -121,39 +122,13 @@ const DIM_NUMBER_BY_ID: Readonly<Record<string, number>> = {
 };
 
 /**
- * Per-dim headline derived from `derivedOutputs`. Mirrors `headlineFor` in
- * `apps/api/src/services/narrative/build-narrative.ts` — any new dim
- * formatting must be added here in lockstep.
+ * Per-dim committee-voice risk headline. Delegates to the committee-voice
+ * mapping layer (identical to `headlineFor` in build-narrative.ts) so the
+ * snapshot render path emits the same plain-English risk sentence — no
+ * dimension id, tier enum, or raw metric.
  */
 function headlineFor(dimensionId: string, dim: SnapshotDimOutput): string {
-  const num = (k: string): number | null => {
-    const v = dim.derivedOutputs[k];
-    return typeof v === 'number' && Number.isFinite(v) ? v : null;
-  };
-  switch (dimensionId) {
-    case 'cap-rate-valuation-stress': {
-      const va = num('valuationAggressiveness');
-      return va !== null ? `valuation aggressiveness ${(va * 100).toFixed(1)}%` : 'cap-rate stress applied';
-    }
-    case 'leverage-ltv': {
-      const sl = num('stressedLtv');
-      return sl !== null ? `stressed LTV ${(sl * 100).toFixed(2)}%` : 'stressed-LTV finding';
-    }
-    case 'coverage-dscr': {
-      const x = num('coverage');
-      return x !== null ? `sustainable DSCR ${x.toFixed(2)}x` : 'coverage finding';
-    }
-    case 'debt-yield': {
-      const x = num('debtYield');
-      return x !== null ? `debt yield ${(x * 100).toFixed(2)}%` : 'debt-yield finding';
-    }
-    case 'refinance-feasibility': {
-      const x = num('exitDscr');
-      return x !== null ? `exit DSCR ${x.toFixed(2)}x` : 'refinance feasibility finding';
-    }
-    default:
-      return `${dim.tier ?? 'finding'} tier`;
-  }
+  return dimensionRiskSentence(dimensionId, dim.tier ?? '');
 }
 
 /**
