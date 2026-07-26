@@ -25,6 +25,7 @@ export * from './revision-lineage.js';
 // Domain primitives
 export * from './asset.js';
 export * from './source-tier.js';
+export * from './external-finding.js';
 
 // Stage output records
 export * from './narrative-facts.js';
