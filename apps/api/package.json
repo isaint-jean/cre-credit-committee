@@ -120,7 +120,8 @@
     "test:role-boundary": "tsx src/scripts/test-role-boundary.ts",
     "test:unpack-zip-security": "tsx src/scripts/test-unpack-zip-security.ts",
     "test:classify-entry-from-path": "tsx src/scripts/test-classify-entry-from-path.ts",
-    "test:human-sponsor-assessment": "tsx src/scripts/test-human-sponsor-assessment.ts"
+    "test:human-sponsor-assessment": "tsx src/scripts/test-human-sponsor-assessment.ts",
+    "test:extract-parties-from-asr-llm": "tsx src/scripts/test-extract-parties-from-asr-llm.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",

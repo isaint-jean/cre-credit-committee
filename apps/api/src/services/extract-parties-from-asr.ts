@@ -95,7 +95,12 @@ export function parsePartiesFromAsrText(pages: readonly string[]): PartiesExtrac
     if (borrowerName !== null && sponsorName !== null) break;
   }
 
-  return { borrowerName, sponsorName, pageReferences };
+  // Populate the principals list (source of truth for per-principal DD). The
+  // regex path yields at most one sponsor, so this is a one-element list
+  // (Sunroad → ["Sunroad Holding Corporation"]) or empty. The LLM fallback is
+  // the path that produces multiple principals (a JV).
+  const sponsors = sponsorName !== null ? [sponsorName] : [];
+  return { borrowerName, sponsorName, sponsors, pageReferences };
 }
 
 /** PDF-loading wrapper. Loads the document, extracts per-page text, and

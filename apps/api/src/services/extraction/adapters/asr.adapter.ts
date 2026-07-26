@@ -70,6 +70,10 @@ import {
   type RentRollCompleteness,
 } from '../../extract-rent-roll-from-document-llm.js';
 import { parsePartiesFromAsrText } from '../../extract-parties-from-asr.js';
+import {
+  extractPartiesFromAsrLlm,
+  type ExtractPartiesFromAsrLlmDeps,
+} from '../../extract-parties-from-asr-llm.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 import { projectToRentRollExtraction } from './rent-roll.adapter.js';
 
@@ -113,8 +117,15 @@ import { projectToRentRollExtraction } from './rent-roll.adapter.js';
  *            JE_TERM_MONTHS_MISSING). extractAsrLoanTermsLlm now reads the term
  *            straight from the DOCUMENT beside the loan figure
  *            (deriveTermFromDocFigure) — LLM-quote-independent, so the term is
- *            deterministic across re-runs. Bumped to cache-bust. */
-export const ASR_ADAPTER_VERSION = '0.6.2';
+ *            deterministic across re-runs. Bumped to cache-bust.
+ *    0.7.0 — LLM-PRIMARY PARTIES FALLBACK. When the regex parties extractor
+ *            finds no borrower/sponsor label (non-Goldman ASR — 640/BMO names
+ *            the sponsor "Vornado Realty Trust and Crown Acquisitions" in a
+ *            prose "Sponsorship Overview", never in Goldman labels), the adapter
+ *            reads the whole doc with extractPartiesFromAsrLlm (cite-or-discard,
+ *            multi-principal). Regex stays the free fast path; Sunroad unchanged.
+ *            Bumped to cache-bust so 640 re-extracts with the new fallback. */
+export const ASR_ADAPTER_VERSION = '0.7.0';
 
 /**
  * One outcome value covers three ExtractionResult-relevant fields PLUS one
@@ -205,6 +216,12 @@ export interface AsrAdapterDeps {
    *  live call. Undefined ⇒ the extractor's own defaults (real call, env gate,
    *  no cache). */
   readonly loanTermsLlm?: ExtractAsrLoanTermsLlmDeps;
+  /** ★ LLM-primary PARTIES FALLBACK deps. The de-anchor path (regex found no
+   *  borrower/sponsor label → LLM reads the whole doc for the borrower entity +
+   *  sponsor principals, cite-or-discard). Production uses live Sonnet + the env
+   *  credit gate; tests inject a stub LLM seam + in-memory cache. Undefined ⇒ the
+   *  extractor's own defaults (real call, env gate, no cache). */
+  readonly partiesLlm?: ExtractPartiesFromAsrLlmDeps;
   /** ★ LLM-primary rent-roll FALLBACK deps. The de-anchor path (deterministic
    *  doc read under-reads → LLM reads all tenants + completeness guard) passes
    *  these through to extractRentRollFromDocumentLlm. Production uses live Sonnet
@@ -338,7 +355,7 @@ export async function runAsrAdapterOnDocument(
   const rentRollLegacy = unwrapOrWarn(results[0]!, 'AI:RentRoll');
   const propertyMetadata = unwrapOrWarn(results[1]!, 'AI:PropertyMetadata');
   const asr = unwrapOrWarn(results[2]!, 'AI:ASR');
-  const parties = unwrapOrWarn(results[3]!, 'Parties');
+  let parties = unwrapOrWarn(results[3]!, 'Parties');
 
   // Project rent-roll legacy → spine shape (reuses rent-roll.adapter.ts's
   // documented lossy projection — same field mapping, same caveats).
@@ -409,6 +426,20 @@ export async function runAsrAdapterOnDocument(
         message: `all three sub-extractors rejected; causes: [${causes.join(' | ')}]`,
       },
     };
+  }
+
+  // DE-ANCHOR the parties. When the regex found no borrower/sponsor label
+  // (non-Goldman ASR — 640/BMO names the sponsor in a "Sponsorship Overview"
+  // prose section, never in the Goldman labels), read the WHOLE doc with the
+  // LLM and extract the borrower entity + sponsor PRINCIPALS (a JV names
+  // several), cite-or-discard. Credit-gated + fail-safe: no credits / error →
+  // null → the sponsor-DD lane stays could-not-search (honest floor). Sunroad
+  // hits the regex first and never reaches here (free path preserved).
+  if (parties === null) {
+    const partiesLlm = await extractPartiesFromAsrLlm(doc.rawText, bufferHash, deps.partiesLlm);
+    if (partiesLlm.parties !== null) {
+      parties = partiesLlm.parties;
+    }
   }
 
   const hasAsr = asr !== null;

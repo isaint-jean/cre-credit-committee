@@ -513,7 +513,23 @@ export interface AppraisalLeasingAssumptions {
  */
 export interface PartiesExtraction {
   readonly borrowerName: string | null;
+  /**
+   * Back-compat single sponsor. On a JV this is the FIRST/primary principal (or
+   * a joined display); the authoritative list for per-principal reputation
+   * search is `sponsors`. Kept so existing single-sponsor deals + readers that
+   * predate the list keep working.
+   */
   readonly sponsorName:  string | null;
+  /**
+   * ★ The sponsor PRINCIPALS — the reputation-relevant parties behind the
+   * borrower (a JV names several, e.g. ["Vornado Realty Trust", "Crown
+   * Acquisitions"]; a single-sponsor deal names one). This LIST is the source of
+   * truth for the person-DD lane, which searches EACH principal independently so
+   * a finding is attributed to the correct one. Additive + optional: absent on
+   * records that predate it → readers fall back to `sponsorName`. A one-element
+   * list on single-sponsor deals (Sunroad → ["Sunroad Holding Corporation"]).
+   */
+  readonly sponsors?: readonly string[];
   /** Optional provenance — page number(s) the names were lifted from. */
   readonly pageReferences?: Readonly<Record<string, number>>;
 }
