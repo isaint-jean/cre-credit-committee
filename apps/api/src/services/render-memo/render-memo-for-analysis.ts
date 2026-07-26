@@ -54,6 +54,7 @@ import {
   resolveNoiBasis,
   shapeNoiBasisFromSnapshot,
 } from '../noi-basis.js';
+import { getAssumedInputs } from '../assumed-inputs.service.js';
 
 export type RenderMemoResult =
   | { readonly ok: true; readonly html: string }
@@ -142,6 +143,11 @@ export function renderMemoForAnalysis(
       }
     : undefined;
 
+  // Assumed (non-sourced) inputs the verdict rests on (surface D). Underwriting
+  // Validation (§9) surfaces each AS an assumption — e.g. 640's 6.5% interest
+  // rate, which is a MANUAL fill because the pre-sale materials state no coupon.
+  const assumedInputs = getAssumedInputs(adjustedInputs);
+
   // ── PR (ii) read-instead-of-recompute branch ─────────────────────────
   // Prefer the persisted snapshot when present + supported-version (true
   // pin-faithfulness: numbers were captured at eval-write time under THIS
@@ -174,6 +180,7 @@ export function renderMemoForAnalysis(
       renderSource,
       dataConfidence: adjustedInputs.dataConfidence,
       dataQualityFlags: adjustedInputs.dataQualityFlags,
+      assumedInputs,
       appraisalDisclosure,
       noiBasis,
       dataIntegrityReport,

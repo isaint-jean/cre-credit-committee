@@ -55,6 +55,7 @@ import {
   concernLevelLabel,
   leverDisplayName,
   judgmentRuleSentence,
+  scrubResidualIdentifiers,
 } from '../narrative/committee-voice.js';
 
 /* --------------------------- public surface ------------------------------ */
@@ -124,6 +125,24 @@ export interface BuildCommitteeMemoInput {
    * sourced facts. Optional.
    */
   readonly dataQualityFlags?: readonly JudgmentEngineRuleId[];
+  /**
+   * v2 — the assumed (non-sourced) inputs the verdict rests on (surface D:
+   * getAssumedInputs). These are line items with `raw === null` filled from a
+   * benchmark / default / MANUAL entry — e.g. 640's 6.5% interest rate, which
+   * is an assumption because the pre-sale materials state no coupon.
+   * Underwriting Validation (§9) surfaces each AS an assumption, never as a
+   * sourced figure. Optional.
+   */
+  readonly assumedInputs?: readonly AssumedInputForMemo[];
+}
+
+/** A single assumed (non-sourced) input surfaced in Underwriting Validation. */
+export interface AssumedInputForMemo {
+  readonly path: string;
+  readonly label: string;
+  readonly assumedValue: number | null;
+  readonly feedsCoverage: boolean;
+  readonly note?: string;
 }
 
 export interface NoiBasisDisclosureForMemo {
@@ -245,7 +264,11 @@ function addressedRiskLabel(p: MitigationProposal): string | null {
 /* ----------------------------- header ------------------------------------ */
 
 function renderHeader(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
-  const ratingLabel = auth.ratingRecommendation ?? MEMO_NULL_SENTINEL;
+  // When the income underlying the rating is unvalidated, the memo does not
+  // present a rating — it refers the deal back. The label matches §13's gate.
+  const ratingLabel = input.dataConfidence === 'unvalidated'
+    ? 'Insufficient data — refer back'
+    : (auth.ratingRecommendation ?? MEMO_NULL_SENTINEL);
   return `
     <header class="memo-header">
       <div class="memo-header-row">
@@ -499,18 +522,50 @@ function renderUnderwritingValidation(input: BuildCommitteeMemoInput): string {
   } else {
     posture = 'The basis on which the underwriting was validated was not stated.';
   }
-  // Assumptions surfaced AS assumptions.
-  const present = ASSUMPTION_FLAG_ORDER.filter(f => flags.includes(f));
-  const assumptionsBlock = present.length === 0
+  // Assumptions surfaced AS assumptions — two sources combined:
+  //   (a) assumed LINE ITEMS (surface D: raw===null filled from benchmark /
+  //       default / MANUAL, e.g. the 6.5% interest rate); and
+  //   (b) judgment-engine substitution FLAGS.
+  const assumed = input.assumedInputs ?? [];
+  const flagPresent = ASSUMPTION_FLAG_ORDER.filter(f => flags.includes(f));
+  const items: string[] = [
+    ...assumed.map(a => {
+      const feeds = a.feedsCoverage ? ' This figure feeds the coverage and debt yield ratios, so those ratios rest on an assumption.' : '';
+      const note = a.note ? ` ${esc(scrubResidualIdentifiers(a.note))}` : '';
+      return `<li><strong>${esc(assumedLabel(a))}</strong> — assumed at ${esc(fmtAssumed(a))}; an assumption, not a figure sourced from the loan documents.${feeds}${note}</li>`;
+    }),
+    ...flagPresent.map(f => `<li>${esc(judgmentRuleSentence(f))}</li>`),
+  ];
+  const assumptionsBlock = items.length === 0
     ? ''
     : `
       <h3 class="memo-section-subhead">Assumed and substituted inputs</h3>
       <p>The following inputs were not sourced from the deal file and are assumptions the underwriting rests on:</p>
-      <ul class="memo-analysis-list">${present.map(f => `<li>${esc(judgmentRuleSentence(f))}</li>`).join('')}</ul>`;
+      <ul class="memo-analysis-list">${items.join('')}</ul>`;
   return section('underwriting_validation', `
       <p class="memo-prose">${esc(posture)}</p>
       ${renderNoiBasisCallout(input.noiBasis)}
       ${assumptionsBlock}`);
+}
+
+/** A committee-readable label for an assumed input. When the service could not
+ *  supply a friendly label (it falls back to the raw dotted AdjustedInputs
+ *  path), humanize the last path segment so no dotted identifier reaches the
+ *  page. */
+function assumedLabel(a: AssumedInputForMemo): string {
+  if (!a.label.includes('.')) return a.label;
+  const seg = a.label.split('.').pop()!.replace(/(Pct|Months|Annual|Amount|Usd)$/g, '');
+  const words = seg.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase().trim();
+  return words.length === 0 ? 'An assumed input' : words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Format an assumed input's value by its path — a rate as a percent, a dollar
+ *  figure as USD, anything else as a bare number. */
+function fmtAssumed(a: AssumedInputForMemo): string {
+  if (a.assumedValue === null) return MEMO_NULL_SENTINEL;
+  if (/[Rr]ate|[Cc]oupon|[Yy]ield/.test(a.path)) return fmtPct(a.assumedValue);
+  if (/[Ss]ervice|[Ii]ncome|[Bb]alance|[Aa]mount|[Rr]eserve/.test(a.path)) return fmtUsd(a.assumedValue);
+  return String(a.assumedValue);
 }
 
 /**
@@ -568,14 +623,14 @@ function renderDataIntegrityBlock(
   if (plausibilitySoft.length > 0) {
     parts.push(
       `<h4 class="memo-dq-subhead">Out-of-range numbers</h4><ul>` +
-      plausibilitySoft.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.message)}</li>`).join('') +
+      plausibilitySoft.map((f) => `<li><strong>${esc(scrubResidualIdentifiers(f.title))}</strong> — ${esc(scrubResidualIdentifiers(f.message))}</li>`).join('') +
       `</ul>`,
     );
   }
   if (xcheckWarns.length > 0) {
     parts.push(
       `<h4 class="memo-dq-subhead">Cross-consistency observations</h4><ul>` +
-      xcheckWarns.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.message)}</li>`).join('') +
+      xcheckWarns.map((f) => `<li><strong>${esc(scrubResidualIdentifiers(f.title))}</strong> — ${esc(scrubResidualIdentifiers(f.message))}</li>`).join('') +
       `</ul>`,
     );
   }
@@ -583,7 +638,7 @@ function renderDataIntegrityBlock(
     parts.push(
       `<h4 class="memo-dq-subhead">Caller-supplied verdict-critical inputs</h4>` +
       `<p>These fields are caller-supplied rather than document-extracted. They were used in the underwriting but should be verified against the underlying documents before relying on the verdict:</p><ul>` +
-      provenanceWarns.map((f) => `<li><strong>${esc(f.title)}</strong></li>`).join('') +
+      provenanceWarns.map((f) => `<li><strong>${esc(scrubResidualIdentifiers(f.title))}</strong></li>`).join('') +
       `</ul>`,
     );
   }
@@ -704,7 +759,7 @@ function renderRestructuringInner(auth: AuthoritativeNumbers, composed: Composed
   const reconciliation = reconNotes.length === 0 ? '' : `
     <div class="memo-callout-section">
       <h3 class="memo-callout-subhead">${MEMO_RESTRUCTURE_SUBHEADS.compositionReconciliation}</h3>
-      <ul class="memo-recon-list">${reconNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>
+      <ul class="memo-recon-list">${reconNotes.map(n => `<li>${esc(scrubResidualIdentifiers(n))}</li>`).join('')}</ul>
     </div>`;
 
   const orthogonalSection = orthogonal.length === 0 ? '' : `
@@ -752,7 +807,7 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
     .find(c => c.lever === p.lever && c.leverId === (p.id ?? ''));
   const covMagnitudes = covLines && covLines.resolvedMagnitudes.length > 0
     ? `<div class="memo-condition-magnitudes">
-         ${covLines.resolvedMagnitudes.map(m => `<div class="memo-condition-magnitude-row">&nbsp;&nbsp;${esc(m)}</div>`).join('')}
+         ${covLines.resolvedMagnitudes.map(m => `<div class="memo-condition-magnitude-row">&nbsp;&nbsp;${esc(scrubResidualIdentifiers(m))}</div>`).join('')}
        </div>`
     : '';
   const sizing: string[] = [];
@@ -768,7 +823,7 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
   const addressedHtml = addressed === null ? '' : `<div class="memo-condition-addresses">Addresses: ${esc(addressed)}.</div>`;
   const keyTermsHtml = p.structuralChanges.length === 0 ? '' : `
       <ul class="memo-condition-terms">
-        ${p.structuralChanges.map(s => `<li>${esc(s)}</li>`).join('')}
+        ${p.structuralChanges.map(s => `<li>${esc(scrubResidualIdentifiers(s))}</li>`).join('')}
       </ul>`;
   return `
     <li class="memo-condition">
@@ -776,7 +831,7 @@ function renderOrthogonalProposal(p: MitigationProposal, composed: ComposedMitig
         <span class="memo-condition-name">${esc(name)}</span>${fundingChip}
         ${sizingHtml}
       </div>
-      <div class="memo-condition-title">${esc(p.title)}</div>
+      <div class="memo-condition-title">${esc(scrubResidualIdentifiers(p.title))}</div>
       ${addressedHtml}
       ${keyTermsHtml}
       ${covMagnitudes}
@@ -789,7 +844,7 @@ function renderSponsorBurdenInner(profile: SponsorBurdenProfile, finalLoanAmount
     : profile.recourseBreakdown.map(r => `
         <tr>
           <td class="memo-td-label">${esc(leverDisplayName(r.lever))}</td>
-          <td class="memo-td-note">${esc(r.note)}</td>
+          <td class="memo-td-note">${esc(scrubResidualIdentifiers(r.note))}</td>
           <td class="memo-td-num">${esc(fmtUsd(r.capUsd))}</td>
         </tr>`).join('');
 
@@ -858,6 +913,7 @@ function renderCommitteeView(narrative: NarrativeEvaluation): string {
 function renderFinalRecommendation(input: BuildCommitteeMemoInput, auth: AuthoritativeNumbers): string {
   const rating = auth.ratingRecommendation ?? 'No recommendation stated';
   const gated = input.dataConfidence === 'unvalidated';
+  const displayRating = gated ? 'Insufficient data — refer back to committee' : rating;
   const thesis = gated
     ? 'The investment thesis cannot yet survive the numbers: the income underlying every ratio is unvalidated, so the committee is not in a position to issue a final credit recommendation. Obtain an independent operating statement and re-underwrite before this deal returns to committee.'
     : (rating === 'Approve' || rating === 'ApproveWithConditions')
@@ -866,7 +922,7 @@ function renderFinalRecommendation(input: BuildCommitteeMemoInput, auth: Authori
   return section('final_recommendation', `
       <div class="memo-final-rec">
         <div class="memo-final-rec-label">Recommendation</div>
-        <div class="memo-final-rec-value">${esc(rating)}</div>
+        <div class="memo-final-rec-value">${esc(displayRating)}</div>
       </div>
       <p class="memo-prose">${esc(thesis)}</p>`);
 }

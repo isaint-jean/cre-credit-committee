@@ -48,6 +48,7 @@ import {
   dimensionDisplayName,
   principleCreditQuestion,
   leverDisplayName,
+  scrubResidualIdentifiers,
 } from './committee-voice.js';
 
 export function renderFlagList(flags: readonly FormattedFlag[]): string {
@@ -56,7 +57,7 @@ export function renderFlagList(flags: readonly FormattedFlag[]): string {
   // the principle id. The bare metric value is dropped from the prompt too —
   // quantitative figures are the numbers sections' job, not the prose slots'.
   return flags
-    .map((f) => `- (${f.severity}) On ${principleCreditQuestion(f.principleId)}: ${f.message}`)
+    .map((f) => `- (${f.severity}) On ${principleCreditQuestion(f.principleId)}: ${scrubResidualIdentifiers(f.message)}`)
     .join('\n');
 }
 
@@ -367,6 +368,7 @@ export const EXECUTIVE_SUMMARY_PROMPT_TEMPLATE_V1_6 = `Compose a single executiv
 Requirements:
 - Lead with the rating recommendation and the headline restructuring ask (proceeds reduction to L', if any) from the AUTHORITATIVE NUMBERS block below — use the figures verbatim.
 - State the valuation basis line VERBATIM from the block (e.g., "valuation basis: operator-supplied"). When the basis is operator-supplied, the memo MUST disclose it.
+- NARRATIVE-FIRST: do NOT state any leverage ratio (loan-to-value / LTV), coverage ratio (DSCR), or debt-yield percentage in this paragraph. Those figures belong only to the Credit Structure section later in the memo. You MAY cite the concluded value and the stressed value in dollars as the value story.
 - Do NOT introduce quantitative figures not in the AUTHORITATIVE NUMBERS block.
 - Do NOT recommend specific structural conditions — those are the mitigation-suggestions slot's job.
 - If supporting handbook observations exist, you may reference one or two qualitative themes (e.g., "stress-scenario coverage concern," "missing trailing actuals") but do NOT quote handbook quantitative figures. The clean doctrine's numbers above are authoritative.
@@ -384,7 +386,7 @@ export const RED_FLAG_ASSESSMENT_PROMPT_TEMPLATE_V1_6 = `Compose a red-flag asse
 
 Requirements:
 - Output a bulleted list, primary section first, then a clearly-labeled "Supporting observations" sub-section.
-- For each primary risk finding: one bullet, in the order provided. Format: \`- <plain-English factor name> — <assessment>\`. Do NOT print any dimension name, number, or tier label; the finding text already names the factor in plain English. Quote any figure from the AUTHORITATIVE NUMBERS block VERBATIM; do not introduce new figures.
+- For each primary risk finding: one bullet, in the order provided. Format: \`- <plain-English factor name> — <assessment>\`. Do NOT print any dimension name, number, or tier label; the finding text already names the factor in plain English. NARRATIVE-FIRST: state each risk qualitatively — do NOT quote a leverage ratio (LTV), coverage ratio (DSCR), or debt-yield percentage; those figures belong to the Credit Structure section, not this risk narrative.
 - For the supporting handbook observations: one bullet each, QUALITATIVE ONLY. Do NOT cite handbook metric values, LTV figures, value figures, or leverage figures. Those quantitative claims belong to the AUTHORITATIVE NUMBERS block above. Format: \`- <plain-English credit question> — <qualitative assessment>\`. Do NOT print any "P-" identifier or code.
 - Do NOT recommend mitigations — that's a separate section.
 - Do NOT aggregate or roll up.
@@ -411,6 +413,7 @@ Requirements:
 - If the composed mitigants section is EMPTY, you MUST NOT propose any sized structural condition.
 - State the valuation basis if it is operator-supplied (verbatim from the AUTHORITATIVE NUMBERS block).
 - Reference the rating recommendation from the AUTHORITATIVE NUMBERS block verbatim.
+- NARRATIVE-FIRST: you may cite the sized conditions (dollar amounts) but do NOT quote a leverage ratio (LTV), coverage ratio (DSCR), or debt-yield percentage; those figures live in the Credit Structure section.
 - Do NOT re-enumerate every flag — the red-flag-assessment slot covers that.
 - Do NOT make qualitative claims about data confidence, refinancing viability, or deal "fundamentals" outside the conditions — those are interpretive characterizations the engine has not authorized.
 
@@ -507,15 +510,15 @@ export function renderAuthoritativeNumbersBlock(a: AuthoritativeNumbers): string
   if (a.valuationConfidenceNote !== null && a.valuationConfidenceNote !== undefined) {
     lines.push(`  valuation confidence note : ${a.valuationConfidenceNote}`);
   }
-  lines.push(`  dim-7 stressed value      : ${fmtUsdV16(a.stressedValue)}`);
-  lines.push(`  dim-7 stressed LTV        : ${fmtPctV16(a.stressedLtv)} (at original loan)`);
+  lines.push(`  stressed value            : ${fmtUsdV16(a.stressedValue)}`);
+  lines.push(`  stressed LTV              : ${fmtPctV16(a.stressedLtv)} (at original loan)`);
   if (a.stressedLtvAtFinalLoan !== null && a.stressedLtvAtFinalLoan !== undefined) {
-    lines.push(`  dim-7 stressed LTV at L'  : ${fmtPctV16(a.stressedLtvAtFinalLoan)}`);
+    lines.push(`  stressed LTV at reduced loan: ${fmtPctV16(a.stressedLtvAtFinalLoan)}`);
   }
   lines.push('');
-  lines.push(`  dim-4 exit DSCR (baseline): ${fmtDscrV16(a.exitDscrBaseline)}`);
+  lines.push(`  exit DSCR (baseline)      : ${fmtDscrV16(a.exitDscrBaseline)}`);
   if (a.exitDscrAtFinalLoan !== null && a.exitDscrAtFinalLoan !== undefined) {
-    lines.push(`  dim-4 exit DSCR at L'     : ${fmtDscrV16(a.exitDscrAtFinalLoan)}`);
+    lines.push(`  exit DSCR at reduced loan : ${fmtDscrV16(a.exitDscrAtFinalLoan)}`);
   }
   lines.push(`  exit-DSCR trigger         : ${fmtDscrV16(a.exitDscrTrigger)} (doctrine)`);
   if (a.exitDscrCureTarget !== null && a.exitDscrCureTarget !== undefined) {
@@ -576,7 +579,7 @@ export function renderHandbookSupportingObservations(
   // Committee-voice: name the handbook observation by the plain-English credit
   // question, never the principle id.
   return flags
-    .map((f) => `- (${f.severity}) On ${principleCreditQuestion(f.principleId)}: ${f.message}`)
+    .map((f) => `- (${f.severity}) On ${principleCreditQuestion(f.principleId)}: ${scrubResidualIdentifiers(f.message)}`)
     .join('\n');
 }
 
@@ -615,10 +618,10 @@ export function renderComposedMitigationsList(view: ComposedMitigationView): str
     if (p.requiredPaydown !== undefined) sizing.push(`principal paydown ${fmtUsdV16(p.requiredPaydown)}`);
     if (p.requiredReserve !== undefined) sizing.push(`funded reserve ${fmtUsdV16(p.requiredReserve)}`);
     const lines: string[] = [];
-    lines.push(`- ${leverDisplayName(p.lever)}: ${p.title}`);
+    lines.push(`- ${leverDisplayName(p.lever)}: ${scrubResidualIdentifiers(p.title)}`);
     if (sizing.length > 0) lines.push(`  ${sizing.join(' · ')}`);
-    lines.push(`  ${p.description}`);
-    for (const s of p.structuralChanges) lines.push(`  • ${s}`);
+    lines.push(`  ${scrubResidualIdentifiers(p.description)}`);
+    for (const s of p.structuralChanges) lines.push(`  • ${scrubResidualIdentifiers(s)}`);
     blocks.push(lines.join('\n'));
   }
   if (view.reconciliationNotes.length > 0) {

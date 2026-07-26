@@ -77,7 +77,7 @@ import {
   OPEN_ITEMS_PRINCIPLE_THEME_V1_8,
   OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8,
 } from './prompt-templates.js';
-import { dimensionRiskSentence, principleCreditQuestion } from './committee-voice.js';
+import { dimensionRiskSentence, principleCreditQuestion, scrubResidualIdentifiers } from './committee-voice.js';
 import type { EvaluateDealResult } from '../../doctrine-clean/scoring/evaluate-deal.js';
 import type { ComposedMitigationPackage } from '../mitigation/compose-mitigations.js';
 import {
@@ -621,10 +621,13 @@ function renderOpenItemAsk(skip: { reason: string; detail?: string }): string {
     if (token !== null && OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8[token] !== undefined) {
       return `${OPEN_ITEMS_MISSING_FIELD_LABELS_V1_8[token]} required.`;
     }
-    return (skip.detail ?? '(field path unavailable)') + ' required.';
+    return scrubResidualIdentifiers(skip.detail ?? '(field path unavailable)') + ' required.';
   }
-  // needs_manual_input — verbatim. The detail is the analyst-facing ask.
-  return skip.detail ?? '(detail unavailable; reason needs_manual_input)';
+  // needs_manual_input — the detail is the analyst-facing ask, authored by the
+  // handbook engine. Scrub any engine-diagnostic token before surfacing so no
+  // JE_ code, "P-" citation, metric-path, or key=value aside reaches committee
+  // prose.
+  return scrubResidualIdentifiers(skip.detail ?? '(detail unavailable; reason needs_manual_input)');
 }
 
 /* ----------------------------- orchestrator (public) ----------------------- */

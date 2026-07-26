@@ -424,6 +424,59 @@ export function leverDisplayName(lever: string): string {
 }
 
 /* ============================================================================
+ * Residual-identifier scrubber for ENGINE-AUTHORED free text
+ * ========================================================================== */
+
+/**
+ * Strip residual internal identifiers from free text authored by OTHER engines
+ * (handbook diligence details, mitigation-proposal copy) before it is surfaced
+ * to committee prose or fed to the LLM. The committee-voice sentences above are
+ * already clean; this is the backstop for text this layer does not author.
+ *
+ * Removes: "(unlocks: <dimension concept>)" asides from condition-precedent
+ * copy; parenthetical engine diagnostics carrying a JE_ code or a key=value
+ * token; bare JE_ codes; "dim-N" references; and key=value diagnostics.
+ * Rewrites "P-XX-N" citations to "the applicable handbook standard" and the
+ * hyphenated "asset-class" identifier to the plain "asset type". The
+ * substantive ask survives; no code reaches the page.
+ */
+/** Humanize a dotted AdjustedInputs field path token (e.g. "loan.interestRate"
+ *  → "interest rate", "expenses.realEstateTaxes" → "real estate taxes"). */
+function humanizePathToken(token: string): string {
+  const seg = token.split('.').pop() ?? token;
+  const trimmed = seg.replace(/(Pct|Months|Annual|Amount|Usd)$/g, '');
+  const words = trimmed.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase().trim();
+  return words.length === 0 ? seg.toLowerCase() : words;
+}
+
+export function scrubResidualIdentifiers(text: string): string {
+  return text
+    .replace(/\s*\(unlocks:(?:[^()]|\([^()]*\))*\)/gi, '')
+    .replace(/\s*\([^)]*(?:JE_[A-Z_]+|[A-Za-z_][A-Za-z0-9_]*=(?:null|[-0-9.]+))[^)]*\)/g, '')
+    .replace(/\bJE_[A-Z_]+\b\s*/g, '')
+    .replace(/\bP-[IVX]+-[0-9A-Za-z-]+\b/g, 'the applicable handbook standard')
+    .replace(/\bdim-\d+\b\s*/gi, '')
+    .replace(/\b[A-Za-z_][A-Za-z0-9_]*=(?:null|[-0-9.]+)\b\s*/g, '')
+    // Hyphenated dimension identifiers → plain English (collide with the grep
+    // gate even inside otherwise-fine engine prose).
+    .replace(/\bcap-rate-valuation-stress\b/gi, 'value durability')
+    .replace(/\bincome-concentration\b/gi, 'tenant concentration')
+    .replace(/\basset-class\b/gi, 'asset type')
+    .replace(/\bleverage-ltv\b/gi, 'leverage')
+    .replace(/\bcoverage-dscr\b/gi, 'debt-service coverage')
+    .replace(/\bdebt-yield\b/gi, 'debt yield')
+    .replace(/\brefinance-feasibility\b/gi, 'refinancing')
+    .replace(/\bsponsor-borrower-quality\b/gi, 'sponsor quality')
+    // Raw dotted AdjustedInputs field paths (camelCase final segment) → plain
+    // English (e.g. "loan.interestRate" → "interest rate"). Guarded on a
+    // camelCase last segment so ordinary "e.g"/"U.S" text is untouched.
+    .replace(/\b(?:[a-z][a-zA-Z]*\.)+[a-z]+[A-Z][a-zA-Z]*\b/g, (m) => humanizePathToken(m))
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([.;,])/g, '$1')
+    .trim();
+}
+
+/* ============================================================================
  * Boot-time completeness assertions (back the type system against `as` casts)
  * ========================================================================== */
 

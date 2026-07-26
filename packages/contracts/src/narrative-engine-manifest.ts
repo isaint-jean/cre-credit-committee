@@ -119,4 +119,12 @@ export const NARRATIVE_ENGINE_MANIFEST: NarrativeEngineManifest = {
   // of the hashed snapshot — the hash moves because the frozen template + system-
   // prompt STRINGS changed. Hash registered via `npm run narrative-engine:print-hash`.
   '1.9': 'e2a04d543cf549f8ef83ce3070144dc12e6164a40fd55034210f5c4d3e566e94' as ContentHash,
+  // v1.10 — memo v2 narrative-first tightening (2026-07-26). The v1.6
+  // executive-summary, red-flag-assessment, and committee-recommendation slot
+  // templates now forbid quoting a leverage ratio (LTV), coverage ratio (DSCR),
+  // or debt-yield percentage in the prose — those figures belong only to the
+  // Credit Structure section (§11) of the 13-section memo. Values in dollars and
+  // the rating recommendation remain permitted. Hash registered via
+  // `npm run narrative-engine:print-hash`.
+  '1.10': '3db2de67c54cbdf284d3ea98c5ff2c5533d6233f0b9de56632d12fc158463519' as ContentHash,
 };
