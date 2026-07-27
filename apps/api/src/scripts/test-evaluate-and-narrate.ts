@@ -33,6 +33,7 @@ import {
   MANIFESTO_CONTRACT_VERSION,
   NARRATIVE_ENGINE_VERSION,
   RENDER_VERSION,
+  SNAPSHOT_PRODUCER_VERSION,
 } from '@cre/contracts';
 import type {
   AssetType,
@@ -172,7 +173,10 @@ const STUB_REDFLAG_B = '- [P-TEST] Test red-flag assessment B — different pros
 // will carry the deterministic render — assertions are updated accordingly.
 const STUB_MITIGATION_A = '(unused — slot is deterministic in v1.5)';
 const STUB_MITIGATION_B = '(unused — slot is deterministic in v1.5)';
-import { MITIGATION_SUGGESTIONS_HEADER_V1_5, MITIGATION_SUGGESTIONS_EMPTY_V1_5 } from '../services/narrative/prompt-templates.js';
+// v1.6 mitigation composition is the current producer path (single-pass
+// de-levering + reconciliation). Reference the CURRENT header constant so the
+// assertions track the source of truth rather than a stale hardcoded string.
+import { MITIGATION_SUGGESTIONS_HEADER_V1_6 } from '../services/narrative/prompt-templates.js';
 const STUB_COMMITTEE_A = 'Recommend conditional approval A — subject to reserves and DSCR covenant per mitigations section.';
 const STUB_COMMITTEE_B = 'Recommend conditional approval B — different prose to verify cache-staleness gate.';
 
@@ -241,7 +245,7 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
   const snap0 = store.getDoctrineRenderSnapshot(ingest.evaluationId);
   assert(snap0 !== null, 'render snapshot persisted for new eval');
   assertEqual(snap0?.doctrineEvaluationId, ingest.evaluationId, 'snapshot.doctrineEvaluationId == new eval id');
-  assertEqual(snap0?.snapshotProducerVersion, '1.0', 'snapshot.snapshotProducerVersion stamped');
+  assertEqual(snap0?.snapshotProducerVersion, SNAPSHOT_PRODUCER_VERSION, 'snapshot.snapshotProducerVersion stamped from the contract constant');
   assert(snap0?.rating.recommendation !== undefined, 'snapshot.rating.recommendation populated');
   assert(typeof snap0?.authoritativeNumbers.stressedValue === 'number' || snap0?.authoritativeNumbers.stressedValue === null, 'snapshot.authoritativeNumbers.stressedValue persisted');
   assert(Object.keys(snap0?.dimOutputs ?? {}).length >= 1, 'snapshot.dimOutputs has at least one dim');
@@ -266,16 +270,19 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
   assertEqual(narrative?.executiveSummary, STUB_EXEC_A, 'narrative.executiveSummary === stub LLM output');
   // Phase 2 — red_flag_assessment slot populated by orchestrator
   assertEqual(narrative?.redFlagAssessment, STUB_REDFLAG_A, 'narrative.redFlagAssessment === red-flag stub LLM output');
-  // v1.5 — mitigation_suggestions is deterministic. The fixture's mitigation
-  // engine emits proposals (sub-1.0 DSCR + high rollover); the slot must carry
-  // the v1.5 header and at least one proposal id, not the LLM stub.
+  // v1.6 — mitigation_suggestions is deterministic (composed mitigants, single-
+  // pass de-levering). The fixture's engine emits proposals (sub-1.0 DSCR + high
+  // rollover); the slot carries the v1.6 header + sized figures, not the LLM stub.
+  // (v1.6 renders lever names as human prose — "Reduce loan proceeds", "Fund a
+  // reserve" — and scrubs the raw ids, so we assert on the deterministic SIZED
+  // FIGURE the composition produced, a version-agnostic proof of a real render.)
   assert(
-    (narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
-    'narrative.mitigationSuggestions starts with v1.5 deterministic header (proposals present)',
+    (narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_6),
+    'narrative.mitigationSuggestions starts with the v1.6 deterministic composed-mitigants header (proposals present)',
   );
   assert(
-    /reduce_proceeds_|fund_reserve_/.test(narrative?.mitigationSuggestions ?? ''),
-    'narrative.mitigationSuggestions contains a proposal id (deterministic render)',
+    /\$[\d.]+[MK]/.test(narrative?.mitigationSuggestions ?? '') && /Reduce loan proceeds|Fund a reserve|cash management|amortization/i.test(narrative?.mitigationSuggestions ?? ''),
+    'narrative.mitigationSuggestions carries an engine-sized proposal (deterministic render, not the LLM stub)',
   );
   assertEqual(narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'narrative.committeeRecommendation === committee stub LLM output (Phase 4)');
   if (!narrative) {
@@ -421,8 +428,8 @@ console.log('\nmaterialize includes the narrative section:');
   // v1.5 — mitigation slot is deterministic. Rendered narrative must surface
   // the engine's proposals via the v1.5 header (not a stub).
   assert(
-    (rendered.narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
-    'rendered narrative carries v1.5 deterministic mitigation render',
+    (rendered.narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_6),
+    'rendered narrative carries v1.6 deterministic mitigation render',
   );
   assertEqual(rendered.narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'rendered narrative carries committee stub prose (Phase 4)');
   assertEqual(rendered.narrative?.engineVersion, NARRATIVE_ENGINE_VERSION, 'rendered narrative carries engine version');
@@ -457,8 +464,8 @@ console.log('\nCache-key staleness gate (Q-R3 (p)) — re-narrate produces fresh
   assertEqual(renderedA.narrative?.redFlagAssessment, STUB_REDFLAG_A, 'first materialize: red-flag stub A');
   // v1.5 — first materialize carries the deterministic mitigation render.
   assert(
-    (renderedA.narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
-    'first materialize: v1.5 deterministic mitigation render',
+    (renderedA.narrative?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_6),
+    'first materialize: v1.6 deterministic mitigation render',
   );
   const mitigationRoundA = renderedA.narrative?.mitigationSuggestions ?? '';
   assertEqual(renderedA.narrative?.committeeRecommendation, STUB_COMMITTEE_A, 'first materialize: committee stub A (Phase 4)');
@@ -569,8 +576,8 @@ console.log('\nLast-narrative wins — getLatestNarrative returns newest by crea
   assertEqual(secondLatest?.redFlagAssessment, STUB_REDFLAG_B, 'second latest = red-flag stub B');
   // v1.5 — second latest's mitigation slot mirrors first (deterministic, same AI).
   assert(
-    (secondLatest?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
-    'second latest: v1.5 deterministic mitigation render',
+    (secondLatest?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_6),
+    'second latest: v1.6 deterministic mitigation render',
   );
   assertEqual(secondLatest?.committeeRecommendation, STUB_COMMITTEE_B, 'second latest = committee stub B (Phase 4)');
 
@@ -656,8 +663,8 @@ console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment sl
   assertEqual(recovered?.redFlagAssessment, STUB_REDFLAG_A, 'retry produces red_flag_assessment slot');
   // v1.5 — retry produces the deterministic mitigation render (not the stub).
   assert(
-    (recovered?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_5),
-    'retry produces v1.5 deterministic mitigation_suggestions slot',
+    (recovered?.mitigationSuggestions ?? '').startsWith(MITIGATION_SUGGESTIONS_HEADER_V1_6),
+    'retry produces v1.6 deterministic mitigation_suggestions slot',
   );
   assertEqual(recovered?.committeeRecommendation, STUB_COMMITTEE_A, 'retry produces committee_recommendation slot (Phase 4)');
 
