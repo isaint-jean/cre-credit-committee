@@ -139,6 +139,25 @@ export interface RenderedExternalFinding {
 }
 
 /**
+ * Strip a leading reporting-verb prefix from a reported-speech claim so it reads
+ * cleanly after the wrapper's "… report (…) indicates". The classifier phrases
+ * claims as reported speech ("Reported that a former executive …"), which would
+ * otherwise collide: "indicates Reported that …". We drop a leading
+ * "Reported that " / "Report(s) that " / "It was reported that " (case-
+ * insensitive) and re-capitalize the first letter. Idempotent; leaves other
+ * phrasings ("a lawsuit alleges …") untouched.
+ */
+export function stripReportingPrefix(claim: string): string {
+  const stripped = claim.replace(
+    /^\s*(?:it\s+was\s+reported\s+that|reports?\s+that|reported\s+that)\s+/i,
+    '',
+  );
+  if (stripped === claim) return claim.trim();
+  const t = stripped.trim();
+  return t.length > 0 ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+}
+
+/**
  * Resolve a finding to its ONLY sanctioned committee-facing rendering. Combines the
  * guard with the safe text forms: never returns the specific claim for a
  * 'suppress_specific' decision; never returns an un-caveated claim for 'render'.
@@ -152,6 +171,8 @@ export function renderExternalFinding(finding: ExternalFinding): RenderedExterna
   const caveat = isEvidenceCorroborated(finding)
     ? 'the committee should independently confirm the source'
     : 'unverified; the committee should confirm';
-  const text = `A ${primary.publisher} report (${primary.asOfDate}) indicates ${finding.claim} — ${caveat}.`;
+  // Strip a leading "Reported that …" so it doesn't collide with "indicates".
+  const claim = stripReportingPrefix(finding.claim);
+  const text = `A ${primary.publisher} report (${primary.asOfDate}) indicates ${claim} — ${caveat}.`;
   return { decision, text };
 }

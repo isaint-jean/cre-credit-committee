@@ -13,6 +13,7 @@ import { execSync } from 'node:child_process';
 import {
   computeRenderDecision,
   renderExternalFinding,
+  stripReportingPrefix,
   isEvidenceCorroborated,
   independentSourceCount,
   EXTERNAL_FINDING_SUPPRESSED_TEXT,
@@ -190,6 +191,31 @@ console.log('Independence + determinism:');
   // determinism: same finding → same decision, repeatedly.
   const d1 = computeRenderDecision(f), d2 = computeRenderDecision(f), d3 = computeRenderDecision(f);
   assert(d1 === d2 && d2 === d3, 'renderDecision is a pure function (same finding → same decision)');
+}
+
+/* ---- wording: strip the reporting-verb prefix so "indicates" reads cleanly -- */
+console.log('Wording — leading "Reported that …" is stripped (no "indicates Reported that"):');
+{
+  assertEqual(stripReportingPrefix('Reported that a former executive was convicted'), 'A former executive was convicted', 'strips "Reported that " + recapitalizes');
+  assertEqual(stripReportingPrefix('reported that x happened'), 'X happened', 'case-insensitive');
+  assertEqual(stripReportingPrefix('Reports that a default occurred'), 'A default occurred', 'strips "Reports that "');
+  assertEqual(stripReportingPrefix('It was reported that a lawsuit was filed'), 'A lawsuit was filed', 'strips "It was reported that "');
+  assertEqual(stripReportingPrefix('a lawsuit alleges misconduct'), 'a lawsuit alleges misconduct', 'leaves other phrasings untouched');
+  assertEqual(stripReportingPrefix(stripReportingPrefix('Reported that x')), 'X', 'idempotent');
+
+  // End-to-end: a claim starting with "Reported that" renders without the collision.
+  const f: ExternalFinding = {
+    ...base,
+    subjectType: 'property_market',
+    claim: 'Reported that a former Vornado Realty Trust executive was found guilty of fraud',
+    claimKind: 'public_record',
+    verificationTier: 'external-corroborated',
+    sentiment: 'negative',
+    sources: [{ url: 'https://www.courtlistener.com/x', publisher: 'CourtListener', asOfDate: '2026-04-22T00:00:00Z' }],
+  };
+  const text = renderExternalFinding(f).text!;
+  assert(!/indicates Reported that/i.test(text), 'the "indicates Reported that" collision is gone');
+  assert(/indicates A former Vornado Realty Trust executive/.test(text), 'reads "indicates A former … executive …"');
 }
 
 console.log(`\n${failed === 0 ? '✓' : '✗'} external-finding: ${passed} passed, ${failed} failed`);
