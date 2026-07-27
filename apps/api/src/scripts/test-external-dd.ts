@@ -15,6 +15,7 @@ import {
   resultToSource,
   buildFindings,
   guardFindings,
+  parseClassifications,
   buildPersonQueries,
   buildPropertyDistressQueries,
   runExternalDueDiligence,
@@ -38,8 +39,10 @@ const RETRIEVED = '2026-07-26T00:00:00Z';
 const R = (title: string, url: string, snippet = ''): ResearchResult => ({
   title, url, snippet, source: (() => { try { return new URL(url).hostname; } catch { return ''; } })(), riskSignal: 'neutral',
 });
-const C = (index: number, aboutSubject: ResultClassification['aboutSubject'], sentiment: ResultClassification['sentiment'], reportedClaim: string, claimGroup = ''): ResultClassification =>
-  ({ index, aboutSubject, sentiment, reportedClaim, claimGroup });
+// adverse defaults TRUE: the existing construction tests all model adverse
+// findings (defaults, fraud, judgments, foreclosures). Neutral cases pass false.
+const C = (index: number, aboutSubject: ResultClassification['aboutSubject'], sentiment: ResultClassification['sentiment'], reportedClaim: string, claimGroup = '', adverse = true): ResultClassification =>
+  ({ index, aboutSubject, sentiment, adverse, reportedClaim, claimGroup });
 
 /* ---- claimKind derived honestly from domain (default DOWN) --------------- */
 console.log('claimKind from source domain:');
@@ -186,7 +189,7 @@ void (async () => {
     const stubBrave = async (q: string): Promise<ResearchResult[]> =>
       q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
     const stubLlmYes = async (): Promise<string> =>
-      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', adverse: true, reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
     const res = await runExternalDueDiligence(
       { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
       { braveSearch: stubBrave as never, llm: stubLlmYes as never },
@@ -223,7 +226,7 @@ void (async () => {
       return q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
     };
     const stubYes = async (): Promise<string> =>
-      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', adverse: true, reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
     const input = { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED };
 
     const run1 = await runExternalDueDiligence(input, { braveSearch: countingBrave as never, llm: stubYes as never, store: cache });
@@ -256,7 +259,7 @@ void (async () => {
     const callsAfterRun1 = braveCalls;
     assertEqual(run1.status, 'no_findings_surfaced', 'run 1: guard drops the namesake');
     // Run 2: SAME cached raw (0 new Brave), but classifier now confirms identity → surfaces.
-    const llmYes = async (): Promise<string> => JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a reported concern', claimGroup: 'g1' }]);
+    const llmYes = async (): Promise<string> => JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', adverse: true, reportedClaim: 'a reported concern', claimGroup: 'g1' }]);
     const run2 = await runExternalDueDiligence(input, { braveSearch: brave as never, llm: llmYes as never, store: cache });
     assertEqual(braveCalls, callsAfterRun1, 'run 2 fetched nothing new (raw served from cache)');
     assertEqual(run2.cached.person, true, 'run 2 raw came from the cache');
@@ -268,7 +271,7 @@ void (async () => {
     const cache = makeCache();
     const input = { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED };
     const stubYes = async (): Promise<string> =>
-      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', adverse: true, reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
     const braveV1 = async (q: string): Promise<ResearchResult[]> =>
       q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
     // A DIFFERENT web tomorrow — extra results, changed text. Must not leak past the cache.
@@ -298,7 +301,7 @@ void (async () => {
     const cache = makeCache();
     const input = { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED };
     const stubYes = async (): Promise<string> =>
-      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', adverse: true, reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
     const braveV1 = async (q: string): Promise<ResearchResult[]> =>
       q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
     // Tomorrow's web: a brand-new tabloid item + the original. Must not leak past the cache.
@@ -374,7 +377,8 @@ void (async () => {
     const cls = lines.map((l) => {
       const idx = parseInt(l, 10);
       const about = principal !== null && l.includes(principal) ? 'yes' : 'no';
-      return { index: idx, aboutSubject: about, sentiment: 'negative', reportedClaim: about === 'yes' ? 'a reported investigation' : '', claimGroup: about === 'yes' ? `g${idx}` : '' };
+      // These synthetic results model adverse investigations (a risk signal).
+      return { index: idx, aboutSubject: about, sentiment: 'negative', adverse: about === 'yes', reportedClaim: about === 'yes' ? 'a reported investigation' : '', claimGroup: about === 'yes' ? `g${idx}` : '' };
     });
     return JSON.stringify(cls);
   };
@@ -420,7 +424,7 @@ void (async () => {
   {
     const brave = async (q: string): Promise<ResearchResult[]> =>
       q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
-    const stubYes = async (): Promise<string> => JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+    const stubYes = async (): Promise<string> => JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', adverse: true, reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
     const res = await runExternalDueDiligence(
       { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
       { braveSearch: brave as never, llm: stubYes as never },
@@ -428,6 +432,71 @@ void (async () => {
     assertEqual(JSON.stringify(res.personSubjects), JSON.stringify(['Sunroad Holding Corporation']), 'no sponsors list → single sponsorName becomes a one-element personSubjects');
     assertEqual(res.personSubject, 'Sunroad Holding Corporation', 'personSubject back-compat unchanged');
     assertEqual(res.status, 'findings', 'the single-principal finding still surfaces');
+  }
+
+  /* ---- ADVERSE vs NEUTRAL: only adverse findings render ------------------- */
+  console.log('Adverse-vs-neutral — only adverse risk signals become findings:');
+  {
+    // A benign founder bio (NEUTRAL) alongside an adverse fraud item (ADVERSE),
+    // both correctly about the subject. Only the adverse one survives.
+    const results = [
+      R('Crown Acquisitions founder bio', 'https://en.wikipedia.org/c', 'billionaire investor since the 1980s'),
+      R('Former exec convicted of fraud', 'https://www.courtlistener.com/f', 'federal fraud trial'),
+    ];
+    const cls = [
+      C(0, 'yes', 'positive', 'the founder is a billionaire investor', 'bio', /*adverse*/ false),
+      C(1, 'yes', 'negative', 'a former executive was found guilty in a fraud trial', 'fraud', /*adverse*/ true),
+    ];
+    const { findings, dropped } = buildFindings('Crown Acquisitions', 'person', results, cls, RETRIEVED);
+    assertEqual(findings.length, 1, 'only the ADVERSE finding is built; the benign bio is dropped');
+    assert(findings[0]!.claim.includes('fraud'), 'the surviving finding is the adverse (fraud) one');
+    assert(!JSON.stringify(findings).includes('billionaire'), 'the benign bio does NOT become a finding');
+    assert(dropped.some((d) => /neutral \(no adverse risk signal\)/.test(d.reason)), 'the neutral bio is transparently dropped as non-adverse');
+  }
+
+  console.log('Adverse-vs-neutral — a pure-bio subject collapses to searched-empty (nothing to flag):');
+  {
+    const brave = async (q: string): Promise<ResearchResult[]> =>
+      q.includes('Crown') ? [R('Crown Acquisitions founder profile', 'https://en.wikipedia.org/c', 'billionaire investor')] : [];
+    const bioLlm = async (): Promise<string> =>
+      JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'positive', adverse: false, reportedClaim: 'a founder profile', claimGroup: 'bio' }]);
+    const res = await runExternalDueDiligence(
+      { sponsorName: 'Crown Acquisitions', borrowerName: null, propertyAddress: null, city: 'New York', state: 'NY', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: brave as never, llm: bioLlm as never },
+    );
+    assertEqual(res.status, 'no_findings_surfaced', 'a benign-only subject → no_findings_surfaced (collapses to the honest null)');
+    assertEqual(res.guarded.length, 0, 'no findings rendered — the bio is suppressed');
+    assert(res.personSubjects.includes('Crown Acquisitions'), 'the subject WAS searched (searched-empty, not could-not-search)');
+  }
+
+  console.log('Adverse-vs-neutral — AMBIGUOUS defaults to NEUTRAL (suppressed):');
+  {
+    // adverse omitted entirely (a borderline item the LLM didn't flag as a risk).
+    const parsed = parseClassifications(JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'neutral', reportedClaim: 'an unclear item' }]), 1);
+    assertEqual(parsed[0]!.adverse, false, 'adverse missing → parsed as false (conservative neutral)');
+    const { findings, dropped } = buildFindings('X', 'person', [R('t', 'https://a.com/x')], parsed, RETRIEVED);
+    assertEqual(findings.length, 0, 'an ambiguous (adverse-unset) item does NOT surface');
+    assert(dropped.some((d) => /neutral/.test(d.reason)), 'dropped as neutral (ambiguous → suppressed, not a red flag)');
+    // Explicit adverse:"true" as a string is NOT boolean true → conservative neutral.
+    const strAdverse = parseClassifications(JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', adverse: 'true', reportedClaim: 'x' }]), 1);
+    assertEqual(strAdverse[0]!.adverse, false, 'a non-boolean adverse value → false (only boolean true counts)');
+  }
+
+  console.log('Adverse regression — a real adverse finding still renders (corroborated):');
+  {
+    // The Location-Ventures/Kapoor-class true positive: a corroborated public
+    // record must still surface after the adverse gate.
+    const results = [
+      R('DOJ: developer charged in $85M fraud', 'https://www.justice.gov/x', 'DOJ press release'),
+      R('Reuters: developer fraud charges', 'https://reuters.com/y', 'reported'),
+    ];
+    const cls = [
+      C(0, 'yes', 'negative', 'a reported $85M fraud matter', 'fraud85', /*adverse*/ true),
+      C(1, 'yes', 'negative', 'a reported $85M fraud matter', 'fraud85', /*adverse*/ true),
+    ];
+    const g = guardFindings(buildFindings('Rishi Kapoor', 'person', results, cls, RETRIEVED).findings);
+    assertEqual(g.length, 1, 'the corroborated adverse finding survives the adverse gate');
+    assertEqual(g[0]!.decision, 'render', 'a corroborated public-record adverse finding still renders');
   }
 
   console.log(`\n${failed === 0 ? '✓' : '✗'} external-dd: ${passed} passed, ${failed} failed`);

@@ -215,6 +215,15 @@ export interface ResultClassification {
   readonly index: number;
   readonly aboutSubject: 'yes' | 'no' | 'uncertain';
   readonly sentiment: ExternalSentiment;
+  /**
+   * ★ Whether the result is an ADVERSE risk signal (credit / reputational /
+   * governance): fraud, default, litigation, investigation, bankruptcy, workout,
+   * regulatory action, scandal, etc. NEUTRAL = biographical / descriptive /
+   * confirmatory / positive with no risk content. ONLY adverse candidates become
+   * findings — neutral ones collapse into the honest searched-empty null.
+   * Conservative default: if genuinely ambiguous, treat as NEUTRAL (false).
+   */
+  readonly adverse: boolean;
   readonly reportedClaim: string;
   readonly claimGroup: string;
 }
@@ -227,7 +236,14 @@ const CLASSIFY_SYSTEM =
   'location or deal context to help you understand WHO the subject is; that context is for your ' +
   'understanding only and NEVER lowers the identity bar — proximity in the search terms is not ' +
   'identity. If you cannot confirm the specific entity, use "uncertain". Phrase every claim as REPORTED ' +
-  'SPEECH ("reported…", "a lawsuit alleges…"), never "X did Y". Output ONLY a JSON array, no prose.';
+  'SPEECH ("reported…", "a lawsuit alleges…"), never "X did Y". ' +
+  '★ ADVERSE screen: only ADVERSE results matter to a credit committee. ADVERSE = a credit / ' +
+  'reputational / governance RISK signal: fraud, default, litigation, investigation, bankruptcy, ' +
+  'workout / discounted payoff, regulatory or enforcement action, indictment, scandal, foreclosure, ' +
+  'special servicing, delinquency. NEUTRAL = a benign biography, a company/person description, a ' +
+  'positive item, a confirmatory or promotional item — anything with no risk content. ' +
+  'If it is genuinely unclear whether an item is a risk signal, mark it NEUTRAL (adverse:false) — ' +
+  'we never surface a borderline item as if it were a red flag. Output ONLY a JSON array, no prose.';
 
 function buildClassifyPrompt(identity: string, subjectType: ExternalSubjectType, resultsBlock: string): string {
   return `Subject (${subjectType}): ${identity}
@@ -236,10 +252,11 @@ For EACH numbered result, return an object:
 { "index": <n>,
   "aboutSubject": "yes" | "no" | "uncertain",   // clearly about the SPECIFIC entity above, not a namesake / same-city stranger?
   "sentiment": "negative" | "neutral" | "positive",
+  "adverse": true | false,                      // is this an ADVERSE risk signal (fraud/default/litigation/investigation/bankruptcy/workout/regulatory/scandal/distress)? A benign bio, description, or positive item is false. If unsure → false.
   "reportedClaim": "<one short REPORTED-SPEECH phrase; use \\"\\" if aboutSubject is not yes>",
   "claimGroup": "<short slug of the underlying event so multiple sources about the SAME event share it; '' if none>" }
 
-Rules: default aboutSubject to "uncertain" unless the result clearly names the specific entity. Location/context in the subject description does NOT make a loose match acceptable. reportedClaim must be reported speech, never a bare fact. Return ONLY the JSON array.
+Rules: default aboutSubject to "uncertain" unless the result clearly names the specific entity. Location/context in the subject description does NOT make a loose match acceptable. reportedClaim must be reported speech, never a bare fact. ★ adverse defaults to false (NEUTRAL) — only set true when the item is clearly a risk/red-flag signal; a biography or description is NOT adverse. Return ONLY the JSON array.
 
 Results:
 ${resultsBlock}`;
@@ -287,9 +304,13 @@ export function parseClassifications(raw: string, resultCount: number): ResultCl
     const aboutSubject = o['aboutSubject'] === 'yes' ? 'yes' : o['aboutSubject'] === 'no' ? 'no' : 'uncertain';
     const sentiment: ExternalSentiment =
       o['sentiment'] === 'negative' ? 'negative' : o['sentiment'] === 'positive' ? 'positive' : 'neutral';
+    // ★ Conservative default: adverse ONLY when the LLM explicitly said true.
+    // Missing / malformed / anything-but-true → NEUTRAL (suppress) — we never
+    // surface a borderline item as a red flag.
+    const adverse = o['adverse'] === true;
     const reportedClaim = typeof o['reportedClaim'] === 'string' ? o['reportedClaim'] : '';
     const claimGroup = typeof o['claimGroup'] === 'string' ? o['claimGroup'] : '';
-    out.push({ index, aboutSubject, sentiment, reportedClaim, claimGroup });
+    out.push({ index, aboutSubject, sentiment, adverse, reportedClaim, claimGroup });
   }
   return out;
 }
@@ -324,6 +345,16 @@ export function buildFindings(
     if (r === undefined) continue;
     if (c.aboutSubject !== 'yes') {
       dropped.push({ subjectType, title: r.title, reason: `identity ${c.aboutSubject} (false-subject guard)` });
+      continue;
+    }
+    // ★ ADVERSE gate. Only a credit/reputational/governance RISK signal becomes a
+    // finding. A neutral item — a benign bio, a company description, a positive
+    // item — is dropped here, BEFORE the render path, and collapses into the
+    // honest searched-empty null ("nothing to flag"). This is deliberately
+    // conservative (ambiguous → neutral → suppressed): we never surface a
+    // borderline item as if it were a red flag.
+    if (!c.adverse) {
+      dropped.push({ subjectType, title: r.title, reason: 'neutral (no adverse risk signal) — not surfaced' });
       continue;
     }
     if (c.reportedClaim.trim().length === 0) {
