@@ -361,6 +361,75 @@ void (async () => {
     assertEqual(snap.findings.length, 0, 'no findings frozen');
   }
 
+  /* ---- MULTI-PRINCIPAL (JV): per-principal search + attribution ----------- */
+  // A principal-aware classifier stub: it reads the identity (which names ONE
+  // principal) + the result titles, and marks a result 'yes' ONLY when the
+  // result is about the SAME principal the identity names. This is exactly what
+  // the real identity guard does — so it proves per-principal attribution.
+  const principalAwareLlm = async (opts: unknown): Promise<string> => {
+    const content = (opts as { messages: Array<{ content: string }> }).messages[0]!.content;
+    const principal = content.includes('"Vornado Realty Trust"') ? 'Vornado Realty Trust'
+      : content.includes('"Crown Acquisitions"') ? 'Crown Acquisitions' : null;
+    const lines = content.split('\n').filter((l) => /^\d+\.\s/.test(l));
+    const cls = lines.map((l) => {
+      const idx = parseInt(l, 10);
+      const about = principal !== null && l.includes(principal) ? 'yes' : 'no';
+      return { index: idx, aboutSubject: about, sentiment: 'negative', reportedClaim: about === 'yes' ? 'a reported investigation' : '', claimGroup: about === 'yes' ? `g${idx}` : '' };
+    });
+    return JSON.stringify(cls);
+  };
+
+  console.log('Multi-principal (JV) — each principal searched + attributed independently:');
+  {
+    const brave = async (q: string): Promise<ResearchResult[]> => {
+      if (q.includes('Vornado')) return [R('Vornado Realty Trust faces SEC investigation', 'https://reuters.com/v', 'reported')];
+      if (q.includes('Crown')) return [R('Crown Acquisitions named in a lawsuit', 'https://reuters.com/c', 'reported')];
+      return [];
+    };
+    const res = await runExternalDueDiligence(
+      { sponsorName: 'Vornado Realty Trust', sponsors: ['Vornado Realty Trust', 'Crown Acquisitions'], borrowerName: null, propertyAddress: null, city: 'New York', state: 'NY', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: brave as never, llm: principalAwareLlm as never },
+    );
+    assertEqual(JSON.stringify(res.personSubjects), JSON.stringify(['Vornado Realty Trust', 'Crown Acquisitions']), 'both principals were searched (personSubjects)');
+    const vornado = res.guarded.find((g) => g.finding.subject === 'Vornado Realty Trust');
+    const crown = res.guarded.find((g) => g.finding.subject === 'Crown Acquisitions');
+    assert(vornado !== undefined, 'a Vornado finding exists, subject = Vornado');
+    assert(crown !== undefined, 'a Crown finding exists, subject = Crown');
+    assert(!!vornado && vornado.finding.claim.length > 0, 'the Vornado finding carries its own claim');
+    assert(!!crown && crown.finding.subject === 'Crown Acquisitions' && !crown.finding.claim.includes('Vornado'), 'the Crown finding is NOT cross-attributed to Vornado');
+  }
+
+  console.log('Multi-principal — the identity guard refuses cross-attribution:');
+  {
+    // A stray Vornado result surfaces in BOTH principals' searches. Vornado's
+    // identity accepts it; Crown's identity must REJECT it (not about Crown).
+    const brave = async (): Promise<ResearchResult[]> =>
+      [R('Vornado Realty Trust faces SEC investigation', 'https://reuters.com/v', 'reported')];
+    const res = await runExternalDueDiligence(
+      { sponsorName: 'Vornado Realty Trust', sponsors: ['Vornado Realty Trust', 'Crown Acquisitions'], borrowerName: null, propertyAddress: null, city: 'New York', state: 'NY', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: brave as never, llm: principalAwareLlm as never },
+    );
+    const crownFindings = res.guarded.filter((g) => g.finding.subject === 'Crown Acquisitions');
+    const vornadoFindings = res.guarded.filter((g) => g.finding.subject === 'Vornado Realty Trust');
+    assert(vornadoFindings.length >= 1, 'the Vornado item attaches to Vornado');
+    assertEqual(crownFindings.length, 0, 'the Vornado item is NOT attributed to Crown (guard refused cross-attribution)');
+    assert(res.dropped.some((d) => /identity no/.test(d.reason)), 'the mis-matched result is transparently dropped from Crown’s lane');
+  }
+
+  console.log('Multi-principal — back-compat: single sponsorName → one-principal list, unchanged:');
+  {
+    const brave = async (q: string): Promise<ResearchResult[]> =>
+      q.includes('Sunroad') ? [R('Court judgment vs Sunroad Holding Corporation', 'https://www.courtlistener.com/d/1', 'recorded')] : [];
+    const stubYes = async (): Promise<string> => JSON.stringify([{ index: 0, aboutSubject: 'yes', sentiment: 'negative', reportedClaim: 'a recorded court judgment', claimGroup: 'j1' }]);
+    const res = await runExternalDueDiligence(
+      { sponsorName: 'Sunroad Holding Corporation', borrowerName: null, propertyAddress: null, city: 'San Diego', state: 'CA', submarket: null, assetType: 'office', retrievedAt: RETRIEVED },
+      { braveSearch: brave as never, llm: stubYes as never },
+    );
+    assertEqual(JSON.stringify(res.personSubjects), JSON.stringify(['Sunroad Holding Corporation']), 'no sponsors list → single sponsorName becomes a one-element personSubjects');
+    assertEqual(res.personSubject, 'Sunroad Holding Corporation', 'personSubject back-compat unchanged');
+    assertEqual(res.status, 'findings', 'the single-principal finding still surfaces');
+  }
+
   console.log(`\n${failed === 0 ? '✓' : '✗'} external-dd: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 })();

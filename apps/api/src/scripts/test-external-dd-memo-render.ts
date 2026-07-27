@@ -161,5 +161,48 @@ console.log('Scrub — DD render path leaks no engine ids / codes / paths:');
   assert(!FORBIDDEN.test(html), 'no engine ids, rule codes, dimension ids, lever ids, or filesystem paths leak');
 }
 
+/* ---- MULTI-PRINCIPAL §4 (a JV): per-principal render --------------------- */
+console.log('Multi-principal §4 — each principal rendered independently:');
+{
+  const personFinding = (subject: string, rendered: string) => ({
+    finding: {
+      subjectType: 'person' as const, subject, claim: rendered, claimKind: 'reported_event' as const,
+      verificationTier: 'external-unverified' as const, sentiment: 'negative' as const,
+      sources: [{ url: 'https://x.example/a', publisher: 'Example News', asOfDate: '2026-01-01T00:00:00Z' as never }],
+      retrievedAt: AS_OF as never,
+    },
+    decision: 'render' as const, rendered,
+  });
+  // Vornado has a finding; Crown searched-empty.
+  const snap = dd({
+    personSubject: 'Vornado Realty Trust',
+    personSubjects: ['Vornado Realty Trust', 'Crown Acquisitions'],
+    status: 'findings',
+    findings: [personFinding('Vornado Realty Trust', 'A Reuters report (2024-01-01) indicates an SEC inquiry — confirm.')],
+  });
+  const html = externalDDBlock(snap, 'person', 'the sponsor');
+  assert(/per principal/i.test(html), 'renders a per-principal block header');
+  assert(html.includes('Vornado Realty Trust') && html.includes('Crown Acquisitions'), 'BOTH principals are named');
+  assert(/on Vornado Realty Trust surfaced the following/.test(html), 'Vornado shows its finding');
+  assert(/surfaced nothing specific on Crown Acquisitions/.test(html), 'Crown shows its own searched-empty null');
+  assert(/not an affirmative finding that Crown Acquisitions is clean/.test(html), 'Crown null keeps the not-clean caveat, named to Crown');
+  // The Vornado finding is NOT attached to Crown's block.
+  const crownSlice = html.slice(html.indexOf('Crown Acquisitions'));
+  assert(!/SEC inquiry/.test(crownSlice), 'Vornado’s finding does not leak into Crown’s block (per-principal attribution in the render)');
+}
+
+console.log('Single principal — byte-identical to the pre-multi-principal single block (no regression):');
+{
+  // A snapshot with personSubjects of length 1 (or absent) must render EXACTLY
+  // as the single-block path — Sunroad unchanged.
+  const withList = dd({ personSubject: 'Sunroad Holding Corporation', personSubjects: ['Sunroad Holding Corporation'], status: 'no_findings_surfaced' });
+  const withoutList = dd({ personSubject: 'Sunroad Holding Corporation', status: 'no_findings_surfaced' });
+  const a = externalDDBlock(withList, 'person', 'the sponsor');
+  const b = externalDDBlock(withoutList, 'person', 'the sponsor');
+  assert(a === b, 'one-element personSubjects renders identically to the single personSubject path');
+  assert(/surfaced nothing specific on the sponsor/.test(a), 'single principal still uses the generic "the sponsor" wording (unchanged)');
+  assert(!/per principal/i.test(a), 'single principal does NOT use the per-principal header');
+}
+
 console.log(`\n${failed === 0 ? '✓' : '✗'} external-dd-memo-render: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

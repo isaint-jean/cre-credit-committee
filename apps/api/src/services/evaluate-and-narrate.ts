@@ -328,6 +328,11 @@ export async function evaluateAndNarrate(
     try {
       const ddInput: ExternalDDInput = {
         sponsorName:     args.extraction.parties?.sponsorName ?? null,
+        // ★ Per-principal search list. Prefer the parties `sponsors` list (a JV
+        // → each principal searched independently); fall back to the single
+        // sponsorName for records that predate the list.
+        sponsors:        args.extraction.parties?.sponsors
+          ?? (args.extraction.parties?.sponsorName ? [args.extraction.parties.sponsorName] : []),
         borrowerName:    args.extraction.parties?.borrowerName ?? null,
         propertyAddress: args.extraction.appraisal?.addressFull ?? args.propertyMetadata?.address ?? null,
         city:            args.extraction.appraisal?.city ?? args.propertyMetadata?.city ?? null,

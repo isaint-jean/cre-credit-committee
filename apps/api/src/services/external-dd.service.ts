@@ -142,6 +142,53 @@ export function buildPersonQueries(input: {
 }
 
 /**
+ * Adverse-signal queries for a SINGLE principal (per-principal search — a JV's
+ * Vornado and Crown are searched separately so a finding attaches to the right
+ * one). Mirrors buildPersonQueries but for one named party + its role.
+ */
+export function buildPrincipalQueries(
+  name: string,
+  role: 'sponsor' | 'borrower',
+  city: string | null,
+  state: string | null,
+): string[] {
+  if (!name || name.trim().length === 0) return [];
+  const loc = [city, state].filter(Boolean).join(' ');
+  const adverse = 'lawsuit OR bankruptcy OR fraud OR default OR litigation OR investigation';
+  if (role === 'borrower') {
+    // The borrowing SPV is bankruptcy-remote / low-signal — a single entity query.
+    return dedupeStrings([`"${name}" ${adverse}`]);
+  }
+  return dedupeStrings([
+    `"${name}" ${loc} real estate ${adverse}`,
+    `"${name}" real estate developer ${adverse}`,
+  ]);
+}
+
+/**
+ * STRICT identity for a SINGLE principal handed to the classifier. Names ONLY
+ * this principal — so a result about a DIFFERENT party to the same deal (the
+ * other JV partner, the lender, a tenant) classifies as NOT the subject and is
+ * dropped. This is what prevents cross-attribution (a Crown result never
+ * attaches to Vornado, and vice versa).
+ */
+function buildPrincipalIdentity(
+  name: string,
+  role: 'sponsor' | 'borrower',
+  input: Pick<ExternalDDInput, 'city' | 'state' | 'assetType'>,
+): string {
+  const ctx = [input.city, input.state].filter(Boolean).join(', ');
+  const asset = input.assetType ? ` ${input.assetType}` : '';
+  const roleDesc = role === 'sponsor'
+    ? 'a sponsor / principal behind the borrower on'
+    : 'the borrowing entity for';
+  return `"${name}" — ${roleDesc} a${asset} commercial real-estate loan${ctx ? ` on a property in ${ctx}` : ''}. `
+    + `The subject is SPECIFICALLY "${name}". A different company or person with a similar name is NOT the subject, `
+    + `and neither is a DIFFERENT party to the same deal (another sponsor/JV partner, the lender, a tenant, a broker) — `
+    + `only results about "${name}" itself are the subject.`;
+}
+
+/**
  * Neighborhood/radius property-distress queries. The prior address-exact +
  * "foreclosure" query returned nothing; this keys on the submarket/city instead.
  * These become subjectType 'property_market' (facts about a place — renders
@@ -331,7 +378,20 @@ export function guardFindings(findings: readonly ExternalFinding[]): GuardedFind
 }
 
 export interface ExternalDDInput {
+  /**
+   * Back-compat single sponsor (identity context / display). The AUTHORITATIVE
+   * search list is `sponsors`; the person lane searches EACH principal in that
+   * list independently. When `sponsors` is empty, `sponsorName` (if set) is
+   * treated as a one-element list (single-sponsor deals).
+   */
   readonly sponsorName: string | null;
+  /**
+   * ★ The sponsor PRINCIPALS to search — a JV names several (Vornado + Crown),
+   * a single-sponsor deal names one. Each is searched + guarded INDEPENDENTLY so
+   * a finding is attributed to the correct principal. Optional: absent/empty →
+   * the lane falls back to the single `sponsorName` (back-compat).
+   */
+  readonly sponsors?: readonly string[];
   readonly borrowerName: string | null;
   readonly propertyAddress: string | null;
   readonly city: string | null;
@@ -372,28 +432,20 @@ export interface ExternalDDResult {
   /** The frozen fetch timestamp the findings are pinned to. */
   readonly retrievedAt: string;
   /**
-   * The §4 subject actually searched (sponsor/borrower), or `null` when no
-   * name was available and the person lane could NOT run. Distinguishes
-   * searched-but-empty from could-not-search downstream (memo §4).
+   * The FIRST §4 subject searched, or `null` when the person lane could NOT run.
+   * Back-compat single; the authoritative list is `personSubjects`.
    */
   readonly personSubject: string | null;
+  /**
+   * ★ Each §4 principal actually searched, independently. Empty when the person
+   * lane could not run (no principals). Findings carry `subject === principal`.
+   */
+  readonly personSubjects: readonly string[];
   /**
    * The §6 subject actually searched (property market/area), or `null` when no
    * address/market was available and the market lane could NOT run.
    */
   readonly marketSubject: string | null;
-}
-
-/** Build the STRICT identity description handed to the classifier (names the
- *  specific entities; context is understanding-only, never a looser bar). */
-function buildPersonIdentity(input: ExternalDDInput): string {
-  const parts: string[] = [];
-  if (input.sponsorName) parts.push(`"${input.sponsorName}" (the sponsor)`);
-  if (input.borrowerName) parts.push(`"${input.borrowerName}" (the borrowing entity)`);
-  const who = parts.join(' or ');
-  const ctx = [input.city, input.state].filter(Boolean).join(', ');
-  const asset = input.assetType ? ` ${input.assetType}` : '';
-  return `${who} — parties to a${asset} commercial real-estate loan${ctx ? ` on a property in ${ctx}` : ''}. A different company or person with a similar name is NOT the subject.`;
 }
 
 async function unionSearch(queries: readonly string[], doBrave: typeof braveSearch): Promise<ResearchResult[]> {
@@ -467,19 +519,41 @@ export async function runExternalDueDiligence(
   let personSubject: string | null = null;
   let marketSubject: string | null = null;
 
-  const personQueries = buildPersonQueries(input);
-  if (personQueries.length > 0) {
-    const subjectLabel = input.sponsorName ?? input.borrowerName ?? 'the deal sponsor/borrower';
-    personSubject = subjectLabel;
-    const { results, fromCache } = await cachedUnionSearch(subjectLabel, 'person', personQueries, doBrave, deps.store, input.retrievedAt);
-    queries.push(...personQueries);
-    rawCounts.person = results.length;
-    cached.person = fromCache;
-    const identity = buildPersonIdentity(input);
+  // ★ PER-PRINCIPAL PERSON LANE. The sponsor principals (a JV names several) +
+  // the borrower entity are each searched + classified + built INDEPENDENTLY, so
+  // a finding attaches to the correct principal and the identity guard refuses
+  // cross-attribution (a Crown result never attaches to Vornado). Back-compat:
+  // when `sponsors` is empty, fall back to the single `sponsorName`.
+  const sponsorPrincipals = (input.sponsors && input.sponsors.length > 0)
+    ? input.sponsors
+    : (input.sponsorName ? [input.sponsorName] : []);
+  const principals: Array<{ name: string; role: 'sponsor' | 'borrower' }> = [
+    ...sponsorPrincipals.map((name) => ({ name, role: 'sponsor' as const })),
+    ...(input.borrowerName ? [{ name: input.borrowerName, role: 'borrower' as const }] : []),
+  ];
+  const personSubjects: string[] = [];
+  const seenPrincipals = new Set<string>();
+  let personCachedAll = true;
+  for (const principal of principals) {
+    const key = principal.name.trim().toLowerCase();
+    if (key.length === 0 || seenPrincipals.has(key)) continue;
+    const pQueries = buildPrincipalQueries(principal.name, principal.role, input.city, input.state);
+    if (pQueries.length === 0) continue;
+    seenPrincipals.add(key);
+    personSubjects.push(principal.name);
+    const { results, fromCache } = await cachedUnionSearch(principal.name, 'person', pQueries, doBrave, deps.store, input.retrievedAt);
+    queries.push(...pQueries);
+    rawCounts.person += results.length;
+    personCachedAll = personCachedAll && fromCache;
+    const identity = buildPrincipalIdentity(principal.name, principal.role, input);
     const cls = await classifyResults(identity, 'person', results, llm);
-    const { findings, dropped } = buildFindings(subjectLabel, 'person', results, cls, input.retrievedAt);
+    const { findings, dropped } = buildFindings(principal.name, 'person', results, cls, input.retrievedAt);
     allFindings.push(...findings);
     allDropped.push(...dropped);
+  }
+  if (personSubjects.length > 0) {
+    personSubject = personSubjects[0]!;
+    cached.person = personCachedAll;
   }
 
   const propQueries = buildPropertyDistressQueries(input);
@@ -500,7 +574,7 @@ export async function runExternalDueDiligence(
 
   const guarded = guardFindings(allFindings);
   const status: ExternalDDResult['status'] = guarded.length > 0 ? 'findings' : 'no_findings_surfaced';
-  return { status, queries, guarded, dropped: allDropped, rawCounts, cached, retrievedAt: input.retrievedAt, personSubject, marketSubject };
+  return { status, queries, guarded, dropped: allDropped, rawCounts, cached, retrievedAt: input.retrievedAt, personSubject, personSubjects, marketSubject };
 }
 
 /* ----------------------- at-mint snapshot producer ----------------------- */
@@ -520,7 +594,7 @@ export async function runExternalDueDiligence(
  * findings were built over — matches the fetch-cache row), not from wall-clock.
  */
 export function buildExternalDDSnapshot(
-  result: Pick<ExternalDDResult, 'status' | 'guarded' | 'retrievedAt' | 'personSubject' | 'marketSubject'>,
+  result: Pick<ExternalDDResult, 'status' | 'guarded' | 'retrievedAt' | 'personSubject' | 'personSubjects' | 'marketSubject'>,
   analysisAsOfDate: string,
 ): SnapshotExternalDD {
   return {
@@ -533,6 +607,7 @@ export function buildExternalDDSnapshot(
     retrievedAt: result.retrievedAt as SnapshotExternalDD['retrievedAt'],
     analysisAsOfDate: analysisAsOfDate as SnapshotExternalDD['analysisAsOfDate'],
     personSubject: result.personSubject,
+    personSubjects: result.personSubjects,
     marketSubject: result.marketSubject,
   };
 }

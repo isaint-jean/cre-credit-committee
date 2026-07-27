@@ -83,6 +83,7 @@ function sectionByHeading(html: string, heading: string): string | null {
     const analysisAsOfDate = String(er.analysisAsOfDate);
     const ddInput: ExternalDDInput = {
       sponsorName:     er.parties?.sponsorName ?? null,
+      sponsors:        er.parties?.sponsors ?? (er.parties?.sponsorName ? [er.parties.sponsorName] : []),
       borrowerName:    er.parties?.borrowerName ?? null,
       propertyAddress: er.appraisal?.addressFull ?? pm?.address ?? null,
       city:            er.appraisal?.city ?? pm?.city ?? null,

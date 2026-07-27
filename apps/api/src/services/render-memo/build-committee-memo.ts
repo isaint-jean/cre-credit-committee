@@ -280,12 +280,55 @@ function section(id: Exclude<MemoSectionId, 'header' | 'footer'>, innerHtml: str
  *
  * Exported for the render test (three-state proof); called by §4 and §6.
  */
+/**
+ * Per-principal §4 person-lane block (a JV). Each principal (Vornado, Crown) is
+ * rendered independently — its own findings OR its own searched-empty honest
+ * null — so a finding attaches to the correct principal and two principals are
+ * never collapsed into one verdict. Same wording as the single-principal path
+ * (the "prior public credit events" clause + the "not an affirmative … clean"
+ * caveat), but named per principal.
+ */
+function multiPrincipalPersonBlock(
+  externalDD: SnapshotExternalDD,
+  principals: readonly string[],
+): string {
+  const asOf = String(externalDD.analysisAsOfDate).slice(0, 10);
+  const perPrincipal = principals.map((principal) => {
+    const rendered = Array.from(new Set(
+      externalDD.findings
+        .filter(f => f.finding.subjectType === 'person' && f.finding.subject === principal && f.rendered !== null)
+        .map(f => f.rendered as string),
+    ));
+    if (rendered.length === 0) {
+      // searched-empty for THIS principal — the honest null, named.
+      return `<p class="memo-prose">External searches — which can partially speak to prior public credit events — surfaced nothing specific on ${esc(principal)} as of ${esc(asOf)}; this is not an affirmative finding that ${esc(principal)} is clean.</p>`;
+    }
+    const items = rendered.map(r => `<li>${esc(r)}</li>`).join('');
+    return `<p class="memo-prose">External searches on ${esc(principal)} surfaced the following as of ${esc(asOf)}. These are third-party reports the committee should independently verify — not findings established by this analysis:</p>
+        <ul class="memo-analysis-list">${items}</ul>`;
+  }).join('\n        ');
+  return `
+      <div class="memo-external-dd memo-external-dd-multi">
+        <p class="memo-prose"><strong>External diligence (per principal).</strong></p>
+        ${perPrincipal}
+      </div>`;
+}
+
 export function externalDDBlock(
   externalDD: SnapshotExternalDD | undefined,
   lane: 'person' | 'property_market',
   laneNoun: string,
 ): string {
   if (externalDD === undefined) return '';
+  // ★ MULTI-PRINCIPAL person lane (a JV). When more than one sponsor principal
+  // was searched, render EACH independently so the reader sees per-principal
+  // results ("on Vornado Realty Trust …; on Crown Acquisitions …") — never two
+  // principals collapsed into one verdict. A single principal (or a pre-multi
+  // snapshot with only `personSubject`) falls through to the existing single-
+  // block path below, which stays BYTE-IDENTICAL (Sunroad unregressed).
+  if (lane === 'person' && externalDD.personSubjects !== undefined && externalDD.personSubjects.length > 1) {
+    return multiPrincipalPersonBlock(externalDD, externalDD.personSubjects);
+  }
   const laneSubject = lane === 'person' ? externalDD.personSubject : externalDD.marketSubject;
   if (laneSubject === null) return '';                 // (c) could-not-search
   const asOf = String(externalDD.analysisAsOfDate).slice(0, 10);

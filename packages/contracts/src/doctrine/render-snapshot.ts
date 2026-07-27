@@ -277,10 +277,21 @@ export interface SnapshotExternalDD {
   /** The deal's as-of date — the fixed point the DD is reproducible against. */
   readonly analysisAsOfDate: ISODateTime;
   /**
-   * §4 lane: the sponsor/borrower subject actually searched, or `null` when no
-   * sponsor/borrower name was available (could-not-search → §4 honest-blank).
+   * §4 lane (back-compat single): the FIRST sponsor/borrower subject searched,
+   * or `null` when the person lane could not run. The authoritative list is
+   * `personSubjects`; this stays the first element for readers that predate it.
    */
   readonly personSubject: string | null;
+  /**
+   * ★ §4 lane PRINCIPALS actually searched, EACH independently — a JV's
+   * principals (e.g. ["Vornado Realty Trust", "Crown Acquisitions"]) or a
+   * single-sponsor deal's one name. The renderer shows per-principal results so
+   * a finding attaches to the correct principal (`finding.subject === principal`)
+   * and is never cross-attributed. Additive + optional: absent on pre-multi-
+   * principal snapshots → the renderer falls back to `personSubject` (identical
+   * single-block output — no regression). Empty/absent means could-not-search.
+   */
+  readonly personSubjects?: readonly string[];
   /**
    * §6 lane: the property market/area subject actually searched, or `null` when
    * no address/market was available (could-not-search → §6 honest-blank).
