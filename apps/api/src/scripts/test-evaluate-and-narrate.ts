@@ -28,35 +28,27 @@
  */
 
 import {
-  ASSET_TYPES,
-  EXTRACTION_ENGINE_VERSION,
-  MANIFESTO_CONTRACT_VERSION,
   NARRATIVE_ENGINE_VERSION,
   RENDER_VERSION,
   SNAPSHOT_PRODUCER_VERSION,
 } from '@cre/contracts';
 import type {
   AssetType,
-  ContentHash,
-  CreditManifesto,
-  ExtractionResult,
-  LibrarySnapshot,
-  MarketBenchmarks,
   NarrativeEvaluation,
 } from '@cre/contracts';
 import {
-  computeCreditManifestoId,
-  computeExtractionResultId,
-  computeLibrarySnapshotId,
-  computeMarketBenchmarksId,
-} from '../util/content-hash.js';
+  AS_OF,
+  makeBenchmarks,
+  makeFullExtraction,
+  makeManifesto,
+  makeSnapshot,
+} from './fixtures/office-deal-fixture.js';
 import { RecordGraphStore } from '../storage/record-graph-store.js';
-import { ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { computeIngestFrontHalf, ingestExtractionResult } from '../services/ingest-extraction-result.js';
+import { computePreFlightReadiness } from '../services/pre-flight-readiness.service.js';
 import { evaluateAndNarrate } from '../services/evaluate-and-narrate.js';
 import { materializeRenderedAnalysis } from '../services/materialize-rendered-analysis.js';
 import type { LLMCallFn } from '../services/narrative/build-narrative.js';
-
-const AS_OF = '2026-05-29T00:00:00Z';
 
 let passed = 0;
 let failed = 0;
@@ -67,101 +59,9 @@ function assertEqual<T>(a: T, b: T, m: string): void {
   a === b ? ok(m) : fail(`${m} (actual=${JSON.stringify(a)}, expected=${JSON.stringify(b)})`);
 }
 
-/* ------------------------------ fixtures ------------------------------- */
-
-function emptyByAssetType<T = null>(value: T = null as never): { [K in AssetType]: T } {
-  const out = {} as { [K in AssetType]: T };
-  for (const t of ASSET_TYPES) out[t] = value;
-  return out;
-}
-
-function makeFullExtraction(): ExtractionResult {
-  const body = {
-    analysisAsOfDate: AS_OF,
-    extractionEngineVersion: EXTRACTION_ENGINE_VERSION,
-    dealRef: 'EVAL-NARRATE-1',
-    rentRoll: {
-      units: [
-        { unitId: 'A', tenantName: 'Tenant A', leaseStart: '2024-01-01T00:00:00Z',
-          leaseEnd: '2027-01-01T00:00:00Z', baseRentMonthly: 30_000, inPlaceRentMonthly: 30_000,
-          occupied: true, concessions: 0, securityDeposit: 30_000 },
-        { unitId: 'B', tenantName: 'Tenant B', leaseStart: '2024-01-01T00:00:00Z',
-          leaseEnd: '2034-01-01T00:00:00Z', baseRentMonthly: 50_000, inPlaceRentMonthly: 50_000,
-          occupied: true, concessions: 0, securityDeposit: 50_000 },
-      ],
-      summary: { totalUnits: 2, occupiedUnits: 2, economicOccupancy: 1.0 },
-    },
-    inPlace: {
-      period: 'T-12 ending Apr 2026', noi: 800_000, vacancyLoss: 60_000,
-      income: { grossPotentialRent: 1_200_000, effectiveRent: 1_140_000, otherIncome: 60_000, totalIncome: 1_200_000 },
-      expenses: { taxes: 100_000, insurance: 18_000, utilities: 24_000,
-                   repairsMaintenance: 36_000, managementFees: 40_000,
-                   generalAndAdmin: null, janitorial: null, reimbursements: null,
-                   totalOperatingExpenses: 218_000 },
-      belowNoiAdjustments: { replacementReserves: null, tenantImprovements: null, leasingCommissions: null },
-    },
-    t12Actual: null,
-    pca: {
-      immediateRepairs: 50_000, shortTermRepairs: 150_000,
-      evaluationPeriodYears: null, inflationRate: null,
-      replacementReservesPerSfPerYearInflated: null, replacementReservesPerSfPerYearUninflated: null,
-      capexScheduleInflated: null, capexScheduleUninflated: null,
-      structural: { roof: 'fair', hvac: 'good', plumbing: 'good', electrical: 'good' },
-    },
-    appraisal: { valueConclusion: 16_500_000, capRate: 0.06, methodology: 'Income' },
-    sellerUw: { underwrittenNOI: 1_080_000, underwrittenRentGrowth: 0.03, underwrittenVacancy: 0.04 },
-    sellerUwOperatingStatement: null,
-    asr: { impliedValue: 18_000_000, impliedCapRate: 0.06, underwrittenNOI: 1_080_000 , priorDebtPayoff: null},
-    loanTerms: {
-      loanAmount: 11_000_000, interestRate: 0.07, amortization: 360,
-      interestOnlyPeriod: 0, maturityDate: '2031-05-08T00:00:00Z',
-    },
-    sourceDocuments: [],
-    extractorVersions: {},
-  };
-  return { id: computeExtractionResultId(body), ...body } as ExtractionResult;
-}
-
-function makeSnapshot(): LibrarySnapshot {
-  const byAssetType = emptyByAssetType<LibrarySnapshot['byAssetType'][AssetType]>(null);
-  byAssetType.Office = {
-    vacancy: { median: 0.10, p25: 0.07, p75: 0.13 },
-    expenseRatio: { median: 0.30, p25: 0.25, p75: 0.35 },
-    capRate: { median: 0.075, p25: 0.07, p75: 0.08 },
-    dscr: { median: 1.30, p25: 1.20, p75: 1.40 },
-    treasury10YAtClose: { median: 0.04, p25: 0.035, p75: 0.045 },
-    n: 25,
-  };
-  const body = {
-    asOf: AS_OF,
-    approvedDealsTableHash: 'a'.repeat(64) as ContentHash,
-    byAssetType,
-  };
-  return { id: computeLibrarySnapshotId(body), ...body } as LibrarySnapshot;
-}
-
-function makeBenchmarks(): MarketBenchmarks {
-  const ratesAll = emptyByAssetType<number | null>(0.05);
-  const expensesAll = emptyByAssetType<number | null>(8.50);
-  const body = {
-    asOfDate: AS_OF,
-    capRates: { ...emptyByAssetType<number | null>(null), Office: 0.075 },
-    vacancyRates: { ...ratesAll, Office: 0.10 },
-    expensesPerSqFt: { ...expensesAll, Office: 8.50 },
-    interestRateAssumptions: { baseRate: 0.065, stressRate: 0.085 },
-    marketLiquidityIndex: { primary: 0.85, secondary: 0.55, tertiary: 0.30 },
-  };
-  return { id: computeMarketBenchmarksId(body), ...body } as MarketBenchmarks;
-}
-
-function makeManifesto(): CreditManifesto {
-  const body = {
-    analysisAsOfDate: AS_OF,
-    manifestoContractVersion: MANIFESTO_CONTRACT_VERSION,
-    rules: [],
-  };
-  return { id: computeCreditManifestoId(body), ...body } as CreditManifesto;
-}
+/* Deal fixtures (makeFullExtraction / makeSnapshot / makeBenchmarks / makeManifesto)
+   live in ./fixtures/office-deal-fixture.ts — SHARED with the build-and-ingest route
+   suite's pre-flight preview test so both exercise the same deal. */
 
 const STUB_EXEC_A = 'Test exec summary A — deterministic prose for integration test.';
 const STUB_EXEC_B = 'Test exec summary B — different prose to verify cache-staleness gate.';
@@ -223,18 +123,20 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
   store.insertLibrarySnapshot(lib);
 
   // Ingest using stub LLM A — exercises full write path (ingestExtractionResult
-  // calls evaluateAndNarrate internally).
+  // calls evaluateAndNarrate internally). Args hoisted so the pre-flight route
+  // parity check below runs the SAME args the mint consumed.
+  const mintArgs = {
+    extractionResult: makeFullExtraction(),
+    propertyType: 'Office' as AssetType,
+    marketLiquidityHint: 'Primary' as const,
+    librarySnapshotId: lib.id,
+    marketBenchmarks: makeBenchmarks(),
+    creditManifesto: makeManifesto(),
+    analysisAsOfDate: AS_OF,
+    rentRoll: null,
+  };
   const ingest = await ingestExtractionResult(
-    {
-      extractionResult: makeFullExtraction(),
-      propertyType: 'Office' as AssetType,
-      marketLiquidityHint: 'Primary',
-      librarySnapshotId: lib.id,
-      marketBenchmarks: makeBenchmarks(),
-      creditManifesto: makeManifesto(),
-      analysisAsOfDate: AS_OF,
-      rentRoll: null,
-    },
+    mintArgs,
     store,
     { llmCall: makeStub({ exec: STUB_EXEC_A, redFlag: STUB_REDFLAG_A, mitigation: STUB_MITIGATION_A, committee: STUB_COMMITTEE_A }) },
   );
@@ -253,6 +155,31 @@ console.log('Seed + evaluateAndNarrate end-to-end:');
   // 1. HE row persisted
   const doctrine = store.getDoctrineEvaluation(ingest.evaluationId);
   assert(doctrine !== null, 'doctrine evaluation persisted');
+
+  // 1b. PRE-FLIGHT ROUTE PARITY — the build-and-ingest `preview:true` seam derives
+  // its verdict via computeIngestFrontHalf → computePreFlightReadiness (the SAME
+  // shared front-half this mint ran + the SAME derived-verdict path the CLI uses).
+  // Prove that chain, on the SAME args, is BYTE-IDENTICAL to what this real mint
+  // just produced: the preview predicts the mint exactly, writing nothing here
+  // (computePreFlightReadiness runs against its own throwaway :memory: scratch).
+  {
+    const fh = computeIngestFrontHalf(mintArgs, store);
+    const readiness = await computePreFlightReadiness({
+      extraction: mintArgs.extractionResult,
+      adjustedInputs: fh.adjustedInputs,
+      assetProfile: fh.assetProfile,
+      librarySnapshot: fh.librarySnapshot,
+      narrativeFacts: fh.narrativeFacts,
+      propertyMetadata: fh.propertyMetadata,
+      rentRoll: mintArgs.rentRoll,
+      sourceDocumentKinds: (mintArgs.extractionResult.sourceDocuments ?? []).map((d) => d.kind),
+    });
+    assertEqual(readiness.verdict.finalScore, doctrine!.finalScore ?? null, '1b route-preview finalScore == minted finalScore (byte-identical)');
+    assertEqual(readiness.verdict.recommendation, snap0!.rating.recommendation, '1b route-preview recommendation == minted');
+    assertEqual(readiness.verdict.band, snap0!.rating.band ?? null, '1b route-preview band == minted');
+    assertEqual(readiness.verdict.provisional, true, '1b route-preview verdict flagged PROVISIONAL (pre-mint)');
+  }
+
   const he = store.getLatestHandbookEvaluationForAdjustedInputs(doctrine!.adjustedInputsId);
   assert(he !== null, 'HandbookEvaluation persisted as sibling');
 

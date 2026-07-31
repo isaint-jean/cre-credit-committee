@@ -41,6 +41,8 @@
  */
 
 import type {
+  AdjustedInputs,
+  AssetProfile,
   AssetType,
   CreditManifesto,
   CreditManifestoId,
@@ -48,8 +50,10 @@ import type {
   DoctrineEvaluationId,
   ExtractionResult,
   ISODateTime,
+  LibrarySnapshot,
   LibrarySnapshotId,
   MarketBenchmarks,
+  NarrativeFacts,
   MarketBenchmarksId,
   MarketLiquidity,
   PropertyMetadata,
@@ -194,19 +198,30 @@ export interface IngestionResult {
 
 /* ----------------------------- orchestration ------------------------------ */
 
-export async function ingestExtractionResult(
+/**
+ * The ingest DETERMINISTIC FRONT-HALF — resolve marketBenchmarks / creditManifesto
+ * / librarySnapshot, build NarrativeFacts + AssetProfile, and run the judgment
+ * engine to produce AdjustedInputs (+ resolve PropertyMetadata). NO persist, NO
+ * LLM, NO narrative/DD. Extracted so `ingestExtractionResult` (the mint) AND the
+ * pre-flight route preview compute AdjustedInputs by the SAME code — one path, no
+ * drift, so the preview's derived verdict is byte-identical to the mint's. Reads
+ * the store for library/benchmarks/manifesto/PM lookups; writes nothing.
+ */
+export interface IngestFrontHalf {
+  readonly narrativeFacts: NarrativeFacts;
+  readonly assetProfile: AssetProfile;
+  readonly librarySnapshot: LibrarySnapshot;
+  readonly adjustedInputs: AdjustedInputs;
+  readonly propertyMetadata: PropertyMetadata | null;
+  readonly marketBenchmarks: MarketBenchmarks;
+  readonly creditManifesto: CreditManifesto;
+}
+
+export function computeIngestFrontHalf(
   args: IngestExtractionResultArgs,
   store: RecordGraphStore,
-  deps: IngestExtractionResultDeps = {},
-): Promise<IngestionResult> {
-  const {
-    extractionResult,
-    propertyType,
-    marketLiquidityHint,
-    librarySnapshotId,
-    analysisAsOfDate,
-    rentRoll,
-  } = args;
+): IngestFrontHalf {
+  const { extractionResult, propertyType, marketLiquidityHint, librarySnapshotId, analysisAsOfDate, rentRoll } = args;
 
   /* Resolve marketBenchmarks: prefer inline; otherwise look up by id. The
      caller MUST supply exactly one — the route handler validates. */
@@ -216,18 +231,11 @@ export async function ingestExtractionResult(
   } else if (args.marketBenchmarksId !== undefined) {
     const found = store.getMarketBenchmarks(args.marketBenchmarksId);
     if (found === null) {
-      throw new IngestionError({
-        code: 'MARKET_BENCHMARKS_NOT_FOUND',
-        marketBenchmarksId: args.marketBenchmarksId,
-      });
+      throw new IngestionError({ code: 'MARKET_BENCHMARKS_NOT_FOUND', marketBenchmarksId: args.marketBenchmarksId });
     }
     marketBenchmarks = found;
   } else {
-    // Route handler should have caught this; defensive fallthrough.
-    throw new IngestionError({
-      code: 'MARKET_BENCHMARKS_NOT_FOUND',
-      marketBenchmarksId: '(neither inline nor reference supplied)',
-    });
+    throw new IngestionError({ code: 'MARKET_BENCHMARKS_NOT_FOUND', marketBenchmarksId: '(neither inline nor reference supplied)' });
   }
 
   /* Resolve creditManifesto: same pattern. */
@@ -237,34 +245,17 @@ export async function ingestExtractionResult(
   } else if (args.creditManifestoId !== undefined) {
     const found = store.getCreditManifesto(args.creditManifestoId);
     if (found === null) {
-      throw new IngestionError({
-        code: 'CREDIT_MANIFESTO_NOT_FOUND',
-        creditManifestoId: args.creditManifestoId,
-      });
+      throw new IngestionError({ code: 'CREDIT_MANIFESTO_NOT_FOUND', creditManifestoId: args.creditManifestoId });
     }
     creditManifesto = found;
   } else {
-    throw new IngestionError({
-      code: 'CREDIT_MANIFESTO_NOT_FOUND',
-      creditManifestoId: '(neither inline nor reference supplied)',
-    });
+    throw new IngestionError({ code: 'CREDIT_MANIFESTO_NOT_FOUND', creditManifestoId: '(neither inline nor reference supplied)' });
   }
 
-  /* Stages 1, 1.5, 1/3, 3 — COMPUTE ONLY (no persist).
-   *
-   * Gate-cleanups refactor: persistence of these records is DEFERRED to
-   * evaluateFromAdjustedInputs, which inserts them right AFTER the
-   * data-integrity gate passes. This eliminates the orphan footprint on
-   * HARD halt — previously each of these 4 records (plus PM below) leaked
-   * to SQLite before the gate fired, leaving an inert but persisted
-   * extraction in the graph.
-   *
-   * The records are still computed in their original order (FK / data
-   * dependencies preserved); the persist call sites moved downstream. */
-  const narrativeFacts = buildNarrativeFacts({
-    extractionResult,
-    analysisAsOfDate,
-  });
+  /* Stages 1, 1.5, 1/3, 3 — COMPUTE ONLY (no persist). Persistence is deferred to
+     evaluateFromAdjustedInputs (post data-integrity gate) so a HARD halt leaves no
+     orphans. Records computed in original order (FK / data dependencies preserved). */
+  const narrativeFacts = buildNarrativeFacts({ extractionResult, analysisAsOfDate });
 
   const assetProfile = classifyAssetProfile({
     propertyType,
@@ -278,10 +269,7 @@ export async function ingestExtractionResult(
   /* Pinned input — LibrarySnapshot lookup. */
   const librarySnapshot = store.getLibrarySnapshot(librarySnapshotId);
   if (librarySnapshot === null) {
-    throw new IngestionError({
-      code: 'LIBRARY_SNAPSHOT_NOT_FOUND',
-      librarySnapshotId,
-    });
+    throw new IngestionError({ code: 'LIBRARY_SNAPSHOT_NOT_FOUND', librarySnapshotId });
   }
 
   /* Stage 4 — judgment engine produces AdjustedInputs. */
@@ -297,27 +285,35 @@ export async function ingestExtractionResult(
     rentRoll,
   });
 
-  /* PropertyMetadata resolution (deferred-persist variant):
-   *
-   * If the caller passes a typed PM from the composer, hold it in-memory;
-   * evaluateFromAdjustedInputs will insert it post-gate (idempotent).
-   * If the caller doesn't pass one, fall back to the legacy lookup which
-   * traverses the cache via extractionResult.id — that lookup only
-   * succeeds if a PRIOR ingest already linked one (revision path), since
-   * the extraction itself hasn't been persisted yet this turn. New ingest
-   * + no PM = legitimately null (existing behavior).
-   *
-   * The extraction_input_cache row that links PM → extractionResult.id is
-   * persisted here ONLY IF the gate is going to pass (we defer it next to
-   * the PM insert). To preserve the original semantics, the cache link
-   * write is moved to AFTER evaluateAndNarrate returns, gated on whether
-   * the caller supplied PM (same condition as before). */
-  let propertyMetadata: PropertyMetadata | null;
-  if (args.propertyMetadata !== undefined && args.propertyMetadata !== null) {
-    propertyMetadata = args.propertyMetadata;
-  } else {
-    propertyMetadata = store.getPropertyMetadataByExtractionResultId(extractionResult.id);
-  }
+  /* PropertyMetadata resolution (deferred-persist variant): inline PM from the
+     composer is held in-memory; else legacy lookup by extraction id (only resolves
+     on the revision path). New ingest + no PM = legitimately null. */
+  const propertyMetadata: PropertyMetadata | null =
+    (args.propertyMetadata !== undefined && args.propertyMetadata !== null)
+      ? args.propertyMetadata
+      : store.getPropertyMetadataByExtractionResultId(extractionResult.id);
+
+  return { narrativeFacts, assetProfile, librarySnapshot, adjustedInputs, propertyMetadata, marketBenchmarks, creditManifesto };
+}
+
+export async function ingestExtractionResult(
+  args: IngestExtractionResultArgs,
+  store: RecordGraphStore,
+  deps: IngestExtractionResultDeps = {},
+): Promise<IngestionResult> {
+  const { extractionResult, analysisAsOfDate, rentRoll } = args;
+
+  // Deterministic front-half (SHARED with the pre-flight route preview — one path,
+  // no drift). Resolves inputs + runs the judgment engine to AdjustedInputs.
+  const {
+    narrativeFacts,
+    assetProfile,
+    librarySnapshot,
+    adjustedInputs,
+    propertyMetadata,
+    marketBenchmarks,
+    creditManifesto,
+  } = computeIngestFrontHalf(args, store);
 
   /* Stages 4-8 + narrative composition delegated to the coupled
      `evaluateAndNarrate` wrapper (Piece A Phase 1 batch 2). This composes

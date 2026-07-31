@@ -50,6 +50,13 @@ import {
   makeBuildAndIngestHandler,
   type BuildAndIngestDeps,
 } from '../routes/build-and-ingest.routes.js';
+import {
+  AS_OF,
+  makeBenchmarks,
+  makeFullExtraction,
+  makeManifesto,
+  makeSnapshot,
+} from './fixtures/office-deal-fixture.js';
 
 type MulterFilesMap = { [fieldname: string]: Array<{ buffer: Buffer; originalname: string }> };
 
@@ -905,6 +912,74 @@ function makeDeps(o: DepsOverrides = {}): BuildAndIngestDeps {
       assertEqual(res.statusCode, 201, '20.2 second handler 201');
       assertEqual(composerCalls, 1, '20.3 cache hit via persisted cache entry (composer only ran once)');
     }
+
+    realStore.close();
+  }
+
+  /* CASE 21 — PRE-FLIGHT PREVIEW returns the FULL A+B+C readiness and does NOT
+   * mint. `preview:true` runs the mint's deterministic front-half (shared
+   * computeIngestFrontHalf) + the byte-identical derived verdict against a
+   * throwaway scratch store, returning ledger (A) + verdict (B) + unlocks (C).
+   * Proves: (1) B is present + flagged PROVISIONAL, (2) ingest is NEVER called
+   * (no mint), (3) the verdict is a real deterministic score for the seeded deal
+   * — the same office deal the evaluate-and-narrate suite mints, so the score
+   * here equals that suite's byte-identical parity check by construction. */
+  console.log('\n21. preview:true returns A+B+C readiness (derived verdict B) and does NOT mint');
+  {
+    const realStore = new RecordGraphStore(':memory:');
+    const lib = makeSnapshot();
+    realStore.insertLibrarySnapshot(lib);
+    const memBlob = new MemoryBlobStore();
+
+    let ingestCalls = 0;
+    const baseDeps = makeDeps({ storeOverride: realStore, blobStoreOverride: memBlob });
+    const patched: BuildAndIngestDeps = {
+      ...baseDeps,
+      buildExtractionResult: async () => ({
+        extractionResult: makeFullExtraction(),
+        propertyMetadata: null,
+        rentRoll: null,
+        report: makeBuildReport(),
+      }),
+      ingestExtractionResult: async (...a) => {
+        ingestCalls += 1;
+        return baseDeps.ingestExtractionResult(...a);
+      },
+    };
+    const handler = makeBuildAndIngestHandler(patched);
+
+    const body = validBody({
+      // Align the as-of date with the fixture extraction (the judgment engine
+      // asserts extraction.analysisAsOfDate === args.analysisAsOfDate).
+      analysisAsOfDate: AS_OF,
+      librarySnapshotId: lib.id,
+      // REAL pinned inputs (the preview actually runs the judgment engine on them,
+      // unlike the mocked-ingest cases that pass stub JSON).
+      marketBenchmarks: JSON.stringify(makeBenchmarks()),
+      creditManifesto: JSON.stringify(makeManifesto()),
+      preview: true,
+    });
+    const files: MulterFilesMap = { asr: [{ buffer: Buffer.from('preview asr fixture'), originalname: 'asr.pdf' }] };
+    const req: MockReq = { body, files };
+    const res = makeRes();
+    await handler(req as never, res as never);
+
+    assertEqual(res.statusCode, 200, '21.1 preview returns 200');
+    const pv = res.body as {
+      preview?: boolean;
+      ledger?: { counts?: { sourceable?: number } };
+      verdict?: { provisional?: boolean; finalScore?: number | null; recommendation?: string; band?: string | null; dataConfidence?: string; willMintToInsufficientData?: boolean };
+      unlocks?: unknown[];
+    };
+    assertEqual(pv.preview, true, '21.2 body.preview === true');
+    assert(pv.ledger?.counts !== undefined, '21.3 A: ledger present');
+    assert(Array.isArray(pv.unlocks), '21.4 C: unlocks present (array)');
+    assert(pv.verdict !== undefined, '21.5 B: derived verdict present');
+    assertEqual(pv.verdict?.provisional, true, '21.6 B: verdict flagged PROVISIONAL');
+    assert(typeof pv.verdict?.finalScore === 'number', '21.7 B: real deterministic finalScore (deal passed the gate)');
+    assert(typeof pv.verdict?.recommendation === 'string' && (pv.verdict?.band === null || typeof pv.verdict?.band === 'string'), '21.8 B: recommendation + band populated');
+    assert(pv.verdict?.dataConfidence !== undefined && pv.verdict?.willMintToInsufficientData !== undefined, '21.9 B: will-gate signals present');
+    assertEqual(ingestCalls, 0, '21.10 preview NEVER calls ingest (nothing minted)');
 
     realStore.close();
   }

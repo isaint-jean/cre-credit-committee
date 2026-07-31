@@ -91,6 +91,7 @@ import {
 import type { InputSlots } from '../services/extraction/extractor-outcome.js';
 import type { BuildReport, SlotReport } from '../services/extraction/build-report.js';
 import {
+  computeIngestFrontHalf,
   ingestExtractionResult,
   IngestionError,
   type IngestExtractionResultArgs,
@@ -98,7 +99,7 @@ import {
   type IngestionResult,
 } from '../services/ingest-extraction-result.js';
 import { env } from '../config/env.js';
-import { computePreFlightLedgerAndUnlocks } from '../services/pre-flight-readiness.service.js';
+import { computePreFlightReadiness } from '../services/pre-flight-readiness.service.js';
 import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
 import { cityStateToMarketLiquidity } from '../services/metro-tier-lookup.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
@@ -464,19 +465,71 @@ export function makeBuildAndIngestHandler(
         : 'Unknown';
     const effectiveLiquidityHint: MarketLiquidity = explicitHint ?? derivedHint;
 
+    /* The ingest args — built ONCE and used by BOTH the pre-flight preview
+       (front-half only, no mint) AND the real ingest below. Sharing the literal
+       object is what makes the preview's derived verdict byte-identical to the
+       mint: same extraction, same library/benchmarks/manifesto, same judgment. */
+    const ingestArgs: IngestExtractionResultArgs = {
+      extractionResult: composed.extractionResult,
+      propertyType: body.propertyType as AssetType,
+      marketLiquidityHint: effectiveLiquidityHint,
+      librarySnapshotId: body.librarySnapshotId as LibrarySnapshotId,
+      ...(bmInlinePresent
+        ? { marketBenchmarks: marketBenchmarks as MarketBenchmarks }
+        : { marketBenchmarksId: body.marketBenchmarksId as MarketBenchmarksId }),
+      ...(cmInlinePresent
+        ? { creditManifesto: creditManifesto as CreditManifesto }
+        : { creditManifestoId: body.creditManifestoId as CreditManifestoId }),
+      analysisAsOfDate: body.analysisAsOfDate as ISODateTime,
+      // Phase 1 (rent-roll-node): typed RentRoll from the composer flows
+      // straight into ingest; null when no rent roll was produced.
+      rentRoll: composed.rentRoll,
+      // Sprint-0: typed PropertyMetadata from the composer flows INTO ingest so
+      // handbook/narrative/doctrine receive it during the engine pass AND the
+      // read-side projector can resolve it back.
+      propertyMetadata: composed.propertyMetadata,
+    };
+
     /* ★ PRE-FLIGHT PREVIEW seam. When the caller asks for a preview, return the
-       readiness (field ledger + reverse rollup) computed from the composed
-       ExtractionResult and DON'T mint — Isabelle decides whether to proceed. This
-       is a pure read of the extraction (no judgment/score/narrative/DD, nothing
-       written). The derived verdict (score / will-mint-to-InsufficientData) is a
-       deeper, byte-identical read available via the preflight-readiness CLI. */
+       FULL readiness (A field ledger + B derived verdict + C reverse rollup)
+       computed from the SAME ingestArgs the mint would consume — and DON'T mint.
+       `computeIngestFrontHalf` runs the mint's deterministic front-half (the SHARED
+       code path) to produce AdjustedInputs, reading canonical only for the pinned
+       library/benchmarks/manifesto (READ-ONLY). `computePreFlightReadiness` then runs
+       the real `evaluateFromAdjustedInputs` against a throwaway :memory: scratch
+       store — so the score/band/recommendation/will-gate verdict is BYTE-IDENTICAL
+       to the eventual mint, yet NOTHING canonical is written. Verdict is flagged
+       PROVISIONAL (pre-mint). Same guarantee the preflight-readiness CLI provides. */
     if (body.preview === true) {
-      const preview = computePreFlightLedgerAndUnlocks(
-        composed.extractionResult,
-        (composed.extractionResult.sourceDocuments ?? []).map((d) => d.kind),
-      );
-      res.status(200).json({ preview: true, dealRef: body.dealRef, ...preview });
-      return;
+      try {
+        const frontHalf = computeIngestFrontHalf(ingestArgs, deps.recordGraphStore);
+        const readiness = await computePreFlightReadiness({
+          extraction: composed.extractionResult,
+          adjustedInputs: frontHalf.adjustedInputs,
+          assetProfile: frontHalf.assetProfile,
+          librarySnapshot: frontHalf.librarySnapshot,
+          narrativeFacts: frontHalf.narrativeFacts,
+          propertyMetadata: frontHalf.propertyMetadata,
+          rentRoll: composed.rentRoll,
+          sourceDocumentKinds: (composed.extractionResult.sourceDocuments ?? []).map((d) => d.kind),
+        });
+        res.status(200).json({
+          preview: true,
+          dealRef: body.dealRef,
+          ledger: readiness.ledger,
+          verdict: readiness.verdict,
+          unlocks: readiness.unlocks,
+        });
+        return;
+      } catch (e) {
+        // Missing pinned input (library/benchmarks/manifesto) surfaces as an
+        // IngestionError — same 400 shape the real ingest returns.
+        if (e instanceof IngestionError) {
+          res.status(400).json({ error: e.code, message: e.message, ...e.context });
+          return;
+        }
+        throw e;
+      }
     }
 
     /* Run ingest against the composed ExtractionResult. Async since
@@ -485,28 +538,7 @@ export function makeBuildAndIngestHandler(
     let ingested: IngestionResult;
     try {
       ingested = await deps.ingestExtractionResult(
-        {
-          extractionResult: composed.extractionResult,
-          propertyType: body.propertyType as AssetType,
-          marketLiquidityHint: effectiveLiquidityHint,
-          librarySnapshotId: body.librarySnapshotId as LibrarySnapshotId,
-          ...(bmInlinePresent
-            ? { marketBenchmarks: marketBenchmarks as MarketBenchmarks }
-            : { marketBenchmarksId: body.marketBenchmarksId as MarketBenchmarksId }),
-          ...(cmInlinePresent
-            ? { creditManifesto: creditManifesto as CreditManifesto }
-            : { creditManifestoId: body.creditManifestoId as CreditManifestoId }),
-          analysisAsOfDate: body.analysisAsOfDate as ISODateTime,
-          // Phase 1 (rent-roll-node): typed RentRoll from the composer flows
-          // straight into ingest; null when no rent roll was produced.
-          rentRoll: composed.rentRoll,
-          // Sprint-0: typed PropertyMetadata from the composer flows INTO
-          // ingest so handbook/narrative/doctrine receive it during the engine
-          // pass AND the read-side projector can resolve it back. The
-          // best-effort PM persistence below is kept as a safety net but is
-          // now redundant on the happy path (ingest handles it).
-          propertyMetadata: composed.propertyMetadata,
-        },
+        ingestArgs,
         deps.recordGraphStore,
         // External DD at mint (§4/§6) — gated by the EXTERNAL_DD_AT_MINT
         // deployment flag (default OFF, so the test suite never fires live web
