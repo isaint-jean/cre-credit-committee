@@ -98,6 +98,7 @@ import {
   type IngestionResult,
 } from '../services/ingest-extraction-result.js';
 import { env } from '../config/env.js';
+import { computePreFlightLedgerAndUnlocks } from '../services/pre-flight-readiness.service.js';
 import { DataIntegrityHardHaltError } from '../services/evaluate-from-adjusted-inputs.js';
 import { cityStateToMarketLiquidity } from '../services/metro-tier-lookup.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
@@ -177,6 +178,10 @@ interface BuildAndIngestRequestBody {
   dealRef?: unknown;
   propertyType?: unknown;
   librarySnapshotId?: unknown;
+  /** ★ Pre-flight PREVIEW: when true, compose the extraction, return the
+   *  readiness (field ledger + reverse rollup), and DO NOT mint. A pure read —
+   *  writes nothing. Omit / false for the normal build+ingest. */
+  preview?: boolean;
   /** Inline JSON-stringified MarketBenchmarks. Mutually exclusive with
    *  marketBenchmarksId — exactly one MUST be supplied. */
   marketBenchmarks?: unknown;
@@ -458,6 +463,21 @@ export function makeBuildAndIngestHandler(
           )
         : 'Unknown';
     const effectiveLiquidityHint: MarketLiquidity = explicitHint ?? derivedHint;
+
+    /* ★ PRE-FLIGHT PREVIEW seam. When the caller asks for a preview, return the
+       readiness (field ledger + reverse rollup) computed from the composed
+       ExtractionResult and DON'T mint — Isabelle decides whether to proceed. This
+       is a pure read of the extraction (no judgment/score/narrative/DD, nothing
+       written). The derived verdict (score / will-mint-to-InsufficientData) is a
+       deeper, byte-identical read available via the preflight-readiness CLI. */
+    if (body.preview === true) {
+      const preview = computePreFlightLedgerAndUnlocks(
+        composed.extractionResult,
+        (composed.extractionResult.sourceDocuments ?? []).map((d) => d.kind),
+      );
+      res.status(200).json({ preview: true, dealRef: body.dealRef, ...preview });
+      return;
+    }
 
     /* Run ingest against the composed ExtractionResult. Async since
        Phase 1 batch 2 (the coupled `evaluateAndNarrate` wrapper performs
