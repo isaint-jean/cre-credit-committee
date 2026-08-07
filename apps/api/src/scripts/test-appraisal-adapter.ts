@@ -120,7 +120,7 @@ const SUNROAD_APPRAISAL = '/Users/isabellesaint-jean/Code/cre-credit-committee/a
       assertEqual(result.value?.asIsValue ?? null, 122_000_000, 'asIsValue = $122,000,000');
       assertEqual(result.sourceRefs.length, 1, 'one sourceRef emitted');
       assertEqual(result.sourceRefs[0]?.kind, 'appraisal', 'sourceRef.kind = appraisal');
-      assertEqual(result.adapterVersion, '1.0', 'adapterVersion = 1.0');
+      assertEqual(result.adapterVersion, '1.1', 'adapterVersion = 1.1 (Tier 1 LLM-primary core fallback)');
     }
   }
 

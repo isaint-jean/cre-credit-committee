@@ -34,18 +34,73 @@ import type {
   SourceDocumentRef,
 } from '@cre/contracts';
 import { computeBufferContentHash } from '../../../util/content-hash.js';
-import { extractCbreAppraisal } from '../../extract-cbre-appraisal.js';
+import { extractCbreAppraisal, loadAppraisalText } from '../../extract-cbre-appraisal.js';
+import {
+  extractCbreAppraisalLlm,
+  type AppraisalLlmResult,
+  type ExtractCbreAppraisalLlmDeps,
+} from '../../extract-cbre-appraisal-llm.js';
 import type { ExtractorOutcome, SlotInput } from '../extractor-outcome.js';
 
-export const APPRAISAL_ADAPTER_VERSION = '1.0';
+/* 1.0 — regex-only (CBRE Sunroad template).
+ * 1.1 — LLM-PRIMARY CORE FALLBACK (Tier 1). When the deterministic regex can't
+ *       find the score-relevant core (asIsValue / overallCapRate / stabilized NOI
+ *       / current occupancy) — i.e. any appraisal that isn't the Sunroad template
+ *       (proven on Lexington Grand, which the regex read 0/66 on) — the adapter
+ *       reads the WHOLE appraisal text with the LLM (cite-or-discard, subject-not-
+ *       comp) and fills the missing core. Regex stays the free fast path: Sunroad
+ *       hits it and the LLM never fires. Bumped to cache-bust a re-extract. */
+export const APPRAISAL_ADAPTER_VERSION = '1.1';
 
 export interface AppraisalAdapterDeps {
   readonly extractCbreAppraisal: (buffer: Buffer) => Promise<AppraisalExtraction>;
+  /** ★ LLM-primary CORE fallback deps (the de-anchor path: regex missed the
+   *  score core → LLM reads the whole appraisal). Production uses live Sonnet +
+   *  the env credit gate; tests inject a stub LLM seam + in-memory cache.
+   *  Undefined ⇒ the extractor's own defaults (real call, env gate, no cache). */
+  readonly appraisalLlm?: ExtractCbreAppraisalLlmDeps;
+  /** Injectable full-text loader (buffer → all pages joined). Defaults to the
+   *  real unpdf load; tests inject a stub to avoid parsing a fixture PDF. */
+  readonly loadAppraisalText?: (buffer: Buffer) => Promise<string>;
 }
 
 export const DEFAULT_APPRAISAL_DEPS: AppraisalAdapterDeps = {
   extractCbreAppraisal,
 };
+
+/** The score-relevant core the doctrine + memo read. When the regex leaves ANY
+ *  of these null, the LLM fallback fires to fill them. */
+function scoreCoreMissing(a: AppraisalExtraction): boolean {
+  return (
+    (a.asIsValue ?? null) === null ||
+    (a.overallCapRate ?? null) === null ||
+    (a.currentOccupancyPhysical ?? null) === null ||
+    (a.stabilizedProForma?.netOperatingIncome ?? null) === null
+  );
+}
+
+/** Merge the LLM core into the regex record — REGEX WINS where present; the LLM
+ *  only fills nulls. Never overwrites a deterministically-extracted value. */
+function mergeLlmIntoAppraisal(base: AppraisalExtraction, llm: AppraisalLlmResult): AppraisalExtraction {
+  const sp = base.stabilizedProForma;
+  return {
+    ...base,
+    asIsValue: base.asIsValue ?? llm.asIsValue,
+    asStabilizedValue: base.asStabilizedValue ?? llm.asStabilizedValue,
+    overallCapRate: base.overallCapRate ?? llm.overallCapRate,
+    terminalCapRate: base.terminalCapRate ?? llm.terminalCapRate,
+    currentOccupancyPhysical: base.currentOccupancyPhysical ?? llm.currentOccupancyPhysical,
+    yearBuilt: base.yearBuilt ?? llm.yearBuilt,
+    city: base.city ?? llm.city,
+    state: base.state ?? llm.state,
+    interestAppraised: base.interestAppraised ?? llm.interestAppraised,
+    methodology: base.methodology ?? llm.methodology,
+    // Legacy 3-field aliases mirror the primaries.
+    valueConclusion: base.valueConclusion ?? llm.asIsValue,
+    capRate: base.capRate ?? llm.overallCapRate,
+    ...(sp ? { stabilizedProForma: { ...sp, netOperatingIncome: sp.netOperatingIncome ?? llm.stabilizedNoi } } : {}),
+  };
+}
 
 /**
  * External entry point — what the composer calls.
@@ -81,6 +136,22 @@ export async function runAppraisalAdapter(
         message: `${e?.name ?? 'Error'}: ${e?.message ?? 'extractCbreAppraisal failed'}`,
       },
     };
+  }
+
+  // ★ Tier 1 — LLM-primary CORE fallback. When the deterministic regex missed the
+  // score-relevant core (non-Sunroad template), read the WHOLE appraisal with the
+  // LLM (cite-or-discard) and fill the missing fields. Sunroad hits the regex and
+  // this never fires (free fast path preserved). Fail-safe: on no-credits / error
+  // the LLM returns all-null and the merge is a no-op → the regex floor stands.
+  if (scoreCoreMissing(value)) {
+    try {
+      const loadText = deps.loadAppraisalText ?? loadAppraisalText;
+      const text = await loadText(slot.buffer);
+      const llm = await extractCbreAppraisalLlm(text, bufferHash, deps.appraisalLlm);
+      value = mergeLlmIntoAppraisal(value, llm);
+    } catch {
+      // Fail-safe — any load/parse error leaves the regex result untouched.
+    }
   }
 
   // EMPTY sentinel — 3-anchor compound. See header comment for the rationale.

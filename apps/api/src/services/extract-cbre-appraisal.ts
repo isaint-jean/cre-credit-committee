@@ -39,6 +39,13 @@ async function loadPages(buffer: Buffer): Promise<PageText[]> {
   return pages.map((text: string, i: number) => ({ page: i + 1, text }));
 }
 
+/** Full appraisal text (all pages joined) — for the Tier 1 LLM fallback, which
+ *  reads the whole document. Reuses the same unpdf load as the regex path. */
+export async function loadAppraisalText(buffer: Buffer): Promise<string> {
+  const pages = await loadPages(buffer);
+  return pages.map((p) => p.text).join('\n');
+}
+
 /* -------------------------------------------------------------------------- */
 /* Number / date parsing helpers                                              */
 /* -------------------------------------------------------------------------- */
