@@ -278,6 +278,13 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   // for per-point / per-lever rendering. Fetched on mount + refetched after each post.
   const [comments, setComments] = useState<readonly OverlayCommentView[]>([]);
   const [busyComposer, setBusyComposer] = useState<string | null>(null);
+  // Panel collapse — the contested points ("Red Flags") and the negotiation ledger
+  // ("Let's Structure This Deal Together") now render as two titled boxes (flag →
+  // structure). Both default open so the doctrine reads first; the ▾ tucks either away.
+  // View-only: no shared flag↔lever state was moved — only the visual frame was split,
+  // so every ratify / comment / related-mitigant path stays in this component's scope.
+  const [flagsOpen, setFlagsOpen] = useState(true);
+  const [structureOpen, setStructureOpen] = useState(true);
 
   // ── Phase B — forward root → loan resolution (pool identity for the terminal ──
   // actions). Resolved ONCE on mount from data.rootId. `null` = still resolving;
@@ -367,6 +374,7 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   const view = roleView(role);
   const sideC = sideAccentC(side);
   const points = deriveContestedPoints(data);
+  const criticalCount = points.filter((p) => p.severity === 'critical').length;
 
   // ── Lever ledger — REAL bindings, no toy score ────────────────────────────────
   const leverBindings = bindLevers(data.mitigations);
@@ -451,159 +459,200 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   };
 
   return (
-    <section style={{ background: C.bg, color: C.ink, fontFamily: SANS, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginTop: 8 }}>
-      {/* ── Header: role seam + side chip ────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontWeight: 700, fontSize: 15, color: C.teal }}>Deal Room</span>
-          <span style={{ fontSize: 12, color: C.ink3 }}>negotiation view — on the graph surface</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: sideC.accent, background: sideC.soft, border: `1px solid ${C.border}`, borderRadius: 999, padding: '2px 10px' }}>{sideC.label}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => requestCall('deal')}
-            style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${C.borderStrong}`, background: callRequests.has('deal') ? C.tealSoft : C.surface, color: C.ink2 }}>
-            {callRequests.has('deal') ? 'Call requested — preview, not sent' : 'Request a call'}
-          </button>
-          <span style={{ fontSize: 12, color: C.ink3 }}>Viewing as</span>
-          <div style={{ display: 'inline-flex', border: `1px solid ${C.borderStrong}`, borderRadius: 7, overflow: 'hidden' }}>
-            {(['bp_spire', 'originator'] as Role[]).map((r) => {
-              const on = role === r; const a = r === 'bp_spire' ? C.teal : C.amber;
+    <>
+      {/* The error banner sits OUTSIDE both panels so a ratify/comment failure stays
+          visible even if the panel that raised it is collapsed. */}
+      {error && (
+        <div style={{ fontSize: 12, color: C.kicked, background: '#FBECEB', border: `1px solid ${C.kicked}`, borderRadius: 8, padding: '8px 12px', marginTop: 8 }}>{error}</div>
+      )}
+
+      {/* ── Red Flags — the contested points lifted into their own titled box so the
+           doctrine reads first (flags → structure). Same cards, same per-card expand,
+           same comment threads / related-mitigants; the shared state still lives in this
+           component, so the flag↔lever wiring below is untouched — only the frame moved. */}
+      <CollapsibleSection
+        title="Red Flags"
+        meta={points.length === 0
+          ? 'none open'
+          : `${points.length} flag${points.length === 1 ? '' : 's'}${criticalCount > 0 ? ` · ${criticalCount} critical` : ''}`}
+        open={flagsOpen}
+        onToggle={() => setFlagsOpen((v) => !v)}
+      >
+        {points.length === 0 ? (
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface2, padding: 16, color: C.ink3, fontSize: 14, marginTop: 8 }}>No open flags or findings to contest.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+            {points.map((p, i) => {
+              const open = expanded.has(p.id);
+              const sc = severityColor(p.severity);
+              // Mitigants that target this point's rule (RA has no findingId link; group by
+              // principleId / rule appearing in the flag code when available, else show all
+              // when the point is the single flag). Kept honest: only exact code matches.
+              const related = data.mitigations.filter((m) =>
+                m.principleIds.some((pid) => p.id.includes(pid)));
               return (
-                <button key={r} onClick={() => setRole(r)}
-                  style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 14px', border: 'none', cursor: 'pointer', background: on ? a : C.surface, color: on ? '#fff' : C.ink2 }}>
-                  {r === 'bp_spire' ? 'BP Spire' : 'Originator'}
-                </button>
+                <div key={p.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface2, overflow: 'hidden' }}>
+                  <button onClick={() => toggle(p.id)} style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: 12, padding: 14, border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: '#fff', background: sc, borderRadius: 5, padding: '3px 7px', marginTop: 1, flexShrink: 0 }}>{p.severity === 'critical' ? 'Critical' : p.severity === 'warning' ? 'Flagged' : 'Finding'}</span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 15, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{p.title}</span>
+                      <span style={{ display: 'block', fontSize: 12, color: C.ink2, marginTop: 2, lineHeight: 1.4, fontFamily: MONO }}>{p.summary}</span>
+                    </span>
+                    <span style={{ ...num(C.ink3), fontSize: 12, flexShrink: 0, marginTop: 2 }}>#{String(i + 1).padStart(2, '0')}</span>
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={C.ink3} style={{ flexShrink: 0, marginTop: 3, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {open && (
+                    <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ borderLeft: `3px solid ${C.teal}`, background: C.tealSoft, borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
+                        <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.tealDeep, fontWeight: 600, marginBottom: 3 }}>BP Spire — position</div>
+                        <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}>Doctrine flagged <span style={{ fontFamily: MONO }}>{p.summary}</span>. Structure must cure or the committee must accept the risk.</div>
+                      </div>
+                      {related.map((m) => (
+                        <div key={m.id} style={{ borderLeft: `3px solid ${C.resolved}`, background: '#F0F6F2', borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
+                          <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.resolved, fontWeight: 600, marginBottom: 3 }}>Mitigant</div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{m.title}</div>
+                          {m.description && <div style={{ fontSize: 12, color: C.ink2, marginTop: 2, lineHeight: 1.4 }}>{m.description}</div>}
+                        </div>
+                      ))}
+                      <CommentThread comments={commentsByPath.get(p.id) ?? []} />
+                      {view.canComment ? (
+                        <PointComposer
+                          path={p.id}
+                          side={side}
+                          busy={busyComposer === p.id}
+                          onPost={(t) => postComment(p.id, t)}
+                        />
+                      ) : (
+                        <div style={{ borderLeft: `3px solid ${C.amber}`, background: C.amberSoft, borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
+                          <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 3 }}>Originator — response</div>
+                          <div style={{ fontSize: 13, color: C.ink3, fontStyle: 'italic' }}>Awaiting response — the originator cannot post yet (no originator account).</div>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 8, paddingTop: 2, flexWrap: 'wrap' }}>
+                        {view.pointActions.map((label) => (
+                          <button key={label} disabled title="Preview — no actions are saved yet"
+                            style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 6, cursor: 'not-allowed', border: `1px solid ${C.border}`, background: C.surface2, color: C.ink3 }}>{label}</button>
+                        ))}
+                        <button onClick={() => requestCall(p.id)} title="Preview — not sent yet"
+                          style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${C.borderStrong}`, background: callRequests.has(p.id) ? C.tealSoft : C.surface, color: C.ink2 }}>
+                          {callRequests.has(p.id) ? 'Call requested — preview' : 'Request a call on this point'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
+        )}
+      </CollapsibleSection>
+
+      {/* ── Let's Structure This Deal Together — convergence, disposition, and the
+           7-lever agreement ledger. The contested points moved up (Red Flags); every
+           lever binding / ratify / comment path here is byte-for-byte unchanged — it all
+           reads the same shared component state. ─────────────────────────────────────── */}
+      <CollapsibleSection title="Let's Structure This Deal Together" open={structureOpen} onToggle={() => setStructureOpen((v) => !v)}>
+        {/* Header: side chip + the Deal-Room descriptor (the panel title now leads) +
+            request-a-call + role seam. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', margin: '10px 0 6px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 12, color: C.ink3 }}>negotiation view — on the graph surface</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: sideC.accent, background: sideC.soft, border: `1px solid ${C.border}`, borderRadius: 999, padding: '2px 10px' }}>{sideC.label}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => requestCall('deal')}
+              style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${C.borderStrong}`, background: callRequests.has('deal') ? C.tealSoft : C.surface, color: C.ink2 }}>
+              {callRequests.has('deal') ? 'Call requested — preview, not sent' : 'Request a call'}
+            </button>
+            <span style={{ fontSize: 12, color: C.ink3 }}>Viewing as</span>
+            <div style={{ display: 'inline-flex', border: `1px solid ${C.borderStrong}`, borderRadius: 7, overflow: 'hidden' }}>
+              {(['bp_spire', 'originator'] as Role[]).map((r) => {
+                const on = role === r; const a = r === 'bp_spire' ? C.teal : C.amber;
+                return (
+                  <button key={r} onClick={() => setRole(r)}
+                    style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 14px', border: 'none', cursor: 'pointer', background: on ? a : C.surface, color: on ? '#fff' : C.ink2 }}>
+                    {r === 'bp_spire' ? 'BP Spire' : 'Originator'}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
-      </div>
-      <div style={{ textAlign: 'right', fontSize: 10, color: C.ink3, marginBottom: 12 }}>Role toggle is a presentation preview, not access control.</div>
+        <div style={{ textAlign: 'right', fontSize: 10, color: C.ink3, marginBottom: 12 }}>Role toggle is a presentation preview, not access control.</div>
 
-      {error && (
-        <div style={{ fontSize: 12, color: C.kicked, background: '#FBECEB', border: `1px solid ${C.kicked}`, borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>{error}</div>
-      )}
+        {/* ── Convergence (ratified-mitigant COUNT; NOT the score) + derived Cleared ── */}
+        <ConvergenceBar
+          ratified={ratifiedCount} total={convergenceTotal}
+          cleared={derivedCleared} hasFatalFlag={hasFatalFlag} bandOk={bandOk}
+          accent={sideC.accent} workflowState={workflow?.state}
+        />
 
-      {/* ── Convergence (ratified-mitigant COUNT; NOT the score) + derived Cleared ── */}
-      <ConvergenceBar
-        ratified={ratifiedCount} total={convergenceTotal}
-        cleared={derivedCleared} hasFatalFlag={hasFatalFlag} bandOk={bandOk}
-        accent={sideC.accent} workflowState={workflow?.state}
-      />
+        {/* ── DispositionBar — Phase B. LIVE for a DETERMINATE loan (the forward
+           resolver turned data.rootId into a single pool identity); an honest
+           preview/deep-link when the resolution is ambiguous. Same real writes as
+           the pool page (api.closeLoan / api.dispositionLoan). ─────────────────── */}
+        <DispositionBar
+          resolution={resolution}
+          cleared={derivedCleared}
+          hasFatalFlag={hasFatalFlag}
+          side={side}
+          closeOutcome={closeOutcome}
+          disposeOutcome={disposeOutcome}
+          onApproveAndClose={() => { void onApproveAndClose(); }}
+          onDispose={(input) => { void onDispose(input); }}
+        />
 
-      {/* ── DispositionBar — Phase B. LIVE for a DETERMINATE loan (the forward
-         resolver turned data.rootId into a single pool identity); an honest
-         preview/deep-link when the resolution is ambiguous. Same real writes as
-         the pool page (api.closeLoan / api.dispositionLoan). ─────────────────── */}
-      <DispositionBar
-        resolution={resolution}
-        cleared={derivedCleared}
-        hasFatalFlag={hasFatalFlag}
-        side={side}
-        closeOutcome={closeOutcome}
-        disposeOutcome={disposeOutcome}
-        onApproveAndClose={() => { void onApproveAndClose(); }}
-        onDispose={(input) => { void onDispose(input); }}
-      />
+        {role === 'originator' && (
+          <div style={{ background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.amber}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#6e4a1d' }}>
+            You see the buyer&apos;s flags and headline numbers — not the underwriting workbook (held above in the rendered view).
+          </div>
+        )}
 
-      {role === 'originator' && (
-        <div style={{ background: C.amberSoft, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.amber}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#6e4a1d' }}>
-          You see the buyer&apos;s flags and headline numbers — not the underwriting workbook (held above in the rendered view).
+        {/* ── Agreement ledger — the 7 levers, bound to REAL mitigants ──────────── */}
+        <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3, margin: '18px 0 8px' }}>
+          Agreement ledger <span style={{ textTransform: 'none', letterSpacing: 0, color: C.ink3 }}>— structural levers ratify a mitigant (persisted override); the score stays put</span>
         </div>
-      )}
-
-      {/* ── Contested-point cards (doctrine flags + findings) ─────────────────── */}
-      <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3, marginBottom: 8 }}>Contested points</div>
-      {points.length === 0 ? (
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, padding: 16, color: C.ink3, fontSize: 14 }}>No open flags or findings to contest.</div>
-      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {points.map((p, i) => {
-            const open = expanded.has(p.id);
-            const sc = severityColor(p.severity);
-            // Mitigants that target this point's rule (RA has no findingId link; group by
-            // principleId / rule appearing in the flag code when available, else show all
-            // when the point is the single flag). Kept honest: only exact code matches.
-            const related = data.mitigations.filter((m) =>
-              m.principleIds.some((pid) => p.id.includes(pid)));
-            return (
-              <div key={p.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, overflow: 'hidden' }}>
-                <button onClick={() => toggle(p.id)} style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: 12, padding: 14, border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: '#fff', background: sc, borderRadius: 5, padding: '3px 7px', marginTop: 1, flexShrink: 0 }}>{p.severity === 'critical' ? 'Critical' : p.severity === 'warning' ? 'Flagged' : 'Finding'}</span>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 15, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{p.title}</span>
-                    <span style={{ display: 'block', fontSize: 12, color: C.ink2, marginTop: 2, lineHeight: 1.4, fontFamily: MONO }}>{p.summary}</span>
-                  </span>
-                  <span style={{ ...num(C.ink3), fontSize: 12, flexShrink: 0, marginTop: 2 }}>#{String(i + 1).padStart(2, '0')}</span>
-                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={C.ink3} style={{ flexShrink: 0, marginTop: 3, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {open && (
-                  <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ borderLeft: `3px solid ${C.teal}`, background: C.tealSoft, borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
-                      <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.tealDeep, fontWeight: 600, marginBottom: 3 }}>BP Spire — position</div>
-                      <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}>Doctrine flagged <span style={{ fontFamily: MONO }}>{p.summary}</span>. Structure must cure or the committee must accept the risk.</div>
-                    </div>
-                    {related.map((m) => (
-                      <div key={m.id} style={{ borderLeft: `3px solid ${C.resolved}`, background: '#F0F6F2', borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
-                        <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.resolved, fontWeight: 600, marginBottom: 3 }}>Mitigant</div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{m.title}</div>
-                        {m.description && <div style={{ fontSize: 12, color: C.ink2, marginTop: 2, lineHeight: 1.4 }}>{m.description}</div>}
-                      </div>
-                    ))}
-                    <CommentThread comments={commentsByPath.get(p.id) ?? []} />
-                    {view.canComment ? (
-                      <PointComposer
-                        path={p.id}
-                        side={side}
-                        busy={busyComposer === p.id}
-                        onPost={(t) => postComment(p.id, t)}
-                      />
-                    ) : (
-                      <div style={{ borderLeft: `3px solid ${C.amber}`, background: C.amberSoft, borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
-                        <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 3 }}>Originator — response</div>
-                        <div style={{ fontSize: 13, color: C.ink3, fontStyle: 'italic' }}>Awaiting response — the originator cannot post yet (no originator account).</div>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: 8, paddingTop: 2, flexWrap: 'wrap' }}>
-                      {view.pointActions.map((label) => (
-                        <button key={label} disabled title="Preview — no actions are saved yet"
-                          style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 6, cursor: 'not-allowed', border: `1px solid ${C.border}`, background: C.surface2, color: C.ink3 }}>{label}</button>
-                      ))}
-                      <button onClick={() => requestCall(p.id)} title="Preview — not sent yet"
-                        style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${C.borderStrong}`, background: callRequests.has(p.id) ? C.tealSoft : C.surface, color: C.ink2 }}>
-                        {callRequests.has(p.id) ? 'Call requested — preview' : 'Request a call on this point'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {leverBindings.map((b) => (
+            <LeverRow
+              key={b.def.id} binding={b}
+              ratified={isRatified(b.def.id)}
+              busy={busyLever === b.def.id}
+              onRatify={() => { void ratifyLever(b); }}
+              canComment={view.canComment}
+              accent={sideC.accent}
+              side={side}
+              comments={commentsByPath.get(`lever:${b.def.id}`) ?? []}
+              composerBusy={busyComposer === `lever:${b.def.id}`}
+              onPostComment={(t) => postComment(`lever:${b.def.id}`, t)}
+            />
+          ))}
         </div>
-      )}
+      </CollapsibleSection>
+    </>
+  );
+}
 
-      {/* ── Agreement ledger — the 7 levers, bound to REAL mitigants ──────────── */}
-      <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3, margin: '18px 0 8px' }}>
-        Agreement ledger <span style={{ textTransform: 'none', letterSpacing: 0, color: C.ink3 }}>— structural levers ratify a mitigant (persisted override); the score stays put</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {leverBindings.map((b) => (
-          <LeverRow
-            key={b.def.id} binding={b}
-            ratified={isRatified(b.def.id)}
-            busy={busyLever === b.def.id}
-            onRatify={() => { void ratifyLever(b); }}
-            canComment={view.canComment}
-            accent={sideC.accent}
-            side={side}
-            comments={commentsByPath.get(`lever:${b.def.id}`) ?? []}
-            composerBusy={busyComposer === `lever:${b.def.id}`}
-            onPostComment={(t) => postComment(`lever:${b.def.id}`, t)}
-          />
-        ))}
-      </div>
+/* ── Titled, boxed, collapsible section — matches BuyerDiffPanel's calm frame so the
+ *    Red Flags + "Let's Structure This Deal Together" panels read as one visual language
+ *    (white box, ▾ header, quiet meta). Presentational only — no state of its own. ────── */
+function CollapsibleSection({ title, meta, open, onToggle, children }: {
+  readonly title: string;
+  readonly meta?: string;
+  readonly open: boolean;
+  readonly onToggle: () => void;
+  readonly children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <section style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, overflow: 'hidden', marginTop: 12, fontFamily: SANS, color: C.ink }}>
+      <button onClick={onToggle} aria-expanded={open}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 18px', background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+        <span style={{ fontWeight: 600, fontSize: 15, color: C.ink }}>{open ? '▾' : '▸'} {title}</span>
+        {meta !== undefined ? <span style={{ fontSize: 13, color: C.ink3 }}>{meta}</span> : null}
+      </button>
+      {open ? <div style={{ padding: '4px 18px 18px', borderTop: `1px solid ${C.border}` }}>{children}</div> : null}
     </section>
   );
 }
