@@ -54,6 +54,24 @@ const OVERLAY_TO_KIND: Record<keyof OverlayPresence, SourceDocumentKind | null> 
   appraisalExtraction: 'appraisal',
 };
 
+/**
+ * Overlay path-heads (materialized only at PROJECTION, post-mint) → their SPINE
+ * `ExtractionResult` field (present PRE-mint on the compose spine). The overlay
+ * and the spine field are the SAME record under a different top-level name
+ * (`appraisalExtraction` IS the `appraisal` record). Pre-flight runs against the
+ * raw compose spine, where the overlay isn't materialized yet — so an
+ * `appraisalExtraction.asIsValue` binding would dead-end even though the appraisal
+ * extractor already produced the value. `resolvePath` uses this map to fall back
+ * to the spine field when the overlay is absent, so extracted appraisal/PCA/parties
+ * fields read correctly BEFORE mint too. Post-mint the overlay is present and wins,
+ * so this fallback never fires there (no double-count, no divergence).
+ */
+const OVERLAY_TO_SPINE_FIELD: Record<string, string> = {
+  appraisalExtraction: 'appraisal',
+  pcaExtraction: 'pca',
+  partiesExtraction: 'parties',
+};
+
 // ---------------------------------------------------------------------------
 // Binding table (machine copy of intake-completeness-map.json).
 // ---------------------------------------------------------------------------
@@ -202,6 +220,15 @@ function resolvePath(analysis: Analysis, path: string): unknown {
     node = fromAnalysis;
   } else if (er && typeof er === 'object' && head in (er as Record<string, unknown>)) {
     node = (er as Record<string, unknown>)[head];
+  } else if (
+    er && typeof er === 'object' &&
+    OVERLAY_TO_SPINE_FIELD[head] !== undefined &&
+    OVERLAY_TO_SPINE_FIELD[head]! in (er as Record<string, unknown>)
+  ) {
+    // Pre-mint: the projection overlay (`appraisalExtraction`) isn't materialized
+    // yet — read the SAME record from its spine field (`appraisal`) on the
+    // ExtractionResult. Reads reality (cite the extraction), never fabricates.
+    node = (er as Record<string, unknown>)[OVERLAY_TO_SPINE_FIELD[head]!];
   } else {
     node = fromAnalysis; // undefined/null — path dead-ends
   }
