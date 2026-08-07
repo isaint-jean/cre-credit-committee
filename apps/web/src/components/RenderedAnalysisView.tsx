@@ -1624,9 +1624,15 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
           </div>
         ) : null}
 
-        {/* Committee status + action buttons + snapshot — full-width above the split. */}
+        {/* Committee status + action buttons + snapshot — full-width above the split.
+            Role-siloing chunk 5: the committee VERDICT controls + the frozen committee
+            packet are committee/platform concepts, not the bank's — hidden for the
+            ORIGINATOR (side is role-derived, and the server already 403s an originator
+            approve/reject per chunk 2, so this hides what's already denied). Deal Status
+            (neutral lifecycle) is KEPT for the originator. Buyer/platform/committee
+            unchanged. */}
         {workflow !== undefined ? <div style={{ marginBottom: 12 }}><CommitteeStatusHeader workflow={workflow} /></div> : null}
-        {workflow !== undefined && onWorkflowChanged !== undefined && !editMode ? (
+        {workflow !== undefined && onWorkflowChanged !== undefined && !editMode && side !== 'originator' ? (
           <div style={{ marginBottom: 12 }}>
             <CommitteeActionButtons
               rootId={data.rootId}
@@ -1636,7 +1642,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             />
           </div>
         ) : null}
-        {workflow !== undefined ? <div style={{ marginBottom: 12 }}><SnapshotViewer workflow={workflow} /></div> : null}
+        {workflow !== undefined && side !== 'originator' ? <div style={{ marginBottom: 12 }}><SnapshotViewer workflow={workflow} /></div> : null}
 
         {/* ── Doctrine banners (full-bleed, above the split — unchanged logic) ──── */}
         {data.summary.dataConfidence.value === 'unvalidated' ? (
