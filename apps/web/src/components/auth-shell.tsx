@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { SideProvider, useSide, type Side } from '@/lib/side-context';
+import { roleRoute } from '@/lib/role-routing';
 
 /* -------------------------------------------------------------------------- */
 /* Nav config — single source of truth for primary + Library menu.            */
@@ -177,13 +178,22 @@ function AppContent({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    if (isLoading) return;
     // Existing behavior: unauth → /login (unchanged).
-    if (!isLoading && !user && !isLoginPage) {
+    if (!user && !isLoginPage) {
       router.push('/login');
+      return;
     }
-    // Two-facing port (P1): the '/' → '/pools' redirect for authed users has
-    // been REMOVED. Authenticated visitors at '/' now render the two-door home
-    // (src/app/page.tsx). The unauth → /login guard above is unchanged.
+    // Chunk 4 — per-role landing + cross-role deep-link guard. The deal roles
+    // (ORIGINATOR/BUYER) land in their own world and get no admin surface; ADMIN
+    // and internal roles are unaffected (roleRoute returns null for them). Admin
+    // keeps the two-door home. See lib/role-routing.ts for the honest scope note.
+    if (user) {
+      const target = roleRoute(user.role, pathname);
+      if (target !== null && target !== pathname) {
+        router.replace(target);
+      }
+    }
   }, [user, isLoading, isLoginPage, pathname, router]);
 
   // Show nothing while checking auth state
