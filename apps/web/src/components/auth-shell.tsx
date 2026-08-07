@@ -31,18 +31,13 @@ interface NavItem {
   readonly label: string;
 }
 
+// Chunk-of-four fix 4: "Kicks" nav link removed (the /admin/kicks route + kicks_registry
+// stay — nav-only removal). The "Library" dropdown (UW Library / UW Insights / Registry)
+// was also removed from the header; the underlying /admin/registry routes + the
+// LibrarySnapshot / MarketBenchmarks data the ENGINE reads are UNTOUCHED.
 const PRIMARY_NAV: readonly NavItem[] = [
   { href: '/pools',           label: 'Deals' },
   { href: '/admin/criteria',  label: 'Criteria' },
-  { href: '/admin/kicks',     label: 'Kicks' },
-];
-
-const LIBRARY_NAV: readonly NavItem[] = [
-  { href: '/admin/underwriting-library',  label: 'UW Library' },
-  { href: '/admin/underwriting-insights', label: 'UW Insights' },
-  // Registry seeds the engine's ingest (library/benchmarks/manifesto) —
-  // New Analysis is gated on it. Demoted, not removed. Do not delete.
-  { href: '/admin/registry',              label: 'Registry' },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -215,9 +210,6 @@ function AppContent({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  // Whether the Library menu's parent button shows the active style.
-  const libraryActive = LIBRARY_NAV.some((it) => isActive(pathname, it.href));
-
   return (
     <>
       {/* Two-facing port (P1) — dark chrome bar reconciled to the mockup TopBar
@@ -258,43 +250,9 @@ function AppContent({ children }: { children: React.ReactNode }) {
             );
           })}
 
-          {/* Library — secondary menu (HTML <details> for zero-JS accessibility). */}
-          <details className="relative group">
-            <summary
-              aria-current={libraryActive ? 'page' : undefined}
-              className={`list-none cursor-pointer select-none flex items-center gap-1
-                          ${libraryActive
-                            ? 'text-white font-semibold border-b-2 border-white/70 pb-1 -mb-px'
-                            : 'text-white/55 hover:text-white'} transition-colors`}
-            >
-              Library
-              <span aria-hidden className="text-[10px] transition-transform group-open:rotate-180">▾</span>
-            </summary>
-            <div
-              role="menu"
-              className="absolute right-0 mt-2 min-w-44 bg-bg-secondary border border-border-primary
-                         rounded shadow-lg py-1 z-50"
-            >
-              {LIBRARY_NAV.map((item) => {
-                const active = isActive(pathname, item.href);
-                return (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    role="menuitem"
-                    aria-current={active ? 'page' : undefined}
-                    className={`block px-3 py-1.5 text-xs transition-colors ${
-                      active
-                        ? 'bg-accent/15 text-accent'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-                    }`}
-                  >
-                    {item.label}
-                  </a>
-                );
-              })}
-            </div>
-          </details>
+          {/* "Library" dropdown (UW Library / UW Insights / Registry) removed from the
+              header (leftover scaffolding). The /admin/registry routes + the LibrarySnapshot
+              / MarketBenchmarks data the engine reads are untouched — nav-only removal. */}
 
           {/* Chunk 6 — ADMIN-only "View as" switch (QA both sides without editing URLs).
               Non-admins are role-forced (chunk 3) and never see it. */}

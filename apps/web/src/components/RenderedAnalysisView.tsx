@@ -1297,6 +1297,24 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
   const [editMode, setEditMode] = useState<boolean>(false);
   const [pendingEdits, setPendingEdits] = useState<Map<string, number>>(() => new Map());
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving'>('idle');
+
+  // Fix 2 — the deal name at the top (every role needs to know which deal they're on).
+  // The rendered payload carries no dealRef/propertyName, so we source it from the
+  // buyer-diff context endpoint (the only wired id→name path today) and strip a trailing
+  // "(...)" qualifier for a clean title. Falls back to the generic "Analysis" label.
+  const [dealName, setDealName] = useState<string | null>(null);
+  useEffect(() => {
+    if (analysisId === undefined) return;
+    let live = true;
+    api.getBuyerDiffDecisions(analysisId)
+      .then((r) => {
+        if (!live) return;
+        const n = (r.dealRef ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+        if (n.length > 0) setDealName(n);
+      })
+      .catch(() => { /* no name available → keep the generic title */ });
+    return () => { live = false; };
+  }, [analysisId]);
   const [saveError, setSaveError] = useState<{ message: string; code?: string; path?: string } | null>(null);
   // Tabbed workspace drawer — the deep read-only sections behind tabs (Stage 3).
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -1577,7 +1595,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
       <header style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '14px 24px' }}>
         <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>Analysis</span>
+            <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>{dealName ?? 'Analysis'}</span>
             <span style={{ fontSize: 11, color: C.ink3, fontFamily: MONO }}>#{data.rootId.slice(0, 8)}</span>
             {dataWithLineage.revisionOrdinal !== undefined && dataWithLineage.revisionOrdinal > 0 ? (
               <span style={{ fontSize: 11, fontWeight: 600, color: C.ink2, background: C.surface2, border: `1px solid ${C.borderStrong}`, borderRadius: 999, padding: '2px 10px' }}>
@@ -1719,7 +1737,10 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
 
             {/* ── Buyer-diff calm view — accept/reject the buyer's suggestions +
                  download the clean seller UW. Quiet by default; air-gapped from the score. */}
-            {analysisId && <BuyerDiffPanel analysisId={analysisId} />}
+            {/* Buyer-diff / seller-UW is the ORIGINATOR's private self-check ("what a buyer
+                would ask") — the BUYER must NOT see it. Shown for originator + platform/admin,
+                hidden for side === 'buyer' (mirror of the committee-chrome hide, opposite side). */}
+            {analysisId && side !== 'buyer' && <BuyerDiffPanel analysisId={analysisId} />}
           </main>
 
           {/* ── Sticky rail — score donut + headline metrics + status + memo ───── */}
@@ -1752,11 +1773,9 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
                   style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, cursor: 'pointer', background: C.surface, color: C.teal, border: `1px solid ${C.teal}` }}>
                   Underwriting workspace
                 </button>
-                {/* Download memo — the credit-committee memo (the committee's reasoning).
-                    Chunk 5 addendum: a buyer/committee-internal artifact, not the bank's —
-                    hidden for the ORIGINATOR (the seller-UW artifacts above/in the buyer-diff
-                    stay; only the committee MEMO goes). Buyer/platform/committee keep it. */}
-                {analysisId !== undefined && side !== 'originator' ? (
+                {/* Download memo — the credit-committee memo. Shown for ALL roles incl. the
+                    originator (the bank does get the memo — chunk-5-addendum hide reverted). */}
+                {analysisId !== undefined ? (
                   <button onClick={() => api.downloadMemo(analysisId, 'Credit Committee Memo.html')}
                     style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, cursor: 'pointer', background: C.teal, color: '#fff', border: 'none' }}>
                     Download memo
