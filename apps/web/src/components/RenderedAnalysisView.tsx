@@ -1685,7 +1685,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         ) : null}
 
         {/* P3b — advisory intake-completeness readiness + Create-workbook CTA. */}
-        {analysisId !== undefined ? <div style={{ marginBottom: 16 }}><WorkbookReadiness analysisId={analysisId} /></div> : null}
+        {analysisId !== undefined ? <div style={{ marginBottom: 16 }}><WorkbookReadiness analysisId={analysisId} onAppended={onRevisionSaved} /></div> : null}
 
         {/* ── ★ SPLIT PAGE: main (negotiation) + sticky rail (score/metrics) ────── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, alignItems: 'start' }}>

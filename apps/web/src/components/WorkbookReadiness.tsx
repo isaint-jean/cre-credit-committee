@@ -15,6 +15,7 @@ import { api } from '@/lib/api-client';
 import type { IntakeCompleteness, IntakeFieldResult, IntakeState } from '@/lib/api-client';
 import { useSide } from '@/lib/side-context';
 import { sideAccent } from '@/lib/side-accent';
+import { AddDocumentControl } from './AddDocumentControl';
 
 // Per-state chrome, mirroring the mockup's FSTATE map. `not-in-any-doc` gets the
 // "add source" affordance; `in-PDF-not-extracted` gets "confirm / enter".
@@ -109,12 +110,51 @@ function NeedRow({ f }: { f: IntakeFieldResult }): React.ReactElement {
   );
 }
 
+// Humanize the pre-flight source_doc_types into calm reading for the originator
+// checklist. Faithful to the dependency map — just prettier labels, no new data.
+const SOURCE_LABEL: Record<string, string> = {
+  seller_uw: 'seller UW', t12: 'T-12', in_place: 'in-place statement', rent_roll: 'rent roll',
+  appraisal: 'appraisal', asr: 'ASR', pca: 'PCA', loan_terms: 'loan terms',
+};
+const humanizeSource = (s: string): string => SOURCE_LABEL[s] ?? s.replace(/_/g, ' ');
+
+// Originator-facing checklist row: the missing fact + what it UNLOCKS for the buyer
+// (reuses pre-flight's `feeds`) + which document to drop (reuses `sources`). Read-only.
+function BuyerNeedRow({ f }: { f: IntakeFieldResult }): React.ReactElement {
+  const docs = f.sources.map(humanizeSource).join(' / ');
+  return (
+    <div className="flex items-start gap-3 rounded-lg bg-paper px-3 py-2.5">
+      <span className="mt-0.5 select-none text-text-secondary" aria-hidden="true">☐</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-text-primary">{f.field}</span>
+          {f.criticality.startsWith('Required') ? (
+            <span className="rounded bg-[#F3E2DB] px-1.5 py-px font-mono text-[9.5px] text-warn">required</span>
+          ) : null}
+          {f.searchStatus === 'unavailable' ? (
+            <span className="rounded bg-[#FBECC8] px-1.5 py-px font-mono text-[9.5px] text-warn" title="The document search could not run (credits/error). This field is UNVERIFIED — not confirmed missing.">
+              unverified — search unavailable
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-0.5 text-xs text-text-secondary">
+          Unlocks <span className="text-text-primary">{f.feeds}</span> for the buyer
+          {docs.length > 0 ? <> · drop the {docs}</> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   /** URL analysis id — the deal id passed to GET /analyses/:id/intake-completeness. */
   readonly analysisId: string;
+  /** Page refetch after an inline document append (re-derives the child revision).
+   *  Wired from RenderedAnalysisView's onRevisionSaved so the checklist updates. */
+  readonly onAppended?: () => void | Promise<void>;
 }
 
-export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | null {
+export function WorkbookReadiness({ analysisId, onAppended }: Props): React.ReactElement | null {
   const side = useSide();
   const accent = sideAccent(side);
   const [data, setData] = useState<IntakeCompleteness | null>(null);
@@ -122,6 +162,7 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);   // panel collapse (originator checklist)
 
   useEffect(() => {
     let cancelled = false;
@@ -164,10 +205,11 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
     }
   }, [data, side, artifactLabel]);
 
+  const headingText = side === 'originator' ? 'What the buyers need from you' : 'Workbook readiness';
   if (error !== null) {
     return (
       <section className="rounded-xl border border-line bg-white p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">Workbook readiness</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">{headingText}</h2>
         <p className="mt-2 text-sm text-text-secondary">Readiness unavailable: {error}</p>
       </section>
     );
@@ -175,8 +217,8 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
   if (data === null) {
     return (
       <section className="rounded-xl border border-line bg-white p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">Workbook readiness</h2>
-        <p className="mt-2 text-sm text-text-secondary">Loading readiness…</p>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">{headingText}</h2>
+        <p className="mt-2 text-sm text-text-secondary">Loading…</p>
       </section>
     );
   }
@@ -184,6 +226,95 @@ export function WorkbookReadiness({ analysisId }: Props): React.ReactElement | n
   const { summary } = data;
   const pct = summary.total > 0 ? Math.round((summary.sourced / summary.total) * 100) : 0;
   const populated = data.fields.filter((f) => f.state === 'populated');
+
+  // ── Originator-facing reframe ────────────────────────────────────────────────
+  // The bank does NOT get the workbook (that's the buyer's product). For the
+  // originator, this is a CHECKLIST of what to drop into the data room so buyers
+  // have full scope — each row's "unlock" reuses pre-flight's `feeds`, the doc to
+  // provide reuses `sources`. No create/download-workbook CTA on this side. The
+  // "Go to data room" button is HELD (disabled) — see note: the only data room is
+  // pool-scoped (/pools/[poolId]/data-room) and not reliably reachable from a bare
+  // analysis id, so we do NOT wire a dead/ambiguous link. Titled/boxed/collapsible
+  // to match BuyerDiffPanel / Red Flags. View-only.
+  if (side === 'originator') {
+    const needs = summary.needs;
+    const requiredCount = summary.requiredMissing.length;
+    return (
+      <section className="rounded-xl border border-line bg-white">{/* no overflow-hidden: the Add-Document popover floats below the button */}
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+        >
+          <span className="flex items-center gap-2">
+            <span className="select-none text-text-secondary" aria-hidden="true">{open ? '▾' : '▸'}</span>
+            <span className="text-[15px] font-semibold text-text-primary">What the buyers need from you</span>
+          </span>
+          <span className="font-mono text-[11px] text-text-secondary">
+            {needs.length === 0
+              ? 'all provided'
+              : `${needs.length} to add${requiredCount > 0 ? ` · ${requiredCount} required` : ''}`}
+          </span>
+        </button>
+
+        {open ? (
+          <div className="border-t border-line px-5 pb-5 pt-3">
+            <p className="mb-3 max-w-xl text-xs text-text-secondary">
+              Drop these into the data room so buyers have the full scope to analyze this deal. Each item
+              notes what it unlocks for the buyer.
+            </p>
+
+            {summary.searchUnavailable ? (
+              <div className="mb-3 rounded-lg border-l-4 border-warn bg-[#FBECC8] px-3 py-2.5 text-xs text-text-primary">
+                <span className="font-semibold">⚠ Document search unavailable.</span> The exhaustive search
+                couldn’t run, so items below are <span className="font-semibold">unverified</span> — they may
+                already be in your documents. Re-open once the search is available.
+              </div>
+            ) : null}
+
+            {needs.length === 0 ? (
+              <div className="rounded-lg bg-paper px-3 py-2.5 text-sm text-cleared">
+                Everything the buyers need is already in the data room.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {needs.map((f) => (
+                  <BuyerNeedRow key={f.id} f={f} />
+                ))}
+              </div>
+            )}
+
+            {populated.length > 0 ? (
+              <details className="mt-3 border-t border-line pt-3">
+                <summary className="cursor-pointer font-mono text-[11px] text-text-secondary">
+                  {populated.length} already in the data room
+                </summary>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {populated.map((f) => (
+                    <span key={f.id} className="rounded bg-[#E2F0E8] px-1.5 py-px font-mono text-[10px] text-cleared">
+                      ✓ {f.field}
+                    </span>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+
+            {/* Add documents — wired to the EXISTING inline uploader (AddDocumentControl
+                → api.appendDocument → re-ingest as a child revision → page refetch).
+                Always works and keeps the originator on-page; reuses the shared control
+                (no new uploader built). Replaces the earlier held pool-scoped link. */}
+            <div className="mt-4 flex items-center gap-3 border-t border-line pt-4">
+              <AddDocumentControl analysisId={analysisId} onAppended={onAppended ?? (() => {})} />
+              <span className="text-[11px] text-text-secondary">
+                Drop a document straight into the deal — it re-underwrites on the new revision.
+              </span>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <section className={'rounded-xl border border-line border-t-2 bg-white p-5 ' + accent.borderTop}>
