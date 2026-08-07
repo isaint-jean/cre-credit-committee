@@ -1752,9 +1752,11 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
                   style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, cursor: 'pointer', background: C.surface, color: C.teal, border: `1px solid ${C.teal}` }}>
                   Underwriting workspace
                 </button>
-                {/* Download memo — the shared credit-memo artifact. Needs only the routed
-                    analysis id (server renders from the persisted graph chain, no LLM). */}
-                {analysisId !== undefined ? (
+                {/* Download memo — the credit-committee memo (the committee's reasoning).
+                    Chunk 5 addendum: a buyer/committee-internal artifact, not the bank's —
+                    hidden for the ORIGINATOR (the seller-UW artifacts above/in the buyer-diff
+                    stay; only the committee MEMO goes). Buyer/platform/committee keep it. */}
+                {analysisId !== undefined && side !== 'originator' ? (
                   <button onClick={() => api.downloadMemo(analysisId, 'Credit Committee Memo.html')}
                     style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 7, cursor: 'pointer', background: C.teal, color: '#fff', border: 'none' }}>
                     Download memo
