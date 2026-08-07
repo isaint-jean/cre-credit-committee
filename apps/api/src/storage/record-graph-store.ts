@@ -559,6 +559,22 @@ export class RecordGraphStore {
       CREATE INDEX IF NOT EXISTS idx_render_snapshot_doctrine
         ON doctrine_render_snapshots(doctrine_evaluation_id);
 
+      -- buyer_diff_decisions — an originator's per-finding ACCEPT/REJECT of the
+      -- buyer-diff suggestions (what renders in the seller-UW Excel markup). A
+      -- MUTABLE sibling keyed to the eval's cross_check_result_id — OUTSIDE the
+      -- score-hash boundary (nothing in scoring reads this table), so a decision
+      -- NEVER perturbs the underwriting. A bank cannot reject its way to a better
+      -- score. Per-finding rows (finding_id = the buyer-diff metric), UPSERT on
+      -- (cross_check_result_id, finding_id). Air-gap by construction.
+      CREATE TABLE IF NOT EXISTS buyer_diff_decisions (
+        cross_check_result_id       TEXT NOT NULL,
+        finding_id                  TEXT NOT NULL,
+        decision                    TEXT NOT NULL,   -- accepted | rejected | pending
+        updated_at                  TEXT NOT NULL,
+        PRIMARY KEY (cross_check_result_id, finding_id),
+        FOREIGN KEY (cross_check_result_id) REFERENCES cross_check_results(id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_adjusted_inputs_lib       ON adjusted_inputs(library_snapshot_id);
       CREATE INDEX IF NOT EXISTS idx_cross_check_ai            ON cross_check_results(adjusted_inputs_id);
       CREATE INDEX IF NOT EXISTS idx_stress_outputs_ai         ON stress_outputs(adjusted_inputs_id);
@@ -1759,6 +1775,41 @@ export class RecordGraphStore {
       )
       .get(doctrineEvaluationId) as RecordRow | undefined;
     return row ? this.parseRow<DoctrineRenderSnapshot>(row) : null;
+  }
+
+  /* ------------------------- buyer_diff_decisions ----------------------------- */
+
+  /**
+   * Set (UPSERT) an originator's accept/reject on ONE buyer-diff finding. Keyed
+   * to the eval's cross_check_result_id — a MUTABLE sibling OUTSIDE the score
+   * hash. Never re-mints, never touches the head; a decision governs ONLY what
+   * renders in the seller-UW Excel markup.
+   */
+  putBuyerDiffDecision(
+    crossCheckResultId: CrossCheckResultId,
+    findingId: string,
+    decision: 'accepted' | 'rejected' | 'pending',
+  ): { updated: boolean } {
+    const r = this.db
+      .prepare(
+        `INSERT INTO buyer_diff_decisions (cross_check_result_id, finding_id, decision, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(cross_check_result_id, finding_id) DO UPDATE SET
+           decision = excluded.decision, updated_at = excluded.updated_at`,
+      )
+      .run(crossCheckResultId, findingId, decision, new Date().toISOString());
+    return { updated: r.changes > 0 };
+  }
+
+  /** All stored decisions for an eval's cross-check (findingId → decision). Absent
+   *  findings are PENDING by default (the caller merges against the finding set). */
+  getBuyerDiffDecisions(
+    crossCheckResultId: CrossCheckResultId,
+  ): ReadonlyArray<{ findingId: string; decision: 'accepted' | 'rejected' | 'pending' }> {
+    const rows = this.db
+      .prepare(`SELECT finding_id, decision FROM buyer_diff_decisions WHERE cross_check_result_id = ?`)
+      .all(crossCheckResultId) as Array<{ finding_id: string; decision: string }>;
+    return rows.map((r) => ({ findingId: r.finding_id, decision: r.decision as 'accepted' | 'rejected' | 'pending' }));
   }
 
   /* --------------------------------- shutdown --------------------------------- */

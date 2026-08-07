@@ -36,6 +36,9 @@ import { renderMemoForAnalysis } from '../services/render-memo/render-memo-for-a
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
 import { buildBuyerDiffCrossCheck, projectBuyerDiff } from '../services/buyer-diff.service.js';
 import { renderBuyerDiffHtml } from '../services/render-buyer-diff-html.js';
+import {
+  buildBuyerDiffSuggestions, mergeDecisions, decidableFindingIds, type BuyerDiffDecision,
+} from '../services/buyer-diff-suggestions.service.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { augmentIntakeCompletenessWithSourcing } from '../services/augment-intake-completeness.js';
 import { getAssumedInputs } from '../services/assumed-inputs.service.js';
@@ -682,6 +685,55 @@ analysisRoutes.get('/:id/buyer-diff', (req: Request, res: Response) => {
     overallAdjustmentBias: cross.overallAdjustmentBias,
     rows,
   });
+});
+
+// ── Buyer-diff DECISIONS (accept/reject) — a MUTABLE sibling keyed to the eval's
+// crossCheckResultId, OUTSIDE the score hash. Read/write NEVER re-mints, NEVER
+// touches the head: a decision governs ONLY what renders in the seller-UW Excel.
+// A bank cannot reject its way to a better score.
+function resolveBuyerDiffContext(id: string):
+  | { ok: true; crossCheckResultId: import('@cre/contracts').CrossCheckResultId; adjustedInputs: import('@cre/contracts').AdjustedInputs; extraction: import('@cre/contracts').ExtractionResult }
+  | { ok: false; status: number; error: string } {
+  let stored;
+  try { stored = resolveAnalysisForRead(id, recordGraphStore, store); }
+  catch (e) { if (e instanceof MalformedAnalysisIdError) return { ok: false, status: 400, error: 'MALFORMED_ANALYSIS_ID' }; throw e; }
+  if (!stored) return { ok: false, status: 404, error: 'Analysis not found' };
+  const envelope = stored.graphRevisionId ? recordGraphStore.getRevisionEnvelope(stored.graphRevisionId as GraphRevisionIdType) : null;
+  const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+  const extraction = doctrine ? recordGraphStore.getExtractionResult(doctrine.extractionResultId) : null;
+  const adjustedInputs = envelope ? recordGraphStore.getAdjustedInputs(envelope.adjustedInputsId) : null;
+  if (!doctrine || !extraction || !adjustedInputs) return { ok: false, status: 409, error: 'GRAPH_RECORDS_INCOMPLETE' };
+  return { ok: true, crossCheckResultId: doctrine.crossCheckResultId, adjustedInputs, extraction };
+}
+
+// GET /api/analyses/:id/buyer-diff/decisions — the decidable adjustments + current
+// accept/reject state (pending by default). Only ENGINE-REAL adjustments appear.
+analysisRoutes.get('/:id/buyer-diff/decisions', (req: Request, res: Response) => {
+  const ctx = resolveBuyerDiffContext(req.params.id);
+  if (!ctx.ok) { res.status(ctx.status).json({ error: ctx.error }); return; }
+  const suggestions = buildBuyerDiffSuggestions(ctx.adjustedInputs, ctx.extraction);
+  const merged = mergeDecisions(suggestions, recordGraphStore.getBuyerDiffDecisions(ctx.crossCheckResultId));
+  res.status(200).json({ id: req.params.id, dealRef: ctx.extraction.dealRef, findings: merged });
+});
+
+// PUT /api/analyses/:id/buyer-diff/decisions/:findingId — set accept/reject.
+analysisRoutes.put('/:id/buyer-diff/decisions/:findingId', (req: Request, res: Response) => {
+  const ctx = resolveBuyerDiffContext(req.params.id);
+  if (!ctx.ok) { res.status(ctx.status).json({ error: ctx.error }); return; }
+  const decision = (req.body as { decision?: unknown } | undefined)?.decision;
+  if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'pending') {
+    res.status(400).json({ error: 'INVALID_DECISION', message: "decision must be 'accepted' | 'rejected' | 'pending'" });
+    return;
+  }
+  const suggestions = buildBuyerDiffSuggestions(ctx.adjustedInputs, ctx.extraction);
+  if (!decidableFindingIds(suggestions).has(req.params.findingId)) {
+    // Only adjustments are decidable — agreement / can't-verify are not accept/reject-able.
+    res.status(404).json({ error: 'NOT_DECIDABLE', message: `finding '${req.params.findingId}' is not a decidable adjustment` });
+    return;
+  }
+  recordGraphStore.putBuyerDiffDecision(ctx.crossCheckResultId, req.params.findingId, decision as BuyerDiffDecision);
+  const merged = mergeDecisions(suggestions, recordGraphStore.getBuyerDiffDecisions(ctx.crossCheckResultId));
+  res.status(200).json({ id: req.params.id, findingId: req.params.findingId, decision, findings: merged });
 });
 
 // GET /api/analyses/:id/memo — Credit Committee Memorandum HTML.
