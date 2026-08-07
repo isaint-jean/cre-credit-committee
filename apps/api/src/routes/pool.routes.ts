@@ -52,6 +52,7 @@ import { ON_TAPE_STATUSES, DISPOSITION_KINDS, REASON_CATEGORIES } from '@cre/con
 import { isReasonCategoryValidForOutcome } from '@cre/contracts';
 import type { ReasonCategory } from '@cre/contracts';
 
+import { enforcePermission } from '../middleware/require-permission.js';
 import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } from '../storage/pool-store.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
@@ -576,6 +577,11 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/disposition', (req: Request, res: 
   const poolId = req.params['poolId'] as PoolId;
   const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
   const body = (req.body ?? {}) as Record<string, unknown>;
+
+  // ★ Chunk 7a — role-gate the kick/disposition (previously ungated). Buyer-authoritative
+  // (first-loss) + COMMITTEE_MEMBER/ADMIN; the ORIGINATOR cannot dispose their own deal.
+  // Enforced BEFORE any write, so a denial (403) never mutates a pool.
+  if (!enforcePermission(req, res, 'workflow:dispose' as never)) return;
 
   // Shape validation (reuse the existing shape helpers).
   if (!isDispositionKind(body['outcome'])) {

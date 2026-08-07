@@ -44,8 +44,9 @@ const EXPECTED: Record<string, readonly string[]> = {
   VIEWER: [],
   ANALYST: ['workflow:read', 'workflow:submit', 'workflow:override', 'audit:read', 'snapshot:read', 'snapshot:create', 'analysis:revise'],
   CREDIT_OFFICER: ['workflow:read', 'workflow:submit', 'workflow:request-info', 'workflow:override', 'audit:read', 'snapshot:read', 'snapshot:create', 'analysis:revise'],
-  COMMITTEE_MEMBER: ['workflow:read', 'workflow:request-info', 'workflow:approve', 'workflow:reject', 'workflow:postpone', 'audit:read', 'snapshot:read'],
-  ADMIN: ['workflow:read', 'workflow:submit', 'workflow:request-info', 'workflow:override', 'workflow:approve', 'workflow:reject', 'workflow:postpone', 'audit:read', 'snapshot:read', 'snapshot:create', 'registry:write', 'analysis:revise'],
+  // COMMITTEE_MEMBER + ADMIN gained the ch.7a additive grants (dispose; ADMIN also the comms perms).
+  COMMITTEE_MEMBER: ['workflow:read', 'workflow:request-info', 'workflow:approve', 'workflow:reject', 'workflow:postpone', 'workflow:dispose', 'audit:read', 'snapshot:read'],
+  ADMIN: ['workflow:read', 'workflow:submit', 'workflow:request-info', 'workflow:override', 'workflow:approve', 'workflow:reject', 'workflow:postpone', 'audit:read', 'snapshot:read', 'snapshot:create', 'registry:write', 'analysis:revise', 'workflow:respond', 'workflow:request-call', 'workflow:send-to-buyer', 'workflow:dispose'],
 };
 for (const [role, perms] of Object.entries(EXPECTED)) {
   const actual = ROLE_PERMISSIONS[role as keyof typeof ROLE_PERMISSIONS] as readonly string[];

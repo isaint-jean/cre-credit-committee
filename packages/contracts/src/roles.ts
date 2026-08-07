@@ -34,6 +34,15 @@ export const PERMISSIONS = [
   'workflow:approve',         // APPROVE_DEAL
   'workflow:reject',          // REJECT_DEAL
   'workflow:postpone',        // POSTPONE_DEAL
+  // Chunk 7a (additive) — originator negotiation/comms actions (not yet wired to
+  // event kinds/UI; those are 7b/7c). Held by ORIGINATOR (+ ADMIN superset).
+  'workflow:respond',         // push back on a buyer requirement/decision
+  'workflow:request-call',    // request a call with the buyer
+  'workflow:send-to-buyer',   // submit the seller UW to the buyer
+  // The buyer's kick / disposition (per-loan negative terminal). Buyer-authoritative
+  // (first-loss) + COMMITTEE_MEMBER/ADMIN; the ORIGINATOR must NOT hold it (can't kick
+  // their own deal — mirror of "can't self-approve").
+  'workflow:dispose',         // dispositionLoan (kicked/dropped)
   // Audit / replay (read-only history).
   'audit:read',
   // Snapshots.
@@ -84,6 +93,7 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'workflow:approve',
     'workflow:reject',
     'workflow:postpone',
+    'workflow:dispose',        // ch.7a: internal terminal-reject authority (keeps the kick)
     'audit:read',
     'snapshot:read',
   ],
@@ -100,6 +110,11 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'snapshot:create',
     'registry:write',
     'analysis:revise',
+    // ch.7a: ADMIN superset — the originator comms perms + the kick.
+    'workflow:respond',
+    'workflow:request-call',
+    'workflow:send-to-buyer',
+    'workflow:dispose',
   ],
   // ── Role-siloing chunk 1 (additive; existing roles above unchanged) ──────────
   // ORIGINATOR (bank/seller): prepares + negotiates the deal but CANNOT self-approve.
@@ -112,6 +127,11 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'snapshot:read',
     'analysis:revise',
     'workflow:override',
+    // ch.7a: the originator's negotiation/comms actions (not yet wired — 7b/7c).
+    // Deliberately NO workflow:dispose — the originator cannot kick their own deal.
+    'workflow:respond',
+    'workflow:request-call',
+    'workflow:send-to-buyer',
   ],
   // BUYER (B-piece, first-loss): the approver/rejecter of the deal.
   //   read + audit/snapshot read · workflow:request-info · workflow:override
@@ -126,6 +146,7 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'workflow:override',
     'workflow:approve',
     'workflow:reject',
+    'workflow:dispose',        // ch.7a: the buyer's kick (first-loss negative terminal)
   ],
 } as const;
 
