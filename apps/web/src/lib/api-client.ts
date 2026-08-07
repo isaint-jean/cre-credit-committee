@@ -311,6 +311,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface BuyerDiffSuggestionDTO {
+  readonly findingId: string;
+  readonly label: string;
+  readonly issuer: number | null;
+  readonly buyer: number | null;
+  readonly deltaPct: number | null;
+  readonly format: 'pct' | 'usd';
+  readonly why: ReadonlyArray<{ ruleId: string; reason: string }>;
+  readonly question: string;
+  readonly decision: 'accepted' | 'rejected' | 'pending';
+}
+
 export const api = {
   // Analyses
   uploadAnalysis: async (
@@ -401,6 +413,24 @@ export const api = {
   // Coverage report only (no mappedFields). Useful for quick UI dashboards.
   getPopulatedTemplateCoverage: (id: string) => request<any>(`/analyses/${id}/populated-template/coverage`),
   getPopulatedTemplateDownloadUrl: (id: string) => `${API_BASE}/analyses/${id}/populated-template`,
+
+  // ── Buyer-diff decisions (accept/reject) — air-gapped; never touches the score. ──
+  getBuyerDiffDecisions: (id: string) =>
+    request<{ id: string; dealRef: string; findings: BuyerDiffSuggestionDTO[] }>(`/analyses/${id}/buyer-diff/decisions`),
+  putBuyerDiffDecision: (id: string, findingId: string, decision: 'accepted' | 'rejected' | 'pending') =>
+    request<{ id: string; findingId: string; decision: string; findings: BuyerDiffSuggestionDTO[] }>(
+      `/analyses/${id}/buyer-diff/decisions/${encodeURIComponent(findingId)}`,
+      { method: 'PUT', body: JSON.stringify({ decision }) },
+    ),
+  downloadBuyerDiffWorkbook: async (id: string, fileName?: string) => {
+    const res = await fetch(`${API_BASE}/analyses/${id}/buyer-diff/export`, { headers: { ...getAuthHeader() } });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName || 'Buyer-Adjusted-UW.xlsx';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  },
   downloadPopulatedTemplate: async (id: string, fileName?: string) => {
     const res = await fetch(`${API_BASE}/analyses/${id}/populated-template`, {
       headers: { ...getAuthHeader() },

@@ -43,6 +43,7 @@ import { AuditViewToggle } from './AuditViewToggle';
 import { SnapshotViewer } from './SnapshotViewer';
 import { WorkbookReadiness } from './WorkbookReadiness';
 import { NegotiationSurface } from './NegotiationSurface';
+import { BuyerDiffPanel } from './BuyerDiffPanel';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api-client';
 import { useSide, type Side } from '@/lib/side-context';
@@ -1709,6 +1710,10 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
                   : 'The negotiation surface mounts once the committee workflow is available for this deal. The underwriting detail is in the workspace drawer.'}
               </div>
             )}
+
+            {/* ── Buyer-diff calm view — accept/reject the buyer's suggestions +
+                 download the clean seller UW. Quiet by default; air-gapped from the score. */}
+            {analysisId && <BuyerDiffPanel analysisId={analysisId} />}
           </main>
 
           {/* ── Sticky rail — score donut + headline metrics + status + memo ───── */}
