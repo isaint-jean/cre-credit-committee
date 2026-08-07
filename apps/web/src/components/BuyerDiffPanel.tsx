@@ -71,9 +71,12 @@ export function BuyerDiffPanel({ analysisId }: { readonly analysisId: string }):
                 <span style={S.arrow}>→</span>
                 <span style={S.buyer}>Buyer&nbsp;<b>{fmt(f, f.buyer)}</b></span>
               </div>
-              {f.why.length > 0 && (
+              {f.why.some((w) => w.reason?.trim()) && (
                 <ul style={S.why}>
-                  {f.why.map((w, i) => (<li key={i}><code style={S.rule}>{w.ruleId}</code> {w.reason}</li>))}
+                  {/* Plain-prose reason only — the ruleId (JE_*) stays in the payload for provenance/audit
+                      but is hidden from this originator-facing calm view. Thin/empty reasons drop out;
+                      the evidence-grounded question already carries the gist, so we never fall back to a code. */}
+                  {f.why.filter((w) => w.reason?.trim()).map((w, i) => (<li key={i}>{w.reason}</li>))}
                 </ul>
               )}
               <div style={S.actions}>
@@ -115,7 +118,6 @@ const S: Record<string, React.CSSProperties> = {
   numbers: { display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, marginBottom: 6 },
   issuer: { color: '#8b93a3' }, arrow: { color: '#c2c8d2' }, buyer: { color: '#b26b00' },
   why: { margin: '4px 0 10px', paddingLeft: 18, color: '#5b6472', fontSize: 12.5 },
-  rule: { background: '#f0f2f6', borderRadius: 4, padding: '1px 5px', fontSize: 11.5, color: '#3a6df0' },
   actions: { display: 'flex', gap: 8 },
   btn: { borderRadius: 8, padding: '6px 14px', fontSize: 13, cursor: 'pointer', border: '1px solid #dfe3ea' },
   btnGhost: { background: '#fff', color: '#5b6472' },
