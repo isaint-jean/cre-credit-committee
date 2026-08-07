@@ -172,7 +172,7 @@ export function WorkbookReadiness({ analysisId, onAppended }: Props): React.Reac
         if (!cancelled) setData(d);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load readiness');
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load');
       });
     return () => {
       cancelled = true;
@@ -206,11 +206,14 @@ export function WorkbookReadiness({ analysisId, onAppended }: Props): React.Reac
   }, [data, side, artifactLabel]);
 
   const headingText = side === 'originator' ? 'What the buyers need from you' : 'Workbook readiness';
+  // Error/loading copy is side-aware so the originator (= bank) never sees workbook /
+  // "readiness" framing — that surface is the buyers' checklist, not a workbook.
+  const unavailableText = side === 'originator' ? 'Couldn’t load what the buyers need' : 'Readiness unavailable';
   if (error !== null) {
     return (
       <section className="rounded-xl border border-line bg-white p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">{headingText}</h2>
-        <p className="mt-2 text-sm text-text-secondary">Readiness unavailable: {error}</p>
+        <p className="mt-2 text-sm text-text-secondary">{unavailableText}: {error}</p>
       </section>
     );
   }
