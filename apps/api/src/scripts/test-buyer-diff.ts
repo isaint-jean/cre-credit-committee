@@ -8,6 +8,7 @@
  *   npm run test:buyer-diff
  */
 import { projectBuyerDiff, type BuyerDiffState } from '../services/buyer-diff.service.js';
+import { renderBuyerDiffHtml } from '../services/render-buyer-diff-html.js';
 import type { CrossCheckDriver, CrossCheckFinding, CrossCheckResult } from '@cre/contracts';
 
 let passed = 0, failed = 0;
@@ -72,6 +73,24 @@ console.log('\nHigher-is-conservative metric (cap rate): ours above issuer → C
   const rows = projectBuyerDiff(result([finding('capRate', 0.0625, 0.0665, [driver])]));
   eq(rows[0]!.conservatism, 'CONSERVATIVE', 'cap rate widened (ours>issuer) → CONSERVATIVE');
   eq(rows[0]!.state, 'adjustment', 'widened cap → ADJUSTMENT');
+}
+
+console.log('\nView (renderBuyerDiffHtml) — tri-state visual + toggle + can\'t-verify ≠ agreement:');
+{
+  const rows = projectBuyerDiff(result([
+    finding('loanAmount', 400_000_000, 400_000_000),          // agreement
+    finding('noi', 10_172_320, 8_275_187, [driver]),          // adjustment (money-shot)
+    finding('dscr', null, 1.27),                              // can't-verify
+  ]));
+  const html = renderBuyerDiffHtml({ id: 'x', dealRef: 'TEST-DEAL' }, rows, 'INSUFFICIENT_DATA');
+  assert(html.includes('row agreement') && html.includes('row adjustment') && html.includes('row cant-verify'), 'all three states render as distinct row classes');
+  assert(html.includes('show changes') && html.includes('.hide-changes'), 'the show/hide-changes toggle + its CSS mode are present');
+  assert(html.includes("can't verify") && html.includes('insufficient data') && html.includes('Provide'), "can't-verify reads as insufficient-data (provide X), NOT agreement");
+  assert(html.includes('$8,275,187') && html.includes('18.6%'), 'NOI money-shot renders our number + the delta %');
+  assert(html.includes('JE_VACANCY_RAISED_TO_LIBRARY_MEDIAN'), 'the structured why (ruleId) renders in the view');
+  assert(html.includes('buyer accepts'), 'agreement row reads as accepted-as-is');
+  // hide-changes mode hides the issuer + why columns via CSS (present in the stylesheet).
+  assert(/body\.hide-changes[^}]*td\.issuer[^}]*display:\s*none/.test(html.replace(/\n/g, ' ')), 'hide-changes CSS collapses to the clean buyer-adjusted column');
 }
 
 console.log(`\n${failed === 0 ? '✓' : '✗'} buyer-diff: ${passed} passed, ${failed} failed`);

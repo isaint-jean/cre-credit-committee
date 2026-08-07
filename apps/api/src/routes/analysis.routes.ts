@@ -34,6 +34,8 @@ import { createRevision, type RevisionDelta } from '../services/revision-creator
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import { renderMemoForAnalysis } from '../services/render-memo/render-memo-for-analysis.js';
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
+import { buildBuyerDiffCrossCheck, projectBuyerDiff } from '../services/buyer-diff.service.js';
+import { renderBuyerDiffHtml } from '../services/render-buyer-diff-html.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { augmentIntakeCompletenessWithSourcing } from '../services/augment-intake-completeness.js';
 import { getAssumedInputs } from '../services/assumed-inputs.service.js';
@@ -632,6 +634,54 @@ analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Respons
   // CTA can call /underwriting/export without a second round-trip. dealId is the
   // stored analysis id (legacy uuid); assetClass drives the render schema.
   res.json({ ...finalResult, dealId: stored.id, assetClass: analysis.assetType, assumedInputs });
+});
+
+// GET /api/analyses/:id/buyer-diff — the buyer diff: ISSUER underwriting vs OUR
+// buyer-adjusted underwriting, per field, with the WHY. Read-only + deterministic:
+// projectBuyerDiff over the frozen AdjustedInputs (no recompute, no mint, no LLM).
+// `?format=html` returns the visual tri-state view (with the show/hide-changes
+// toggle); default returns JSON. First-class + addressable — the bank-side centerpiece.
+analysisRoutes.get('/:id/buyer-diff', (req: Request, res: Response) => {
+  let stored;
+  try {
+    stored = resolveAnalysisForRead(req.params.id, recordGraphStore, store);
+  } catch (e) {
+    if (e instanceof MalformedAnalysisIdError) {
+      res.status(400).json({ error: 'MALFORMED_ANALYSIS_ID', message: e.message });
+      return;
+    }
+    throw e;
+  }
+  if (!stored) {
+    res.status(404).json({ error: 'Analysis not found' });
+    return;
+  }
+  const envelope = stored.graphRevisionId
+    ? recordGraphStore.getRevisionEnvelope(stored.graphRevisionId as GraphRevisionIdType)
+    : null;
+  const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+  const extraction = doctrine ? recordGraphStore.getExtractionResult(doctrine.extractionResultId) : null;
+  const adjustedInputs = envelope ? recordGraphStore.getAdjustedInputs(envelope.adjustedInputsId) : null;
+  if (!envelope || !extraction || !adjustedInputs) {
+    res.status(409).json({ error: 'GRAPH_RECORDS_INCOMPLETE', message: 'missing envelope / extraction / adjustedInputs for this analysis' });
+    return;
+  }
+
+  const cross = buildBuyerDiffCrossCheck(adjustedInputs, extraction, extraction.analysisAsOfDate);
+  const rows = projectBuyerDiff(cross);
+
+  if (req.query.format === 'html') {
+    res.status(200).type('html').send(
+      renderBuyerDiffHtml({ id: req.params.id, dealRef: extraction.dealRef }, rows, cross.overallAdjustmentBias),
+    );
+    return;
+  }
+  res.status(200).json({
+    id: req.params.id,
+    dealRef: extraction.dealRef,
+    overallAdjustmentBias: cross.overallAdjustmentBias,
+    rows,
+  });
 });
 
 // GET /api/analyses/:id/memo — Credit Committee Memorandum HTML.
