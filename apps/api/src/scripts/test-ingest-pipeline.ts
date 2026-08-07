@@ -11,7 +11,7 @@
  *   - LIBRARY_SNAPSHOT_NOT_FOUND: passing an unknown librarySnapshotId throws IngestionError
  *   - analysisAsOfDate mismatch: producer (JudgmentEngineError) propagates through orchestrator
  *   - Degraded T-12: pipeline completes; data-quality flags surface
- *   - Empty CrossCheckResult emitted (v1 documented gap; cross-check producer refactor deferred)
+ *   - CrossCheckResult buyer-diff findings populated (v1: 7 metrics — noi/dscr/capRate/value/loanAmount/interestRate/debtService)
  *   - All 9 records re-derivable from their bodies (id integrity round-trip)
  */
 
@@ -300,7 +300,7 @@ console.log('\nDeterminism — fresh store, same inputs, byte-identical evaluati
   storeB.close();
 }
 
-console.log('\nEmpty CrossCheckResult emitted (v1 documented gap):');
+console.log('\nCrossCheckResult buyer-diff findings populated (v1: 7 metrics):');
 {
   const store = new RecordGraphStore(':memory:');
   const lib = makeSnapshot();
@@ -309,11 +309,13 @@ console.log('\nEmpty CrossCheckResult emitted (v1 documented gap):');
   const result = await ingestExtractionResult(
     { ...defaultArgs(), librarySnapshotId: lib.id },
     store,
+    STUB_LLM_DEPS,
   );
   const cc = store.getCrossCheckResult(result.evaluation.crossCheckResultId);
   assert(cc !== null, 'CrossCheckResult present in store');
-  assertEqual(cc?.findings.length, 0, 'empty findings list (legacy producer mismatch)');
-  assertEqual(cc?.overallAdjustmentBias, 'neutral', "bias is 'neutral'");
+  // Buyer-diff v1: the producer emits one finding per handled metric (was empty).
+  assertEqual(cc?.findings.length, 7, 'buyer-diff findings populated (noi/dscr/capRate/value/loanAmount/interestRate/debtService)');
+  assert((cc?.findings ?? []).some(f => f.metric === 'noi'), 'includes the noi finding');
   assertEqual(cc?.adjustedInputsId, result.evaluation.adjustedInputsId, 'CrossCheckResult.adjustedInputsId points at the run');
 
   store.close();

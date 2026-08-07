@@ -50,7 +50,8 @@ import type {
 import { buildStressOutputs } from './stress-test-contracts.service.js';
 import { buildValuationConclusion } from './valuation.service.js';
 import { buildHandbookEvaluation } from './handbook/build-handbook-evaluation.js';
-import { computeCrossCheckResultId, computeDoctrineEvaluationId } from '../util/content-hash.js';
+import { computeDoctrineEvaluationId } from '../util/content-hash.js';
+import { buildBuyerDiffCrossCheck } from './buyer-diff.service.js';
 import type { RecordGraphStore } from '../storage/record-graph-store.js';
 import {
   adaptExtractionToDealBag,
@@ -279,17 +280,16 @@ export async function evaluateFromAdjustedInputs(
   /* Stage 4 (insert only) — AdjustedInputs already constructed by caller. */
   store.insertAdjustedInputs(adjustedInputs);
 
-  /* Stage 5 — CrossCheckResult (v1: empty; producer refactor deferred to its own
-     sub-batch — see ingest-extraction-result.ts header for the original 6.4.5 note). */
-  const crossCheckResult: CrossCheckResult = (() => {
-    const body = {
-      analysisAsOfDate,
-      adjustedInputsId: adjustedInputs.id,
-      findings: [],
-      overallAdjustmentBias: 'neutral' as const,
-    };
-    return { id: computeCrossCheckResultId(body), ...body } as CrossCheckResult;
-  })();
+  /* Stage 5 — CrossCheckResult (buyer-diff v1). Populate the 7-metric issuer-vs-ours
+     findings from the frozen AdjustedInputs (raw→issuer, adjusted→ours, adjustments→
+     drivers/why) + retained issuer-NOI slots. ADDITIVE to the eval: the 'noi' finding
+     reproduces the doctrine's derived UW-vs-T12 reconciliation exactly (bank = trailing
+     actual), so score/band/recommendation are byte-identical — see buyer-diff.service. */
+  const crossCheckResult: CrossCheckResult = buildBuyerDiffCrossCheck(
+    adjustedInputs,
+    extraction,
+    analysisAsOfDate,
+  );
   store.insertCrossCheckResult(crossCheckResult);
 
   /* Stage 6 — StressOutputs. */

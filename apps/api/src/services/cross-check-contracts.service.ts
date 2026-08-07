@@ -35,7 +35,7 @@ import { computeCrossCheckResultId } from '../util/content-hash.js';
  * Comparison spec — declared statically so the metric set is auditable in one place. Order is
  * preserved into `findings[]` so byte-identical inputs produce byte-identical outputs.
  */
-type ConservativeDirection = 'lower' | 'higher';
+export type ConservativeDirection = 'lower' | 'higher';
 
 interface MetricSpec {
   readonly metric: string;                        // canonical key, not display name
@@ -95,7 +95,7 @@ function buildFinding(spec: MetricSpec): CrossCheckFinding {
   };
 }
 
-function computeDelta(
+export function computeDelta(
   bank: number | null,
   bp: number | null,
 ): { vsBank: number | null; vsBankPct: number | null } {
@@ -107,7 +107,7 @@ function computeDelta(
   return { vsBank, vsBankPct };
 }
 
-function computeConservatismStatus(
+export function computeConservatismStatus(
   bank: number | null,
   bp: number | null,
   conservativeDirection: ConservativeDirection,

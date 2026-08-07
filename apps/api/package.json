@@ -56,6 +56,7 @@
     "import-kicks-to-registry": "tsx src/scripts/import-kicks-to-registry.ts",
     "test:record-graph": "tsx src/scripts/test-record-graph-store.ts",
     "test:cross-check-contracts": "tsx src/scripts/test-cross-check-contracts.ts",
+    "test:buyer-diff": "tsx src/scripts/test-buyer-diff.ts",
     "test:stress-contracts": "tsx src/scripts/test-stress-contracts.ts",
     "test:asset-profiler": "tsx src/scripts/test-asset-profiler.ts",
     "test:reason-catalogue": "tsx src/scripts/test-reason-catalogue.ts",
