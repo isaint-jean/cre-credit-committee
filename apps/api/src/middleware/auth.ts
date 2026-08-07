@@ -37,6 +37,10 @@ export const LEGACY_ROLE_TO_NEW: Record<string, Role> = {
   admin: 'ADMIN',
   analyst: 'ANALYST',
   viewer: 'VIEWER',
+  // Role-siloing chunk 1: the two-sided deal roles are stored lowercase in
+  // sqlite-store (like the legacy roles) and normalized to the contract enum here.
+  originator: 'ORIGINATOR',
+  buyer: 'BUYER',
 };
 
 /** Apply the translation if the role is a legacy lowercase string; otherwise

@@ -13,6 +13,12 @@ export const ROLES = [
   'CREDIT_OFFICER',
   'COMMITTEE_MEMBER',
   'ADMIN',
+  // Role-siloing chunk 1 (additive). Two-sided deal roles, distinct from the internal
+  // credit-shop ladder above. ORIGINATOR (bank/seller) prepares + negotiates but CANNOT
+  // self-approve; BUYER (B-piece, first-loss) is the approver/rejecter. Side-from-role
+  // wiring and route gating are later chunks — these just make the roles exist + persist.
+  'ORIGINATOR',
+  'BUYER',
 ] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -94,6 +100,32 @@ export const ROLE_PERMISSIONS: { readonly [R in Role]: readonly Permission[] } =
     'snapshot:create',
     'registry:write',
     'analysis:revise',
+  ],
+  // ── Role-siloing chunk 1 (additive; existing roles above unchanged) ──────────
+  // ORIGINATOR (bank/seller): prepares + negotiates the deal but CANNOT self-approve.
+  //   read + audit/snapshot read · analysis:revise (revise / upload docs) ·
+  //   workflow:override (negotiate — ratify a mitigant / post overlay comments).
+  //   Deliberately NO workflow:approve / workflow:reject / workflow:submit.
+  ORIGINATOR: [
+    'workflow:read',
+    'audit:read',
+    'snapshot:read',
+    'analysis:revise',
+    'workflow:override',
+  ],
+  // BUYER (B-piece, first-loss): the approver/rejecter of the deal.
+  //   read + audit/snapshot read · workflow:request-info · workflow:override
+  //   (negotiate) · workflow:approve + workflow:reject (the first-loss verdict).
+  //   Deliberately NO workflow:submit (deal-team step) and NO analysis:revise
+  //   (does not revise the seller's underwriting).
+  BUYER: [
+    'workflow:read',
+    'audit:read',
+    'snapshot:read',
+    'workflow:request-info',
+    'workflow:override',
+    'workflow:approve',
+    'workflow:reject',
   ],
 } as const;
 

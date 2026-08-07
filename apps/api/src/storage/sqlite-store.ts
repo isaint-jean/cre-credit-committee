@@ -20,7 +20,9 @@ export interface User {
   email: string;
   passwordHash: string;
   name: string;
-  role: 'admin' | 'analyst' | 'viewer';
+  // Lowercase storage roles; translated to the uppercase contract enum at the JWT
+  // boundary (normalizeRoleAtBoundary). 'originator'/'buyer' added in role-siloing ch.1.
+  role: 'admin' | 'analyst' | 'viewer' | 'originator' | 'buyer';
   createdAt: string;
 }
 
@@ -951,14 +953,24 @@ export class SqliteStore {
   // --- Users ---
 
   private seedDefaultUser() {
-    const existing = this.db.prepare('SELECT id FROM users WHERE email = ?').get('admin@cre.com');
-    if (existing) return;
-
     const { v4: uuidv4 } = require('uuid');
-    const hash = bcrypt.hashSync('admin123', 10);
-    this.db.prepare(
-      'INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(uuidv4(), 'admin@cre.com', hash, 'Admin', 'admin', new Date().toISOString());
+    // Idempotent per-email seed. Existing admin seeding is unchanged; role-siloing
+    // chunk 1 adds one ORIGINATOR + one BUYER dev user so each side can be logged in
+    // as. Roles are stored lowercase (translated to the uppercase contract enum at the
+    // JWT boundary). Additive — no existing user or role is modified.
+    const seeds: ReadonlyArray<{ email: string; name: string; role: string; password: string }> = [
+      { email: 'admin@cre.com',      name: 'Admin',      role: 'admin',      password: 'admin123' },
+      { email: 'originator@cre.com', name: 'Originator', role: 'originator', password: 'originator123' },
+      { email: 'buyer@cre.com',      name: 'Buyer',      role: 'buyer',      password: 'buyer123' },
+    ];
+    for (const s of seeds) {
+      const existing = this.db.prepare('SELECT id FROM users WHERE email = ?').get(s.email);
+      if (existing) continue;
+      const hash = bcrypt.hashSync(s.password, 10);
+      this.db.prepare(
+        'INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(uuidv4(), s.email, hash, s.name, s.role, new Date().toISOString());
+    }
   }
 
   createUser(user: { email: string; password: string; name: string; role?: string }): User {
