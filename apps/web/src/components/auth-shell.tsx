@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { SideProvider, useSide, type Side } from '@/lib/side-context';
@@ -159,9 +159,22 @@ function AppContent({ children }: { children: React.ReactNode }) {
   const { user, logout, isLoading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const side = useSide();
 
   const isLoginPage = pathname === '/login';
+
+  // Chunk 6 — ADMIN-only "View as" switch. Sets/clears ?side on the current URL
+  // (originator/buyer → ?side=X; platform → clear) so the admin's existing chunk-3
+  // ?side override drives the view without hand-editing the URL. Other query params
+  // are preserved. No new permission/backend logic — pure navigation.
+  const setSideView = (target: Side | null): void => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (target === null) params.delete('side');
+    else params.set('side', target);
+    const qs = params.toString();
+    router.push(qs.length > 0 ? `${pathname}?${qs}` : pathname);
+  };
 
   useEffect(() => {
     // Existing behavior: unauth → /login (unchanged).
@@ -272,6 +285,33 @@ function AppContent({ children }: { children: React.ReactNode }) {
               })}
             </div>
           </details>
+
+          {/* Chunk 6 — ADMIN-only "View as" switch (QA both sides without editing URLs).
+              Non-admins are role-forced (chunk 3) and never see it. */}
+          {user.role === 'ADMIN' ? (
+            <>
+              <span className="text-white/25">|</span>
+              <div className="flex items-center gap-0.5" role="group" aria-label="View as">
+                <span className="text-white/40 mr-1 text-[10px] uppercase tracking-wide">View as</span>
+                {([['originator', 'Originator'], ['buyer', 'Buyer'], [null, 'Platform']] as const).map(([val, label]) => {
+                  const active = side === val;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setSideView(val)}
+                      aria-pressed={active}
+                      className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                        active ? 'bg-white/15 text-white font-semibold' : 'text-white/50 hover:text-white'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
 
           <span className="text-white/25">|</span>
           <span className="text-white/45">{user.email}</span>
