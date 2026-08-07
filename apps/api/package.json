@@ -58,6 +58,7 @@
     "test:cross-check-contracts": "tsx src/scripts/test-cross-check-contracts.ts",
     "test:buyer-diff": "tsx src/scripts/test-buyer-diff.ts",
     "test:buyer-diff-decisions": "tsx src/scripts/test-buyer-diff-decisions.ts",
+    "test:buyer-diff-workbook": "tsx src/scripts/test-buyer-diff-workbook.ts",
     "test:stress-contracts": "tsx src/scripts/test-stress-contracts.ts",
     "test:asset-profiler": "tsx src/scripts/test-asset-profiler.ts",
     "test:reason-catalogue": "tsx src/scripts/test-reason-catalogue.ts",

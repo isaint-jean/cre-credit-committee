@@ -39,6 +39,7 @@ import { renderBuyerDiffHtml } from '../services/render-buyer-diff-html.js';
 import {
   buildBuyerDiffSuggestions, mergeDecisions, decidableFindingIds, type BuyerDiffDecision,
 } from '../services/buyer-diff-suggestions.service.js';
+import { generateBuyerDiffWorkbook } from '../services/generate-buyer-diff-workbook.service.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { augmentIntakeCompletenessWithSourcing } from '../services/augment-intake-completeness.js';
 import { getAssumedInputs } from '../services/assumed-inputs.service.js';
@@ -734,6 +735,23 @@ analysisRoutes.put('/:id/buyer-diff/decisions/:findingId', (req: Request, res: R
   recordGraphStore.putBuyerDiffDecision(ctx.crossCheckResultId, req.params.findingId, decision as BuyerDiffDecision);
   const merged = mergeDecisions(suggestions, recordGraphStore.getBuyerDiffDecisions(ctx.crossCheckResultId));
   res.status(200).json({ id: req.params.id, findingId: req.params.findingId, decision, findings: merged });
+});
+
+// GET /api/analyses/:id/buyer-diff/export — download a CLEAN .xlsx generated FRESH
+// from the current decisions: accepted adjustments marked (amber + comment + buyer #),
+// rejected/pending clean (issuer stands). Deterministic — same decisions → same file.
+analysisRoutes.get('/:id/buyer-diff/export', async (req: Request, res: Response) => {
+  const ctx = resolveBuyerDiffContext(req.params.id);
+  if (!ctx.ok) { res.status(ctx.status).json({ error: ctx.error }); return; }
+  const merged = mergeDecisions(
+    buildBuyerDiffSuggestions(ctx.adjustedInputs, ctx.extraction),
+    recordGraphStore.getBuyerDiffDecisions(ctx.crossCheckResultId),
+  );
+  const buf = await generateBuyerDiffWorkbook(ctx.extraction.dealRef, merged);
+  const safe = ctx.extraction.dealRef.replace(/[^A-Za-z0-9._-]+/g, '_');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="Buyer-Adjusted-UW-${safe}.xlsx"`);
+  res.status(200).send(buf);
 });
 
 // GET /api/analyses/:id/memo — Credit Committee Memorandum HTML.
