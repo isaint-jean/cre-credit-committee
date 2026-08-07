@@ -52,6 +52,13 @@ export function BuyerDiffPanel({ analysisId }: { readonly analysisId: string }):
 
   return (
     <section style={S.wrap}>
+      <header style={S.header}>
+        <h3 style={S.title}>Seller Underwriting — Buyer&rsquo;s View</h3>
+        <p style={S.sub}>
+          These are the adjustments a B-piece buyer would make to your underwriting. Accepted changes
+          flow into the cash flow model and the seller UW you download.
+        </p>
+      </header>
       <button style={S.summary} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <span style={S.summaryLead}>{open ? '▾' : '▸'} What a buyer will ask</span>
         <span style={S.summaryMeta}>
@@ -107,6 +114,9 @@ export function BuyerDiffPanel({ analysisId }: { readonly analysisId: string }):
 
 const S: Record<string, React.CSSProperties> = {
   wrap: { border: '1px solid #e6e8ec', borderRadius: 12, background: '#fff', margin: '16px 0', overflow: 'hidden' },
+  header: { padding: '16px 18px 12px', borderBottom: '1px solid #eef0f3' },
+  title: { margin: 0, fontSize: 15.5, fontWeight: 600, color: '#1f2430', letterSpacing: 0.1 },
+  sub: { margin: '6px 0 0', fontSize: 12.5, lineHeight: 1.55, color: '#8b93a3', maxWidth: 620 },
   summary: { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '14px 18px', background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' },
   summaryLead: { fontWeight: 600, color: '#1f2430', fontSize: 15 },
   summaryMeta: { color: '#8b93a3', fontSize: 13 },
