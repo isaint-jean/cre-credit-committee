@@ -44,8 +44,12 @@ function check(label: string, actual: unknown, expected: unknown, tolerance = 0)
 
   console.log('\n=== IDENTITY ===');
   check('addressFull',       r.addressFull,        '8620 Spectrum Center Blvd');
-  check('city',              r.city,               'San Diego');
-  check('state',             r.state,              'CA');
+  // Tier 1b: city/state are no longer hardcoded 'San Diego'/'CA'. An appraisal's
+  // comparables section is dense with "City, County, State" strings, so a
+  // deterministic regex grabs a comp (proven: "Portola Hills…"). They are
+  // deferred to Tier 1's LLM (whole-doc "subject" understanding) → null here.
+  check('city',              r.city,               null);
+  check('state',             r.state,              null);
   check('zip',               r.zip,                '92123');
   check('county',            r.county,             'San Diego County');
   check('yearBuilt',         r.yearBuilt,          2008);

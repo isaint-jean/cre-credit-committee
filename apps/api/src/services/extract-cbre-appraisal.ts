@@ -84,6 +84,60 @@ function findAfter(text: string, label: string, valueRegex: RegExp): string | nu
 }
 
 /* -------------------------------------------------------------------------- */
+/* Tier-1b identity — GENERAL extract-or-null (NO hardcoded Sunroad literals). */
+/*                                                                            */
+/* Every identity field below was previously a literal constant (source=cbre,*/
+/* city='San Diego', state='CA', reportName='…Sunroad…', interestAppraised=   */
+/* 'Leased Fee Interest', currentLeasedPct=1.0, methodology='Income Cap…') —  */
+/* a live hazard: on ANY non-Sunroad appraisal those literals leaked Sunroad's*/
+/* identity into someone else's deal. Each is now read from the document text */
+/* with a general pattern, or returns null (honest blank). No literal can     */
+/* reach a different property.                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** Detect the appraisal firm from the document text → the `source` enum, or
+ *  undefined when no known firm is named. NOT a Sunroad literal — reads the doc. */
+function detectAppraiser(text: string): AppraisalExtraction['source'] {
+  if (/\bCBRE\b/i.test(text)) return 'cbre';
+  if (/\bJLL\b|Jones\s+Lang\s+LaSalle/i.test(text)) return 'jll';
+  if (/Cushman\s*&?\s*Wakefield/i.test(text)) return 'cushman';
+  if (/\bColliers\b/i.test(text)) return 'colliers';
+  return undefined;
+}
+
+/** The appraisal's own file/report identifier (e.g. "CB24US008840-1"), or null.
+ *  General — reads whatever file number THIS document states, never Sunroad's. */
+function extractReportName(text: string): string | null {
+  const m = text.match(/\bFile\s+No\.?\s*:?\s*([A-Z]{1,4}\d[A-Z0-9-]{3,})/i);
+  return m ? m[1]!.trim() : null;
+}
+
+/* NOTE — city/state and the concluded methodology are DELIBERATELY not regex-
+ * extracted here. An appraisal is dense with "City, County, State" strings and
+ * approach names in its COMPARABLES section; a first-match regex grabs a comp
+ * (proven: it lifted "Portola Hills…" and "Charlotte, NC" — the appraiser's own
+ * office — as the subject). A wrong location is worse than a blank, so these stay
+ * null in the deterministic path and are resolved by Tier 1's LLM, which reads
+ * the whole document and knows which location is the SUBJECT. */
+
+/** Interest/rights appraised for the SUBJECT, or null.
+ *  ANCHORED on "…Rights/Interest Appraised…" so a stray "Fee Simple Estate" from
+ *  a land-value line can't win over the subject's actual appraised interest. */
+function extractInterestAppraised(text: string): string | null {
+  const m = text.match(/(?:Property\s+)?(?:Rights?|Interest)\s+Appraised\s*[:\-]?\s*(Leased\s+Fee(?:\s+Interest)?|Fee\s+Simple(?:\s+Estate)?|Leasehold(?:\s+Interest)?)/i);
+  return m ? m[1]!.replace(/\s+/g, ' ').trim() : null;
+}
+
+/** Current leased/occupied percentage as a 0..1 fraction from a stated
+ *  "NN% leased/occupied" phrase, or null. (Replaces the wrong hardcoded 1.0.) */
+function extractCurrentLeasedPct(text: string): number | null {
+  const m = text.match(/(\d{1,3}(?:\.\d+)?)\s*%\s*(?:pre-?)?(?:leased|occupied)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n / 100 : null;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Main extractor                                                             */
 /* -------------------------------------------------------------------------- */
 
@@ -161,6 +215,13 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
     pageRef[field] = page;
     return value;
   };
+
+  // ─── Tier-1b IDENTITY — extract-or-null over the whole document (no literals) ─
+  const fullText = pages.map((p) => p.text).join('\n');
+  const detectedSource = detectAppraiser(fullText);
+  const extractedReportName = extractReportName(fullText);
+  const extractedInterest = extractInterestAppraised(fullText);
+  const extractedCurrentLeasedPct = extractCurrentLeasedPct(fullText);
 
   // ─── PAGE 3 (front-page value table) ─────────────────────────────────
   const p3 = text(3);
@@ -432,12 +493,15 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
 
   // ─── Build the AppraisalExtraction record ───────────────────────────
   const result: AppraisalExtraction = {
-    source: 'cbre',
-    reportName: 'CB23US057102-1_Sunroad Centrum I San Diego',
+    // Tier-1b: identity is now EXTRACTED from the document, not hardcoded. Each
+    // returns the value THIS appraisal states, or null — never a Sunroad literal.
+    ...(detectedSource !== undefined ? { source: detectedSource } : {}),
+    reportName: extractedReportName,
 
     addressFull: pageRef['addressFull'] ? (text(12).match(/(\d{2,5}\s+Spectrum\s+Center\s+Blvd)/)?.[1] ?? null) : null,
-    city: 'San Diego',
-    state: 'CA',
+    // city/state deferred to Tier 1's LLM (comps pollute a regex; see note above).
+    city: null,
+    state: null,
     zip: zipMatch?.[1] ?? null,
     county: countyMatch ? `${countyMatch[1]} County` : null,
     yearBuilt: yearBuiltMatch ? Number(yearBuiltMatch[1]) : null,
@@ -454,7 +518,7 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
     nraByUse,
     propertyRights,
 
-    interestAppraised: 'Leased Fee Interest',
+    interestAppraised: extractedInterest,
     asIsValueDate,
     asStabilizedValueDate,
 
@@ -498,7 +562,7 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
 
     stabilizedOccupancy: stabilizedOccupancyFinal,
     currentOccupancyPhysical,
-    currentLeasedPct: 1.0,
+    currentLeasedPct: extractedCurrentLeasedPct,
     stabilizationMonths,
 
     perAppraisalReserves: {
@@ -519,7 +583,7 @@ export async function extractCbreAppraisal(buffer: Buffer): Promise<AppraisalExt
     // Legacy 3-field aliases
     valueConclusion: asIsValue,
     capRate: capRateOverall,
-    methodology: 'Income Capitalization Approach',
+    methodology: null,   // deferred to Tier 1's LLM (approach names appear in comps).
   };
 
   return result;
