@@ -13,7 +13,11 @@ app = "cre-api"
 primary_region = "iad"   # pick a region near you (iad = US-East). Volume is pinned here.
 
 [build]
-  dockerfile = "deploy/api.Dockerfile"
+  # ★ Path is relative to THIS config file's dir (deploy/), NOT the repo root — so it's
+  #   "api.Dockerfile", not "deploy/api.Dockerfile" (the latter resolves to deploy/deploy/…
+  #   and fails). The build CONTEXT is still the repo root (where you run `fly deploy`),
+  #   which is what the Dockerfile's COPY package.json/apps/packages needs.
+  dockerfile = "api.Dockerfile"
 
 [env]
   PORT = "3001"

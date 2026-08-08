@@ -8,7 +8,8 @@ app = "cre-web"
 primary_region = "iad"
 
 [build]
-  dockerfile = "deploy/web.Dockerfile"
+  # ★ Relative to THIS config's dir (deploy/), not the repo root — see fly.api.toml.
+  dockerfile = "web.Dockerfile"
   # API_ORIGIN also passed as a build arg (next.config rewrites can bake at build time).
   [build.args]
     API_ORIGIN = "http://cre-api.internal:3001"
