@@ -9,6 +9,20 @@ dist
 .env
 .env.*
 apps/api/data
+# ★ .data/ is the DOCUMENT-BYTES + corpus tree (blobs/, source-docs/, uploads/,
+# historical-uws.json, learned-rules.json, kicks-master-list.json) — 1.4GB locally.
+# The line above does NOT cover it: `apps/api/data` and `apps/api/.data` are
+# different names, so without this it was silently baked into the image.
+# It belongs on the cre_docs VOLUME (fly.api.toml), which mounts at this exact path
+# and SHADOWS whatever the image holds there — so anything baked here is both
+# 1.4GB of dead weight AND invisible at runtime. Seed the volume instead: RUNBOOK §6.
+apps/api/.data
+# Defensive: the real DB is data/cre.db, so a stray *.db sitting beside package.json
+# (there is a 0-byte apps/api/cre.db today) is never read — it would only ride into the
+# image as dead weight.
+apps/api/*.db
+apps/api/*.db-shm
+apps/api/*.db-wal
 **/*.log
 deploy/dryrun-data
 .DS_Store

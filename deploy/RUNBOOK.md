@@ -7,10 +7,21 @@ CC ran none of these (no account). All commands run from the **repo root**.
 ---
 
 ## ⚠️ BEFORE YOU START — cost + safety
-- **Fly bills per running machine.** Both apps are set to **scale-to-zero** (`min_machines_running = 0`,
-  `auto_stop_machines = "stop"`) so they cost ~nothing when idle and wake on the first request.
-- Fly gives a small **free allowance**; two shared-cpu-1x/512mb machines that mostly idle are cheap,
-  but **not free forever**.
+- **Fly bills per running machine.** The two apps are now deliberately **asymmetric**:
+  - **web** — scale-to-zero (`min_machines_running = 0`, `auto_stop_machines = "stop"`). Costs ~nothing
+    idle, wakes on the first request.
+  - **api** — ★ **always-on** (`min_machines_running = 1`, `auto_stop_machines = "off"`) at
+    **shared-cpu-1x / 2GB**. This is the one continuously-billed machine.
+- ★ **Why the api is always-on:** it runs a background underwrite queue. Fly's idle-stop counts inbound
+  *requests*, so a drain running for minutes with no HTTP traffic looks idle and gets stopped
+  mid-underwrite. Jobs are marked INTERRUPTED (not corrupted) but need a manual re-run. If you'd rather
+  pay less and accept that, flip `auto_stop_machines = "stop"` + `min_machines_running = 0` in
+  `deploy/fly.api.toml`.
+- ★ **Why 2GB, not 512MB:** xlsx/PDF/zip extraction is memory-hungry (dev runs with
+  `--max-old-space-size=8192`); 512MB OOM-kills on real ingest. Drop `[[vm]] memory` to `1gb` — and
+  `NODE_OPTIONS` to `~768` — if the always-on cost matters more than ingest headroom.
+- Fly gives a small **free allowance**, but an always-on 2GB machine plus ~5GB of volumes is **not free**.
+  Confirm current rates on Fly's pricing page before Step 4 — that's where billing starts.
 - ★ **Set a spending limit / billing alert in the Fly dashboard FIRST** (Organization → Billing).
 - **Machines start billing at Step 5 (`fly deploy`)** — nothing before that costs money.
 - ★ **Anthropic credits:** the deployed api makes REAL LLM calls on **new-deal ingest/extraction** —
@@ -37,12 +48,27 @@ fly apps create cre-api
 ```
 Success: "New app created: cre-api". Gotcha: if the name is taken, pick another + update the tomls.
 
-## 2. Create the SQLite volume (in the SAME region as the toml's primary_region)
+## 2. Create BOTH volumes (in the SAME region as the toml's primary_region)
+★ The api persists **two** trees. Creating only the first silently loses every uploaded document on
+the next deploy — that was the bug this runbook step exists to prevent.
+
 ```bash
+# 1) the SQLite DB — data/cre.db is 18MB today; 1GB is ample headroom for WAL growth
 fly volumes create cre_data --app cre-api --region iad --size 1
+
+# 2) the document bytes + UW corpus — .data/ is 1.4GB locally
+#    (source-docs 1.2G, blobs 243M, corpus JSON ~4M). 4GB leaves room to hold the
+#    upload tarball AND its extraction side-by-side during Step 6.
+fly volumes create cre_docs --app cre-api --region iad --size 4
 ```
-Success: a volume `cre_data` (1 GB). Gotcha: the region MUST match `primary_region` in fly.api.toml
-(`iad` by default) — SQLite is single-region.
+Success: `fly volumes list --app cre-api` shows **both** `cre_data` and `cre_docs`.
+
+Gotchas:
+- The region MUST match `primary_region` in fly.api.toml (`iad` by default) — SQLite is single-region,
+  and a volume in the wrong region simply won't attach.
+- Volume names must match `[[mounts]] source` in fly.api.toml exactly (`cre_data`, `cre_docs`).
+- Going lean? If you skip `.data/source-docs` in Step 6 (1.2G of historical-UW source files, not needed
+  to view existing deals), `--size 1` is enough for `cre_docs`.
 
 ## 3. Set the api secrets (free; stored encrypted)
 ```bash
@@ -58,9 +84,12 @@ default — non-negotiable before anyone logs in.
 fly deploy --config deploy/fly.api.toml
 ```
 Success: build runs (npm ci + better-sqlite3 + tsx), machine boots, health check on `/health` goes
-green. Gotchas to watch: (a) it runs via **tsx** (NOT node dist — proven locally); (b) the volume is
-mounted at `/app/apps/api/data` so `process.cwd()/data/cre.db` resolves; (c) on the empty volume it
-**seeds the 3 users on boot but has NO deals yet** (next step ships them).
+green. Gotchas to watch: (a) it runs via **tsx** (NOT node dist — proven locally); (b) **both** volumes
+mount under cwd `/app/apps/api` — `cre_data` → `data/` (so `process.cwd()/data/cre.db` resolves) and
+`cre_docs` → `.data/` (blobs + corpus); (c) on empty volumes it **seeds the 3 users on boot but has NO
+deals and NO documents yet** — Steps 5 and 6 ship those. A boot log reading
+`Loaded 0 historical UWs, 0 learned rules from disk.` is EXPECTED here, not an error: the corpus arrives
+in Step 6. Verify the mounts with `fly ssh console --app cre-api --command "df -h /app/apps/api/data /app/apps/api/.data"`.
 
 ## 5. Ship cre.db (the deals) onto the volume
 The api seeds users but not deals. To have Sunroad/640, ship your local DB:
@@ -77,7 +106,48 @@ rm ./cre.db.snapshot
 Success: after restart, `fly logs --app cre-api` shows a clean boot; a later `/pools` read returns the
 deals. Gotcha: upload while the machine is **stopped** (avoid a WAL write conflict).
 
-## 6. Create + configure the web app
+## 6. ★ Ship `.data/` (the document bytes + UW corpus) onto the cre_docs volume
+Step 5 shipped the *deals*; this ships the *documents and the learned corpus*. Skip it and the app boots
+with `Loaded 0 historical UWs, 0 learned rules` and no document bytes behind the deals.
+
+★ Ship this while the machine is **stopped**, same as Step 5 — `.data/blobs` is written live.
+
+```bash
+# 1) tarball the tree locally (1.4GB; ~10-20 min to upload on a home connection)
+tar -czf ./dotdata.tgz -C apps/api .data
+#    LEAN ALTERNATIVE — skip source-docs (1.2G of historical-UW source files; the existing
+#    deals render fine without them). Yields ~250MB:
+#    tar -czf ./dotdata.tgz -C apps/api --exclude='.data/source-docs' .data
+
+# 2) stop the machine, upload onto the volume, extract in place, restart
+fly machine list --app cre-api                       # note the machine id
+fly machine stop <machine-id> --app cre-api
+fly ssh sftp shell --app cre-api                     # then: put ./dotdata.tgz /app/apps/api/.data/_import.tgz   (then `quit`)
+fly machine start <machine-id> --app cre-api
+fly ssh console --app cre-api --command "sh -lc 'cd /app/apps/api && tar -xzf .data/_import.tgz && rm -f .data/_import.tgz'"
+
+# 3) restart so the corpus is re-read at boot, then clean up locally
+fly machine restart <machine-id> --app cre-api
+rm ./dotdata.tgz
+```
+
+Success: `fly logs --app cre-api` now shows **`Loaded 267 historical UWs, 36 learned rules from disk.`**
+(instead of `0`/`0`) — that line IS the check that this step worked. Opening a deal's documents returns
+bytes rather than 404s.
+
+Gotchas:
+- The tarball is staged **on the cre_docs volume itself** (`/app/apps/api/.data/_import.tgz`), which is
+  why Step 2 sizes it at 4GB — it must hold the archive and the extraction at once. The `rm` above frees
+  it again.
+- `tar -C apps/api .data` stores paths as `.data/...`, so extracting from `/app/apps/api` lands them
+  exactly on the mount. Don't extract from `/`.
+- The corpus is read **once at module load**, so the restart in (3) is required — extracting into a
+  running machine won't reload it.
+- ★ Re-running this step **overwrites** same-named corpus files with your local copies. Anything
+  uploaded in production since the last ship is not in your local `.data/` and will be lost. Ship early,
+  before production has state worth keeping.
+
+## 7. Create + configure the web app
 ```bash
 fly apps create cre-web
 # the private-first Basic-Auth gate (share these creds with your partner):
@@ -89,18 +159,23 @@ fly secrets set --app cre-api FRONTEND_URL="https://cre-web.fly.dev"
 ```
 Success: secrets staged. Gotcha: if you renamed the apps, fix the `.internal` URL + FRONTEND_URL.
 
-## 7. Deploy the web  ← 💵 second machine
+## 8. Deploy the web  ← 💵 second machine
 ```bash
 fly deploy --config deploy/fly.web.toml
 ```
 Success: `next build` runs, machine boots, the public `https://cre-web.fly.dev` is live. The web
 proxies `/api/*` to the private `cre-api.internal:3001` (no CORS, api never public).
 
-## 8. Smoke test (over the internet)
+## 9. Smoke test (over the internet)
 Open `https://cre-web.fly.dev`:
-1. **Basic-Auth prompt** → enter the BASIC_AUTH_USER / PASS from Step 6. (Proves the private gate.)
+1. **Basic-Auth prompt** → enter the BASIC_AUTH_USER / PASS from Step 7. (Proves the private gate.)
 2. **App login page** → `admin@cre.com` / `admin123` (or originator@/buyer@). (Proves JWT auth in prod.)
 3. Open a deal (Sunroad) → the analysis renders. (Proves the DB + api proxy end-to-end.)
+4. ★ Open a **document** on that deal → bytes load, not a 404. (Proves `.data/blobs` came across in
+   Step 6 — the persistence fix. `Loaded 267 historical UWs…` in `fly logs` is the same check.)
+5. ★ **Redeploy and re-check** (`fly deploy --config deploy/fly.api.toml`, then reopen the document).
+   Surviving a redeploy is the whole point of the two volumes — if documents 404 after a redeploy,
+   `cre_docs` is not mounted and Step 2 or the `[[mounts]]` block is wrong.
 
 ---
 
@@ -109,11 +184,14 @@ Open `https://cre-web.fly.dev`:
 - [ ] **Rotate the weak dev passwords** (`admin123` / `originator123` / `buyer123`). Easiest: `fly ssh
       console --app cre-api`, then a one-off node/tsx snippet using the store's `bcrypt` to update
       `users.password_hash` — or hand out only a login you've rotated.
-- [ ] Basic-Auth gate active (Step 6 secrets set) — the app 401s anonymously.
+- [ ] Basic-Auth gate active (Step 7 secrets set) — the app 401s anonymously.
 - [ ] The api has **no public IP** (fly.api.toml has no `[[services.ports]]`; don't run `fly ips
       allocate` on cre-api). Verify: `fly ips list --app cre-api` is empty.
 
 ## Teardown (stop billing)
 ```bash
-fly apps destroy cre-web && fly apps destroy cre-api   # removes machines + volume; fully reversible
+fly apps destroy cre-web && fly apps destroy cre-api   # removes machines + BOTH volumes
 ```
+★ Destroying `cre-api` destroys `cre_data` **and** `cre_docs` with it — every document and every
+production-side corpus change goes with them. Your local `apps/api/data` + `.data` are the only other
+copy, so this is only "reversible" to the state you last shipped in Steps 5-6.

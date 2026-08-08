@@ -1,5 +1,10 @@
 # Fly config — the API (PRIVATE: no public IP; reached only by the web over Fly 6PN
-# at http://cre-api.internal:3001). SQLite lives on a volume.
+# at http://cre-api.internal:3001).
+#
+# ★ TWO volumes, not one — see PERSISTENCE below. `cre_data` holds the SQLite DB and
+#   `cre_docs` holds the document bytes + UW corpus. Both must exist BEFORE the first
+#   deploy (RUNBOOK §2); creating only cre_data silently loses every uploaded document
+#   on the next redeploy.
 #
 # Deploy from the repo ROOT:  fly deploy --config deploy/fly.api.toml
 # ★ app name must be globally unique on Fly — rename if "cre-api" is taken.
@@ -12,26 +17,71 @@ primary_region = "iad"   # pick a region near you (iad = US-East). Volume is pin
 
 [env]
   PORT = "3001"
+  # Cap V8's heap BELOW the machine's 2GB so Node GCs hard instead of the kernel
+  # OOM-killing the machine (Node's default limit would let the heap grow into the
+  # ceiling). ~512MB of headroom is left for native allocations — better-sqlite3,
+  # unpdf/exceljs buffers — which live OUTSIDE the V8 heap. Keep this in step with
+  # [[vm]] memory below: if you drop to 1gb, drop this to ~768.
+  NODE_OPTIONS = "--max-old-space-size=1536 --expose-gc"
   # FRONTEND_URL is the web's public origin (CORS). Set once the web app name is known,
   # e.g. https://cre-web.fly.dev — can also be a Fly secret. JWT_SECRET / ANTHROPIC_API_KEY
   # are SECRETS (fly secrets set), never here.
   FRONTEND_URL = "https://cre-web.fly.dev"
 
-# SQLite volume. DB_PATH = process.cwd()/data/cre.db, and the api runs with cwd
-# /app/apps/api, so the DB lands at /app/apps/api/data/cre.db → mount there.
+# ─── PERSISTENCE ────────────────────────────────────────────────────────────
+# The api writes to TWO cwd-relative trees (cwd = /app/apps/api). BOTH must be
+# volumes: anything not mounted lives in the ephemeral image layer and is LOST on
+# every redeploy.
+#
+# 1) data/  — the SQLite DB. DB_PATH = process.cwd()/data/cre.db
+#              (apps/api/src/storage/sqlite-store.ts:29).
 [[mounts]]
   source = "cre_data"
   destination = "/app/apps/api/data"
 
+# 2) .data/ — the DOCUMENT BYTES + learned corpus. Verified writers, all resolved
+#    from process.cwd() and therefore all under this one mount:
+#      • .data/blobs/       — content-addressed document bytes
+#                             (storage/blob-store.ts:67, mkdir -p on write)
+#      • .data/source-docs/ — historical-UW source files
+#                             (services/source-doc-store.service.ts:56)
+#      • .data/uploads/     — originals kept for re-download
+#      • .data/historical-uws.json + learned-rules.json + rule-versions.json
+#                             — the UW corpus (services/uw-intelligence.service.ts:45);
+#                               this is the "Loaded 267 historical UWs, 36 learned
+#                               rules" line at boot
+#      • .data/kicks-master-list.json — the one tracked file under .data/
+#
+#    WITHOUT this mount every document uploaded in production vanished on the next
+#    deploy, and the corpus reset to 0. An EMPTY volume is safe to boot: loadMap()
+#    returns an empty Map for a missing file and ensureDataDir() mkdirs
+#    (uw-intelligence.service.ts:120-130) — you get a working app with 0 UWs until
+#    you seed it. Seed via RUNBOOK §6.
+[[mounts]]
+  source = "cre_docs"
+  destination = "/app/apps/api/.data"
+
 # Internal-only service: internal_port + a health check, but NO [[services.ports]] and
-# NO allocated public IP → the api is private (web reaches it via .internal). Scale-to-
-# zero to save money; the web's first call wakes it.
+# NO allocated public IP → the api is private (web reaches it via .internal).
+#
+# ★ NOT scale-to-zero (unlike the web). The api runs a BACKGROUND UNDERWRITE QUEUE
+#   (src/index.ts: kickUnderwriteDrain(); on boot it logs "marked N in-flight job(s)
+#   INTERRUPTED on boot"). Fly's idle-stop measures INBOUND REQUESTS, and a drain that
+#   runs for minutes with no HTTP traffic looks exactly like an idle machine — so
+#   auto_stop would kill underwrites mid-flight. The app recovers (jobs are marked
+#   INTERRUPTED, not corrupted) but each one needs a MANUAL re-run, and underwriting is
+#   the core function. Keeping one machine warm is the cheap fix.
+#
+# 💵 COST: this makes the api ALWAYS-ON — the one always-billed machine in the stack
+#   (the web still scales to zero). To trade that back for the interrupt risk, set
+#   auto_stop_machines = "stop" + min_machines_running = 0 and accept that an underwrite
+#   started near an idle window may need re-running.
 [[services]]
   internal_port = 3001
   protocol = "tcp"
-  auto_stop_machines = "stop"
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[services.http_checks]]
     path = "/health"
@@ -39,6 +89,16 @@ primary_region = "iad"   # pick a region near you (iad = US-East). Volume is pin
     timeout = "3s"
     grace_period = "20s"
 
+# ★ 2GB, not 512MB. Dev runs this process with --max-old-space-size=8192, and the
+#   memory-hungry paths are real: xlsx parsing (exceljs/xlsx), PDF extraction (unpdf/
+#   pdfkit), zip unpacking, plus a boot that reads the UW corpus. 512MB would OOM-kill
+#   the machine on the first serious ingest. 1GB is probably survivable for read-only
+#   demo traffic; 2GB is the safe number for real ingest, which is what this is for.
+#
+# 💵 COST: shared-cpu-1x at 2GB is roughly 3× the 512MB rate, and with
+#   min_machines_running = 1 above it bills continuously. Check current per-GB pricing
+#   on Fly's pricing page (`fly platform vm-sizes` lists the shapes) before deploying —
+#   drop to 1gb if the always-on cost matters more than ingest headroom.
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "2gb"
