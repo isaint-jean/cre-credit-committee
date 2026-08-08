@@ -84,11 +84,17 @@ primary_region = "iad"   # pick a region near you (iad = US-East). Volume is pin
   auto_start_machines = true
   min_machines_running = 1
 
+  # ★ grace_period covers the COLD-BOOT bind delay. The app loads the UW corpus + runs
+  #   five boot checks BEFORE app.listen (src/index.ts), and tsx transpiles on first run,
+  #   so the port binds ~13s after start (observed). Fly's proxy logs a transient
+  #   "app not listening on 0.0.0.0:3001" during that window; grace_period holds the
+  #   health check off until the app is actually up. 30s = ~2x the observed boot, headroom
+  #   for a busier host. (Long-term app-side fix: bind app.listen BEFORE the corpus load.)
   [[services.http_checks]]
     path = "/health"
     interval = "15s"
     timeout = "3s"
-    grace_period = "20s"
+    grace_period = "30s"
 
 # ★ 2GB, not 512MB. Dev runs this process with --max-old-space-size=8192, and the
 #   memory-hungry paths are real: xlsx parsing (exceljs/xlsx), PDF extraction (unpdf/

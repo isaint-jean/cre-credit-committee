@@ -56,8 +56,9 @@ RUN rm -rf data && ln -sfn .data/db data
 
 EXPOSE 3001
 
-# Liveness — the api exposes GET /health.
-HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+# Liveness — the api exposes GET /health. start-period covers the ~13s cold-boot bind
+# (corpus load + boot checks run before app.listen; tsx transpiles on first run) with headroom.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # On boot, ensure the volume subdirs exist (the volume is empty on first deploy, and the
