@@ -1,0 +1,38 @@
+# Fly config — the WEB (PUBLIC: this is the URL Isabelle reaches). Proxies /api/* to
+# the private api at API_ORIGIN. Gated by Basic Auth (middleware) + the app's JWT login.
+#
+# Deploy from the repo ROOT:  fly deploy --config deploy/fly.web.toml
+# ★ app name must be globally unique on Fly — rename if "cre-web" is taken.
+
+app = "cre-web"
+primary_region = "iad"
+
+[build]
+  dockerfile = "deploy/web.Dockerfile"
+  # API_ORIGIN also passed as a build arg (next.config rewrites can bake at build time).
+  [build.args]
+    API_ORIGIN = "http://cre-api.internal:3001"
+
+[env]
+  # Runtime copy of the internal api URL (next start reads it for the /api rewrite).
+  API_ORIGIN = "http://cre-api.internal:3001"
+  # ★ Leave NEXT_PUBLIC_API_URL UNSET so the browser calls /api (same-origin) and the
+  # web server proxies to the private api — no CORS, api stays private.
+  # BASIC_AUTH_USER / BASIC_AUTH_PASS are SECRETS (fly secrets set) — the private-first gate.
+
+# Public HTTPS service. TCP check (not HTTP) so the Basic-Auth 401 doesn't fail the check.
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.tcp_checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
