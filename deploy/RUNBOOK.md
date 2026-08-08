@@ -99,21 +99,33 @@ the corpus arrives in Step 6. Verify the mount with
 (the volume on `.data`, and `data` shown as a symlink to `.data/db`).
 
 ## 5. Ship cre.db (the deals) onto the volume
-The api seeds users but not deals. To have Sunroad/640, ship your local DB:
+The api seeds users but not deals. To have Sunroad/640, ship your local DB.
+
+★ **Why staging + swap, not "stop then sftp":** Fly's `sftp` connects to the SSH server running
+*inside* the machine, so the machine must be **RUNNING** — you can't `sftp` to a stopped machine.
+Instead, upload to a `.new` staging file while the machine is up, then atomically swap it in, clear any
+stale WAL, and restart so the app opens the new DB. Safe because the freshly-booted api is idle (no
+traffic, no deals yet), so nothing is writing to `cre.db` during the swap; the atomic `mv` + WAL clear
++ restart leave a clean, self-contained DB (the `.backup` snapshot has no WAL of its own).
+
 ```bash
-# make a clean snapshot (never cp the live file):
+# 1) clean snapshot (never cp the live file — the dev server holds it open):
 sqlite3 apps/api/data/cre.db ".backup './cre.db.snapshot'"
-# stop the machine so nothing holds the DB open, upload, restart:
+
+# 2) upload to a STAGING path (machine stays running — Fly's sftp needs it up):
+fly ssh sftp shell --app cre-api                     # then: put ./cre.db.snapshot /app/apps/api/.data/db/cre.db.new   (then `quit`)
+
+# 3) swap it in atomically, clear any stale WAL/SHM, then restart so the app opens the new DB:
+fly ssh console --app cre-api --command "sh -lc 'cd /app/apps/api/.data/db && mv -f cre.db.new cre.db && rm -f cre.db-wal cre.db-shm'"
 fly machine list --app cre-api                       # note the machine id
-fly machine stop <machine-id> --app cre-api
-fly ssh sftp shell --app cre-api                     # then: put ./cre.db.snapshot /app/apps/api/.data/db/cre.db   (then `quit`)
-fly machine start <machine-id> --app cre-api
+fly machine restart <machine-id> --app cre-api
+
+# 4) clean up the local snapshot:
 rm ./cre.db.snapshot
 ```
-Success: after restart, `fly logs --app cre-api` shows a clean boot; a later `/pools` read returns the
-deals. Gotchas: upload while the machine is **stopped** (avoid a WAL write conflict); ship to the real
-path **`/app/apps/api/.data/db/cre.db`** (that's where the `data` symlink points — `.data/db` was
-mkdir'd on the first boot in Step 4, so the directory already exists on the volume).
+Success: after the restart, `fly logs --app cre-api` shows a clean boot; a later `/pools` read returns
+the deals. Note: the target dir `.data/db/` (where the `data` symlink points) was mkdir'd on the first
+boot in Step 4, so it already exists on the volume.
 
 ## 6. ★ Ship `.data/` (the document bytes + UW corpus) onto the cre_docs volume
 Step 5 shipped the *deals*; this ships the *documents and the learned corpus*. Skip it and the app boots
