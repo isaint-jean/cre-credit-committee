@@ -1,0 +1,14 @@
+# Keep the build context small + never ship local state/secrets into the image.
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+.git
+.env
+.env.*
+apps/api/data
+**/*.log
+deploy/dryrun-data
+.DS_Store
