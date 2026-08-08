@@ -20,6 +20,14 @@ export const DEAL_STATES = [
   'APPROVED',
   'REJECTED',
   'POSTPONED',
+  // Chunk 7b (additive) — originator-communication states. A deal with no originator
+  // comms events NEVER reaches these; the existing DRAFT→…→APPROVED/REJECTED/POSTPONED
+  // projection is byte-identical. SENT_TO_BUYER IS the "awaiting buyer" state (its human
+  // label is "Waiting on buyer"); a distinct AWAITING_BUYER after a buyer acknowledgement
+  // is deferred to 7d (no buyer-response event exists to produce it yet).
+  'SENT_TO_BUYER',   // originator submitted the seller UW to the buyer — waiting on buyer
+  'PUSHED_BACK',     // originator contested a buyer requirement/decision
+  'CALL_REQUESTED',  // originator requested a call with the buyer
 ] as const;
 export type DealState = (typeof DEAL_STATES)[number];
 

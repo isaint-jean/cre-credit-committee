@@ -100,6 +100,13 @@ function buildDefaultPayload(kind: CommitteeActionKind): CommitteeActionPayload 
       // OVERRIDE_DECISION requires an overlayId; this default surface does not
       // expose it. Override flows are launched from the overlay view, not here.
       throw new Error('OVERRIDE_DECISION must be triggered from the overlay context');
+    case 'ORIGINATOR_PUSHBACK':
+    case 'CALL_REQUESTED':
+    case 'SEND_TO_BUYER':
+      // Chunk 7b — the originator comms kinds exist in the contract but are launched
+      // from the (future, 7c) originator UI, not this committee-action surface. Keeping
+      // the switch exhaustive; this button set never offers them.
+      throw new Error(`${kind} is an originator action, not a committee action`);
   }
 }
 

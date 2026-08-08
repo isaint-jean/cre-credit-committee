@@ -58,6 +58,11 @@ const STATE_CHANGING_KINDS: { readonly [K in CommitteeActionKind]?: DealState } 
   POSTPONE_DEAL: 'POSTPONED',
   SUBMIT_TO_COMMITTEE: 'IN_COMMITTEE',
   REQUEST_MORE_INFO: 'IN_REVIEW',
+  // Chunk 7b (additive) — originator comms events derive originator states. These only
+  // ever appear for deals with the new events; a deal with none projects byte-identically.
+  SEND_TO_BUYER: 'SENT_TO_BUYER',
+  ORIGINATOR_PUSHBACK: 'PUSHED_BACK',
+  CALL_REQUESTED: 'CALL_REQUESTED',
 };
 
 function sortActionChain(

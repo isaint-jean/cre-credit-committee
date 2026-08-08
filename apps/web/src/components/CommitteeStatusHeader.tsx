@@ -28,6 +28,11 @@ const STATE_TONE: { readonly [K in DealState]: string } = {
   APPROVED:     'bg-green-50 text-green-800 border-green-300',
   REJECTED:     'bg-red-50   text-red-800   border-red-300',
   POSTPONED:    'bg-purple-50 text-purple-800 border-purple-300',
+  // Chunk 7b — originator-comms states (reuse the existing palette so every class stays
+  // in the Tailwind build). The exhaustive mapped type guarantees no undefined tone.
+  SENT_TO_BUYER:  'bg-blue-50  text-blue-800 border-blue-300',   // waiting on buyer
+  PUSHED_BACK:    'bg-amber-50 text-amber-800 border-amber-300', // attention
+  CALL_REQUESTED: 'bg-purple-50 text-purple-800 border-purple-300',
 };
 
 export function CommitteeStatusHeader({ workflow }: Props): React.ReactElement {

@@ -62,6 +62,7 @@
     "test:role-siloing-chunk1": "tsx src/scripts/test-role-siloing-chunk1.ts",
     "test:role-siloing-chunk2": "tsx src/scripts/test-role-siloing-chunk2.ts",
     "test:role-siloing-chunk7a": "tsx src/scripts/test-role-siloing-chunk7a.ts",
+    "test:role-siloing-chunk7b": "tsx src/scripts/test-role-siloing-chunk7b.ts",
     "test:stress-contracts": "tsx src/scripts/test-stress-contracts.ts",
     "test:asset-profiler": "tsx src/scripts/test-asset-profiler.ts",
     "test:reason-catalogue": "tsx src/scripts/test-reason-catalogue.ts",

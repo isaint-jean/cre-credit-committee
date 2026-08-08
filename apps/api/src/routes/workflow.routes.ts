@@ -85,6 +85,10 @@ const KIND_PERMISSION_MAP: { readonly [K in CommitteeActionKind]: string } = {
   APPROVE_DEAL:        'workflow:approve',
   REJECT_DEAL:         'workflow:reject',
   POSTPONE_DEAL:       'workflow:postpone',
+  // Chunk 7b — the originator comms kinds, gated by the 7a permissions (originator-only).
+  ORIGINATOR_PUSHBACK: 'workflow:respond',
+  CALL_REQUESTED:      'workflow:request-call',
+  SEND_TO_BUYER:       'workflow:send-to-buyer',
 };
 
 function isKnownKind(kind: string): kind is CommitteeActionKind {

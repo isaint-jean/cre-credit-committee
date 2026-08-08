@@ -34,6 +34,11 @@ export const COMMITTEE_ACTION_KINDS = [
   'APPROVE_DEAL',
   'REJECT_DEAL',
   'POSTPONE_DEAL',
+  // Chunk 7b (additive) — ORIGINATOR communication/negotiation events. Gated by the
+  // 7a permissions (respond / request-call / send-to-buyer) — originator-only.
+  'ORIGINATOR_PUSHBACK',   // contest a buyer requirement/decision
+  'CALL_REQUESTED',        // request a call with the buyer
+  'SEND_TO_BUYER',         // submit the seller UW to the buyer
 ] as const;
 export type CommitteeActionKind = (typeof COMMITTEE_ACTION_KINDS)[number];
 
@@ -72,13 +77,32 @@ export interface PostponeDealPayload {
   readonly until: ISODateTime | null;   // optional revisit date
 }
 
+// Chunk 7b — originator communication payloads.
+export interface OriginatorPushbackPayload {
+  readonly kind: 'ORIGINATOR_PUSHBACK';
+  readonly reason: string;              // why the originator is pushing back
+}
+
+export interface CallRequestedPayload {
+  readonly kind: 'CALL_REQUESTED';
+  readonly topic: string | null;        // optional subject of the requested call
+}
+
+export interface SendToBuyerPayload {
+  readonly kind: 'SEND_TO_BUYER';
+  readonly summary: string;             // what the originator is sending to the buyer
+}
+
 export type CommitteeActionPayload =
   | SubmitToCommitteePayload
   | RequestMoreInfoPayload
   | OverrideDecisionPayload
   | ApproveDealPayload
   | RejectDealPayload
-  | PostponeDealPayload;
+  | PostponeDealPayload
+  | OriginatorPushbackPayload
+  | CallRequestedPayload
+  | SendToBuyerPayload;
 
 /* ----------------------------- the event ----------------------------- */
 
