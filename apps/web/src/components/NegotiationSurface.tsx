@@ -270,6 +270,9 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busyLever, setBusyLever] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Chunk 7c — the originator's negotiation actions (push back / request a call /
+  // send to buyer), posted as the 7b committee-action events, gated by the 7a perms.
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [callRequests, setCallRequests] = useState<Set<string>>(new Set());
   // Ratified levers, seeded from persisted timeline + optimistically extended on agree
   // (the page refetch collapses the optimistic set back into the derived read).
@@ -393,6 +396,28 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
   const toggle = (pid: string) =>
     setExpanded((prev) => { const n = new Set(prev); if (n.has(pid)) n.delete(pid); else n.add(pid); return n; });
   const requestCall = (key: string) => setCallRequests((p) => new Set(p).add(key));
+
+  // ★ Chunk 7c — post an originator comms event (7b) via the committee-action channel.
+  // The server gates each kind by the 7a permission (originator-only); on success the
+  // page refetches the workflow so the derived state (e.g. SENT_TO_BUYER → "waiting on
+  // buyer") appears. Constructive, collaborative — the "structure this together" posture.
+  const postOriginatorAction = async (
+    label: string,
+    body: Parameters<typeof api.submitCommitteeAction>[0]['payload'],
+    kind: Parameters<typeof api.submitCommitteeAction>[0]['kind'],
+  ): Promise<void> => {
+    if (busyAction !== null) return;
+    setBusyAction(label);
+    setError(null);
+    try {
+      await api.submitCommitteeAction({ rootId: data.rootId, renderedAnalysisId: data.id, kind, payload: body });
+      onWorkflowChanged?.();
+    } catch (e) {
+      setError((e as Error).message || 'Could not submit that action.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   // ★ Lever "agree" → REAL persisted OVERRIDE_DECISION.
   const ratifyLever = async (b: LeverBinding): Promise<void> => {
@@ -562,10 +587,14 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
             <span style={{ fontSize: 11, fontWeight: 600, color: sideC.accent, background: sideC.soft, border: `1px solid ${C.border}`, borderRadius: 999, padding: '2px 10px' }}>{sideC.label}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => requestCall('deal')}
-              style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${C.borderStrong}`, background: callRequests.has('deal') ? C.tealSoft : C.surface, color: C.ink2 }}>
-              {callRequests.has('deal') ? 'Call requested — preview, not sent' : 'Request a call'}
-            </button>
+            {/* The old preview "Request a call" is hidden for the originator — they get
+                the REAL 7c action below. Buyer/platform keep the preview. */}
+            {side !== 'originator' ? (
+              <button onClick={() => requestCall('deal')}
+                style={{ fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${C.borderStrong}`, background: callRequests.has('deal') ? C.tealSoft : C.surface, color: C.ink2 }}>
+                {callRequests.has('deal') ? 'Call requested — preview, not sent' : 'Request a call'}
+              </button>
+            ) : null}
             <span style={{ fontSize: 12, color: C.ink3 }}>Viewing as</span>
             <div style={{ display: 'inline-flex', border: `1px solid ${C.borderStrong}`, borderRadius: 7, overflow: 'hidden' }}>
               {(['bp_spire', 'originator'] as Role[]).map((r) => {
@@ -581,6 +610,16 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
           </div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 10, color: C.ink3, marginBottom: 12 }}>Role toggle is a presentation preview, not access control.</div>
+
+        {/* ── Chunk 7c — "Waiting on buyer" status (SENT_TO_BUYER). A calm chip, not a
+             button: the originator sent the seller UW and is awaiting the buyer. ────── */}
+        {workflow?.state === 'SENT_TO_BUYER' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.tealSoft, border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', marginBottom: 12, fontSize: 13, color: C.tealDeep }}>
+            <span aria-hidden>⏳</span>
+            <span style={{ fontWeight: 600 }}>Waiting on buyer</span>
+            <span style={{ color: C.ink3 }}>— your seller underwriting is with the buyer for review.</span>
+          </div>
+        ) : null}
 
         {/* ── Convergence (ratified-mitigant COUNT; NOT the score) + derived Cleared ── */}
         <ConvergenceBar
@@ -630,6 +669,37 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
             />
           ))}
         </div>
+
+        {/* ── Chunk 7c — the ORIGINATOR's moves (side === 'originator' only; the buyer's
+             view of these is 7d, held). Constructive: push back / request a call are
+             understated; "Send to buyer" is the meaningful submit (primary). ────────── */}
+        {side === 'originator' ? (
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: C.ink3, marginBottom: 8 }}>
+              Your move <span style={{ textTransform: 'none', letterSpacing: 0, color: C.ink3 }}>— how you want to move this forward with the buyer</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                disabled={busyAction !== null}
+                onClick={() => { void postOriginatorAction('pushback', { kind: 'ORIGINATOR_PUSHBACK', reason: 'Contesting the buyer requirement — proposing to structure instead.' }, 'ORIGINATOR_PUSHBACK'); }}
+                style={{ fontSize: 13, fontWeight: 500, padding: '7px 14px', borderRadius: 7, cursor: busyAction ? 'not-allowed' : 'pointer', border: `1px solid ${C.borderStrong}`, background: C.surface, color: C.ink2, opacity: busyAction && busyAction !== 'pushback' ? 0.5 : 1 }}>
+                {busyAction === 'pushback' ? 'Pushing back…' : 'Push back'}
+              </button>
+              <button
+                disabled={busyAction !== null}
+                onClick={() => { void postOriginatorAction('call', { kind: 'CALL_REQUESTED', topic: null }, 'CALL_REQUESTED'); }}
+                style={{ fontSize: 13, fontWeight: 500, padding: '7px 14px', borderRadius: 7, cursor: busyAction ? 'not-allowed' : 'pointer', border: `1px solid ${C.borderStrong}`, background: C.surface, color: C.ink2, opacity: busyAction && busyAction !== 'call' ? 0.5 : 1 }}>
+                {busyAction === 'call' ? 'Requesting…' : 'Request a call'}
+              </button>
+              <button
+                disabled={busyAction !== null}
+                onClick={() => { void postOriginatorAction('send', { kind: 'SEND_TO_BUYER', summary: 'Seller underwriting submitted to the buyer for review.' }, 'SEND_TO_BUYER'); }}
+                style={{ fontSize: 13, fontWeight: 600, padding: '7px 16px', borderRadius: 7, cursor: busyAction ? 'not-allowed' : 'pointer', border: 'none', background: C.teal, color: '#fff', opacity: busyAction && busyAction !== 'send' ? 0.6 : 1 }}>
+                {busyAction === 'send' ? 'Sending…' : 'Send to buyer'}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </CollapsibleSection>
     </>
   );
