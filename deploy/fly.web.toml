@@ -29,10 +29,15 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 0
 
+  # grace_period holds the health check off until next start binds (Ready in ~1.4s, so this
+  # is generous). NOTE: this governs the recurring HEALTH check, not Fly's deploy-time SMOKE
+  # check — that early probe isn't grace-able from the toml, so if a healthy app still gets
+  # rolled back on deploy, redeploy with `--strategy immediate` (see RUNBOOK §8 / the deploy
+  # note). 30s mirrors the api config.
   [[http_service.tcp_checks]]
     interval = "15s"
     timeout = "3s"
-    grace_period = "20s"
+    grace_period = "30s"
 
 [[vm]]
   size = "shared-cpu-1x"

@@ -182,10 +182,19 @@ Success: secrets staged. Gotcha: if you renamed the apps, fix the `.internal` UR
 
 ## 8. Deploy the web  ← 💵 second machine
 ```bash
-fly deploy --config deploy/fly.web.toml
+fly deploy --config deploy/fly.web.toml --strategy immediate
 ```
 Success: `next build` runs, machine boots, the public `https://cre-web.fly.dev` is live. The web
 proxies `/api/*` to the private `cre-api.internal:3001` (no CORS, api never public).
+
+★ **Why `--strategy immediate`:** the web app boots fast (`✓ Ready in ~1.4s`), but Fly's deploy-time
+**smoke check** fires a short fixed probe right after start and, if it races the boot, rolls the healthy
+machine back (`smoke checks failed / machine not found`). That early probe is NOT governed by the
+health-check `grace_period` in the toml. `--strategy immediate` creates + starts the machine without
+waiting on that gate — safe here because the app is proven healthy; you verify it yourself in Step 9.
+Once it's up, ordinary redeploys usually work without the flag (the recurring TCP check's `grace_period`
+covers boot). Optional, to run a single demo machine instead of Fly's default 2:
+`fly scale count 1 --app cre-web` (non-destructive; lowers cost).
 
 ## 9. Smoke test (over the internet)
 Open `https://cre-web.fly.dev`:
