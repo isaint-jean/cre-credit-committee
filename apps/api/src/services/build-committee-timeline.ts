@@ -82,6 +82,15 @@ function summarizeAction(a: CommitteeActionEvent): string {
           (a.payload.reasons.length === 1 ? '' : 's') : '');
     case 'POSTPONE_DEAL':
       return 'Deal postponed: ' + a.payload.reason;
+    // Chunk 7d — descriptive labels for the 7b originator-comms events (were falling
+    // through to the generic default). These read the same in everyone's timeline; the
+    // buyer's view uses this to SEE what the originator did.
+    case 'SEND_TO_BUYER':
+      return 'Originator sent the updated seller UW to the buyer';
+    case 'ORIGINATOR_PUSHBACK':
+      return 'Originator pushed back on a buyer requirement';
+    case 'CALL_REQUESTED':
+      return 'Originator requested a call with the buyer';
     default:
       return 'Committee action';
   }

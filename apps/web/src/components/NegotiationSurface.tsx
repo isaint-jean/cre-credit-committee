@@ -611,15 +611,38 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
         </div>
         <div style={{ textAlign: 'right', fontSize: 10, color: C.ink3, marginBottom: 12 }}>Role toggle is a presentation preview, not access control.</div>
 
-        {/* ── Chunk 7c — "Waiting on buyer" status (SENT_TO_BUYER). A calm chip, not a
-             button: the originator sent the seller UW and is awaiting the buyer. ────── */}
-        {workflow?.state === 'SENT_TO_BUYER' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.tealSoft, border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', marginBottom: 12, fontSize: 13, color: C.tealDeep }}>
-            <span aria-hidden>⏳</span>
-            <span style={{ fontWeight: 600 }}>Waiting on buyer</span>
-            <span style={{ color: C.ink3 }}>— your seller underwriting is with the buyer for review.</span>
-          </div>
-        ) : null}
+        {/* ── Chunk 7c/7d — originator-action status chip. SIDE-AWARE: the originator
+             sees the "waiting" framing; the BUYER sees what the originator did (7d — closes
+             the loop). SENT_TO_BUYER carries the "awaiting buyer" meaning (a distinct
+             AWAITING_BUYER state would be a dead enum member — no buyer-ack event produces
+             it, deferred). The full history is in the committee timeline below. ────────── */}
+        {(() => {
+          const s = workflow?.state;
+          if (s !== 'SENT_TO_BUYER' && s !== 'PUSHED_BACK' && s !== 'CALL_REQUESTED') return null;
+          const isBuyer = side === 'buyer';
+          const icon = s === 'SENT_TO_BUYER' ? '⏳' : s === 'CALL_REQUESTED' ? '📞' : '↩';
+          const lead = isBuyer
+            ? (s === 'SENT_TO_BUYER' ? 'Originator sent you the updated UW'
+              : s === 'CALL_REQUESTED' ? 'Originator requested a call'
+              : 'Originator pushed back')
+            : (s === 'SENT_TO_BUYER' ? 'Waiting on buyer'
+              : s === 'CALL_REQUESTED' ? 'You requested a call'
+              : 'You pushed back');
+          const tail = isBuyer
+            ? (s === 'SENT_TO_BUYER' ? '— the seller underwriting is with you for review.'
+              : s === 'CALL_REQUESTED' ? '— they want to talk this through.'
+              : '— they are contesting a requirement and proposing to structure instead.')
+            : (s === 'SENT_TO_BUYER' ? '— your seller underwriting is with the buyer for review.'
+              : s === 'CALL_REQUESTED' ? '— awaiting the buyer to schedule.'
+              : '— your position is on the buyer’s desk.');
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.tealSoft, border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', marginBottom: 12, fontSize: 13, color: C.tealDeep }}>
+              <span aria-hidden>{icon}</span>
+              <span style={{ fontWeight: 600 }}>{lead}</span>
+              <span style={{ color: C.ink3 }}>{tail}</span>
+            </div>
+          );
+        })()}
 
         {/* ── Convergence (ratified-mitigant COUNT; NOT the score) + derived Cleared ── */}
         <ConvergenceBar
