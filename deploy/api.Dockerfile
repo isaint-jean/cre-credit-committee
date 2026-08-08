@@ -44,11 +44,23 @@ COPY . .
 # The api reads DB_PATH = process.cwd()/data/cre.db, so cwd must be apps/api.
 WORKDIR /app/apps/api
 
+# ─── SINGLE-VOLUME LAYOUT ────────────────────────────────────────────────────
+# Fly Machines allow only ONE volume per machine, so both persistent trees share the
+# one cre_docs volume (mounted at .data by fly.api.toml):
+#   • .data/     — document bytes + corpus (the volume root)
+#   • .data/db/  — the SQLite DB, reached via this `data` symlink so the app's UNCHANGED
+#                  DB_PATH (process.cwd()/data/cre.db) still resolves onto the volume.
+# Relative symlink → it points at .data/db regardless of absolute path. Dangling at build
+# time (the volume mounts at runtime); the CMD mkdir below creates the target on boot.
+RUN rm -rf data && ln -sfn .data/db data
+
 EXPOSE 3001
 
 # Liveness — the api exposes GET /health.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Run the TS entrypoint via tsx (no watch).
-CMD ["npx", "tsx", "src/index.ts"]
+# On boot, ensure the volume subdirs exist (the volume is empty on first deploy, and the
+# SQLite/blob writers need their dirs), then exec the TS entrypoint via tsx (exec so
+# SIGTERM reaches tsx). `data` symlinks to .data/db.
+CMD ["sh", "-c", "mkdir -p .data/db .data/blobs && exec npx tsx src/index.ts"]

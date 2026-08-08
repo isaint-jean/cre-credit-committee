@@ -48,27 +48,32 @@ fly apps create cre-api
 ```
 Success: "New app created: cre-api". Gotcha: if the name is taken, pick another + update the tomls.
 
-## 2. Create BOTH volumes (in the SAME region as the toml's primary_region)
-★ The api persists **two** trees. Creating only the first silently loses every uploaded document on
-the next deploy — that was the bug this runbook step exists to prevent.
+## 2. Create ONE volume (in the SAME region as the toml's primary_region)
+★ Fly Machines allow only **ONE volume per machine** — so both trees (the SQLite DB *and* the
+document bytes + corpus) share a single volume, `cre_docs`. The DB lives in `.data/db/` on it, via a
+symlink baked into the image; the docs + corpus are the volume root. Both survive every redeploy.
 
 ```bash
-# 1) the SQLite DB — data/cre.db is 18MB today; 1GB is ample headroom for WAL growth
-fly volumes create cre_data --app cre-api --region iad --size 1
-
-# 2) the document bytes + UW corpus — .data/ is 1.4GB locally
-#    (source-docs 1.2G, blobs 243M, corpus JSON ~4M). 4GB leaves room to hold the
-#    upload tarball AND its extraction side-by-side during Step 6.
+# the document bytes + UW corpus (.data/ is 1.4GB locally: source-docs 1.2G, blobs 243M,
+# corpus JSON ~4M) PLUS the SQLite DB in .data/db/ (18MB). 4GB holds all of it, plus the
+# upload tarball AND its extraction side-by-side during Step 6.
 fly volumes create cre_docs --app cre-api --region iad --size 4
 ```
-Success: `fly volumes list --app cre-api` shows **both** `cre_data` and `cre_docs`.
+Success: `fly volumes list --app cre-api` shows `cre_docs`.
+
+★ If you already created `cre_data` (1GB) from the two-volume attempt, it's now **unused** — destroy it
+so it isn't billed:
+```bash
+fly volumes list --app cre-api                       # note the cre_data volume id
+fly volumes destroy <cre_data-volume-id> --app cre-api
+```
 
 Gotchas:
 - The region MUST match `primary_region` in fly.api.toml (`iad` by default) — SQLite is single-region,
   and a volume in the wrong region simply won't attach.
-- Volume names must match `[[mounts]] source` in fly.api.toml exactly (`cre_data`, `cre_docs`).
+- The volume name must match `[[mounts]] source` in fly.api.toml exactly (`cre_docs`).
 - Going lean? If you skip `.data/source-docs` in Step 6 (1.2G of historical-UW source files, not needed
-  to view existing deals), `--size 1` is enough for `cre_docs`.
+  to view existing deals), `--size 1` is enough.
 
 ## 3. Set the api secrets (free; stored encrypted)
 ```bash
@@ -84,12 +89,14 @@ default — non-negotiable before anyone logs in.
 fly deploy --config deploy/fly.api.toml
 ```
 Success: build runs (npm ci + better-sqlite3 + tsx), machine boots, health check on `/health` goes
-green. Gotchas to watch: (a) it runs via **tsx** (NOT node dist — proven locally); (b) **both** volumes
-mount under cwd `/app/apps/api` — `cre_data` → `data/` (so `process.cwd()/data/cre.db` resolves) and
-`cre_docs` → `.data/` (blobs + corpus); (c) on empty volumes it **seeds the 3 users on boot but has NO
-deals and NO documents yet** — Steps 5 and 6 ship those. A boot log reading
-`Loaded 0 historical UWs, 0 learned rules from disk.` is EXPECTED here, not an error: the corpus arrives
-in Step 6. Verify the mounts with `fly ssh console --app cre-api --command "df -h /app/apps/api/data /app/apps/api/.data"`.
+green. Gotchas to watch: (a) it runs via **tsx** (NOT node dist — proven locally); (b) the single
+`cre_docs` volume mounts at cwd `/app/apps/api/.data`, and `data/` is a **symlink → `.data/db`** so
+`process.cwd()/data/cre.db` resolves onto the same volume (both DB and docs persist); (c) on an empty
+volume it **seeds the 3 users on boot but has NO deals and NO documents yet** — Steps 5 and 6 ship those.
+A boot log reading `Loaded 0 historical UWs, 0 learned rules from disk.` is EXPECTED here, not an error:
+the corpus arrives in Step 6. Verify the mount with
+`fly ssh console --app cre-api --command "df -h /app/apps/api/.data && ls -ld /app/apps/api/data"`
+(the volume on `.data`, and `data` shown as a symlink to `.data/db`).
 
 ## 5. Ship cre.db (the deals) onto the volume
 The api seeds users but not deals. To have Sunroad/640, ship your local DB:
@@ -99,12 +106,14 @@ sqlite3 apps/api/data/cre.db ".backup './cre.db.snapshot'"
 # stop the machine so nothing holds the DB open, upload, restart:
 fly machine list --app cre-api                       # note the machine id
 fly machine stop <machine-id> --app cre-api
-fly ssh sftp shell --app cre-api                     # then: put ./cre.db.snapshot /app/apps/api/data/cre.db   (then `quit`)
+fly ssh sftp shell --app cre-api                     # then: put ./cre.db.snapshot /app/apps/api/.data/db/cre.db   (then `quit`)
 fly machine start <machine-id> --app cre-api
 rm ./cre.db.snapshot
 ```
 Success: after restart, `fly logs --app cre-api` shows a clean boot; a later `/pools` read returns the
-deals. Gotcha: upload while the machine is **stopped** (avoid a WAL write conflict).
+deals. Gotchas: upload while the machine is **stopped** (avoid a WAL write conflict); ship to the real
+path **`/app/apps/api/.data/db/cre.db`** (that's where the `data` symlink points — `.data/db` was
+mkdir'd on the first boot in Step 4, so the directory already exists on the volume).
 
 ## 6. ★ Ship `.data/` (the document bytes + UW corpus) onto the cre_docs volume
 Step 5 shipped the *deals*; this ships the *documents and the learned corpus*. Skip it and the app boots
@@ -192,6 +201,6 @@ Open `https://cre-web.fly.dev`:
 ```bash
 fly apps destroy cre-web && fly apps destroy cre-api   # removes machines + BOTH volumes
 ```
-★ Destroying `cre-api` destroys `cre_data` **and** `cre_docs` with it — every document and every
-production-side corpus change goes with them. Your local `apps/api/data` + `.data` are the only other
-copy, so this is only "reversible" to the state you last shipped in Steps 5-6.
+★ Destroying `cre-api` destroys the `cre_docs` volume with it — the SQLite DB (`.data/db`), every
+document, and every production-side corpus change go with it. Your local `apps/api/data` + `.data` are
+the only other copy, so this is only "reversible" to the state you last shipped in Steps 5-6.

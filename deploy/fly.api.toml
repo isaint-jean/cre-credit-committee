@@ -32,35 +32,32 @@ primary_region = "iad"   # pick a region near you (iad = US-East). Volume is pin
   # are SECRETS (fly secrets set), never here.
   FRONTEND_URL = "https://cre-web.fly.dev"
 
-# ─── PERSISTENCE ────────────────────────────────────────────────────────────
-# The api writes to TWO cwd-relative trees (cwd = /app/apps/api). BOTH must be
-# volumes: anything not mounted lives in the ephemeral image layer and is LOST on
-# every redeploy.
+# ─── PERSISTENCE (single volume) ─────────────────────────────────────────────
+# ★ Fly Machines allow only ONE volume per machine. `fly config validate` ACCEPTS two
+#   [[mounts]], but the machine launcher rejects them ("invalid config.mounts, only 1
+#   volume supported") — a deploy-then-fail. So both persistent trees share the ONE
+#   cre_docs volume (4GB), mounted at .data (cwd = /app/apps/api):
 #
-# 1) data/  — the SQLite DB. DB_PATH = process.cwd()/data/cre.db
-#              (apps/api/src/storage/sqlite-store.ts:29).
-[[mounts]]
-  source = "cre_data"
-  destination = "/app/apps/api/data"
-
-# 2) .data/ — the DOCUMENT BYTES + learned corpus. Verified writers, all resolved
-#    from process.cwd() and therefore all under this one mount:
-#      • .data/blobs/       — content-addressed document bytes
-#                             (storage/blob-store.ts:67, mkdir -p on write)
-#      • .data/source-docs/ — historical-UW source files
-#                             (services/source-doc-store.service.ts:56)
-#      • .data/uploads/     — originals kept for re-download
-#      • .data/historical-uws.json + learned-rules.json + rule-versions.json
-#                             — the UW corpus (services/uw-intelligence.service.ts:45);
-#                               this is the "Loaded 267 historical UWs, 36 learned
-#                               rules" line at boot
-#      • .data/kicks-master-list.json — the one tracked file under .data/
+#   • .data/     — the DOCUMENT BYTES + learned corpus, i.e. the volume root itself:
+#       - blobs/       content-addressed document bytes (blob-store.ts:67, mkdir -p on write)
+#       - source-docs/ historical-UW source files (source-doc-store.service.ts:56)
+#       - uploads/     originals kept for re-download
+#       - historical-uws.json + learned-rules.json + rule-versions.json — the UW corpus
+#                      (uw-intelligence.service.ts:45); the "Loaded 267 historical UWs,
+#                      36 learned rules" line at boot
+#       - kicks-master-list.json
+#   • .data/db/  — the SQLite DB. The image symlinks `data` → `.data/db` (api.Dockerfile),
+#                  so the app's UNCHANGED DB_PATH (process.cwd()/data/cre.db,
+#                  sqlite-store.ts:29) resolves onto this same volume. .data/db is
+#                  mkdir'd at boot.
 #
-#    WITHOUT this mount every document uploaded in production vanished on the next
-#    deploy, and the corpus reset to 0. An EMPTY volume is safe to boot: loadMap()
-#    returns an empty Map for a missing file and ensureDataDir() mkdirs
-#    (uw-intelligence.service.ts:120-130) — you get a working app with 0 UWs until
-#    you seed it. Seed via RUNBOOK §6.
+#   The .data persistence guarantee is preserved — .data mounts DIRECTLY at its real path,
+#   so documents + corpus survive every redeploy; the DB now rides along in .data/db.
+#   An EMPTY volume is safe to boot (missing corpus files → empty Map; dirs mkdir'd at
+#   boot) — a working app with 0 UWs until you seed it (RUNBOOK §5–6).
+#
+#   ★ cre_data (1GB) from the two-volume attempt is now UNUSED — destroy it (RUNBOOK §2)
+#     so it isn't billed.
 [[mounts]]
   source = "cre_docs"
   destination = "/app/apps/api/.data"
