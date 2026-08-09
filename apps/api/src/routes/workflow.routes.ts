@@ -41,6 +41,7 @@ import {
   computeContentHash,
   computeOverlayPatchId,
 } from '../util/content-hash.js';
+import { enforceDealForRoot } from '../middleware/deal-access.js';
 import { CommitteeActionsStore } from '../storage/committee-actions-store.js';
 import { AuditEventsStore } from '../storage/audit-events-store.js';
 import { CommitteeSnapshotsStore } from '../storage/committee-snapshots-store.js';
@@ -517,6 +518,7 @@ workflowRoutes.get(
     if (typeof rootId !== 'string' || rootId.length === 0) {
       return res.status(400).json({ error: 'BAD_REQUEST', message: 'rootId required' });
     }
+    if (!enforceDealForRoot(req, res, rootId)) return; // Chunk 3b (dark): gate the deal
     const rows = patchesStore().getByRootWithSide(rootId as DoctrineEvaluationId);
     const comments = rows
       .filter((r) => r.patch.kind === 'comment')
@@ -549,6 +551,7 @@ workflowRoutes.get(
     if (typeof rootId !== 'string' || rootId.length === 0) {
       return res.status(400).json({ error: 'BAD_REQUEST', message: 'rootId required' });
     }
+    if (!enforceDealForRoot(req, res, rootId)) return; // Chunk 3b (dark): gate the deal
     const result = computeDealWorkflowState({
       rootId: rootId as DoctrineEvaluationId,
       committeeActionsStore: actionsStore(),
@@ -572,6 +575,7 @@ workflowRoutes.get(
     if (typeof rootId !== 'string' || rootId.length === 0) {
       return res.status(400).json({ error: 'BAD_REQUEST', message: 'rootId required' });
     }
+    if (!enforceDealForRoot(req, res, rootId)) return; // Chunk 3b (dark): gate the deal
     const result = buildCommitteeTimeline({
       rootId: rootId as DoctrineEvaluationId,
       auditEventsStore: auditStore(),
@@ -597,6 +601,7 @@ workflowRoutes.get(
     if (typeof rootId !== 'string' || rootId.length === 0) {
       return res.status(400).json({ error: 'BAD_REQUEST', message: 'rootId required' });
     }
+    if (!enforceDealForRoot(req, res, rootId)) return; // Chunk 3b (dark): gate the deal
     const chains = rebuildAuditChain(rootId as DoctrineEvaluationId, auditStore());
     // Convert Map to a plain object for JSON serialization. Stable key order
     // (Map iteration is insertion order; same input -> same output).

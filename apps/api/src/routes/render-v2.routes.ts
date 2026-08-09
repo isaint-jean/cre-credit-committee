@@ -17,6 +17,7 @@ import type { Request, Response } from 'express';
 import { HydrationError } from '../services/hydrate-record-graph.js';
 import { materializeRenderedAnalysisWithMeta } from '../services/materialize-rendered-analysis.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
+import { enforceDealForRoot } from '../middleware/deal-access.js';
 
 export const renderV2Routes = Router();
 
@@ -33,6 +34,7 @@ renderV2Routes.post('/', (req: Request, res: Response) => {
       message: 'rootId (string) is required',
     });
   }
+  if (!enforceDealForRoot(req, res, body.rootId)) return; // Chunk 3b (dark): gate the deal
 
   try {
     // Memoized read-pole pipeline (post-6.8 caching layer).

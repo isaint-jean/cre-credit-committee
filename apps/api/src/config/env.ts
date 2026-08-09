@@ -20,4 +20,12 @@ export const env = {
    * that exercise DD set the per-call `enabled` flag directly and bypass this.
    */
   externalDdAtMint: process.env.EXTERNAL_DD_AT_MINT === 'true',
+  /**
+   * Chunk 3b — deal-access enforcement (dark-ship flag). Default OFF: the whole
+   * enforcement sweep (middleware/deal-access.ts) is a NO-OP until this is 'true',
+   * so shipping 3b changes nothing live until it's flipped (after the deployed-DB
+   * backfill). The middleware reads process.env live for per-process/per-test
+   * togglability; this entry documents the default.
+   */
+  dealAccessEnforcement: process.env.DEAL_ACCESS_ENFORCEMENT === 'true',
 };

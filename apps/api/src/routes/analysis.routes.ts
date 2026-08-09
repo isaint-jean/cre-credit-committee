@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { uploadDualFiles, uploadAnalysisFiles, upload } from '../middleware/upload.js';
+import { enforceAnalysisParam, filterAccessibleAnalyses, enforceDealForRoot } from '../middleware/deal-access.js';
 import { store } from '../storage/sqlite-store.js';
 import type { SqliteStore } from '../storage/sqlite-store.js';
 import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
@@ -82,6 +83,14 @@ import { env } from '../config/env.js';
 import type { RevisionId as GraphRevisionIdType } from '@cre/contracts';
 
 export const analysisRoutes = Router();
+
+// Chunk 3b (dark): gate EVERY /:id/* analysis route by DEAL access — resolves the id
+// (uuid OR 64-hex lineageRoot) to its lineageRootId, then checks the grant. Covers
+// buyer-diff, memo, intake-completeness, handbook-evaluation, status, decisions,
+// revisions, archive/restore/delete, export. The list GET / is filtered per-row
+// below; lookup/compare/audit-log + Spine-B rootId handlers gate in-handler. NO-OP
+// when the flag is off.
+analysisRoutes.param('id', enforceAnalysisParam);
 
 // POST /api/analyses — Upload and start analysis
 analysisRoutes.post('/', uploadAnalysisFiles as any, async (req: Request, res: Response) => {
@@ -233,7 +242,9 @@ analysisRoutes.post('/', uploadAnalysisFiles as any, async (req: Request, res: R
 analysisRoutes.get('/', (req: Request, res: Response) => {
   // Soft-archive: hide archived deals by default; ?includeArchived=true retrieves them.
   const includeArchived = req.query['includeArchived'] === 'true';
-  const analyses = store.listAnalyses(includeArchived);
+  // Chunk 3b (dark): per-ROW filter to the deals the user may see (never a blanket
+  // 403 on the list). Pass-through when the flag is off / for admin.
+  const analyses = filterAccessibleAnalyses(req, store.listAnalyses(includeArchived), (a) => a.lineageRootId);
   res.json({ analyses });
 });
 

@@ -60,6 +60,7 @@ import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { computePoolCoverage } from '../services/pool/pool-coverage.service.js';
 import { underwriteJobStore } from '../storage/underwrite-job-store.js';
 import { dealAccessStore } from '../storage/deal-access-store.js';
+import { enforcePoolParam, filterAccessiblePools, enforceDealForRoot } from '../middleware/deal-access.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import {
   advanceTapePhaseA,
@@ -76,6 +77,12 @@ import {
 import { mintPoolId } from '../util/pool-ids.js';
 
 export const poolRoutes = Router();
+
+// Chunk 3b (dark): gate EVERY /:poolId/* pool route by POOL access (detail,
+// coverage, tapes/membership, loans/history, dispositions, final-tape, overrides).
+// The list GET / is filtered per-row below; /loan-for-root?rootId is gated in-handler.
+// NO-OP when the flag is off.
+poolRoutes.param('poolId', enforcePoolParam);
 
 /* -------------------------- Lazy-singleton store -------------------------- */
 // Matches the workflow.routes.ts convention: open the sqlite connection on
@@ -684,7 +691,9 @@ poolRoutes.get('/', (req: Request, res: Response) => {
     filter.seller = req.query['seller'];
   }
   try {
-    const pools = poolStore().listPools(filter);
+    // Chunk 3b (dark): per-ROW filter to the pools the user may see (never a blanket
+    // 403 on the list). Pass-through when the flag is off / for admin.
+    const pools = filterAccessiblePools(req, poolStore().listPools(filter), (p) => p.id);
     return res.json({ pools });
   } catch (e) { return mapThrow(res, e); }
 });
@@ -713,6 +722,7 @@ poolRoutes.get('/loan-for-root', (req: Request, res: Response) => {
   if (typeof rootId !== 'string' || rootId.trim().length === 0) {
     return send400Bad(res, 'rootId query parameter is required');
   }
+  if (!enforceDealForRoot(req, res, rootId)) return; // Chunk 3b (dark): gate the deal
   try {
     const result = resolveLoanForRoot(rootId);
     return res.json(result);
