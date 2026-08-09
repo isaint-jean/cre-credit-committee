@@ -1317,14 +1317,16 @@ export const api = {
 
   // GET /api/pools/:poolId/underwrite-jobs → per-loan ASYNC underwrite job state
   // (Data-Room Phase 3, P3). Latest job per loan; state ∈ pending | running | done
-  // | failed | interrupted. The chip polls this: pending|running → "Underwriting…"
-  // (inert); done → resolves to /coverage; failed|interrupted → the REAL reason.
+  // | partial | failed | interrupted. The chip polls this: pending|running →
+  // "Underwriting…" (inert); done → resolves to /coverage; partial → "Scored ·
+  // memo pending" (the score stands, the narrative deferred — e.g. credits out);
+  // failed|interrupted → the REAL reason.
   getPoolUnderwriteJobs: (poolId: PoolId | string) =>
     request<{
       jobs: Array<{
         loanInPoolId: string;
         jobId: string;
-        state: 'pending' | 'running' | 'done' | 'failed' | 'interrupted';
+        state: 'pending' | 'running' | 'done' | 'partial' | 'failed' | 'interrupted';
         reason: string | null;
         updatedAt: string;
       }>;

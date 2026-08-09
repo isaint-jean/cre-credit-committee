@@ -322,8 +322,9 @@ console.log('\nDirect call to evaluateAndNarrate exposes wrapper return shape:')
   );
   assert(result.evaluation !== undefined, 'wrapper returns evaluation');
   assert(result.handbookEvaluation !== undefined, 'wrapper returns handbookEvaluation');
-  assert(result.narrative !== undefined, 'wrapper returns narrative');
-  assertEqual(result.narrative.handbookEvaluationId, result.handbookEvaluation.id, 'narrative.handbookEvaluationId === HE.id from same call');
+  assert(result.narrative !== null, 'wrapper returns narrative (status ok)');
+  assertEqual(result.narrativeStatus, 'ok', 'narrativeStatus is ok on a working narrative');
+  assertEqual(result.narrative!.handbookEvaluationId, result.handbookEvaluation.id, 'narrative.handbookEvaluationId === HE.id from same call');
 
   store.close();
 }
@@ -511,18 +512,20 @@ console.log('\nLast-narrative wins — getLatestNarrative returns newest by crea
   store.close();
 }
 
-console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment slot throws → wrapper rejects, no row written:');
+console.log('\nPartial-degradation semantics — red_flag_assessment slot throws → SCORED-but-un-narrated PARTIAL (not a failure), memo pending, retry recovers:');
 {
   const store = new RecordGraphStore(':memory:');
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
 
   /* Stub that succeeds for executive_summary but rejects on red_flag_assessment.
-     Per Q-S4 (f.1): Promise.all rejection in buildNarrative → evaluateAndNarrate
-     throws → no NarrativeEvaluation row persisted. HE + producer-tail rows DO
-     persist (they ran before the LLM calls, per the v23 inline-insert pattern).
-     Retry with a non-rejecting stub re-runs both slots; ON CONFLICT makes the
-     producer-tail re-inserts no-ops; the narrative composes fresh and persists. */
+     NEW contract (narrative-fails-soft fix): a narrative slot throw NO LONGER
+     rejects evaluateAndNarrate. buildNarrative is caught → the ingest returns a
+     scored-but-un-narrated PARTIAL: the producer-tail (AdjustedInputs / DE / …)
+     AND the lineage head ARE persisted (score readable), narrativeStatus is
+     'deferred', and NO NarrativeEvaluation row is written. A retry with a
+     non-rejecting stub re-runs the producer-tail as no-ops (ON CONFLICT) and
+     composes the narrative fresh — cheap recovery. Mirrors extraction-fails-soft. */
   const partialFailureStub: LLMCallFn = async ({ messages }) => {
     const content = messages[0]?.content;
     const text = typeof content === 'string' ? content : '';
@@ -532,38 +535,34 @@ console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment sl
     return STUB_EXEC_A;
   };
 
-  let threwFirst = false;
-  let ingest1;
-  try {
-    ingest1 = await ingestExtractionResult(
-      {
-        extractionResult: makeFullExtraction(),
-        propertyType: 'Office' as AssetType,
-        marketLiquidityHint: 'Primary',
-        librarySnapshotId: lib.id,
-        marketBenchmarks: makeBenchmarks(),
-        creditManifesto: makeManifesto(),
-        analysisAsOfDate: AS_OF,
-        rentRoll: null,
-      },
-      store,
-      { llmCall: partialFailureStub },
-    );
-  } catch {
-    threwFirst = true;
-  }
-  assert(threwFirst, 'first ingest with partial-failure stub throws');
-  assertEqual(ingest1, undefined, 'first ingest produced no IngestionResult');
+  const ingest1 = await ingestExtractionResult(
+    {
+      extractionResult: makeFullExtraction(),
+      propertyType: 'Office' as AssetType,
+      marketLiquidityHint: 'Primary',
+      librarySnapshotId: lib.id,
+      marketBenchmarks: makeBenchmarks(),
+      creditManifesto: makeManifesto(),
+      analysisAsOfDate: AS_OF,
+      rentRoll: null,
+    },
+    store,
+    { llmCall: partialFailureStub },
+  );
+  assert(ingest1.rootId !== undefined, 'first ingest DID NOT throw — degraded to a scored partial');
+  assertEqual(ingest1.narrativeStatus, 'deferred', 'ingest reports narrativeStatus deferred');
+  assert((ingest1.narrativeDeferredReason ?? '').includes('red_flag_assessment'), 'deferred reason records the failing slot');
+  // Score readable: the lineage head + doctrine evaluation persisted.
+  assert(store.getRevisionEnvelope(ingest1.rootId) !== null, 'lineage head persisted (score readable) despite narrative deferral');
+  assert(store.getDoctrineEvaluation(ingest1.evaluationId) !== null, 'DoctrineEvaluation persisted (score/band/dims intact)');
 
-  /* Verify no narrative row persisted. HE row DOES persist (producer-tail
-     ran before the LLM calls) — this is v23 idempotency-via-content-hash
-     semantics: re-ingest re-runs producer-tail as no-ops via ON CONFLICT. */
+  /* Producer-tail persisted; NO narrative row yet (memo pending). */
   const aiRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
     .db.prepare('SELECT id FROM adjusted_inputs').all() as Array<{ id: string }>;
-  assert(aiRows.length === 1, 'producer-tail persisted AdjustedInputs row even though narrative threw');
+  assert(aiRows.length === 1, 'producer-tail persisted AdjustedInputs row (scored)');
   const narrRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
     .db.prepare('SELECT id FROM narratives').all() as Array<{ id: string }>;
-  assertEqual(narrRows.length, 0, 'no narrative row written when red-flag slot threw');
+  assertEqual(narrRows.length, 0, 'no narrative row written when red-flag slot threw (memo pending)');
 
   /* Retry with a non-rejecting stub. v23 idempotency: producer-tail
      re-inserts are no-ops via ON CONFLICT; narrative composes fresh from
@@ -605,13 +604,11 @@ console.log('\nPartial-failure semantics (Q-S4 (f.1)) — red_flag_assessment sl
 // the three LLM-driven slots (executive_summary, red_flag_assessment,
 // committee_recommendation); their partial-failure blocks below verify it.
 
-console.log('\nPartial-failure (Phase 4) — committee_recommendation slot throws → wrapper rejects:');
+console.log('\nPartial-degradation (Phase 4) — committee_recommendation slot throws → scored partial (not a failure):');
 {
-  /* Final partial-failure block: verifies Q-S4 (f.1) symmetry for the 4th
-     slot. Confirms the 4-slot Promise.all extension preserves atomicity
-     semantics for the new committee_recommendation slot. With this test
-     all 4 slots have a Q-S4 symmetry verifier; the orchestrator's
-     fail-on-any-slot semantic is comprehensively exercised. */
+  /* Final partial-degradation block: the 4th slot (committee_recommendation)
+     failing degrades the same way — a scored partial, not a rejection. Confirms
+     the narrative-fails-soft fix applies uniformly across all LLM-driven slots. */
   const store = new RecordGraphStore(':memory:');
   const lib = makeSnapshot();
   store.insertLibrarySnapshot(lib);
@@ -627,30 +624,27 @@ console.log('\nPartial-failure (Phase 4) — committee_recommendation slot throw
     return STUB_EXEC_A;
   };
 
-  let threwCommittee = false;
-  try {
-    await ingestExtractionResult(
-      {
-        extractionResult: makeFullExtraction(),
-        propertyType: 'Office' as AssetType,
-        marketLiquidityHint: 'Primary',
-        librarySnapshotId: lib.id,
-        marketBenchmarks: makeBenchmarks(),
-        creditManifesto: makeManifesto(),
-        analysisAsOfDate: AS_OF,
-        rentRoll: null,
-      },
-      store,
-      { llmCall: committeeFailureStub },
-    );
-  } catch {
-    threwCommittee = true;
-  }
-  assert(threwCommittee, 'ingest with committee-failing stub throws (Q-S4 symmetry for slot 4)');
+  const ingestC = await ingestExtractionResult(
+    {
+      extractionResult: makeFullExtraction(),
+      propertyType: 'Office' as AssetType,
+      marketLiquidityHint: 'Primary',
+      librarySnapshotId: lib.id,
+      marketBenchmarks: makeBenchmarks(),
+      creditManifesto: makeManifesto(),
+      analysisAsOfDate: AS_OF,
+      rentRoll: null,
+    },
+    store,
+    { llmCall: committeeFailureStub },
+  );
+  assert(ingestC.rootId !== undefined, 'committee-failing ingest DID NOT throw — degraded to a scored partial');
+  assertEqual(ingestC.narrativeStatus, 'deferred', 'ingest reports narrativeStatus deferred (committee slot)');
+  assert(store.getDoctrineEvaluation(ingestC.evaluationId) !== null, 'DoctrineEvaluation persisted (score intact)');
 
   const narrRows = (store as unknown as { db: { prepare: (q: string) => { all: () => unknown[] } } })
     .db.prepare('SELECT id FROM narratives').all() as Array<{ id: string }>;
-  assertEqual(narrRows.length, 0, 'no narrative row written when committee slot threw');
+  assertEqual(narrRows.length, 0, 'no narrative row written when committee slot threw (memo pending)');
 
   store.close();
 }

@@ -111,10 +111,25 @@ export interface EvaluateAndNarrateDeps {
   readonly carryForwardExternalDD?: SnapshotExternalDD;
 }
 
+/**
+ * Narrative production status for a scored evaluation.
+ *   - 'ok'       — narrative produced + persisted (the full memo).
+ *   - 'deferred' — narrative LLM failed (e.g. credits exhausted); the doctrine
+ *                  tail (score/band/dims + snapshot) is STILL persisted. This is a
+ *                  degraded PARTIAL success, not a failure. A retry re-runs ONLY
+ *                  the narrative (the producer-tail is content-addressed → no-op).
+ */
+export type NarrativeStatus = 'ok' | 'deferred';
+
 export interface EvaluateAndNarrateResult {
   readonly evaluation: DoctrineEvaluation;
   readonly handbookEvaluation: HandbookEvaluation;
-  readonly narrative: NarrativeEvaluation;
+  /** null when `narrativeStatus === 'deferred'` (score persisted, memo pending). */
+  readonly narrative: NarrativeEvaluation | null;
+  /** Whether the narrative was produced ('ok') or deferred on LLM failure. */
+  readonly narrativeStatus: NarrativeStatus;
+  /** WHY the narrative deferred (error class + message); null when 'ok'. */
+  readonly narrativeDeferredReason: string | null;
   readonly mitigationProposalSet: MitigationProposalSet;
   /**
    * v1.6 — clean-doctrine EvaluateDealResult (in-memory; not persisted).
@@ -453,32 +468,56 @@ export async function evaluateAndNarrate(
   // Mitigation_suggestions slot renders the COMPOSED package + reconciliation
   // notes deterministically (no LLM). When the inputs are absent the
   // producer falls back to the v1.5 path automatically (legacy callers).
-  const narrative = await buildNarrative(
-    {
-      handbookEvaluation,
-      adjustedInputsId: args.adjustedInputs.id,
-      analysisAsOfDate: args.analysisAsOfDate,
-      // Narrative engine v1.4 — committee-recommendation gate.
-      dataConfidence:   args.adjustedInputs.dataConfidence,
-      dataQualityFlags: args.adjustedInputs.dataQualityFlags,
-      // Narrative engine v1.5 — mitigation_suggestions deterministic render
-      // + committee_recommendation grounding. The proposal set produced
-      // immediately above is the SAME record threaded here; the narrative
-      // producer reads it as the single source of truth for sized figures.
-      mitigationProposalSet,
-      // Narrative engine v1.6 — clean-doctrine authoritative numbers +
-      // composed-package wiring + handbook demotion.
-      dealResult,
-      composedMitigationPackage,
-    },
-    { llmCall: deps.llmCall },
-  );
-  store.insertNarrative(narrative);
+  // Narrative is the ONLY remaining LLM round-trip and the LAST step — the entire
+  // doctrine tail (DE/HE/VC/…), the mitigation set, and the render snapshot are
+  // ALREADY persisted above. If the narrative LLM throws (credits exhausted mid-
+  // run / API error), we DEGRADE to a scored-but-un-narrated PARTIAL rather than
+  // discarding the whole (already-persisted) evaluation: catch here, return
+  // narrative:null + status 'deferred', and let the caller persist the lineage
+  // head so the SCORE is readable. Retry (credits back) re-runs evaluateAndNarrate
+  // as a no-op producer-tail (content-addressed inserts) + re-attempts narrative.
+  // This mirrors how extraction already fails SOFT (returns nulls, never throws).
+  let narrative: NarrativeEvaluation | null = null;
+  let narrativeStatus: NarrativeStatus = 'ok';
+  let narrativeDeferredReason: string | null = null;
+  try {
+    narrative = await buildNarrative(
+      {
+        handbookEvaluation,
+        adjustedInputsId: args.adjustedInputs.id,
+        analysisAsOfDate: args.analysisAsOfDate,
+        // Narrative engine v1.4 — committee-recommendation gate.
+        dataConfidence:   args.adjustedInputs.dataConfidence,
+        dataQualityFlags: args.adjustedInputs.dataQualityFlags,
+        // Narrative engine v1.5 — mitigation_suggestions deterministic render
+        // + committee_recommendation grounding. The proposal set produced
+        // immediately above is the SAME record threaded here; the narrative
+        // producer reads it as the single source of truth for sized figures.
+        mitigationProposalSet,
+        // Narrative engine v1.6 — clean-doctrine authoritative numbers +
+        // composed-package wiring + handbook demotion.
+        dealResult,
+        composedMitigationPackage,
+      },
+      { llmCall: deps.llmCall },
+    );
+    store.insertNarrative(narrative);
+  } catch (err) {
+    const cls = (err as Error)?.name && (err as Error).name !== 'Error' ? (err as Error).name : 'Error';
+    narrativeStatus = 'deferred';
+    narrativeDeferredReason = `${cls}: ${(err as Error)?.message ?? String(err)}`;
+    console.warn(
+      '[evaluate-and-narrate] narrative deferred (score persisted; memo pending):',
+      narrativeDeferredReason,
+    );
+  }
 
   return {
     evaluation,
     handbookEvaluation,
     narrative,
+    narrativeStatus,
+    narrativeDeferredReason,
     mitigationProposalSet,
     // v1.6 surface — in-memory pass-through for downstream consumers
     // (memo renderer; future consumers may layer on additively).

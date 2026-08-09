@@ -70,6 +70,7 @@ import type { InputSlots } from '../extraction/extractor-outcome.js';
 import { ingestExtractionResult as defaultIngest, IngestionError } from '../ingest-extraction-result.js';
 import { cityStateToMarketLiquidity } from '../metro-tier-lookup.js';
 import type { LLMCallFn } from '../narrative/build-narrative.js';
+import type { NarrativeStatus } from '../evaluate-and-narrate.js';
 
 /* -------------------------------------------------------------------------- */
 /* Result shape.                                                              */
@@ -90,6 +91,10 @@ export type UnderwriteLoanResult =
       readonly childRevisionId: RevisionId;
       readonly revisionOrdinal: number;
       readonly analysisId: string;
+      /** 'deferred' = scored but the narrative/memo LLM failed (credits) → the
+       *  worker marks the job PARTIAL, not done. 'ok' = fully underwritten. */
+      readonly narrativeStatus: NarrativeStatus;
+      readonly narrativeDeferredReason: string | null;
     }
   | {
       readonly outcome: 'ingested';
@@ -99,6 +104,8 @@ export type UnderwriteLoanResult =
       readonly rootId: RevisionId;
       /** Legacy Analysis id minted by promote-from-graph. */
       readonly analysisId: string;
+      readonly narrativeStatus: NarrativeStatus;
+      readonly narrativeDeferredReason: string | null;
     };
 
 /** Ingest / extraction failed — surfaced honestly, never a fake success. */
@@ -365,6 +372,8 @@ async function underwriteHasRoot(
     childRevisionId: result.childRevisionId,
     revisionOrdinal: result.revisionOrdinal,
     analysisId: args.legacyId,
+    narrativeStatus: result.narrativeStatus,
+    narrativeDeferredReason: result.narrativeDeferredReason,
   };
 }
 
@@ -499,6 +508,8 @@ async function underwriteNoRoot(
     docCount: args.docBytes.length,
     rootId: rootRevisionId,
     analysisId,
+    narrativeStatus: ingested.narrativeStatus,
+    narrativeDeferredReason: ingested.narrativeDeferredReason,
   };
 }
 

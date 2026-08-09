@@ -9,8 +9,10 @@
  *
  * The loop:
  *   claimNext() → a `running` job  → run P1's `underwriteLoan` VERBATIM
- *     → markDone(id)               on success
- *     → markFailed(id, realReason) on failure (honest — never a fake success)
+ *     → markDone(id)                    on full success (incl. narrative)
+ *     → markPartial(id, reason)         scored but narrative deferred (credits) —
+ *                                       a degraded success, NOT a failure
+ *     → markFailed(id, realReason)      on failure (honest — never a fake success)
  *   repeat until the queue is empty.
  *
  * ONE DRAIN AT A TIME per store (a module-level in-flight guard) so we never run
@@ -42,6 +44,7 @@ export interface UnderwriteWorkerDeps {
 
 export type DrainOutcome =
   | { readonly jobId: string; readonly loanInPoolId: string; readonly state: 'done'; readonly outcome: string }
+  | { readonly jobId: string; readonly loanInPoolId: string; readonly state: 'partial'; readonly outcome: string; readonly reason: string }
   | { readonly jobId: string; readonly loanInPoolId: string; readonly state: 'failed'; readonly reason: string };
 
 /** In-flight guard keyed by the store instance — one drain per store at a time. */
@@ -92,6 +95,18 @@ export function drainUnderwriteJobs(deps: UnderwriteWorkerDeps = {}): Promise<Dr
           // Honest: nothing to underwrite is a failure of THIS job, not a fake done.
           jobStore.markFailed(job.id, result.message);
           const o: DrainOutcome = { jobId: job.id, loanInPoolId: job.loanInPoolId, state: 'failed', reason: result.message };
+          outcomes.push(o);
+          onJobSettled?.(o);
+          continue;
+        }
+
+        // The loan is SCORED (doctrine tail + head persisted). If the narrative
+        // LLM deferred (credits exhausted), this is a PARTIAL success — score
+        // readable, memo pending — NOT a failure. A retry re-runs only narrative.
+        if (result.narrativeStatus === 'deferred') {
+          const reason = `pending_credits: ${result.narrativeDeferredReason ?? 'narrative unavailable'}`;
+          jobStore.markPartial(job.id, reason);
+          const o: DrainOutcome = { jobId: job.id, loanInPoolId: job.loanInPoolId, state: 'partial', outcome: result.outcome, reason };
           outcomes.push(o);
           onJobSettled?.(o);
           continue;

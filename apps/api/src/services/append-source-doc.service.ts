@@ -26,6 +26,7 @@ import { store as defaultSqliteStore } from '../storage/sqlite-store.js';
 import type { LLMCallFn } from './narrative/build-narrative.js';
 import { buildExtractionResult as defaultBuild } from './extraction/build-extraction-result.js';
 import { ingestExtractionResult as defaultIngest, IngestionError } from './ingest-extraction-result.js';
+import type { NarrativeStatus } from './evaluate-and-narrate.js';
 import { getDealSourceDocs, saveDealSourceDoc } from './deal-source-doc-store.service.js';
 import type { InputSlots } from './extraction/extractor-outcome.js';
 import type { SourceDocSlot } from '@cre/shared';
@@ -133,6 +134,10 @@ export interface AppendSourceDocResult {
   readonly revisionOrdinal: number;
   readonly overlayDivergences: ReadonlyArray<OverlayDivergence>;
   readonly newDocPersist: { slot: SourceDocSlot; status: 'ok' | 'error'; fileHash?: string; message?: string };
+  /** Narrative status of the child revision — 'deferred' when the memo LLM failed
+   *  (credits exhausted) but the child's score/head persisted (a PARTIAL append). */
+  readonly narrativeStatus: NarrativeStatus;
+  readonly narrativeDeferredReason: string | null;
 }
 
 export interface AppendSourceDocDeps {
@@ -349,6 +354,8 @@ export async function appendSourceDocToDeal(
     revisionOrdinal: parentEnv.revisionOrdinal + 1,
     overlayDivergences,
     newDocPersist,
+    narrativeStatus: child.narrativeStatus,
+    narrativeDeferredReason: child.narrativeDeferredReason,
   };
 }
 void IngestionError;

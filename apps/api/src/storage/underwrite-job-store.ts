@@ -13,10 +13,15 @@
  *
  *   underwrite_job(
  *     id, pool_id, loan_in_pool_id,
- *     state ∈ pending | running | done | failed | interrupted,
- *     reason,                       -- failure/interrupt reason (honest, null on ok)
+ *     state ∈ pending | running | done | partial | failed | interrupted,
+ *     reason,                       -- failure/interrupt/partial reason (honest, null on ok)
  *     created_at, updated_at
  *   )
+ *
+ *   `partial` = SCORED but narrative pending (e.g. narrative LLM threw / credits
+ *   exhausted). The doctrine tail is persisted + readable; only the memo is owed.
+ *   A degraded success, NOT a failure — distinct from `failed` (something broke
+ *   earlier: extraction/doctrine) and from `done` (fully underwritten incl. memo).
  *
  * ── DEDUP (one-per-loan through the queue) ───────────────────────────────────
  *   `enqueue` is a no-op when the loan ALREADY has an ACTIVE (pending|running)
@@ -51,9 +56,11 @@ import { v4 as uuid } from 'uuid';
 
 const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'cre.db');
 
-export type UnderwriteJobState = 'pending' | 'running' | 'done' | 'failed' | 'interrupted';
+export type UnderwriteJobState = 'pending' | 'running' | 'done' | 'partial' | 'failed' | 'interrupted';
 
-/** The active (still-owed-a-drain) states. Dedup + claim key off these. */
+/** The active (still-owed-a-drain) states. Dedup + claim key off these.
+ *  `partial` is TERMINAL (scored, narrative pending) — NOT active — so a retry
+ *  once credits return re-enqueues cleanly (the resume point). */
 export const ACTIVE_STATES: readonly UnderwriteJobState[] = ['pending', 'running'];
 
 export interface UnderwriteJob {
@@ -223,6 +230,20 @@ export class UnderwriteJobStore {
     this.db
       .prepare(`UPDATE underwrite_job SET state = 'done', reason = NULL, updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), jobId);
+  }
+
+  /**
+   * Mark a job `partial` — the loan is SCORED (doctrine tail + snapshot persisted
+   * and readable) but the narrative/credit memo could not be produced (e.g. the
+   * narrative LLM threw / credits exhausted). NOT a failure: the verdict stands,
+   * the memo is pending. `reason` records WHY (e.g. 'pending_credits: <error>') so
+   * a retry knows only the narrative needs re-running. Terminal + non-active, so a
+   * re-enqueue when credits return resumes and completes it.
+   */
+  markPartial(jobId: string, reason: string): void {
+    this.db
+      .prepare(`UPDATE underwrite_job SET state = 'partial', reason = ?, updated_at = ? WHERE id = ?`)
+      .run(reason, new Date().toISOString(), jobId);
   }
 
   /** Mark a job `failed` with the REAL reason (never a fake success). */

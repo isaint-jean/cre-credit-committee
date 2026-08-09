@@ -129,9 +129,12 @@ type UnderwriteRowState =
  * `UnderwriteRowState` above: THIS is the durable-queue status a settle enqueued.
  *   pending | running → "Underwriting…" (inert — the worker is draining it)
  *   done              → chip resolves to the P0 coverage (complete/partial)
+ *   partial           → "Scored · memo pending" — the loan IS scored (verdict
+ *                       readable); only the narrative/credit memo deferred (e.g.
+ *                       credits exhausted). Calm, not an error; a retry finishes it.
  *   failed | interrupted → the REAL reason (coverage stays doc-truth, no fake green)
  */
-type JobState = 'pending' | 'running' | 'done' | 'failed' | 'interrupted';
+type JobState = 'pending' | 'running' | 'done' | 'partial' | 'failed' | 'interrupted';
 interface LoanJob {
   readonly loanInPoolId: string;
   readonly state: JobState;
@@ -480,6 +483,18 @@ export function MembershipTable({
                             <span className="text-[11px] text-text-muted" title="Queued underwrite in flight — the worker is draining it off-request">
                               Underwriting…
                             </span>
+                          ) : job && job.state === 'partial' ? (
+                            // ★ Scored, memo pending — the verdict IS readable; only
+                            // the narrative deferred (e.g. credits exhausted). Calm,
+                            // not an error. Clicking re-runs to finish the memo.
+                            <button
+                              type="button"
+                              onClick={() => runUnderwrite(m.loanInPoolId, m.dealRef)}
+                              className="text-[11px] text-text-secondary hover:underline"
+                              title={`Scored — credit memo pending (${job.reason ?? 'narrative deferred'}). The verdict is readable; click to finish the memo once credits are available.`}
+                            >
+                              Scored · memo pending
+                            </button>
                           ) : job && (job.state === 'failed' || job.state === 'interrupted') ? (
                             <button
                               type="button"

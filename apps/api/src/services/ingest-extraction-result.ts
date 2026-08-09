@@ -66,7 +66,7 @@ import type {
 import { applyJudgmentAdjustments } from './judgment/apply-judgment-adjustments.js';
 import { buildNarrativeFacts } from './narrative-facts.service.js';
 import { classifyAssetProfile } from './asset-profiler.service.js';
-import { evaluateAndNarrate } from './evaluate-and-narrate.js';
+import { evaluateAndNarrate, type NarrativeStatus } from './evaluate-and-narrate.js';
 import type { LLMCallFn } from './narrative/build-narrative.js';
 import { computeContentHash, computeRevisionId } from '../util/content-hash.js';
 import { diffAdjustedInputs } from './apply-revision-delta.js';
@@ -194,6 +194,14 @@ export interface IngestionResult {
    */
   readonly evaluationId: DoctrineEvaluationId;
   readonly evaluation: DoctrineEvaluation;
+  /**
+   * Narrative production status. 'ok' = memo produced; 'deferred' = the narrative
+   * LLM failed (e.g. credits exhausted) but the score/band/dims + lineage head
+   * ARE persisted — a scored-but-un-narrated PARTIAL, not a failure.
+   */
+  readonly narrativeStatus: NarrativeStatus;
+  /** WHY the narrative deferred; null when 'ok'. */
+  readonly narrativeDeferredReason: string | null;
 }
 
 /* ----------------------------- orchestration ------------------------------ */
@@ -319,7 +327,7 @@ export async function ingestExtractionResult(
      `evaluateAndNarrate` wrapper (Piece A Phase 1 batch 2). This composes
      the shared pipeline tail (used by applyRevisionDelta too) with the
      narrative producer so HE+narrative are always atomic per v22/v23. */
-  const { evaluation } = await evaluateAndNarrate(
+  const { evaluation, narrativeStatus, narrativeDeferredReason } = await evaluateAndNarrate(
     {
       adjustedInputs,
       assetProfile,
@@ -435,7 +443,7 @@ export async function ingestExtractionResult(
       creditManifestoId: creditManifesto.id,
     });
 
-    return { rootId: childRevisionId, evaluationId: evaluation.id, evaluation };
+    return { rootId: childRevisionId, evaluationId: evaluation.id, evaluation, narrativeStatus, narrativeDeferredReason };
   }
 
   /* Stage 9 — Root revision envelope + provenance (Option C / issue #20).
@@ -500,5 +508,5 @@ export async function ingestExtractionResult(
     creditManifestoId: creditManifesto.id,
   });
 
-  return { rootId: rootRevisionId, evaluationId: evaluation.id, evaluation };
+  return { rootId: rootRevisionId, evaluationId: evaluation.id, evaluation, narrativeStatus, narrativeDeferredReason };
 }
