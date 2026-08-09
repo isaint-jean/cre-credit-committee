@@ -30,6 +30,7 @@ import type {
 import { isRenderedAnalysis } from './rendered-analysis-guard';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
+import type { RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
 // (and the local DataRoom* shapes) from ONE module — the api-client — rather
@@ -1496,6 +1497,13 @@ export const api = {
   // badges. One call; server owns the nesting + ordering. Pure read.
   dataRoomTree: (poolId: string) =>
     request<DataRoomTree>(`/data-room/${poolId}/tree`),
+
+  // GET /analyses/:id/slot-extraction/:docType → Tier 2(c): the slot's extraction as
+  // a display DTO (rent_roll built). Credit-free. ?offset paginates (page size 50).
+  getSlotExtraction: (analysisId: string, docType: string, offset = 0) =>
+    request<{ status: 'present' | 'not_extracted'; extraction: RentRollSlotExtraction | null }>(
+      `/analyses/${analysisId}/slot-extraction/${docType}?offset=${offset}`,
+    ),
 
   // GET /pools/:poolId/loans/:loanInPoolId/missing-docs → Tier 2 (a): empty ingest
   // slots (set-difference) with a humanized label + "blocks what".

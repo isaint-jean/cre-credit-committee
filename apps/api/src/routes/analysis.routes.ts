@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { uploadDualFiles, uploadAnalysisFiles, upload } from '../middleware/upload.js';
 import { enforceAnalysisParam, filterAccessibleAnalyses, enforceDealForRoot, canAccessAnalysis } from '../middleware/deal-access.js';
+import { projectRentRoll, RENT_ROLL_PAGE_SIZE } from '../services/slot-extraction.service.js';
 import { store } from '../storage/sqlite-store.js';
 import type { SqliteStore } from '../storage/sqlite-store.js';
 import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
@@ -672,6 +673,39 @@ analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Respons
 // GET /api/analyses/:id/buyer-diff — the buyer diff: ISSUER underwriting vs OUR
 // buyer-adjusted underwriting, per field, with the WHY. Read-only + deterministic:
 // projectBuyerDiff over the frozen AdjustedInputs (no recompute, no mint, no LLM).
+// GET /api/analyses/:id/slot-extraction/:docType — Data Room Tier 2(c). Projects a
+// slot's ingest-time extraction to a display DTO (rent_roll branch built). Boundary-
+// honoring: reads the hydrated node, returns the DTO ONLY (never raw ExtractionResult).
+// Credit-free (no LLM). Deal-access gated by the :id param. ?offset paginates (limit 50).
+analysisRoutes.get('/:id/slot-extraction/:docType', (req: Request, res: Response) => {
+  const docType = req.params['docType'];
+  if (docType !== 'rent_roll') {
+    res.status(501).json({ error: 'NOT_IMPLEMENTED', message: `slot-extraction for '${docType}' is not built yet` });
+    return;
+  }
+  let stored;
+  try {
+    stored = resolveAnalysisForRead(req.params.id!, recordGraphStore, store);
+  } catch {
+    stored = null;
+  }
+  if (!stored) {
+    res.status(404).json({ error: 'Analysis not found' });
+    return;
+  }
+  const envelope = stored.graphRevisionId
+    ? recordGraphStore.getRevisionEnvelope(stored.graphRevisionId as GraphRevisionIdType)
+    : null;
+  const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+  const rentRoll = doctrine?.rentRollId ? recordGraphStore.getRentRoll(doctrine.rentRollId) : null;
+  if (!rentRoll) {
+    res.json({ status: 'not_extracted', extraction: null });
+    return;
+  }
+  const offset = Number(req.query['offset']) || 0;
+  res.json({ status: 'present', extraction: projectRentRoll(rentRoll, offset, RENT_ROLL_PAGE_SIZE) });
+});
+
 // `?format=html` returns the visual tri-state view (with the show/hide-changes
 // toggle); default returns JSON. First-class + addressable — the bank-side centerpiece.
 analysisRoutes.get('/:id/buyer-diff', (req: Request, res: Response) => {

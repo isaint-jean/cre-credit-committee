@@ -38,6 +38,7 @@ export * from './valuation.js';
 export * from './extraction.js';
 export * from './doctype-taxonomy.js';
 export * from './data-room-tree.js';
+export * from './slot-extraction.js';
 export * from './market-benchmarks.js';
 export * from './manifesto.js';
 

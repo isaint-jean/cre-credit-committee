@@ -25,6 +25,7 @@ import { CATEGORIES_IN_ORDER } from '@cre/contracts';
 import { api } from '@/lib/api-client';
 import { formatBytes, formatDate, tierChip } from './data-room-utils';
 import { LoanAnalysisSummary } from './LoanAnalysisSummary';
+import { RentRollTable } from './RentRollTable';
 
 type LoanOption = { loanInPoolId: string; label: string };
 
@@ -148,6 +149,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
   const poolId = useContext(PoolIdContext);
   const [moving, setMoving] = useState(false);
   const [verdict, setVerdict] = useState(false);
+  const [tenants, setTenants] = useState(false);
   const chip = tierChip(file.tier);
   const dateLabel = file.docEffectiveDate
     ? `as of ${formatDate(file.docEffectiveDate)}`
@@ -194,6 +196,17 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
             {verdict ? 'Hide verdict' : '⚡ Verdict'}
           </button>
         )}
+        {/* Tier 2(c) — the engine's rent-roll extraction (tenants), on rent-roll files. */}
+        {file.docType === 'rent_roll' && (
+          <button
+            type="button"
+            onClick={() => setTenants((t) => !t)}
+            className="shrink-0 rounded border border-border-primary px-1.5 py-0.5 text-xs text-text-secondary hover:text-text-primary"
+            title="Show the tenant/unit table the engine extracted from this rent roll"
+          >
+            {tenants ? 'Hide tenants' : '🏘 Tenants'}
+          </button>
+        )}
         {ctx && (
           <button
             type="button"
@@ -205,6 +218,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
         )}
       </div>
       {verdict && <LoanAnalysisSummary analysisId={file.analysisId} poolId={poolId} loanInPoolId={file.loanInPoolId} depth={depth} />}
+      {tenants && <RentRollTable analysisId={file.analysisId} depth={depth} />}
       {ctx && moving && <MovePicker file={file} ctx={ctx} onDone={() => setMoving(false)} />}
     </div>
   );
