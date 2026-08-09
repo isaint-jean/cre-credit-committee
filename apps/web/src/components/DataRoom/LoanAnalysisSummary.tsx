@@ -77,6 +77,8 @@ export function LoanAnalysisSummary({ analysisId, depth }: { analysisId: string 
 
   return (
     <div className="rounded-md border border-border-primary bg-bg-tertiary/40 py-2 pr-3 text-sm" style={pad}>
+      {/* Loan-level — the opinion is about the LOAN this doc fed, not the single file. */}
+      <p className="mb-1 text-[11px] uppercase tracking-wide text-text-secondary">Loan verdict</p>
       {/* Tier 1 — the verdict */}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-lg font-semibold text-text-primary">{score}</span>

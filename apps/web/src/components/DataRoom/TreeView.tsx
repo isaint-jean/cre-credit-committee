@@ -177,15 +177,19 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
         )}
         <span className="ml-auto shrink-0 text-xs text-text-secondary">{dateLabel}</span>
         <span className="shrink-0 text-xs text-text-secondary">{formatBytes(file.size)}</span>
-        {/* Differentiator — the engine's verdict for this file's loan. */}
-        <button
-          type="button"
-          onClick={() => setVerdict((v) => !v)}
-          className="shrink-0 rounded border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-xs text-accent hover:opacity-80"
-          title="Show the engine's score, red flags, and what it pulled from the docs"
-        >
-          {verdict ? 'Hide verdict' : '⚡ Verdict'}
-        </button>
+        {/* Differentiator — the engine's verdict for this file's loan. Shown ONLY on
+            docs that FED underwriting (ingest=true); its presence signals "this
+            document informed the credit opinion". Record-only docs have no verdict. */}
+        {file.ingest && (
+          <button
+            type="button"
+            onClick={() => setVerdict((v) => !v)}
+            className="shrink-0 rounded border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-xs text-accent hover:opacity-80"
+            title="This document fed the underwriting — show the loan's score, red flags, and what the engine pulled"
+          >
+            {verdict ? 'Hide verdict' : '⚡ Verdict'}
+          </button>
+        )}
         {ctx && (
           <button
             type="button"

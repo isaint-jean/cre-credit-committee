@@ -64,6 +64,15 @@ function main(): void {
   check('640 file leaf carries a non-null analysisId', !!ftfLeaf?.analysisId, ftfLeaf?.analysisId?.slice(0, 12));
   check('every leaf has the analysisId field (null or set)', leaves.every((f) => 'analysisId' in f));
 
+  // 2b — Verdict visibility is gated to ingest=true (docs that fed underwriting).
+  const ingestLeaves = leaves.filter((f) => f.ingest);
+  const recordOnly = leaves.filter((f) => !f.ingest);
+  check('every leaf carries ingest', leaves.every((f) => typeof f.ingest === 'boolean'));
+  check('Verdict-eligible (ingest=true) leaves present', ingestLeaves.length > 0, `${ingestLeaves.length} files`);
+  check('record-only (ingest=false) leaves present — NO Verdict button', recordOnly.length > 0, `${recordOnly.length} files`);
+  check('ingest docTypes are the extracting ones', ingestLeaves.every((f) => ['asr', 'cf', 'rent_roll', 'pca', 'appraisal'].includes(f.docType)), Array.from(new Set(ingestLeaves.map((f) => f.docType))).join(','));
+  check('record-only docTypes do NOT feed underwriting', recordOnly.every((f) => ['occupancy', 'phase_i_esa', 'seller_uw', 't12'].includes(f.docType)), Array.from(new Set(recordOnly.map((f) => f.docType))).join(','));
+
   // 3 — the resolved analysis EXISTS (the Tier-1/1.5 fetches will succeed).
   const legacyId = ftf[0]!.legacyId;
   if (legacyId) {

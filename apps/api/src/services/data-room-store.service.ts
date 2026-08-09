@@ -671,6 +671,7 @@ export function projectTree(poolId: string, opts: ProjectTreeOptions = {}): Data
       docType: d.docType,
       docTypeLabel: t?.label ?? d.docType,
       tier: d.tier,
+      ingest: d.ingest,
       analysisId: info.analysisId ?? null,
     };
     let catMap = banks.get(bank);

@@ -44,6 +44,10 @@ export interface DataRoomTreeFile {
   readonly docType: string;
   readonly docTypeLabel: string;
   readonly tier: DocTypeTier;
+  /** True when this doc fed extraction/underwriting (tier 'ingesting'). The UI shows
+   *  the engine-verdict affordance ONLY on ingest docs — so its presence signals
+   *  "this document informed the credit opinion" (record-only docs have no verdict). */
+  readonly ingest: boolean;
   /** Differentiator (Tier 1): the resolved engine analysis id for this file's LOAN
    *  (uuid or 64-hex lineageRoot), or null when it has no underwriting / its dealRef
    *  doesn't resolve. Resolved server-side (lookupAnalysisByDealRef), memoized per
