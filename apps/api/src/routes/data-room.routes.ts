@@ -59,6 +59,7 @@ import { PoolStore } from '../storage/pool-store.js';
 import { enqueueUnderwriteOnSettle } from '../services/pool/batch-settle-fanout.service.js';
 import { enforcePermission } from '../middleware/require-permission.js';
 import { enforceDataRoomAccessParam } from '../middleware/deal-access.js';
+import { store as sqliteStore } from '../storage/sqlite-store.js';
 import type { PoolId, LoanInPoolId } from '@cre/contracts';
 
 export const dataRoomRoutes = Router();
@@ -758,6 +759,23 @@ dataRoomRoutes.get('/:poolId/tree', (req: Request, res: Response) => {
   for (const m of membership) {
     loanInfo.set(m.loanInPoolId, { name: m.propertyName ?? null, bank: m.mortgageLoanSeller ?? null });
   }
+  // Differentiator (Tier 1): resolve each loan's engine analysisId ONCE (memoized —
+  // projectTree calls resolveLoan per file). loan dealRef → lookupAnalysisByDealRef
+  // (the fuzzy hop-2 resolver) → analysis id, or null → "no underwriting yet". READ-ONLY.
+  const analysisIdCache = new Map<string, string | null>();
+  const resolveAnalysisId = (loanInPoolId: string): string | null => {
+    if (analysisIdCache.has(loanInPoolId)) return analysisIdCache.get(loanInPoolId)!;
+    const dealRef = poolStore().getLoanInPool(loanInPoolId as LoanInPoolId)?.dealRef ?? null;
+    let analysisId: string | null = null;
+    if (dealRef) {
+      try {
+        const matches = sqliteStore.lookupAnalysisByDealRef(dealRef);
+        analysisId = matches[0] ? (matches[0].graphId ?? matches[0].legacyId ?? null) : null;
+      } catch { analysisId = null; }
+    }
+    analysisIdCache.set(loanInPoolId, analysisId);
+    return analysisId;
+  };
   const tree = projectTree(poolId, {
     poolName: pool?.shelfName ?? null,
     seller: pool?.seller ?? null,
@@ -766,7 +784,7 @@ dataRoomRoutes.get('/:poolId/tree', (req: Request, res: Response) => {
       // Fall back name to loan_in_pool.dealRef when membership had no propertyName.
       const name =
         info?.name ?? poolStore().getLoanInPool(loanInPoolId as LoanInPoolId)?.dealRef ?? null;
-      return { name, bank: info?.bank ?? null };
+      return { name, bank: info?.bank ?? null, analysisId: resolveAnalysisId(loanInPoolId) };
     },
   });
   res.json(tree);

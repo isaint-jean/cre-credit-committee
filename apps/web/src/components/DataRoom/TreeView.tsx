@@ -24,6 +24,7 @@ import type {
 import { CATEGORIES_IN_ORDER } from '@cre/contracts';
 import { api } from '@/lib/api-client';
 import { formatBytes, formatDate, tierChip } from './data-room-utils';
+import { LoanAnalysisSummary } from './LoanAnalysisSummary';
 
 type LoanOption = { loanInPoolId: string; label: string };
 
@@ -142,6 +143,7 @@ function MovePicker({ file, ctx, onDone }: { file: DataRoomTreeFile; ctx: MoveCt
 function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
   const ctx = useContext(MoveContext);
   const [moving, setMoving] = useState(false);
+  const [verdict, setVerdict] = useState(false);
   const chip = tierChip(file.tier);
   const dateLabel = file.docEffectiveDate
     ? `as of ${formatDate(file.docEffectiveDate)}`
@@ -175,6 +177,15 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
         )}
         <span className="ml-auto shrink-0 text-xs text-text-secondary">{dateLabel}</span>
         <span className="shrink-0 text-xs text-text-secondary">{formatBytes(file.size)}</span>
+        {/* Differentiator — the engine's verdict for this file's loan. */}
+        <button
+          type="button"
+          onClick={() => setVerdict((v) => !v)}
+          className="shrink-0 rounded border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-xs text-accent hover:opacity-80"
+          title="Show the engine's score, red flags, and what it pulled from the docs"
+        >
+          {verdict ? 'Hide verdict' : '⚡ Verdict'}
+        </button>
         {ctx && (
           <button
             type="button"
@@ -185,6 +196,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
           </button>
         )}
       </div>
+      {verdict && <LoanAnalysisSummary analysisId={file.analysisId} depth={depth} />}
       {ctx && moving && <MovePicker file={file} ctx={ctx} onDone={() => setMoving(false)} />}
     </div>
   );

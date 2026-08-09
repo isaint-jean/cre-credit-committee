@@ -44,6 +44,11 @@ export interface DataRoomTreeFile {
   readonly docType: string;
   readonly docTypeLabel: string;
   readonly tier: DocTypeTier;
+  /** Differentiator (Tier 1): the resolved engine analysis id for this file's LOAN
+   *  (uuid or 64-hex lineageRoot), or null when it has no underwriting / its dealRef
+   *  doesn't resolve. Resolved server-side (lookupAnalysisByDealRef), memoized per
+   *  loan. Lets the file row surface the engine's verdict for its loan. */
+  readonly analysisId: string | null;
 }
 
 /** A category folder within a bank (e.g. "Third-Party Reports") — holds the

@@ -609,7 +609,7 @@ const UNKNOWN_BANK = '(unknown seller)';
 export interface ProjectTreeOptions {
   /** Resolve a loanInPoolId → its display name + contributing bank
    *  (LoanMembership.propertyName / .mortgageLoanSeller). */
-  readonly resolveLoan?: (loanInPoolId: string) => { name: string | null; bank: string | null };
+  readonly resolveLoan?: (loanInPoolId: string) => { name: string | null; bank: string | null; analysisId?: string | null };
   readonly poolName?: string | null;
   readonly seller?: string | null;
 }
@@ -652,7 +652,7 @@ export function projectTree(poolId: string, opts: ProjectTreeOptions = {}): Data
   for (const d of docs) {
     const category = DOC_TYPE_CATEGORY[d.docType];
     if (!category) continue; // not in taxonomy (assign validates; defensive)
-    const info = opts.resolveLoan?.(d.loanInPoolId) ?? { name: null, bank: null };
+    const info = opts.resolveLoan?.(d.loanInPoolId) ?? { name: null, bank: null, analysisId: null };
     const bank = info.bank && info.bank.trim() !== '' ? info.bank : UNKNOWN_BANK;
     const vm = versionMeta.get(`${slotKey(d.loanInPoolId, d.docType)} ${d.fileHash}`)!;
     const t = docTypeById(d.docType);
@@ -671,6 +671,7 @@ export function projectTree(poolId: string, opts: ProjectTreeOptions = {}): Data
       docType: d.docType,
       docTypeLabel: t?.label ?? d.docType,
       tier: d.tier,
+      analysisId: info.analysisId ?? null,
     };
     let catMap = banks.get(bank);
     if (!catMap) { catMap = new Map(); banks.set(bank, catMap); }
