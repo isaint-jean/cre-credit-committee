@@ -59,6 +59,7 @@ import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { computePoolCoverage } from '../services/pool/pool-coverage.service.js';
 import { underwriteJobStore } from '../storage/underwrite-job-store.js';
+import { dealAccessStore } from '../storage/deal-access-store.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import {
   advanceTapePhaseA,
@@ -268,6 +269,21 @@ poolRoutes.post('/', (req: Request, res: Response) => {
   };
   try {
     poolStore().createPool(pool);
+    // ★ Chunk 3a — stamp the creating user as this pool's originator/owner in
+    //   deal_access (additive; NO enforcement yet — nothing reads it until 3b).
+    //   Best-effort: only when a user context is present. (Analysis lineage roots
+    //   are minted in the async ingest/underwrite workers WITHOUT req.user, so
+    //   their owner-stamp is deferred to the user-aware create flow in 3d;
+    //   existing roots are covered by the 3a backfill.)
+    if (req.user?.userId) {
+      dealAccessStore().grant({
+        resourceType: 'pool',
+        resourceKey: pool.id,
+        userId: req.user.userId,
+        party: 'originator',
+        grantedBy: req.user.userId,
+      });
+    }
     // ★ ADDITIVE: seed a single matchable loan ONLY when propertyName is supplied.
     if (seedName !== null) {
       const seededLoan = poolStore().seedSingleLoan(pool.id, seedName);
