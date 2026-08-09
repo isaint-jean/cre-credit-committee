@@ -29,6 +29,7 @@ import type {
 } from '@cre/contracts';
 import { isRenderedAnalysis } from './rendered-analysis-guard';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
+import type { DataRoomTree } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
 // (and the local DataRoom* shapes) from ONE module — the api-client — rather
@@ -1489,6 +1490,12 @@ export const api = {
     request<{ poolId: string; groups: readonly DataRoomLoanGroup[] }>(
       `/data-room/${poolId}/by-loan`,
     ),
+
+  // GET /data-room/:poolId/tree → the read-only nested tree (Chunk 1):
+  // Deal → Loan → Category → docType → file, on-demand folders, version/pin
+  // badges. One call; server owns the nesting + ordering. Pure read.
+  dataRoomTree: (poolId: string) =>
+    request<DataRoomTree>(`/data-room/${poolId}/tree`),
 
   // GET /data-room/:poolId/by-category → the SUMMARY control surface for the
   // room (Piece D). Returns per-category { category, count, unreadCount } — NOT

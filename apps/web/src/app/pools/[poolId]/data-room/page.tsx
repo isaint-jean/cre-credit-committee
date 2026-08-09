@@ -38,12 +38,15 @@ import { CategoryView } from '@/components/DataRoom/CategoryView';
 import { ByDocTypeView } from '@/components/DataRoom/ByDocTypeView';
 import { ByLoanView } from '@/components/DataRoom/ByLoanView';
 import { HeldView } from '@/components/DataRoom/HeldView';
+import { TreeView } from '@/components/DataRoom/TreeView';
+import type { DataRoomTree } from '@cre/contracts';
 
 type LoadState = 'loading' | 'loaded' | 'error';
 // ★ DEFAULT surface = 'category' (the five category cards, NEVER a flat file
 // list). 'byLoan' stays available as a toggle (loan-level view). A category
-// drill-in switches to 'byDocType' scoped to the selected category.
-type RoomView = 'category' | 'byDocType' | 'byLoan';
+// drill-in switches to 'byDocType' scoped to the selected category. 'tree' is
+// the read-only nested browser (Chunk 1), collapsed-by-default.
+type RoomView = 'category' | 'byDocType' | 'byLoan' | 'tree';
 
 export default function DataRoomPage() {
   const { poolId } = useParams<{ poolId: string }>();
@@ -61,6 +64,7 @@ export default function DataRoomPage() {
   const [categories, setCategories] = useState<readonly DataRoomCategorySummary[]>([]);
   const [byDocType, setByDocType] = useState<readonly DataRoomDocTypeGroup[]>([]);
   const [byLoan, setByLoan] = useState<readonly DataRoomLoanGroup[]>([]);
+  const [tree, setTree] = useState<DataRoomTree | null>(null);
   const [held, setHeld] = useState<readonly DataRoomHeldDoc[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [loanOptions, setLoanOptions] = useState<readonly AssignLoanOption[]>([]);
@@ -91,18 +95,20 @@ export default function DataRoomPage() {
   // Re-fetch the two projections + the per-user unread set. Called on mount and
   // after every assign so a filed doc immediately shows under its folder + loan.
   const refresh = useCallback(async () => {
-    const [cat, dt, loan, un, hld] = await Promise.all([
+    const [cat, dt, loan, un, hld, tre] = await Promise.all([
       api.getPoolByCategory(poolId),
       api.dataRoomByDocType(poolId),
       api.dataRoomByLoan(poolId),
       api.dataRoomUnread(poolId),
       api.dataRoomHeld(poolId),
+      api.dataRoomTree(poolId),
     ]);
     setCategories(cat.categories);
     setByDocType(dt.groups);
     setByLoan(loan.groups);
     setUnread(new Set(un.unread));
     setHeld(hld.held);
+    setTree(tre);
   }, [poolId]);
 
   const bootstrap = useCallback(async () => {
@@ -237,6 +243,7 @@ export default function DataRoomPage() {
         {([
           { value: 'category' as const, label: 'Categories', count: categories.length },
           { value: 'byLoan' as const, label: 'By loan', count: byLoan.length },
+          { value: 'tree' as const, label: 'Tree', count: tree?.fileCount ?? 0 },
         ]).map((t) => {
           const active = view === t.value;
           return (
@@ -306,6 +313,10 @@ export default function DataRoomPage() {
           docTypeLabels={docTypeLabels}
         />
       )}
+
+      {/* Read-only nested tree (Chunk 1): Deal → Loan → Category → file,
+          collapsed-by-default, on-demand folders, version/pin badges. */}
+      {view === 'tree' && tree !== null && <TreeView tree={tree} />}
     </div>
   );
 }

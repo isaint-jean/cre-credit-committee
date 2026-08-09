@@ -46,6 +46,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DOC_TYPE_TAXONOMY, docTypeById, DOC_TYPE_CATEGORY, CATEGORIES_IN_ORDER } from '@cre/contracts';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
+import type {
+  DataRoomTree,
+  DataRoomTreeLoan,
+  DataRoomTreeCategory,
+  DataRoomTreeSlot,
+  DataRoomTreeFile,
+} from '@cre/contracts';
 import { blobStore } from '../storage/blob-store.js';
 import type { ContentHash } from '@cre/contracts';
 import { getStagingBatch } from './source-doc-store.service.js';
@@ -557,6 +564,113 @@ export function projectByLoan(poolId: string): ReadonlyArray<LoanGroup> {
     groups.set(d.loanInPoolId, arr);
   }
   return Array.from(groups.entries()).map(([loanInPoolId, ds]) => ({ loanInPoolId, docs: ds }));
+}
+
+// ---------------------------------------------------------------------------
+// PROJECTION 4 (Chunk 1) — the read-only NESTED TREE.
+//   Deal (pool) → Loan → Category → docType slot → file
+// Pure composition of projectByLoan + DOC_TYPE_CATEGORY + the selected-version
+// tiebreak. No new state, no writes, no ingest coupling. Loan display names are
+// INJECTED by the caller (resolveLoanName) so this service stays decoupled from
+// PoolStore, exactly like the rest of this module. On-demand folders: a loan /
+// category / slot node is emitted ONLY when it has ≥1 file.
+// ---------------------------------------------------------------------------
+
+/** Newest-first ordering of a slot's versions — MIRRORS pickWinningVersion
+ *  (underwrite-loan.service) / pickSelectedVersion (web data-room-utils), kept
+ *  local so this module never imports the ingest path: latest docEffectiveDate
+ *  wins (a present date beats a null one), else latest uploadedAt. */
+function orderVersionsNewestFirst(versions: readonly DataRoomDocEntry[]): DataRoomDocEntry[] {
+  return versions.slice().sort((a, b) => {
+    const ad = a.docEffectiveDate ?? null;
+    const bd = b.docEffectiveDate ?? null;
+    if (ad !== null && bd !== null && ad !== bd) return ad < bd ? 1 : -1;
+    if (ad !== null && bd === null) return -1;
+    if (ad === null && bd !== null) return 1;
+    return a.uploadedAt < b.uploadedAt ? 1 : a.uploadedAt > b.uploadedAt ? -1 : 0;
+  });
+}
+
+/** The version that wins its (loan, docType) slot — a pin wins outright, else
+ *  the newest by the ordering above. Same rule the underwrite path + client
+ *  version picker use. */
+function selectedFileHashForSlot(versions: readonly DataRoomDocEntry[]): string {
+  const pinned = versions.filter((v) => v.pinned === true);
+  const pool = pinned.length > 0 ? pinned : versions;
+  return orderVersionsNewestFirst(pool)[0]!.fileHash;
+}
+
+export interface ProjectTreeOptions {
+  /** Resolve a loanInPoolId → display name (e.g. LoanInPool.propertyName). */
+  readonly resolveLoanName?: (loanInPoolId: string) => string | null;
+  readonly poolName?: string | null;
+  readonly seller?: string | null;
+}
+
+export function projectTree(poolId: string, opts: ProjectTreeOptions = {}): DataRoomTree {
+  const loanGroups = projectByLoan(poolId); // only loans that HAVE docs (on-demand)
+  const loans: DataRoomTreeLoan[] = [];
+  let poolFileCount = 0;
+
+  for (const lg of loanGroups) {
+    // Bucket this loan's docs: category → docType → versions.
+    const byCategory = new Map<DocTypeCategory, Map<string, DataRoomDocEntry[]>>();
+    for (const d of lg.docs) {
+      const category = DOC_TYPE_CATEGORY[d.docType];
+      if (!category) continue; // not in taxonomy (assign validates; defensive)
+      let slotMap = byCategory.get(category);
+      if (!slotMap) { slotMap = new Map(); byCategory.set(category, slotMap); }
+      const arr = slotMap.get(d.docType) ?? [];
+      arr.push(d);
+      slotMap.set(d.docType, arr);
+    }
+
+    const categories: DataRoomTreeCategory[] = [];
+    for (const category of CATEGORIES_IN_ORDER) {
+      const slotMap = byCategory.get(category);
+      if (!slotMap) continue; // on-demand: skip categories with no docs
+      const slots: DataRoomTreeSlot[] = [];
+      let catFileCount = 0;
+      // Slot order = taxonomy order (tier a→b→c), only doc-types present.
+      for (const t of DOC_TYPE_TAXONOMY) {
+        const versions = slotMap.get(t.id);
+        if (!versions || versions.length === 0) continue;
+        const ordered = orderVersionsNewestFirst(versions);
+        const selectedHash = selectedFileHashForSlot(versions);
+        const files: DataRoomTreeFile[] = ordered.map((v, i) => ({
+          fileHash: v.fileHash,
+          fileName: v.fileName,
+          size: v.size,
+          uploadedAt: v.uploadedAt,
+          docEffectiveDate: v.docEffectiveDate ?? null,
+          pinned: v.pinned === true,
+          isSelectedVersion: v.fileHash === selectedHash,
+          versionIndex: i + 1,
+          versionCount: ordered.length,
+        }));
+        slots.push({ docType: t.id, label: t.label, tier: t.tier, files });
+        catFileCount += files.length;
+      }
+      categories.push({ category, slots, fileCount: catFileCount });
+    }
+
+    const loanFileCount = lg.docs.length;
+    poolFileCount += loanFileCount;
+    loans.push({
+      loanInPoolId: lg.loanInPoolId,
+      propertyName: opts.resolveLoanName?.(lg.loanInPoolId) ?? null,
+      categories,
+      fileCount: loanFileCount,
+    });
+  }
+
+  return {
+    poolId,
+    poolName: opts.poolName ?? null,
+    seller: opts.seller ?? null,
+    loans,
+    fileCount: poolFileCount,
+  };
 }
 
 /** Fetch a doc's bytes by (poolId, fileHash). fileHash is the content-addressed

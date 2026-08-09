@@ -32,6 +32,7 @@ import {
   projectByDocType,
   projectByLoan,
   projectByCategory,
+  projectTree,
   listPoolDocs,
   getDataRoomDoc,
   holdStagedFiles,
@@ -54,7 +55,7 @@ import { promises as fsp } from 'node:fs';
 import { DocumentReadStateStore } from '../storage/document-read-state-store.js';
 import { PoolStore } from '../storage/pool-store.js';
 import { enqueueUnderwriteOnSettle } from '../services/pool/batch-settle-fanout.service.js';
-import type { PoolId } from '@cre/contracts';
+import type { PoolId, LoanInPoolId } from '@cre/contracts';
 
 export const dataRoomRoutes = Router();
 
@@ -726,6 +727,27 @@ dataRoomRoutes.get('/:poolId/by-doc-type', (req: Request, res: Response) => {
 
 dataRoomRoutes.get('/:poolId/by-loan', (req: Request, res: Response) => {
   res.json({ poolId: req.params.poolId, groups: projectByLoan(req.params.poolId!) });
+});
+
+// ---------------------------------------------------------------------------
+// NESTED TREE (Chunk 1) — read-only. Deal → Loan → Category → docType → file,
+// on-demand folders, version/pin badges. Composes projectByLoan + the taxonomy
+// server-side; loan display names + the pool label are resolved via PoolStore.
+// No per-user state, no writes — purely additive over what already exists.
+// ---------------------------------------------------------------------------
+dataRoomRoutes.get('/:poolId/tree', (req: Request, res: Response) => {
+  const poolId = req.params.poolId!;
+  const pool = poolStore().getPool(poolId as PoolId);
+  const tree = projectTree(poolId, {
+    poolName: pool?.shelfName ?? null,
+    seller: pool?.seller ?? null,
+    resolveLoanName: (loanInPoolId) => {
+      const loan = poolStore().getLoanInPool(loanInPoolId as LoanInPoolId);
+      // property_name is often null; deal_ref carries the human handle (a slug).
+      return loan?.propertyName ?? loan?.dealRef ?? null;
+    },
+  });
+  res.json(tree);
 });
 
 // ---------------------------------------------------------------------------
