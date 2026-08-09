@@ -48,9 +48,9 @@ import { DOC_TYPE_TAXONOMY, docTypeById, DOC_TYPE_CATEGORY, CATEGORIES_IN_ORDER 
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type {
   DataRoomTree,
-  DataRoomTreeLoan,
+  DataRoomTreeNewIssue,
+  DataRoomTreeBank,
   DataRoomTreeCategory,
-  DataRoomTreeSlot,
   DataRoomTreeFile,
 } from '@cre/contracts';
 import { blobStore } from '../storage/blob-store.js';
@@ -600,76 +600,119 @@ function selectedFileHashForSlot(versions: readonly DataRoomDocEntry[]): string 
   return orderVersionsNewestFirst(pool)[0]!.fileHash;
 }
 
+/** Taxonomy slot order (doc-type id → index) for stable file ordering. */
+const SLOT_ORDER: ReadonlyMap<string, number> = new Map(
+  DOC_TYPE_TAXONOMY.map((t, i) => [t.id, i] as const),
+);
+const UNKNOWN_BANK = '(unknown seller)';
+
 export interface ProjectTreeOptions {
-  /** Resolve a loanInPoolId → display name (e.g. LoanInPool.propertyName). */
-  readonly resolveLoanName?: (loanInPoolId: string) => string | null;
+  /** Resolve a loanInPoolId → its display name + contributing bank
+   *  (LoanMembership.propertyName / .mortgageLoanSeller). */
+  readonly resolveLoan?: (loanInPoolId: string) => { name: string | null; bank: string | null };
   readonly poolName?: string | null;
   readonly seller?: string | null;
 }
 
+/**
+ * The nested tree: Deal → New Issue → Deal name → BANK → CATEGORY → loan-file.
+ * The category is the FOLDER; loans are the leaf files inside it. Pure read —
+ * composes listPoolDocs + DOC_TYPE_CATEGORY + the per-(loan,doc-type) version
+ * tiebreak; loan names + banks are injected (resolveLoan) so this module stays
+ * decoupled from PoolStore.
+ */
 export function projectTree(poolId: string, opts: ProjectTreeOptions = {}): DataRoomTree {
-  const loanGroups = projectByLoan(poolId); // only loans that HAVE docs (on-demand)
-  const loans: DataRoomTreeLoan[] = [];
-  let poolFileCount = 0;
+  const docs = listPoolDocs(poolId);
 
-  for (const lg of loanGroups) {
-    // Bucket this loan's docs: category → docType → versions.
-    const byCategory = new Map<DocTypeCategory, Map<string, DataRoomDocEntry[]>>();
-    for (const d of lg.docs) {
-      const category = DOC_TYPE_CATEGORY[d.docType];
-      if (!category) continue; // not in taxonomy (assign validates; defensive)
-      let slotMap = byCategory.get(category);
-      if (!slotMap) { slotMap = new Map(); byCategory.set(category, slotMap); }
-      const arr = slotMap.get(d.docType) ?? [];
-      arr.push(d);
-      slotMap.set(d.docType, arr);
-    }
-
-    const categories: DataRoomTreeCategory[] = [];
-    for (const category of CATEGORIES_IN_ORDER) {
-      const slotMap = byCategory.get(category);
-      if (!slotMap) continue; // on-demand: skip categories with no docs
-      const slots: DataRoomTreeSlot[] = [];
-      let catFileCount = 0;
-      // Slot order = taxonomy order (tier a→b→c), only doc-types present.
-      for (const t of DOC_TYPE_TAXONOMY) {
-        const versions = slotMap.get(t.id);
-        if (!versions || versions.length === 0) continue;
-        const ordered = orderVersionsNewestFirst(versions);
-        const selectedHash = selectedFileHashForSlot(versions);
-        const files: DataRoomTreeFile[] = ordered.map((v, i) => ({
-          fileHash: v.fileHash,
-          fileName: v.fileName,
-          size: v.size,
-          uploadedAt: v.uploadedAt,
-          docEffectiveDate: v.docEffectiveDate ?? null,
-          pinned: v.pinned === true,
-          isSelectedVersion: v.fileHash === selectedHash,
-          versionIndex: i + 1,
-          versionCount: ordered.length,
-        }));
-        slots.push({ docType: t.id, label: t.label, tier: t.tier, files });
-        catFileCount += files.length;
-      }
-      categories.push({ category, slots, fileCount: catFileCount });
-    }
-
-    const loanFileCount = lg.docs.length;
-    poolFileCount += loanFileCount;
-    loans.push({
-      loanInPoolId: lg.loanInPoolId,
-      propertyName: opts.resolveLoanName?.(lg.loanInPoolId) ?? null,
-      categories,
-      fileCount: loanFileCount,
-    });
+  // (1) Version metadata per (loan, doc-type) slot — index/count/selected. Keyed
+  //     by slot+fileHash so the same bytes under two doc-types never collide.
+  const slotKey = (loanInPoolId: string, docType: string) => `${loanInPoolId} ${docType}`;
+  const slotGroups = new Map<string, DataRoomDocEntry[]>();
+  for (const d of docs) {
+    const k = slotKey(d.loanInPoolId, d.docType);
+    const arr = slotGroups.get(k) ?? [];
+    arr.push(d);
+    slotGroups.set(k, arr);
   }
+  const versionMeta = new Map<string, { index: number; count: number; selected: boolean }>();
+  for (const [k, versions] of slotGroups) {
+    const ordered = orderVersionsNewestFirst(versions);
+    const selectedHash = selectedFileHashForSlot(versions);
+    ordered.forEach((v, i) =>
+      versionMeta.set(`${k} ${v.fileHash}`, {
+        index: i + 1,
+        count: ordered.length,
+        selected: v.fileHash === selectedHash,
+      }),
+    );
+  }
+
+  // (2) Bucket every doc into BANK → CATEGORY, building the loan-labeled leaf.
+  const banks = new Map<string, Map<DocTypeCategory, DataRoomTreeFile[]>>();
+  for (const d of docs) {
+    const category = DOC_TYPE_CATEGORY[d.docType];
+    if (!category) continue; // not in taxonomy (assign validates; defensive)
+    const info = opts.resolveLoan?.(d.loanInPoolId) ?? { name: null, bank: null };
+    const bank = info.bank && info.bank.trim() !== '' ? info.bank : UNKNOWN_BANK;
+    const vm = versionMeta.get(`${slotKey(d.loanInPoolId, d.docType)} ${d.fileHash}`)!;
+    const t = docTypeById(d.docType);
+    const file: DataRoomTreeFile = {
+      fileHash: d.fileHash,
+      fileName: d.fileName,
+      size: d.size,
+      uploadedAt: d.uploadedAt,
+      docEffectiveDate: d.docEffectiveDate ?? null,
+      pinned: d.pinned === true,
+      isSelectedVersion: vm.selected,
+      versionIndex: vm.index,
+      versionCount: vm.count,
+      loanInPoolId: d.loanInPoolId,
+      loanName: info.name ?? d.loanInPoolId,
+      docType: d.docType,
+      docTypeLabel: t?.label ?? d.docType,
+      tier: d.tier,
+    };
+    let catMap = banks.get(bank);
+    if (!catMap) { catMap = new Map(); banks.set(bank, catMap); }
+    const arr = catMap.get(category) ?? [];
+    arr.push(file);
+    catMap.set(category, arr);
+  }
+
+  // (3) Emit deterministically: banks A→Z, categories in CATEGORIES_IN_ORDER,
+  //     files by loan → doc-type (taxonomy order) → version (newest first).
+  const bankNodes: DataRoomTreeBank[] = [];
+  for (const bankName of Array.from(banks.keys()).sort((a, b) => a.localeCompare(b))) {
+    const catMap = banks.get(bankName)!;
+    const categories: DataRoomTreeCategory[] = [];
+    let bankFileCount = 0;
+    for (const category of CATEGORIES_IN_ORDER) {
+      const files = catMap.get(category);
+      if (!files || files.length === 0) continue; // on-demand: no empty category
+      files.sort(
+        (a, b) =>
+          a.loanName.localeCompare(b.loanName) ||
+          (SLOT_ORDER.get(a.docType)! - SLOT_ORDER.get(b.docType)!) ||
+          a.versionIndex - b.versionIndex,
+      );
+      categories.push({ category, files, fileCount: files.length });
+      bankFileCount += files.length;
+    }
+    bankNodes.push({ bank: bankName, categories, fileCount: bankFileCount });
+  }
+
+  const totalFiles = bankNodes.reduce((n, b) => n + b.fileCount, 0);
+  const newIssue: DataRoomTreeNewIssue | null =
+    bankNodes.length > 0
+      ? { dealName: opts.poolName ?? null, banks: bankNodes, fileCount: totalFiles }
+      : null;
 
   return {
     poolId,
     poolName: opts.poolName ?? null,
     seller: opts.seller ?? null,
-    loans,
-    fileCount: poolFileCount,
+    newIssue,
+    fileCount: totalFiles,
   };
 }
 

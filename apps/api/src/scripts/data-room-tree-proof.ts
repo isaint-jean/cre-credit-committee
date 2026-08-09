@@ -1,22 +1,24 @@
 /**
  * PROOF — Data Room Chunk 1: the read-only nested tree (GET /:poolId/tree via
- * projectTree). Runs against the canonical cre.db, READ-ONLY (projectTree is a
- * pure projection; this script never writes). Proves:
+ * projectTree). READ-ONLY against the canonical cre.db. Proves the CORRECTED
+ * hierarchy:
  *
- *   1. structure — Deal → Loan → Category → docType slot → file, nested correctly;
- *   2. on-demand folders — no empty loan / category / slot node is ever emitted;
- *   3. real data — the pool's real loans (Sunroad Centrum, 640 Fifth Ave) render
- *      with their real doc-types;
- *   4. counts — pool.fileCount == Σ loan == Σ slot files == listPoolDocs length;
- *   5. ordering — categories in CATEGORIES_IN_ORDER, slots in taxonomy order,
- *      versions newest-first;
- *   6. version badges — exactly one selected version per slot; a multi-version
- *      slot exists (640) and its badges are consistent.
+ *   Deal/Pool → New Issue → Deal name → BANK → CATEGORY → loan-file
  *
- * Run: npx tsx apps/api/src/scripts/data-room-tree-proof.ts
+ * i.e. the CATEGORY is the folder and LOANS are the leaf files inside it (a file
+ * is labeled by its loan) — NOT loan-first. Checks:
+ *   1. New Issue + deal-name levels present;
+ *   2. BANK level from mortgageLoanSeller (GSMC, "GSMC, BMO");
+ *   3. category-holds-loans — leaves are loan-labeled files directly under a category;
+ *   4. Sunroad renders as a file under GSMC; 640 as a file under "GSMC, BMO";
+ *   5. on-demand folders (no empty bank / category);
+ *   6. counts reconcile; ordering (banks A→Z, categories canonical, files by
+ *      loan→doc-type→version); one selected version per (loan, doc-type) slot.
+ *
+ * Run: npx tsx src/scripts/data-room-tree-proof.ts   (from apps/api)
  */
 import { CATEGORIES_IN_ORDER, DOC_TYPE_TAXONOMY } from '@cre/contracts';
-import type { LoanInPoolId, PoolId } from '@cre/contracts';
+import type { LoanInPoolId, PoolId, DataRoomTreeFile } from '@cre/contracts';
 import { projectTree, listPoolDocs } from '../services/data-room-store.service.js';
 import { PoolStore } from '../storage/pool-store.js';
 
@@ -25,12 +27,8 @@ const POOL_ID = '323a1d02-aa5f-4a80-b280-b861fe76f6d9';
 
 let failures = 0;
 function check(label: string, cond: boolean, detail = ''): void {
-  if (cond) {
-    console.log(`  ✓ ${label}${detail ? ` — ${detail}` : ''}`);
-  } else {
-    console.error(`  ✗ ${label}${detail ? ` — ${detail}` : ''}`);
-    failures++;
-  }
+  if (cond) console.log(`  ✓ ${label}${detail ? ` — ${detail}` : ''}`);
+  else { console.error(`  ✗ ${label}${detail ? ` — ${detail}` : ''}`); failures++; }
 }
 
 const CAT_ORDER = new Map(CATEGORIES_IN_ORDER.map((c, i) => [c, i] as const));
@@ -38,7 +36,6 @@ const SLOT_ORDER = new Map(DOC_TYPE_TAXONOMY.map((t, i) => [t.id, i] as const));
 
 function main(): void {
   const pools = new PoolStore();
-
   const poolId = POOL_ID;
   const docs = listPoolDocs(poolId);
   console.log(`\nData Room tree proof — pool ${poolId} (${docs.length} docs)\n`);
@@ -47,105 +44,106 @@ function main(): void {
     process.exit(1);
   }
 
+  const pool = pools.getPool(poolId as PoolId);
+  const membership = pool?.currentTapeId ? pools.getMembership(pool.currentTapeId) : [];
+  const loanInfo = new Map<string, { name: string | null; bank: string | null }>();
+  for (const m of membership) {
+    loanInfo.set(m.loanInPoolId, { name: m.propertyName ?? null, bank: m.mortgageLoanSeller ?? null });
+  }
+
   const tree = projectTree(poolId, {
-    poolName: pools.getPool(poolId as PoolId)?.shelfName ?? null,
-    seller: pools.getPool(poolId as PoolId)?.seller ?? null,
-    resolveLoanName: (id) => {
-      const loan = pools.getLoanInPool(id as LoanInPoolId);
-      return loan?.propertyName ?? loan?.dealRef ?? null;
+    poolName: pool?.shelfName ?? null,
+    seller: pool?.seller ?? null,
+    resolveLoan: (id) => {
+      const info = loanInfo.get(id);
+      const name = info?.name ?? pools.getLoanInPool(id as LoanInPoolId)?.dealRef ?? null;
+      return { name, bank: info?.bank ?? null };
     },
   });
 
-  // 1 + 4 — structure + count reconciliation.
-  const loanSum = tree.loans.reduce((n, l) => n + l.fileCount, 0);
-  const slotFileSum = tree.loans.reduce(
-    (n, l) => n + l.categories.reduce((m, c) => m + c.slots.reduce((k, s) => k + s.files.length, 0), 0),
-    0,
-  );
-  check('tree has loans', tree.loans.length > 0, `${tree.loans.length} loans`);
-  check('pool.fileCount == listPoolDocs length', tree.fileCount === docs.length, `${tree.fileCount} == ${docs.length}`);
-  check('pool.fileCount == Σ loan.fileCount', tree.fileCount === loanSum, `${tree.fileCount} == ${loanSum}`);
-  check('pool.fileCount == Σ slot files', tree.fileCount === slotFileSum, `${tree.fileCount} == ${slotFileSum}`);
+  // 1 — New Issue + deal-name levels present.
+  check('New Issue level present', tree.newIssue !== null);
+  const ni = tree.newIssue!;
+  check('deal-name repeat under New Issue == pool name', ni.dealName === (pool?.shelfName ?? null), `${ni.dealName}`);
 
-  // 2 — on-demand folders: no empty node anywhere.
-  let emptyNodes = 0;
-  for (const loan of tree.loans) {
-    if (loan.fileCount === 0 || loan.categories.length === 0) emptyNodes++;
-    for (const cat of loan.categories) {
-      if (cat.fileCount === 0 || cat.slots.length === 0) emptyNodes++;
-      const catSum = cat.slots.reduce((k, s) => k + s.files.length, 0);
-      if (catSum !== cat.fileCount) emptyNodes++;
-      for (const slot of cat.slots) if (slot.files.length === 0) emptyNodes++;
+  // 2 — BANK level from mortgageLoanSeller.
+  const bankNames = ni.banks.map((b) => b.bank);
+  check('bank level present (from mortgageLoanSeller)', ni.banks.length > 0, bankNames.join(' | '));
+  check('GSMC bank present (Sunroad)', bankNames.includes('GSMC'));
+  check('"GSMC, BMO" co-seller bank present (640)', bankNames.includes('GSMC, BMO'));
+  check('banks in A→Z order', bankNames.every((b, i) => i === 0 || bankNames[i - 1]!.localeCompare(b) <= 0), bankNames.join(', '));
+
+  // flatten every leaf file, remembering its bank + category.
+  const leaves: { bank: string; category: string; file: DataRoomTreeFile }[] = [];
+  for (const b of ni.banks) for (const c of b.categories) for (const f of c.files) leaves.push({ bank: b.bank, category: c.category, file: f });
+
+  // 3 — category-holds-loans (the inversion): the leaf is a FILE labeled by a
+  //     loan, sitting DIRECTLY under a category (there is no loan folder level).
+  check('every leaf is a loan-labeled file (no loan subfolder)', leaves.every((l) => typeof l.file.loanName === 'string' && l.file.loanName.length > 0));
+  check('every leaf carries its doc-type as metadata', leaves.every((l) => l.file.docType.length > 0 && l.file.docTypeLabel.length > 0));
+
+  // 4 — Sunroad under GSMC, 640 under "GSMC, BMO".
+  const sunroad = leaves.find((l) => l.file.loanName.toLowerCase().includes('sunroad'));
+  const sixforty = leaves.find((l) => l.file.loanName.toLowerCase().includes('640'));
+  check('Sunroad is a FILE under the GSMC bank', !!sunroad && sunroad.bank === 'GSMC', sunroad ? `${sunroad.file.loanName} @ ${sunroad.bank} / ${sunroad.category}` : '(not found)');
+  check('640 is a FILE under the "GSMC, BMO" bank', !!sixforty && sixforty.bank === 'GSMC, BMO', sixforty ? `${sixforty.file.loanName} @ ${sixforty.bank} / ${sixforty.category}` : '(not found)');
+
+  // 5 — on-demand folders: no empty bank / category.
+  let empties = 0;
+  for (const b of ni.banks) {
+    if (b.fileCount === 0 || b.categories.length === 0) empties++;
+    for (const c of b.categories) {
+      if (c.fileCount === 0 || c.files.length === 0 || c.files.length !== c.fileCount) empties++;
     }
   }
-  check('no empty loan / category / slot nodes (on-demand folders)', emptyNodes === 0, `${emptyNodes} empties`);
+  check('no empty bank / category (on-demand folders)', empties === 0, `${empties} empties`);
 
-  // 5 — ordering: categories in CATEGORIES_IN_ORDER, slots in taxonomy order,
-  //     versions newest-first.
+  // 6 — counts reconcile.
+  const bankSum = ni.banks.reduce((n, b) => n + b.fileCount, 0);
+  const leafSum = leaves.length;
+  check('tree.fileCount == listPoolDocs length', tree.fileCount === docs.length, `${tree.fileCount} == ${docs.length}`);
+  check('tree.fileCount == Σ bank.fileCount', tree.fileCount === bankSum, `${tree.fileCount} == ${bankSum}`);
+  check('tree.fileCount == leaf count', tree.fileCount === leafSum, `${tree.fileCount} == ${leafSum}`);
+
+  // ordering: categories canonical, files by loan→doc-type→version.
   let orderViolations = 0;
-  const newestFirstBad: string[] = [];
-  for (const loan of tree.loans) {
-    for (let i = 1; i < loan.categories.length; i++) {
-      if (CAT_ORDER.get(loan.categories[i - 1]!.category)! >= CAT_ORDER.get(loan.categories[i]!.category)!) orderViolations++;
+  for (const b of ni.banks) {
+    for (let i = 1; i < b.categories.length; i++) {
+      if (CAT_ORDER.get(b.categories[i - 1]!.category)! >= CAT_ORDER.get(b.categories[i]!.category)!) orderViolations++;
     }
-    for (const cat of loan.categories) {
-      for (let i = 1; i < cat.slots.length; i++) {
-        if (SLOT_ORDER.get(cat.slots[i - 1]!.docType)! >= SLOT_ORDER.get(cat.slots[i]!.docType)!) orderViolations++;
-      }
-      for (const slot of cat.slots) {
-        for (let i = 1; i < slot.files.length; i++) {
-          const a = slot.files[i - 1]!;
-          const b = slot.files[i]!;
-          // newest-first: a should not be OLDER than b.
-          const ad = a.docEffectiveDate, bd = b.docEffectiveDate;
-          const older = ad && bd ? ad < bd : ad && !bd ? false : !ad && bd ? true : a.uploadedAt < b.uploadedAt;
-          if (older) newestFirstBad.push(`${slot.docType}: ${a.fileName}`);
-          // versionIndex is 1-based, sequential.
-          if (a.versionIndex !== i || b.versionIndex !== i + 1) orderViolations++;
-        }
+    for (const c of b.categories) {
+      for (let i = 1; i < c.files.length; i++) {
+        const a = c.files[i - 1]!, cur = c.files[i]!;
+        const cmp = a.loanName.localeCompare(cur.loanName)
+          || (SLOT_ORDER.get(a.docType)! - SLOT_ORDER.get(cur.docType)!)
+          || (a.versionIndex - cur.versionIndex);
+        if (cmp > 0) orderViolations++;
       }
     }
   }
-  check('categories + slots in canonical order', orderViolations === 0, `${orderViolations} violations`);
-  check('versions newest-first within each slot', newestFirstBad.length === 0, newestFirstBad.slice(0, 3).join('; '));
+  check('categories canonical + files ordered (loan→doc-type→version)', orderViolations === 0, `${orderViolations} violations`);
 
-  // 6 — exactly one selected version per slot; a multi-version slot exists.
-  let multiVersionSlots = 0;
-  let badSelected = 0;
-  for (const loan of tree.loans) {
-    for (const cat of loan.categories) {
-      for (const slot of cat.slots) {
-        const selected = slot.files.filter((f) => f.isSelectedVersion).length;
-        if (selected !== 1) badSelected++;
-        if (slot.files.length > 1) multiVersionSlots++;
-        // versionCount == files.length on every file.
-        if (slot.files.some((f) => f.versionCount !== slot.files.length)) badSelected++;
-      }
-    }
+  // version tiebreak: exactly one selected per (loan, doc-type) slot; multi-version exists.
+  const bySlot = new Map<string, DataRoomTreeFile[]>();
+  for (const l of leaves) {
+    const k = `${l.file.loanInPoolId} ${l.file.docType}`;
+    (bySlot.get(k) ?? bySlot.set(k, []).get(k)!).push(l.file);
   }
-  check('exactly one selected version per slot', badSelected === 0, `${badSelected} bad slots`);
-  check('at least one multi-version slot present (version badges exercised)', multiVersionSlots > 0, `${multiVersionSlots} multi-version slots`);
+  let badSelected = 0, multiVersion = 0;
+  for (const [, versions] of bySlot) {
+    if (versions.filter((v) => v.isSelectedVersion).length !== 1) badSelected++;
+    if (versions.length > 1) multiVersion++;
+    if (versions.some((v) => v.versionCount !== versions.length)) badSelected++;
+  }
+  check('exactly one selected version per (loan, doc-type) slot', badSelected === 0, `${badSelected} bad slots`);
+  check('at least one multi-version slot present (badges exercised)', multiVersion > 0, `${multiVersion} multi-version slots`);
 
-  // 3 — real data: Sunroad + 640 loans render with real docs.
-  const names = tree.loans.map((l) => (l.propertyName ?? l.loanInPoolId).toLowerCase());
-  const sunroad = tree.loans.find((l) => (l.propertyName ?? '').toLowerCase().includes('sunroad'));
-  const sixforty = tree.loans.find((l) => (l.propertyName ?? '').toLowerCase().includes('640'));
-  check('Sunroad loan present in tree', !!sunroad, sunroad?.propertyName ?? '(not found)');
-  check('640 loan present in tree', !!sixforty, sixforty?.propertyName ?? '(not found)');
-  if (sunroad) {
-    const slotIds = sunroad.categories.flatMap((c) => c.slots.map((s) => s.docType));
-    check('Sunroad has real doc-types', slotIds.length > 0, slotIds.join(', '));
-  }
-  if (!sunroad && !sixforty) {
-    console.log(`    (loan names seen: ${names.join(' | ')})`);
-  }
-
-  // Read-only invariant: listPoolDocs unchanged after projection.
+  // read-only invariant.
   check('read-only — doc count unchanged after projection', listPoolDocs(poolId).length === docs.length);
 
   console.log(
     failures === 0
-      ? `\ndata-room tree proof: OK (${tree.loans.length} loans, ${tree.fileCount} files, structure + ordering + on-demand + versions verified)\n`
+      ? `\ndata-room tree proof: OK (${ni.banks.length} banks, ${tree.fileCount} files; New Issue → Deal → Bank → Category → loan-file verified)\n`
       : `\ndata-room tree proof: ${failures} FAILURE(S)\n`,
   );
   process.exit(failures === 0 ? 0 : 1);

@@ -738,13 +738,23 @@ dataRoomRoutes.get('/:poolId/by-loan', (req: Request, res: Response) => {
 dataRoomRoutes.get('/:poolId/tree', (req: Request, res: Response) => {
   const poolId = req.params.poolId!;
   const pool = poolStore().getPool(poolId as PoolId);
+  // Loan → { name, bank } from the CURRENT tape's membership: propertyName is the
+  // loan label, mortgageLoanSeller is the contributing bank (may be a co-seller
+  // string like "GSMC, BMO"). Denormalized on the membership — no schema change.
+  const membership = pool?.currentTapeId ? poolStore().getMembership(pool.currentTapeId) : [];
+  const loanInfo = new Map<string, { name: string | null; bank: string | null }>();
+  for (const m of membership) {
+    loanInfo.set(m.loanInPoolId, { name: m.propertyName ?? null, bank: m.mortgageLoanSeller ?? null });
+  }
   const tree = projectTree(poolId, {
     poolName: pool?.shelfName ?? null,
     seller: pool?.seller ?? null,
-    resolveLoanName: (loanInPoolId) => {
-      const loan = poolStore().getLoanInPool(loanInPoolId as LoanInPoolId);
-      // property_name is often null; deal_ref carries the human handle (a slug).
-      return loan?.propertyName ?? loan?.dealRef ?? null;
+    resolveLoan: (loanInPoolId) => {
+      const info = loanInfo.get(loanInPoolId);
+      // Fall back name to loan_in_pool.dealRef when membership had no propertyName.
+      const name =
+        info?.name ?? poolStore().getLoanInPool(loanInPoolId as LoanInPoolId)?.dealRef ?? null;
+      return { name, bank: info?.bank ?? null };
     },
   });
   res.json(tree);
