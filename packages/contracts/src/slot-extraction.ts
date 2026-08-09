@@ -80,5 +80,50 @@ export interface PcaSlotExtraction {
   };
 }
 
-/** The slot-extraction union grows as asr/appraisal variants are added. */
-export type SlotExtraction = RentRollSlotExtraction | PcaSlotExtraction;
+/** One line of the ASR Sources & Uses table — a present (non-null) figure only. */
+export interface AsrSourceUseDTO {
+  readonly label: string;
+  readonly amount: number;
+}
+
+/** One column of the ASR "Underwritten Cash Flows" ladder (a year / T-12 / appraisal / U-W). */
+export interface AsrCashFlowColumnDTO {
+  readonly label: string; // '2021' | '2022' | '2023' | 'T-12' | 'Appraisal' | 'U/W'
+  readonly potentialGrossRevenue: number | null;
+  readonly effectiveGrossRevenue: number | null;
+  readonly totalExpenses: number | null;
+  readonly netOperatingIncome: number | null;
+  readonly netCashFlow: number | null;
+}
+
+/**
+ * Analytical Summary Report display projection (Data Room Tier 2c, asr variant).
+ * ★ Projected from ExtractionResult.asr (ASRExtraction) — the raw record stays
+ *   server-side. Faithful to the real extraction: the valuation triple (implied
+ *   cap rate is often null — the ASR may not state it), the deterministically
+ *   parsed Sources & Uses split into present source/use lines, and the multi-year
+ *   Underwritten Cash Flows ladder. Null-safe: absent lines are omitted; an absent
+ *   cash-flow table projects to [].
+ */
+export interface AsrSlotExtraction {
+  readonly kind: 'asr';
+  /** ASR's underwritten NOI (the U/W column's NOI). */
+  readonly underwrittenNOI: number | null;
+  /** Implied value from the ASR (e.g. appraised / concluded value). */
+  readonly impliedValue: number | null;
+  /** Implied cap rate — 0..1 fraction; null when the ASR doesn't state it. */
+  readonly impliedCapRate: number | null;
+  /** Existing-debt payoff (refinance deals); null otherwise. */
+  readonly priorDebtPayoff: number | null;
+  /** New sponsor equity contributed alongside the loan; null when absent. */
+  readonly sponsorEquity: number | null;
+  /** Sources side of the S&U table (present lines only). */
+  readonly sources: readonly AsrSourceUseDTO[];
+  /** Uses side of the S&U table (present lines only). */
+  readonly uses: readonly AsrSourceUseDTO[];
+  /** Underwritten Cash Flows ladder, one entry per present column ([] when absent). */
+  readonly cashFlows: readonly AsrCashFlowColumnDTO[];
+}
+
+/** The slot-extraction union grows as the appraisal variant is added. */
+export type SlotExtraction = RentRollSlotExtraction | PcaSlotExtraction | AsrSlotExtraction;

@@ -7,13 +7,16 @@
  * (D) projectPca (pure): repair totals, capex schedule (0-years kept), narratives from
  *     structural; boundary — no raw uninflated schedule/structural; null schedule → [].
  * (E) real data: Sunroad pca (ExtractionResult.pca) → capex schedule + narratives.
+ * (F) projectAsr (pure): valuation triple (null cap kept), S&U split (honest-null lines
+ *     dropped), cash-flow columns (empty columns dropped); boundary; null → [] [] [].
+ * (G) real data: Sunroad asr (ExtractionResult.asr) → NOI/value + S&U + cash flows.
  *
  * Run: npx tsx src/scripts/data-room-slot-extraction-proof.ts   (from apps/api)
  */
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import type { PCAExtraction, RentRoll, RentRollLine } from '@cre/contracts';
-import { projectPca, projectRentRoll } from '../services/slot-extraction.service.js';
+import type { ASRExtraction, PCAExtraction, RentRoll, RentRollLine } from '@cre/contracts';
+import { projectAsr, projectPca, projectRentRoll } from '../services/slot-extraction.service.js';
 import { store } from '../storage/sqlite-store.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
@@ -107,6 +110,52 @@ function main(): void {
       check('Sunroad pca has at least one narrative', Object.values(dto.narratives).some((v) => !!v));
     } else {
       check('Sunroad pca extraction present', false, 'no pca on ExtractionResult');
+    }
+  }
+
+  // (F) asr pure projection.
+  const syntheticAsr: ASRExtraction = {
+    impliedValue: 133000000, impliedCapRate: null, underwrittenNOI: 9294609, priorDebtPayoff: 63932950, sponsorEquity: null,
+    sourcesAndUses: {
+      loanAmount: 82460000, loanPayoff: 63932950, returnOfEquity: 10792410, unfundedObligations: null,
+      capitalExpenditures: null, closingCosts: 1055507, purchasePrice: null, totalCostBasis: 103900000,
+      gsaRentReserve: 2584491, llObligationsGapRent: 3581588, closingReservesCapex: 513108,
+    },
+    underwrittenCashFlows: {
+      y2021: { baseRentalRevenue: null, commercialReimbursementRevenue: null, parkingIncome: null, otherRevenue: null, potentialGrossRevenue: null, vacancyLoss: null, effectiveGrossRevenue: 8000000, realEstateTaxes: null, insurance: null, utilities: null, repairsAndMaintenance: null, managementFee: null, generalAndAdministrative: null, totalExpenses: 3000000, netOperatingIncome: 5000000, replacementReserves: null, tenantImprovements: null, leasingCommissions: null, netCashFlow: 4800000 },
+      y2022: { baseRentalRevenue: null, commercialReimbursementRevenue: null, parkingIncome: null, otherRevenue: null, potentialGrossRevenue: null, vacancyLoss: null, effectiveGrossRevenue: null, realEstateTaxes: null, insurance: null, utilities: null, repairsAndMaintenance: null, managementFee: null, generalAndAdministrative: null, totalExpenses: null, netOperatingIncome: null, replacementReserves: null, tenantImprovements: null, leasingCommissions: null, netCashFlow: null },
+      y2023: { baseRentalRevenue: null, commercialReimbursementRevenue: null, parkingIncome: null, otherRevenue: null, potentialGrossRevenue: null, vacancyLoss: null, effectiveGrossRevenue: null, realEstateTaxes: null, insurance: null, utilities: null, repairsAndMaintenance: null, managementFee: null, generalAndAdministrative: null, totalExpenses: null, netOperatingIncome: null, replacementReserves: null, tenantImprovements: null, leasingCommissions: null, netCashFlow: null },
+      t12: { baseRentalRevenue: null, commercialReimbursementRevenue: null, parkingIncome: null, otherRevenue: null, potentialGrossRevenue: null, vacancyLoss: null, effectiveGrossRevenue: null, realEstateTaxes: null, insurance: null, utilities: null, repairsAndMaintenance: null, managementFee: null, generalAndAdministrative: null, totalExpenses: null, netOperatingIncome: null, replacementReserves: null, tenantImprovements: null, leasingCommissions: null, netCashFlow: null },
+      appraisal: { baseRentalRevenue: null, commercialReimbursementRevenue: null, parkingIncome: null, otherRevenue: null, potentialGrossRevenue: null, vacancyLoss: null, effectiveGrossRevenue: null, realEstateTaxes: null, insurance: null, utilities: null, repairsAndMaintenance: null, managementFee: null, generalAndAdministrative: null, totalExpenses: null, netOperatingIncome: null, replacementReserves: null, tenantImprovements: null, leasingCommissions: null, netCashFlow: null },
+      uw: { baseRentalRevenue: null, commercialReimbursementRevenue: null, parkingIncome: null, otherRevenue: null, potentialGrossRevenue: 13000000, vacancyLoss: null, effectiveGrossRevenue: 12739675, realEstateTaxes: null, insurance: null, utilities: null, repairsAndMaintenance: null, managementFee: null, generalAndAdministrative: null, totalExpenses: 3445066, netOperatingIncome: 9294609, replacementReserves: null, tenantImprovements: null, leasingCommissions: null, netCashFlow: 9000000 },
+    },
+  } as ASRExtraction;
+  const ad = projectAsr(syntheticAsr);
+  check('asr DTO kind is asr', ad.kind === 'asr');
+  check('asr valuation triple surfaced (cap null → null)', ad.underwrittenNOI === 9294609 && ad.impliedValue === 133000000 && ad.impliedCapRate === null);
+  check('asr sources split (loan amount present)', ad.sources.some((s) => s.label === 'Loan amount' && s.amount === 82460000));
+  check('asr uses drop honest-null lines (no unfundedObligations)', ad.uses.some((u) => u.label === 'Loan payoff') && !ad.uses.some((u) => u.label === 'Unfunded obligations'));
+  check('asr cash-flow columns include only present ones (2021 + U/W, not empty 2022)', ad.cashFlows.some((c) => c.label === '2021') && ad.cashFlows.some((c) => c.label === 'U/W') && !ad.cashFlows.some((c) => c.label === '2022'));
+  check('boundary — DTO has NO raw sourcesAndUses/underwrittenCashFlows', !('sourcesAndUses' in (ad as unknown as Record<string, unknown>)) && !('underwrittenCashFlows' in (ad as unknown as Record<string, unknown>)));
+  const adNull = projectAsr({ ...syntheticAsr, sourcesAndUses: null, underwrittenCashFlows: null } as ASRExtraction);
+  check('asr null-safe — absent S&U/CF → [] []', adNull.sources.length === 0 && adNull.uses.length === 0 && adNull.cashFlows.length === 0);
+
+  // (G) real data — Sunroad asr (via ExtractionResult.asr on the doctrine chain).
+  {
+    const m = store.lookupAnalysisByDealRef('bmark2024v8-sunroad-centrum');
+    const analysisId = m[0] ? (m[0].graphId ?? m[0].legacyId) : null;
+    const stored = analysisId ? (() => { try { return resolveAnalysisForRead(analysisId, recordGraphStore, store); } catch { return null; } })() : null;
+    const envelope = stored?.graphRevisionId ? recordGraphStore.getRevisionEnvelope(stored.graphRevisionId as never) : null;
+    const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+    const extraction = doctrine?.extractionResultId ? recordGraphStore.getExtractionResult(doctrine.extractionResultId) : null;
+    const asr = extraction?.asr ?? null;
+    if (asr) {
+      const dto = projectAsr(asr);
+      check('Sunroad asr NOI + implied value present', dto.underwrittenNOI != null && dto.impliedValue != null, `NOI ${dto.underwrittenNOI}, value ${dto.impliedValue}`);
+      check('Sunroad asr sources & uses present', dto.sources.length > 0 && dto.uses.length > 0, `${dto.sources.length} src / ${dto.uses.length} use`);
+      check('Sunroad asr cash-flow ladder present', dto.cashFlows.length > 0, `${dto.cashFlows.length} cols`);
+    } else {
+      check('Sunroad asr extraction present', false, 'no asr on ExtractionResult');
     }
   }
 

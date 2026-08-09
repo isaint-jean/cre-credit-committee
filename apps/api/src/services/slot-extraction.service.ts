@@ -5,6 +5,10 @@
  * Credit-free: extraction happened at ingest; this only surfaces it.
  */
 import type {
+  ASRExtraction,
+  AsrCashFlowColumnDTO,
+  AsrSlotExtraction,
+  AsrSourceUseDTO,
   PCAExtraction,
   PcaSlotExtraction,
   RentRoll,
@@ -104,5 +108,69 @@ export function projectPca(pca: PCAExtraction): PcaSlotExtraction {
       plumbing: pca.structural.plumbing,
       electrical: pca.structural.electrical,
     },
+  };
+}
+
+/**
+ * Project ExtractionResult.asr (ASRExtraction) → display DTO. Surfaces the
+ * valuation triple, the deterministically-parsed Sources & Uses (split into
+ * present source/use lines, honest-blank nulls dropped), and the Underwritten
+ * Cash Flows ladder (one entry per present column). Boundary-honoring: the raw
+ * ExtractionResult never leaves the server. Null-safe / bounded — no pagination.
+ */
+export function projectAsr(asr: ASRExtraction): AsrSlotExtraction {
+  const sources: AsrSourceUseDTO[] = [];
+  const uses: AsrSourceUseDTO[] = [];
+  const push = (arr: AsrSourceUseDTO[], label: string, amount: number | null | undefined): void => {
+    if (amount != null) arr.push({ label, amount });
+  };
+  const su = asr.sourcesAndUses ?? null;
+  if (su) {
+    push(sources, 'Loan amount', su.loanAmount);
+    push(sources, 'Sponsor equity', su.sponsorEquity ?? asr.sponsorEquity);
+    push(uses, 'Purchase price', su.purchasePrice);
+    push(uses, 'Loan payoff', su.loanPayoff);
+    push(uses, 'Return of equity', su.returnOfEquity);
+    push(uses, 'Unfunded obligations', su.unfundedObligations);
+    push(uses, 'LL obligations / gap rent', su.llObligationsGapRent);
+    push(uses, 'GSA rent reserve', su.gsaRentReserve);
+    push(uses, 'Capital expenditures', su.capitalExpenditures);
+    push(uses, 'Closing reserves & capex', su.closingReservesCapex);
+    push(uses, 'Closing costs', su.closingCosts);
+  }
+
+  const cf = asr.underwrittenCashFlows ?? null;
+  const cashFlows: AsrCashFlowColumnDTO[] = [];
+  if (cf) {
+    const cols: ReadonlyArray<readonly [keyof typeof cf, string]> = [
+      ['y2021', '2021'], ['y2022', '2022'], ['y2023', '2023'], ['t12', 'T-12'], ['appraisal', 'Appraisal'], ['uw', 'U/W'],
+    ];
+    for (const [key, label] of cols) {
+      const c = cf[key];
+      const col: AsrCashFlowColumnDTO = {
+        label,
+        potentialGrossRevenue: c.potentialGrossRevenue,
+        effectiveGrossRevenue: c.effectiveGrossRevenue,
+        totalExpenses: c.totalExpenses,
+        netOperatingIncome: c.netOperatingIncome,
+        netCashFlow: c.netCashFlow,
+      };
+      // include a column only when it carries at least one surfaced figure
+      if (col.potentialGrossRevenue != null || col.effectiveGrossRevenue != null || col.totalExpenses != null || col.netOperatingIncome != null || col.netCashFlow != null) {
+        cashFlows.push(col);
+      }
+    }
+  }
+
+  return {
+    kind: 'asr',
+    underwrittenNOI: asr.underwrittenNOI,
+    impliedValue: asr.impliedValue,
+    impliedCapRate: asr.impliedCapRate,
+    priorDebtPayoff: asr.priorDebtPayoff,
+    sponsorEquity: asr.sponsorEquity ?? null,
+    sources,
+    uses,
+    cashFlows,
   };
 }

@@ -27,6 +27,7 @@ import { formatBytes, formatDate, tierChip } from './data-room-utils';
 import { LoanAnalysisSummary } from './LoanAnalysisSummary';
 import { RentRollTable } from './RentRollTable';
 import { PcaDetail } from './PcaDetail';
+import { AsrDetail } from './AsrDetail';
 
 type LoanOption = { loanInPoolId: string; label: string };
 
@@ -152,6 +153,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
   const [verdict, setVerdict] = useState(false);
   const [tenants, setTenants] = useState(false);
   const [condition, setCondition] = useState(false);
+  const [underwriting, setUnderwriting] = useState(false);
   const chip = tierChip(file.tier);
   const dateLabel = file.docEffectiveDate
     ? `as of ${formatDate(file.docEffectiveDate)}`
@@ -220,6 +222,17 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
             {condition ? 'Hide condition' : '🔧 Condition'}
           </button>
         )}
+        {/* Tier 2(c) asr — the engine's valuation + S&U + cash-flow extraction, on asr files. */}
+        {file.docType === 'asr' && (
+          <button
+            type="button"
+            onClick={() => setUnderwriting((u) => !u)}
+            className="shrink-0 rounded border border-border-primary px-1.5 py-0.5 text-xs text-text-secondary hover:text-text-primary"
+            title="Show the valuation, sources & uses, and cash flows the engine extracted from this ASR"
+          >
+            {underwriting ? 'Hide underwriting' : '📊 Underwriting'}
+          </button>
+        )}
         {ctx && (
           <button
             type="button"
@@ -233,6 +246,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
       {verdict && <LoanAnalysisSummary analysisId={file.analysisId} poolId={poolId} loanInPoolId={file.loanInPoolId} depth={depth} />}
       {tenants && <RentRollTable analysisId={file.analysisId} depth={depth} />}
       {condition && <PcaDetail analysisId={file.analysisId} depth={depth} />}
+      {underwriting && <AsrDetail analysisId={file.analysisId} depth={depth} />}
       {ctx && moving && <MovePicker file={file} ctx={ctx} onDone={() => setMoving(false)} />}
     </div>
   );
