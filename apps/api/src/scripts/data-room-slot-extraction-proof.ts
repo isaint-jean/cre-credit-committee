@@ -10,13 +10,16 @@
  * (F) projectAsr (pure): valuation triple (null cap kept), S&U split (honest-null lines
  *     dropped), cash-flow columns (empty columns dropped); boundary; null → [] [] [].
  * (G) real data: Sunroad asr (ExtractionResult.asr) → NOI/value + S&U + cash flows.
+ * (H) projectAppraisal (pure): value card, legacy-alias coalesce, all-blank pro-forma →
+ *     null; boundary — no raw valueConclusion/pageReferences.
+ * (I) real data: Sunroad appraisal PRESENT (value card) vs 640 appraisal NULL (→ not_extracted).
  *
  * Run: npx tsx src/scripts/data-room-slot-extraction-proof.ts   (from apps/api)
  */
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import type { ASRExtraction, PCAExtraction, RentRoll, RentRollLine } from '@cre/contracts';
-import { projectAsr, projectPca, projectRentRoll } from '../services/slot-extraction.service.js';
+import type { AppraisalExtraction, ASRExtraction, PCAExtraction, RentRoll, RentRollLine } from '@cre/contracts';
+import { projectAppraisal, projectAsr, projectPca, projectRentRoll } from '../services/slot-extraction.service.js';
 import { store } from '../storage/sqlite-store.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
@@ -158,6 +161,46 @@ function main(): void {
       check('Sunroad asr extraction present', false, 'no asr on ExtractionResult');
     }
   }
+
+  // (H) appraisal pure projection — coalesces legacy aliases; pro-forma null when all-blank.
+  const richAppraisal = {
+    source: 'cbre', asIsValue: 122000000, asStabilizedValue: 133000000, overallCapRate: 0.0625, terminalCapRate: 0.065,
+    stabilizedOccupancy: 0.96, currentOccupancyPhysical: 0.468, asIsValueDate: '2023-07-13T00:00:00.000Z',
+    methodology: 'Income Capitalization Approach', valueConclusion: 122000000, capRate: 0.0625,
+    stabilizedProForma: { effectiveGrossIncome: 12536598, totalOperatingExpenses: 3932767, netOperatingIncome: 8603831 },
+    currentProForma: { effectiveGrossIncome: 1942126, totalOperatingExpenses: 2297142, netOperatingIncome: -355016 },
+  } as unknown as AppraisalExtraction;
+  const apRich = projectAppraisal(richAppraisal);
+  check('appraisal DTO kind is appraisal', apRich.kind === 'appraisal');
+  check('appraisal value card surfaced', apRich.asIsValue === 122000000 && apRich.asStabilizedValue === 133000000 && apRich.asIsCapRate === 0.0625);
+  check('appraisal occupancy + date surfaced', apRich.stabilizedOccupancy === 0.96 && apRich.currentOccupancy === 0.468 && apRich.valuationDate === '2023-07-13T00:00:00.000Z');
+  check('appraisal pro-formas present (stab + current)', apRich.stabilizedProForma?.noi === 8603831 && apRich.currentProForma?.noi === -355016);
+  check('boundary — DTO has NO raw valueConclusion/pageReferences', !('valueConclusion' in (apRich as unknown as Record<string, unknown>)) && !('pageReferences' in (apRich as unknown as Record<string, unknown>)));
+
+  // legacy-alias-only shape (DEMO-CLEARED-MF-001 style): rich fields undefined → coalesced.
+  const sparseAppraisal = { valueConclusion: 26000000, capRate: 0.0615, methodology: 'Income' } as unknown as AppraisalExtraction;
+  const apSparse = projectAppraisal(sparseAppraisal);
+  check('appraisal coalesces legacy aliases (valueConclusion/capRate)', apSparse.asIsValue === 26000000 && apSparse.asIsCapRate === 0.0615);
+  check('appraisal all-blank pro-forma → null (never fabricated 0s)', apSparse.stabilizedProForma === null && apSparse.currentProForma === null);
+
+  // (I) real data — Sunroad appraisal PRESENT (value card renders); 640 appraisal NULL (not_extracted).
+  const apCase = (ref: string): AppraisalExtraction | null => {
+    const m = store.lookupAnalysisByDealRef(ref);
+    const analysisId = m[0] ? (m[0].graphId ?? m[0].legacyId) : null;
+    const stored = analysisId ? (() => { try { return resolveAnalysisForRead(analysisId, recordGraphStore, store); } catch { return null; } })() : null;
+    const envelope = stored?.graphRevisionId ? recordGraphStore.getRevisionEnvelope(stored.graphRevisionId as never) : null;
+    const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+    const extraction = doctrine?.extractionResultId ? recordGraphStore.getExtractionResult(doctrine.extractionResultId) : null;
+    return extraction?.appraisal ?? null;
+  };
+  const sunroadAp = apCase('bmark2024v8-sunroad-centrum');
+  if (sunroadAp) {
+    const dto = projectAppraisal(sunroadAp);
+    check('Sunroad appraisal PRESENT → value card renders', dto.asIsValue != null && dto.asIsCapRate != null, `asIs ${dto.asIsValue}, cap ${dto.asIsCapRate}`);
+  } else {
+    check('Sunroad appraisal PRESENT → value card renders', false, 'unexpectedly null');
+  }
+  check('640 appraisal NULL → not_extracted (route returns not_extracted signal)', apCase('bmark2024v8-640-5th-avenue') === null);
 
   // canonical byte-identical (read-only).
   const db = new Database(path.join(process.cwd(), 'data', 'cre.db'), { readonly: true });

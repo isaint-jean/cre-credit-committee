@@ -125,5 +125,52 @@ export interface AsrSlotExtraction {
   readonly cashFlows: readonly AsrCashFlowColumnDTO[];
 }
 
-/** The slot-extraction union grows as the appraisal variant is added. */
-export type SlotExtraction = RentRollSlotExtraction | PcaSlotExtraction | AsrSlotExtraction;
+/** A compact appraisal pro-forma line (EGI / OpEx / NOI) — display only. */
+export interface AppraisalProFormaDTO {
+  readonly egi: number | null;
+  readonly opex: number | null;
+  readonly noi: number | null;
+}
+
+/**
+ * Appraisal display projection (Data Room Tier 2c, appraisal variant).
+ * ★ Projected from ExtractionResult.appraisal (AppraisalExtraction) — the raw
+ *   record stays server-side. Appraisal extraction is TEMPLATE-DEPENDENT: many
+ *   deals have `appraisal === null` (→ not_extracted), and some carry ONLY the
+ *   legacy 3-field aliases (valueConclusion / capRate / methodology) with the
+ *   richer fields undefined. The projection coalesces the aliases and keeps every
+ *   field null-safe, so a sparsely-populated appraisal renders what it has rather
+ *   than a fabricated card. Pro-formas are null unless they carry a real figure.
+ */
+export interface AppraisalSlotExtraction {
+  readonly kind: 'appraisal';
+  /** As-is value (asIsValue ?? legacy valueConclusion). */
+  readonly asIsValue: number | null;
+  /** As-stabilized value (lease-up deals); null when not stated. */
+  readonly asStabilizedValue: number | null;
+  /** Going-in / overall cap rate, 0..1 (overallCapRate ?? legacy capRate). */
+  readonly asIsCapRate: number | null;
+  /** Terminal / reversion cap rate, 0..1; null when not stated. */
+  readonly terminalCapRate: number | null;
+  /** Stabilized occupancy, 0..1 fraction; null when not stated. */
+  readonly stabilizedOccupancy: number | null;
+  /** Current physical occupancy, 0..1 fraction; null when not stated. */
+  readonly currentOccupancy: number | null;
+  /** As-is value date (ISO); null when not stated. */
+  readonly valuationDate: string | null;
+  /** Valuation methodology (e.g. "Income Capitalization Approach"). */
+  readonly methodology: string | null;
+  /** Appraisal firm / source (e.g. "cbre"); null when not stated. */
+  readonly source: string | null;
+  /** Stabilized pro-forma (EGI/OpEx/NOI); null when absent or all-blank. */
+  readonly stabilizedProForma: AppraisalProFormaDTO | null;
+  /** Current (as-is) pro-forma (EGI/OpEx/NOI); null when absent or all-blank. */
+  readonly currentProForma: AppraisalProFormaDTO | null;
+}
+
+/** The slot-extraction union — all four Tier 2(c) docTypes. */
+export type SlotExtraction =
+  | RentRollSlotExtraction
+  | PcaSlotExtraction
+  | AsrSlotExtraction
+  | AppraisalSlotExtraction;

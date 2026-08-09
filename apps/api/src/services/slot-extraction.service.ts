@@ -5,6 +5,9 @@
  * Credit-free: extraction happened at ingest; this only surfaces it.
  */
 import type {
+  AppraisalExtraction,
+  AppraisalProFormaDTO,
+  AppraisalSlotExtraction,
   ASRExtraction,
   AsrCashFlowColumnDTO,
   AsrSlotExtraction,
@@ -172,5 +175,38 @@ export function projectAsr(asr: ASRExtraction): AsrSlotExtraction {
     sources,
     uses,
     cashFlows,
+  };
+}
+
+/**
+ * Project ExtractionResult.appraisal (AppraisalExtraction) → display DTO. Coalesces
+ * the legacy 3-field aliases (valueConclusion / capRate) into the modern fields so a
+ * sparsely-populated appraisal still renders what it has. Pro-formas collapse to null
+ * unless they carry a real figure (so a blank pro-forma never looks like extracted 0s).
+ * Boundary-honoring: the raw ExtractionResult never leaves the server. The caller is
+ * responsible for the null-appraisal → not_extracted signal (never call this with null).
+ */
+export function projectAppraisal(a: AppraisalExtraction): AppraisalSlotExtraction {
+  const proForma = (pf: { effectiveGrossIncome: number | null; totalOperatingExpenses: number | null; netOperatingIncome: number | null } | undefined): AppraisalProFormaDTO | null => {
+    if (!pf) return null;
+    const egi = pf.effectiveGrossIncome;
+    const opex = pf.totalOperatingExpenses;
+    const noi = pf.netOperatingIncome;
+    if (egi == null && opex == null && noi == null) return null; // all-blank → not a real pro-forma
+    return { egi, opex, noi };
+  };
+  return {
+    kind: 'appraisal',
+    asIsValue: a.asIsValue ?? a.valueConclusion ?? null,
+    asStabilizedValue: a.asStabilizedValue ?? null,
+    asIsCapRate: a.overallCapRate ?? a.capRate ?? null,
+    terminalCapRate: a.terminalCapRate ?? null,
+    stabilizedOccupancy: a.stabilizedOccupancy ?? null,
+    currentOccupancy: a.currentOccupancyPhysical ?? null,
+    valuationDate: a.asIsValueDate ?? null,
+    methodology: a.methodology ?? null,
+    source: a.source ?? null,
+    stabilizedProForma: proForma(a.stabilizedProForma),
+    currentProForma: proForma(a.currentProForma),
   };
 }

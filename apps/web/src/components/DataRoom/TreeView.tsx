@@ -28,6 +28,7 @@ import { LoanAnalysisSummary } from './LoanAnalysisSummary';
 import { RentRollTable } from './RentRollTable';
 import { PcaDetail } from './PcaDetail';
 import { AsrDetail } from './AsrDetail';
+import { AppraisalCard } from './AppraisalCard';
 
 type LoanOption = { loanInPoolId: string; label: string };
 
@@ -154,6 +155,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
   const [tenants, setTenants] = useState(false);
   const [condition, setCondition] = useState(false);
   const [underwriting, setUnderwriting] = useState(false);
+  const [valuation, setValuation] = useState(false);
   const chip = tierChip(file.tier);
   const dateLabel = file.docEffectiveDate
     ? `as of ${formatDate(file.docEffectiveDate)}`
@@ -233,6 +235,17 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
             {underwriting ? 'Hide underwriting' : '📊 Underwriting'}
           </button>
         )}
+        {/* Tier 2(c) appraisal — the engine's value card, on appraisal files (often not-extracted). */}
+        {file.docType === 'appraisal' && (
+          <button
+            type="button"
+            onClick={() => setValuation((v) => !v)}
+            className="shrink-0 rounded border border-border-primary px-1.5 py-0.5 text-xs text-text-secondary hover:text-text-primary"
+            title="Show the appraisal value card the engine extracted (or an honest not-extracted state)"
+          >
+            {valuation ? 'Hide valuation' : '🏦 Valuation'}
+          </button>
+        )}
         {ctx && (
           <button
             type="button"
@@ -247,6 +260,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
       {tenants && <RentRollTable analysisId={file.analysisId} depth={depth} />}
       {condition && <PcaDetail analysisId={file.analysisId} depth={depth} />}
       {underwriting && <AsrDetail analysisId={file.analysisId} depth={depth} />}
+      {valuation && <AppraisalCard analysisId={file.analysisId} depth={depth} />}
       {ctx && moving && <MovePicker file={file} ctx={ctx} onDone={() => setMoving(false)} />}
     </div>
   );

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { uploadDualFiles, uploadAnalysisFiles, upload } from '../middleware/upload.js';
 import { enforceAnalysisParam, filterAccessibleAnalyses, enforceDealForRoot, canAccessAnalysis } from '../middleware/deal-access.js';
-import { projectAsr, projectPca, projectRentRoll, RENT_ROLL_PAGE_SIZE } from '../services/slot-extraction.service.js';
+import { projectAppraisal, projectAsr, projectPca, projectRentRoll, RENT_ROLL_PAGE_SIZE } from '../services/slot-extraction.service.js';
 import { store } from '../storage/sqlite-store.js';
 import type { SqliteStore } from '../storage/sqlite-store.js';
 import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
@@ -679,7 +679,7 @@ analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Respons
 // Credit-free (no LLM). Deal-access gated by the :id param. ?offset paginates (limit 50).
 analysisRoutes.get('/:id/slot-extraction/:docType', (req: Request, res: Response) => {
   const docType = req.params['docType'];
-  if (docType !== 'rent_roll' && docType !== 'pca' && docType !== 'asr') {
+  if (docType !== 'rent_roll' && docType !== 'pca' && docType !== 'asr' && docType !== 'appraisal') {
     res.status(501).json({ error: 'NOT_IMPLEMENTED', message: `slot-extraction for '${docType}' is not built yet` });
     return;
   }
@@ -698,7 +698,7 @@ analysisRoutes.get('/:id/slot-extraction/:docType', (req: Request, res: Response
     : null;
   const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
 
-  if (docType === 'pca' || docType === 'asr') {
+  if (docType === 'pca' || docType === 'asr' || docType === 'appraisal') {
     const extraction = doctrine?.extractionResultId
       ? recordGraphStore.getExtractionResult(doctrine.extractionResultId)
       : null;
@@ -709,6 +709,19 @@ analysisRoutes.get('/:id/slot-extraction/:docType', (req: Request, res: Response
         return;
       }
       res.json({ status: 'present', extraction: projectPca(pca) });
+      return;
+    }
+    if (docType === 'appraisal') {
+      // Appraisal extraction is template-dependent — often null even when an
+      // appraisal DOC exists (it just wasn't machine-parsed). Both the doc-absent
+      // and extraction-null cases collapse to not_extracted, with an honest reason
+      // so a buyer reads "not parsed" rather than "data missing".
+      const appraisal = extraction?.appraisal ?? null;
+      if (!appraisal) {
+        res.json({ status: 'not_extracted', extraction: null, reason: 'not_machine_extracted' });
+        return;
+      }
+      res.json({ status: 'present', extraction: projectAppraisal(appraisal) });
       return;
     }
     const asr = extraction?.asr ?? null;

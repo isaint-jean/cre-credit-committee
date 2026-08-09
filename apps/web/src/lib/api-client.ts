@@ -30,7 +30,7 @@ import type {
 import { isRenderedAnalysis } from './rendered-analysis-guard';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
-import type { AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
+import type { AppraisalSlotExtraction, AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
 // (and the local DataRoom* shapes) from ONE module — the api-client — rather
@@ -1515,6 +1515,12 @@ export const api = {
   getAsrExtraction: (analysisId: string) =>
     request<{ status: 'present' | 'not_extracted'; extraction: AsrSlotExtraction | null }>(
       `/analyses/${analysisId}/slot-extraction/asr`,
+    ),
+
+  // Tier 2(c) appraisal variant — value card; often not machine-extracted (template-dependent).
+  getAppraisalExtraction: (analysisId: string) =>
+    request<{ status: 'present' | 'not_extracted'; extraction: AppraisalSlotExtraction | null; reason?: string }>(
+      `/analyses/${analysisId}/slot-extraction/appraisal`,
     ),
 
   // GET /pools/:poolId/loans/:loanInPoolId/missing-docs → Tier 2 (a): empty ingest
