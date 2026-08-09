@@ -63,6 +63,7 @@ import { dealAccessStore } from '../storage/deal-access-store.js';
 import { enforcePoolParam, filterAccessiblePools, enforceDealForRoot, dataRoomConfiRequired } from '../middleware/deal-access.js';
 import { confiAcceptanceStore, CONFIDENTIALITY_AGREEMENT_VERSION } from '../storage/confi-acceptance-store.js';
 import { answerLoanQuestion } from '../services/loan-doc-qa.service.js';
+import { computeMissingDocs } from '../services/data-room-store.service.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import {
   advanceTapePhaseA,
@@ -782,6 +783,15 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/ask', async (req: Request, res: Re
   } catch (e) {
     return mapThrow(res, e);
   }
+});
+
+// GET /api/pools/:poolId/loans/:loanInPoolId/missing-docs — Tier 2 (a). Set-difference
+// empty ingest slots + humanized label + "blocks what". Deal-access gated; read-only;
+// NO engine/LLM call (works for an un-underwritten loan).
+poolRoutes.get('/:poolId/loans/:loanInPoolId/missing-docs', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as string;
+  const loanInPoolId = req.params['loanInPoolId'] as string;
+  return res.json({ missing: computeMissingDocs(poolId, loanInPoolId) });
 });
 
 /** GET /api/pools/:poolId — pool detail + D3 derivation of currentWorkingTapeId. */

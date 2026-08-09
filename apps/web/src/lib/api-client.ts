@@ -1497,6 +1497,13 @@ export const api = {
   dataRoomTree: (poolId: string) =>
     request<DataRoomTree>(`/data-room/${poolId}/tree`),
 
+  // GET /pools/:poolId/loans/:loanInPoolId/missing-docs → Tier 2 (a): empty ingest
+  // slots (set-difference) with a humanized label + "blocks what".
+  getMissingDocs: (poolId: string, loanInPoolId: string) =>
+    request<{ missing: Array<{ slot: string; label: string; blocks: string }> }>(
+      `/pools/${poolId}/loans/${loanInPoolId}/missing-docs`,
+    ),
+
   // ── Per-loan document Q&A (grounded, cited, refuse-when-absent) ─────────────
   // POST /pools/:poolId/loans/:loanInPoolId/ask → { status, answer, sourceDoc,
   // sourceQuote, scannedOnly }. status ∈ answered | not_stated | unavailable.

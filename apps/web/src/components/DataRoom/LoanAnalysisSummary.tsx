@@ -81,11 +81,38 @@ function AskBox({ poolId, loanInPoolId, depth }: { poolId: string | null; loanIn
   );
 }
 
+/** Tier 2 (a) — the loan's missing ingest docs (set-difference; no engine call).
+ *  Renders even for an un-underwritten loan / with credits exhausted. */
+function MissingDocs({ poolId, loanInPoolId, depth }: { poolId: string | null; loanInPoolId: string; depth: number }) {
+  const [missing, setMissing] = useState<Array<{ slot: string; label: string; blocks: string }> | null>(null);
+  const pad = { paddingLeft: `${8 + depth * 16 + 16}px` } as const;
+  useEffect(() => {
+    if (!poolId) return;
+    let cancelled = false;
+    api.getMissingDocs(poolId, loanInPoolId).then((r) => { if (!cancelled) setMissing(r.missing); }).catch(() => { if (!cancelled) setMissing([]); });
+    return () => { cancelled = true; };
+  }, [poolId, loanInPoolId]);
+  if (!missing || missing.length === 0) return null;
+  return (
+    <div className="mt-2" style={pad}>
+      <p className="text-[11px] uppercase tracking-wide text-text-secondary">Missing documents</p>
+      <ul className="mt-1 space-y-0.5">
+        {missing.map((m) => (
+          <li key={m.slot} className="text-xs text-text-secondary">
+            <span className="text-risk-high">⚠ {m.label}</span> not provided — blocks {m.blocks}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function LoanAnalysisSummary({ analysisId, poolId, loanInPoolId, depth }: { analysisId: string | null; poolId: string | null; loanInPoolId: string; depth: number }) {
   const [resp, setResp] = useState<GetAnalysisResponse | null>(null);
   const [intake, setIntake] = useState<IntakeCompleteness | null>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
   const [showSources, setShowSources] = useState(false);
+  const [showFin, setShowFin] = useState(false);
   const pad = { paddingLeft: `${8 + depth * 16 + 16}px` } as const;
 
   useEffect(() => {
@@ -110,6 +137,7 @@ export function LoanAnalysisSummary({ analysisId, poolId, loanInPoolId, depth }:
     return (
       <div>
         <div className="py-1 text-xs text-text-secondary" style={pad}>No underwriting yet for this loan.</div>
+        <MissingDocs poolId={poolId} loanInPoolId={loanInPoolId} depth={depth} />
         <AskBox poolId={poolId} loanInPoolId={loanInPoolId} depth={depth} />
       </div>
     );
@@ -189,6 +217,36 @@ export function LoanAnalysisSummary({ analysisId, poolId, loanInPoolId, depth }:
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+
+      {/* Tier 2 (a) — missing ingest docs (set-difference, no engine call). */}
+      <MissingDocs poolId={poolId} loanInPoolId={loanInPoolId} depth={0} />
+
+      {/* Tier 2 (b) — reconciled income/expense from the already-fetched analysis. */}
+      {((r.incomeLines?.length ?? 0) > 0 || (r.expenseLines?.length ?? 0) > 0) && (
+        <div className="mt-3">
+          <button type="button" onClick={() => setShowFin((s) => !s)} className="text-xs text-accent hover:underline">
+            {showFin ? '▾' : '▸'} Income &amp; expenses (reconciled)
+          </button>
+          {showFin && (
+            <div className="mt-1 space-y-0.5 text-xs">
+              {r.incomeLines.length > 0 && <p className="font-medium text-text-secondary">Income</p>}
+              {r.incomeLines.map((l) => (
+                <div key={`i-${l.name}`} className="flex justify-between gap-4">
+                  <span className="text-text-primary">{l.name}</span>
+                  <span className="shrink-0 text-text-secondary">{l.adjusted?.displayValue ?? '—'}</span>
+                </div>
+              ))}
+              {r.expenseLines.length > 0 && <p className="mt-1 font-medium text-text-secondary">Expenses</p>}
+              {r.expenseLines.map((l) => (
+                <div key={`e-${l.name}`} className="flex justify-between gap-4">
+                  <span className="text-text-primary">{l.name}</span>
+                  <span className="shrink-0 text-text-secondary">{l.adjusted?.displayValue ?? '—'}</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

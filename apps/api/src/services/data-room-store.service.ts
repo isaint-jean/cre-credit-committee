@@ -719,6 +719,42 @@ export function projectTree(poolId: string, opts: ProjectTreeOptions = {}): Data
 }
 
 // ---------------------------------------------------------------------------
+// Tier 2 (a) — MISSING-DOC surface via SET-DIFFERENCE. Pure/instant; NO engine
+// call (works for an un-underwritten loan + with credits exhausted). The source
+// of truth for "what's missing"; the engine's dataQuality flags corroborate.
+// ---------------------------------------------------------------------------
+
+export interface MissingDoc {
+  readonly slot: string; // docType id (asr/cf/rent_roll/pca/appraisal)
+  readonly label: string; // humanized (taxonomy label)
+  readonly blocks: string; // what its absence blocks
+}
+
+/** Curated "blocks what" per ingest slot — grounded in the intake `blocks`
+ *  semantics (a per-slot line reads cleaner than concatenating field-level ones). */
+const SLOT_BLOCKS: Readonly<Record<string, string>> = {
+  asr: 'the rent-record baseline',
+  cf: 'NOI, DSCR & debt-yield metrics',
+  rent_roll: 'tenant concentration & occupancy',
+  pca: 'capital-reserve sizing',
+  appraisal: 'value, LTV & cap-rate checks',
+};
+
+/** The loan's EMPTY ingest slots = expected ingest slots − what the loan HAS. */
+export function computeMissingDocs(poolId: string, loanInPoolId: string): MissingDoc[] {
+  const present = new Set(
+    listPoolDocs(poolId).filter((d) => d.loanInPoolId === loanInPoolId).map((d) => d.docType),
+  );
+  const missing: MissingDoc[] = [];
+  for (const t of DOC_TYPE_TAXONOMY) {
+    if (t.tier !== 'ingesting') continue; // only the expected engine-ingest slots
+    if (present.has(t.id)) continue;
+    missing.push({ slot: t.id, label: t.label, blocks: SLOT_BLOCKS[t.id] ?? 'part of the underwriting' });
+  }
+  return missing;
+}
+
+// ---------------------------------------------------------------------------
 // Manual MOVE / RECLASSIFY (Chunk 2c) — re-file a routed doc.
 // ---------------------------------------------------------------------------
 
