@@ -26,6 +26,7 @@ import { api } from '@/lib/api-client';
 import { formatBytes, formatDate, tierChip } from './data-room-utils';
 import { LoanAnalysisSummary } from './LoanAnalysisSummary';
 import { RentRollTable } from './RentRollTable';
+import { PcaDetail } from './PcaDetail';
 
 type LoanOption = { loanInPoolId: string; label: string };
 
@@ -150,6 +151,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
   const [moving, setMoving] = useState(false);
   const [verdict, setVerdict] = useState(false);
   const [tenants, setTenants] = useState(false);
+  const [condition, setCondition] = useState(false);
   const chip = tierChip(file.tier);
   const dateLabel = file.docEffectiveDate
     ? `as of ${formatDate(file.docEffectiveDate)}`
@@ -207,6 +209,17 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
             {tenants ? 'Hide tenants' : '🏘 Tenants'}
           </button>
         )}
+        {/* Tier 2(c) pca — the engine's property-condition extraction, on pca files. */}
+        {file.docType === 'pca' && (
+          <button
+            type="button"
+            onClick={() => setCondition((c) => !c)}
+            className="shrink-0 rounded border border-border-primary px-1.5 py-0.5 text-xs text-text-secondary hover:text-text-primary"
+            title="Show the repairs, capex schedule, and system narratives the engine extracted from this PCA"
+          >
+            {condition ? 'Hide condition' : '🔧 Condition'}
+          </button>
+        )}
         {ctx && (
           <button
             type="button"
@@ -219,6 +232,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
       </div>
       {verdict && <LoanAnalysisSummary analysisId={file.analysisId} poolId={poolId} loanInPoolId={file.loanInPoolId} depth={depth} />}
       {tenants && <RentRollTable analysisId={file.analysisId} depth={depth} />}
+      {condition && <PcaDetail analysisId={file.analysisId} depth={depth} />}
       {ctx && moving && <MovePicker file={file} ctx={ctx} onDone={() => setMoving(false)} />}
     </div>
   );

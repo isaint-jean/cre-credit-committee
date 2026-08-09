@@ -4,13 +4,16 @@
  *     50; offset works; the DTO exposes NO raw `lines` (boundary not leaked).
  * (B) real data: Sunroad / 640 resolve → hydrated RentRoll → projected DTO with units.
  * (C) not_extracted basis: getRentRoll(missing) → null (→ route returns not_extracted).
+ * (D) projectPca (pure): repair totals, capex schedule (0-years kept), narratives from
+ *     structural; boundary — no raw uninflated schedule/structural; null schedule → [].
+ * (E) real data: Sunroad pca (ExtractionResult.pca) → capex schedule + narratives.
  *
  * Run: npx tsx src/scripts/data-room-slot-extraction-proof.ts   (from apps/api)
  */
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import type { RentRoll, RentRollLine } from '@cre/contracts';
-import { projectRentRoll } from '../services/slot-extraction.service.js';
+import type { PCAExtraction, RentRoll, RentRollLine } from '@cre/contracts';
+import { projectPca, projectRentRoll } from '../services/slot-extraction.service.js';
 import { store } from '../storage/sqlite-store.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
@@ -71,6 +74,41 @@ function main(): void {
 
   // (C) not_extracted basis.
   check('getRentRoll(missing) → null (route → not_extracted)', recordGraphStore.getRentRoll('nonexistent' as never) === null);
+
+  // (D) pca pure projection.
+  const syntheticPca: PCAExtraction = {
+    immediateRepairs: 25000, shortTermRepairs: 0, evaluationPeriodYears: 3, inflationRate: 0.025,
+    replacementReservesPerSfPerYearInflated: 0.45, replacementReservesPerSfPerYearUninflated: 0.4,
+    capexScheduleInflated: [{ year: 1, amount: 1000 }, { year: 2, amount: 0 }, { year: 3, amount: 3000 }],
+    capexScheduleUninflated: [{ year: 1, amount: 950 }, { year: 2, amount: 0 }, { year: 3, amount: 2800 }],
+    structural: { roof: 'EPDM, ~15yr RUL', hvac: 'RTUs, good', plumbing: null, electrical: 'adequate' },
+  };
+  const pd = projectPca(syntheticPca);
+  check('pca DTO kind is pca', pd.kind === 'pca');
+  check('pca repair totals surfaced', pd.immediateRepairs === 25000 && pd.shortTermRepairs === 0);
+  check('pca capex schedule mapped (incl 0-year)', pd.capexSchedule.length === 3 && pd.capexSchedule[1]!.amount === 0);
+  check('pca narratives projected from structural', pd.narratives.roof === 'EPDM, ~15yr RUL' && pd.narratives.plumbing === null);
+  check('boundary — DTO has NO raw capexScheduleUninflated/structural', !('capexScheduleUninflated' in (pd as unknown as Record<string, unknown>)) && !('structural' in (pd as unknown as Record<string, unknown>)));
+  const pdNull = projectPca({ ...syntheticPca, capexScheduleInflated: null } as PCAExtraction);
+  check('pca null-safe — absent schedule → []', Array.isArray(pdNull.capexSchedule) && pdNull.capexSchedule.length === 0);
+
+  // (E) real data — Sunroad pca (via ExtractionResult.pca on the doctrine chain).
+  {
+    const m = store.lookupAnalysisByDealRef('bmark2024v8-sunroad-centrum');
+    const analysisId = m[0] ? (m[0].graphId ?? m[0].legacyId) : null;
+    const stored = analysisId ? (() => { try { return resolveAnalysisForRead(analysisId, recordGraphStore, store); } catch { return null; } })() : null;
+    const envelope = stored?.graphRevisionId ? recordGraphStore.getRevisionEnvelope(stored.graphRevisionId as never) : null;
+    const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+    const extraction = doctrine?.extractionResultId ? recordGraphStore.getExtractionResult(doctrine.extractionResultId) : null;
+    const pca = extraction?.pca ?? null;
+    if (pca) {
+      const dto = projectPca(pca);
+      check('Sunroad pca capex schedule present', dto.capexSchedule.length > 0, `${dto.capexSchedule.length} yrs, immediate ${dto.immediateRepairs}`);
+      check('Sunroad pca has at least one narrative', Object.values(dto.narratives).some((v) => !!v));
+    } else {
+      check('Sunroad pca extraction present', false, 'no pca on ExtractionResult');
+    }
+  }
 
   // canonical byte-identical (read-only).
   const db = new Database(path.join(process.cwd(), 'data', 'cre.db'), { readonly: true });

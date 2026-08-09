@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { uploadDualFiles, uploadAnalysisFiles, upload } from '../middleware/upload.js';
 import { enforceAnalysisParam, filterAccessibleAnalyses, enforceDealForRoot, canAccessAnalysis } from '../middleware/deal-access.js';
-import { projectRentRoll, RENT_ROLL_PAGE_SIZE } from '../services/slot-extraction.service.js';
+import { projectPca, projectRentRoll, RENT_ROLL_PAGE_SIZE } from '../services/slot-extraction.service.js';
 import { store } from '../storage/sqlite-store.js';
 import type { SqliteStore } from '../storage/sqlite-store.js';
 import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
@@ -679,7 +679,7 @@ analysisRoutes.get('/:id/intake-completeness', async (req: Request, res: Respons
 // Credit-free (no LLM). Deal-access gated by the :id param. ?offset paginates (limit 50).
 analysisRoutes.get('/:id/slot-extraction/:docType', (req: Request, res: Response) => {
   const docType = req.params['docType'];
-  if (docType !== 'rent_roll') {
+  if (docType !== 'rent_roll' && docType !== 'pca') {
     res.status(501).json({ error: 'NOT_IMPLEMENTED', message: `slot-extraction for '${docType}' is not built yet` });
     return;
   }
@@ -697,6 +697,20 @@ analysisRoutes.get('/:id/slot-extraction/:docType', (req: Request, res: Response
     ? recordGraphStore.getRevisionEnvelope(stored.graphRevisionId as GraphRevisionIdType)
     : null;
   const doctrine = envelope ? recordGraphStore.getDoctrineEvaluation(envelope.doctrineEvaluationId) : null;
+
+  if (docType === 'pca') {
+    const extraction = doctrine?.extractionResultId
+      ? recordGraphStore.getExtractionResult(doctrine.extractionResultId)
+      : null;
+    const pca = extraction?.pca ?? null;
+    if (!pca) {
+      res.json({ status: 'not_extracted', extraction: null });
+      return;
+    }
+    res.json({ status: 'present', extraction: projectPca(pca) });
+    return;
+  }
+
   const rentRoll = doctrine?.rentRollId ? recordGraphStore.getRentRoll(doctrine.rentRollId) : null;
   if (!rentRoll) {
     res.json({ status: 'not_extracted', extraction: null });

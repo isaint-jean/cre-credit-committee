@@ -4,7 +4,14 @@
  * ExtractionResult / RentRoll node never leaves the server (§2.3 display-read rule).
  * Credit-free: extraction happened at ingest; this only surfaces it.
  */
-import type { RentRoll, RentRollLine, RentRollSlotExtraction, RentRollUnitDTO } from '@cre/contracts';
+import type {
+  PCAExtraction,
+  PcaSlotExtraction,
+  RentRoll,
+  RentRollLine,
+  RentRollSlotExtraction,
+  RentRollUnitDTO,
+} from '@cre/contracts';
 
 export const RENT_ROLL_PAGE_SIZE = 50;
 
@@ -71,5 +78,31 @@ export function projectRentRoll(rentRoll: RentRoll, offset = 0, limit = RENT_ROL
     totalCount: lines.length,
     offset: safeOffset,
     limit,
+  };
+}
+
+/**
+ * Project ExtractionResult.pca (PCAExtraction) → display DTO. Surfaces Table 1
+ * repair totals, the Table 2 inflated per-year capex schedule, and the four
+ * system narratives. Boundary-honoring: the raw ExtractionResult never leaves the
+ * server. Null-safe: an absent schedule projects to []. No pagination — PCA
+ * evaluation periods are ~10-20 years.
+ */
+export function projectPca(pca: PCAExtraction): PcaSlotExtraction {
+  const capexSchedule = (pca.capexScheduleInflated ?? []).map((e) => ({ year: e.year, amount: e.amount }));
+  return {
+    kind: 'pca',
+    immediateRepairs: pca.immediateRepairs,
+    shortTermRepairs: pca.shortTermRepairs,
+    evaluationPeriodYears: pca.evaluationPeriodYears,
+    inflationRate: pca.inflationRate,
+    reservePerSfPerYearInflated: pca.replacementReservesPerSfPerYearInflated,
+    capexSchedule,
+    narratives: {
+      roof: pca.structural.roof,
+      hvac: pca.structural.hvac,
+      plumbing: pca.structural.plumbing,
+      electrical: pca.structural.electrical,
+    },
   };
 }

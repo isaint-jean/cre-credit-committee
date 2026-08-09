@@ -30,7 +30,7 @@ import type {
 import { isRenderedAnalysis } from './rendered-analysis-guard';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
-import type { RentRollSlotExtraction } from '@cre/contracts';
+import type { PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
 // (and the local DataRoom* shapes) from ONE module — the api-client — rather
@@ -1503,6 +1503,12 @@ export const api = {
   getSlotExtraction: (analysisId: string, docType: string, offset = 0) =>
     request<{ status: 'present' | 'not_extracted'; extraction: RentRollSlotExtraction | null }>(
       `/analyses/${analysisId}/slot-extraction/${docType}?offset=${offset}`,
+    ),
+
+  // Tier 2(c) pca variant — property-condition detail (repairs + capex schedule + narratives).
+  getPcaExtraction: (analysisId: string) =>
+    request<{ status: 'present' | 'not_extracted'; extraction: PcaSlotExtraction | null }>(
+      `/analyses/${analysisId}/slot-extraction/pca`,
     ),
 
   // GET /pools/:poolId/loans/:loanInPoolId/missing-docs → Tier 2 (a): empty ingest
