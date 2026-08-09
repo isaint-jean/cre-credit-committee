@@ -21,6 +21,11 @@ performCommitteeMemoBootCheck();
 
 const app = express();
 
+// Chunk 3c — trust ONE proxy hop (the Fly web→api proxy) so req.ip reflects the
+// forwarded client IP (via X-Forwarded-For) for the confidentiality-acceptance log,
+// not the proxy's own address. Safe: nothing else in the app reads req.ip / req.secure.
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow localhost and ngrok origins

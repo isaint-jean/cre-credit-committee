@@ -60,7 +60,8 @@ import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { computePoolCoverage } from '../services/pool/pool-coverage.service.js';
 import { underwriteJobStore } from '../storage/underwrite-job-store.js';
 import { dealAccessStore } from '../storage/deal-access-store.js';
-import { enforcePoolParam, filterAccessiblePools, enforceDealForRoot } from '../middleware/deal-access.js';
+import { enforcePoolParam, filterAccessiblePools, enforceDealForRoot, dataRoomConfiRequired } from '../middleware/deal-access.js';
+import { confiAcceptanceStore, CONFIDENTIALITY_AGREEMENT_VERSION } from '../storage/confi-acceptance-store.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import {
   advanceTapePhaseA,
@@ -727,6 +728,42 @@ poolRoutes.get('/loan-for-root', (req: Request, res: Response) => {
     const result = resolveLoanForRoot(rootId);
     return res.json(result);
   } catch (e) { return mapThrow(res, e); }
+});
+
+// ─── Chunk 3c — confidentiality gate ─────────────────────────────────────────
+// The buyer accepts a confi agreement before the data room opens. Acceptance is
+// logged (who/when/IP/version) AND flips deal_access.accepted_at (what the data-
+// room gate reads). Reachable via the pool param gate (pool access) — the buyer
+// already has a grant; confi UNLOCKS entry, it does not grant access.
+
+// GET /api/pools/:poolId/confidentiality/status — is confi required + accepted?
+poolRoutes.get('/:poolId/confidentiality/status', (req: Request, res: Response) => {
+  const u = req.user!;
+  const poolId = req.params['poolId'] as string;
+  const accepted = dealAccessStore().acceptedAtFor('pool', poolId, u.userId) !== null;
+  const required = dataRoomConfiRequired(u.userId, u.role, poolId);
+  return res.json({ required, accepted, agreementVersion: CONFIDENTIALITY_AGREEMENT_VERSION });
+});
+
+// POST /api/pools/:poolId/confidentiality/accept — record + unlock.
+poolRoutes.post('/:poolId/confidentiality/accept', (req: Request, res: Response) => {
+  const u = req.user!;
+  const poolId = req.params['poolId'] as string;
+  // You cannot accept your way INTO access — a grant must already exist (from 3d).
+  if (!dealAccessStore().has('pool', poolId, u.userId)) {
+    return res.status(403).json({ error: 'NO_GRANT', message: 'no access grant to accept for this room' });
+  }
+  const acceptedAt = new Date().toISOString();
+  confiAcceptanceStore().record({
+    resourceType: 'pool',
+    resourceKey: poolId,
+    userId: u.userId,
+    agreementVersion: CONFIDENTIALITY_AGREEMENT_VERSION,
+    clientIp: req.ip ?? null,
+    acceptedAt,
+  });
+  dealAccessStore().markConfiAccepted('pool', poolId, u.userId, acceptedAt);
+  return res.json({ accepted: true, acceptedAt, agreementVersion: CONFIDENTIALITY_AGREEMENT_VERSION });
 });
 
 /** GET /api/pools/:poolId — pool detail + D3 derivation of currentWorkingTapeId. */

@@ -127,6 +127,25 @@ export class DealAccessStore {
     ).map(toRow);
   }
 
+  /** The accepted_at on a grant (null = granted but confi not yet accepted, or no
+   *  grant). The data-room confi gate (3c) reads this. */
+  acceptedAtFor(resourceType: ResourceType, resourceKey: string, userId: string): string | null {
+    const r = this.db
+      .prepare(`SELECT accepted_at AS a FROM deal_access WHERE resource_type=? AND resource_key=? AND user_id=?`)
+      .get(resourceType, resourceKey, userId) as { a: string | null } | undefined;
+    return r?.a ?? null;
+  }
+
+  /** Chunk 3c — stamp accepted_at on an EXISTING grant (confi accepted). Returns
+   *  true only if a grant existed to stamp — you cannot accept your way INTO access,
+   *  the grant must already exist (from the 3d invite/accept). */
+  markConfiAccepted(resourceType: ResourceType, resourceKey: string, userId: string, acceptedAt?: string): boolean {
+    const r = this.db
+      .prepare(`UPDATE deal_access SET accepted_at=? WHERE resource_type=? AND resource_key=? AND user_id=?`)
+      .run(acceptedAt ?? new Date().toISOString(), resourceType, resourceKey, userId);
+    return r.changes > 0;
+  }
+
   countAll(): number {
     return (this.db.prepare(`SELECT count(*) c FROM deal_access`).get() as { c: number }).c;
   }

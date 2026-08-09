@@ -35,6 +35,7 @@ import { useSide } from '@/lib/side-context';
 import { sideAccent, withSide } from '@/lib/side-accent';
 import { DropAssign, type AssignLoanOption } from '@/components/DataRoom/DropAssign';
 import { InviteBuyerButton } from '@/components/DataRoom/InviteBuyerButton';
+import { ConfidentialityGate } from '@/components/DataRoom/ConfidentialityGate';
 import { CategoryView } from '@/components/DataRoom/CategoryView';
 import { ByDocTypeView } from '@/components/DataRoom/ByDocTypeView';
 import { ByLoanView } from '@/components/DataRoom/ByLoanView';
@@ -66,6 +67,8 @@ export default function DataRoomPage() {
   const [byDocType, setByDocType] = useState<readonly DataRoomDocTypeGroup[]>([]);
   const [byLoan, setByLoan] = useState<readonly DataRoomLoanGroup[]>([]);
   const [tree, setTree] = useState<DataRoomTree | null>(null);
+  const [confiRequired, setConfiRequired] = useState(false);
+  const [confiVersion, setConfiVersion] = useState('');
   const [held, setHeld] = useState<readonly DataRoomHeldDoc[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [loanOptions, setLoanOptions] = useState<readonly AssignLoanOption[]>([]);
@@ -116,6 +119,17 @@ export default function DataRoomPage() {
     setLoad('loading');
     setErr(null);
     try {
+      // Chunk 3c: confidentiality gate first. If required (flag ON + buyer + not yet
+      // accepted), show the gate and SKIP the room fetches (which would 403). When the
+      // flag is off, `required` is always false → dark (no gate).
+      const confi = await api.confiStatus(poolId).catch(() => ({ required: false, accepted: true, agreementVersion: '' }));
+      if (confi.required) {
+        setConfiVersion(confi.agreementVersion);
+        setConfiRequired(true);
+        setLoad('loaded');
+        return;
+      }
+      setConfiRequired(false);
       const [{ docTypes: taxo }] = await Promise.all([api.dataRoomDocTypes()]);
       setDocTypes(taxo);
       await Promise.all([refresh(), loadLoanOptions()]);
@@ -177,6 +191,20 @@ export default function DataRoomPage() {
         <div className="bg-risk-high/10 border border-risk-high/30 rounded p-4 text-risk-high text-sm mt-4">
           Could not load the data room: {err}
         </div>
+      </div>
+    );
+  }
+
+  // Chunk 3c: buyer must accept the confidentiality agreement before the room opens.
+  if (confiRequired) {
+    return (
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        <Link href={withSide(`/pools/${poolId}`, side)} className="text-accent hover:text-accent-hover text-sm">← Pool</Link>
+        <ConfidentialityGate
+          poolId={poolId}
+          agreementVersion={confiVersion}
+          onAccepted={() => { setConfiRequired(false); void bootstrap(); }}
+        />
       </div>
     );
   }

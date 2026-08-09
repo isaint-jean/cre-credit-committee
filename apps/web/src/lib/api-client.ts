@@ -1497,6 +1497,19 @@ export const api = {
   dataRoomTree: (poolId: string) =>
     request<DataRoomTree>(`/data-room/${poolId}/tree`),
 
+  // ── Chunk 3c — confidentiality gate ─────────────────────────────────────────
+  // GET /pools/:poolId/confidentiality/status → { required, accepted, agreementVersion }.
+  confiStatus: (poolId: string) =>
+    request<{ required: boolean; accepted: boolean; agreementVersion: string }>(
+      `/pools/${poolId}/confidentiality/status`,
+    ),
+  // POST /pools/:poolId/confidentiality/accept → records + unlocks (sets accepted_at).
+  acceptConfidentiality: (poolId: string) =>
+    request<{ accepted: boolean; acceptedAt: string; agreementVersion: string }>(
+      `/pools/${poolId}/confidentiality/accept`,
+      { method: 'POST' },
+    ),
+
   // ── Chunk 3d — buyer invite / accept ────────────────────────────────────────
   // POST /invites → mint a single-use buyer invite (owner/admin only).
   createInvite: (body: { resourceType: 'deal' | 'pool'; resourceKey: string; invitedEmail?: string; expiresInDays?: number }) =>

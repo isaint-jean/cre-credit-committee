@@ -58,7 +58,7 @@ import { DocumentReadStateStore } from '../storage/document-read-state-store.js'
 import { PoolStore } from '../storage/pool-store.js';
 import { enqueueUnderwriteOnSettle } from '../services/pool/batch-settle-fanout.service.js';
 import { enforcePermission } from '../middleware/require-permission.js';
-import { enforcePoolParam } from '../middleware/deal-access.js';
+import { enforceDataRoomAccessParam } from '../middleware/deal-access.js';
 import type { PoolId, LoanInPoolId } from '@cre/contracts';
 
 export const dataRoomRoutes = Router();
@@ -67,8 +67,9 @@ export const dataRoomRoutes = Router();
 // per request that carries :poolId (tree/by-loan/by-category/docs/doc/:fileHash —
 // incl. the file-stream-before-bytes trap — download/held/unread/reclassify/assign).
 // /doc-types has no :poolId → never gated (taxonomy, correctly ungated). NO-OP when
-// the flag is off.
-dataRoomRoutes.param('poolId', enforcePoolParam);
+// the flag is off. Chunk 3c: this gate ALSO requires a BUYER to have accepted the
+// confidentiality agreement (deal_access.accepted_at) before the room opens.
+dataRoomRoutes.param('poolId', enforceDataRoomAccessParam);
 
 const uploadFilesArray = upload.array('files', 50);
 

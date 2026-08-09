@@ -133,6 +133,34 @@ export function enforcePoolParam(req: Request, res: Response, next: NextFunction
   denyDeal(res, { resource: 'pool', poolId });
 }
 
+/** router.param('poolId', …) for the DATA-ROOM router — pool access PLUS the Chunk
+ *  3c confidentiality gate: a BUYER additionally needs deal_access.accepted_at set
+ *  (they accepted the confi agreement for this room). ADMIN + originator (owner)
+ *  bypass the confi — it is a buyer-facing gate. Pure pass-through when flag off. */
+export function enforceDataRoomAccessParam(req: Request, res: Response, next: NextFunction, poolId: string): void {
+  if (!dealAccessEnforcementEnabled()) return next();
+  const u = req.user;
+  if (!u) { res.status(401).json({ error: 'Authentication required' }); return; }
+  if (isAdmin(u.role)) return next();
+  if (!canAccessPool(u.userId, u.role, poolId)) { denyDeal(res, { resource: 'pool', poolId }); return; }
+  if ((u.role ?? '').toUpperCase() === 'BUYER' && dealAccessStore().acceptedAtFor('pool', poolId, u.userId) === null) {
+    res.status(403).json({ error: 'CONFIDENTIALITY_REQUIRED', poolId });
+    return;
+  }
+  next();
+}
+
+/** For the confi status endpoint / UI: must this buyer accept the confidentiality
+ *  agreement before this pool's data room opens? (flag ON + BUYER + granted + not
+ *  yet accepted). False when the flag is off → the modal never shows dark. */
+export function dataRoomConfiRequired(userId: string, role: string | undefined, poolId: string): boolean {
+  if (!dealAccessEnforcementEnabled()) return false;
+  if (isAdmin(role)) return false;
+  if ((role ?? '').toUpperCase() !== 'BUYER') return false;
+  if (!dealAccessStore().has('pool', poolId, userId)) return false; // no grant → not a confi problem
+  return dealAccessStore().acceptedAtFor('pool', poolId, userId) === null;
+}
+
 /** router.param('id', …) on the analyses router — resolves the id → lineageRoot,
  *  gates by DEAL access. Pure pass-through when the flag is off. */
 export function enforceAnalysisParam(req: Request, res: Response, next: NextFunction, id: string): void {
