@@ -80,26 +80,36 @@ export type DocTypeTier = 'ingesting' | 'stored' | 'room_only';
  * parallel list: the mapping lives ON each DocTypeEntry (the one source).
  *
  *   ASRs                 — the annual statement of rents (the deal's rent record).
- *   Excels               — spreadsheet / financial models (cf/t12/rent_roll/seller_uw).
+ *   Excels               — the SELLER / issuer underwriting only (kept under the
+ *                          buyer-familiar name "Excels"). NOT a format bucket: it
+ *                          holds seller_uw and nothing else.
+ *   Financial Statements — operating financials (cf/t12/rent_roll/occupancy) +
+ *                          sponsor credit (sponsor_pfs).
  *   Third-Party Reports  — independent expert reports (appraisal/pca/phase_i_esa).
- *   Legal                — legal instruments & closing set (legal/title/insurance/
- *                          closing/leases/loan_terms).
+ *   Insurance            — insurance (promoted out of Legal to its own folder).
+ *   Legal                — legal instruments & closing set (legal/title/closing/
+ *                          leases/loan_terms).
  *   General              — honest home for loose fits that would MISFILE anywhere
- *                          else (sponsor_pfs, om). See the loose-fit note below.
+ *                          else (om). See the loose-fit note below.
  */
 export type DocTypeCategory =
   | 'ASRs'
   | 'Excels'
+  | 'Financial Statements'
   | 'Third-Party Reports'
+  | 'Insurance'
   | 'Legal'
   | 'General';
 
-/** The categories in browse / download order (broad financial → expert → legal →
- *  catch-all). The one ordering source for UI + zip folder listing. */
+/** The categories in browse / download order (rents → seller UW → financials →
+ *  expert reports → insurance → legal → catch-all). The one ordering source for
+ *  UI + zip folder listing. */
 export const CATEGORIES_IN_ORDER: readonly DocTypeCategory[] = [
   'ASRs',
   'Excels',
+  'Financial Statements',
   'Third-Party Reports',
+  'Insurance',
   'Legal',
   'General',
 ] as const;
@@ -150,7 +160,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'cf',
     label: 'Cash-flow / operating statement (T-12 + in-place)',
-    category: 'Excels',
+    category: 'Financial Statements',
     tier: 'ingesting',
     slot: 'cf',
     engineInput: 'sellerCfXlsx',
@@ -161,7 +171,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 'rent_roll',
     label: 'Rent roll',
-    category: 'Excels',
+    category: 'Financial Statements',
     tier: 'ingesting',
     slot: 'rent_roll',
     engineInput: 'rentRollXlsx',
@@ -200,7 +210,7 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   {
     id: 't12',
     label: 'Trailing-12 operating statement (stored)',
-    category: 'Excels',
+    category: 'Financial Statements',
     tier: 'stored',
     slot: 't12',
     // SEAM 3 — stored, not a composer input.
@@ -222,20 +232,18 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   },
   { id: 'legal', label: 'Legal / org docs', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
   { id: 'title', label: 'Title', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
-  { id: 'insurance', label: 'Insurance', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
+  { id: 'insurance', label: 'Insurance', category: 'Insurance', tier: 'room_only', slot: null, engineInput: null },
   { id: 'closing', label: 'Closing', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
   { id: 'leases', label: 'Leases', category: 'Legal', tier: 'room_only', slot: null, engineInput: null },
   // occupancy / lease-up history — operating data adjacent to the rent roll but
-  // NOT a composer input (no occupancy extractor). Before this existed, occupancy
-  // files an analyst dropped had no home in the taxonomy → they auto-held forever
-  // (data_room_held) → invisible to routing AND (until FIX 3a) to the exhaustive
-  // search. Homed in 'Excels' beside the operating data it belongs with.
-  { id: 'occupancy', label: 'Occupancy / lease-up history', category: 'Excels', tier: 'room_only', slot: null, engineInput: null },
-  // ── LOOSE FITS — honestly homed in 'General', never force-filed ──────────────
-  // sponsor_pfs (sponsor personal financial statement / REO schedule) is a
-  // borrower CREDIT doc — not a legal instrument, not a third-party report, not a
-  // spreadsheet model. Force-filing it into any of those would MISFILE it.
-  { id: 'sponsor_pfs', label: 'Sponsor PFS / REO schedule', category: 'General', tier: 'room_only', slot: null, engineInput: null },
+  // NOT a composer input (no occupancy extractor). Homed in 'Financial Statements'
+  // beside the operating financials it belongs with (was 'Excels' when that bucket
+  // was format-flavored; Excels is now seller_uw only).
+  { id: 'occupancy', label: 'Occupancy / lease-up history', category: 'Financial Statements', tier: 'room_only', slot: null, engineInput: null },
+  // sponsor_pfs (sponsor personal financial statement / REO schedule) is a borrower
+  // CREDIT / financial doc — homed in 'Financial Statements' (Isabelle's call; the
+  // prior 'General' placement treated it as an unclassifiable loose fit).
+  { id: 'sponsor_pfs', label: 'Sponsor PFS / REO schedule', category: 'Financial Statements', tier: 'room_only', slot: null, engineInput: null },
   { id: 'phase_i_esa', label: 'Phase I ESA', category: 'Third-Party Reports', tier: 'room_only', slot: null, engineInput: null },
   // om (offering memorandum) is a marketing / offering document. The vision hints
   // OM≈prospectus→Legal, but an OM is not a binding legal instrument; sitting it

@@ -33,6 +33,8 @@ import {
   projectByLoan,
   projectByCategory,
   projectTree,
+  reclassifyDataRoomDoc,
+  ReclassifyError,
   listPoolDocs,
   getDataRoomDoc,
   holdStagedFiles,
@@ -55,6 +57,7 @@ import { promises as fsp } from 'node:fs';
 import { DocumentReadStateStore } from '../storage/document-read-state-store.js';
 import { PoolStore } from '../storage/pool-store.js';
 import { enqueueUnderwriteOnSettle } from '../services/pool/batch-settle-fanout.service.js';
+import { enforcePermission } from '../middleware/require-permission.js';
 import type { PoolId, LoanInPoolId } from '@cre/contracts';
 
 export const dataRoomRoutes = Router();
@@ -758,6 +761,37 @@ dataRoomRoutes.get('/:poolId/tree', (req: Request, res: Response) => {
     },
   });
   res.json(tree);
+});
+
+// ---------------------------------------------------------------------------
+// Manual MOVE / RECLASSIFY (Chunk 2c) — re-file a routed doc to a different
+// doc-type (→ re-derives its category) and/or loan. A MUTATION, guarded by
+// `analysis:revise` (ORIGINATOR + ADMIN + internal roles; NOT buyer). Validates
+// the target docType (inside reclassify) + that the target loan exists in the
+// pool. Reuses upsert; deletes the old address — never touches any other doc.
+// ---------------------------------------------------------------------------
+dataRoomRoutes.post('/:poolId/doc/:fileHash/reclassify', (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise')) return;
+  const { poolId, fileHash } = req.params as { poolId: string; fileHash: string };
+  const { loanInPoolId, docType } = (req.body ?? {}) as { loanInPoolId?: string; docType?: string };
+  if (!loanInPoolId || !docType) {
+    res.status(400).json({ error: 'loanInPoolId and docType are required' });
+    return;
+  }
+  if (!poolStore().getLoanInPool(loanInPoolId as LoanInPoolId)) {
+    res.status(400).json({ error: 'unknown target loan for this pool' });
+    return;
+  }
+  try {
+    const result = reclassifyDataRoomDoc({ poolId, fileHash, targetLoanInPoolId: loanInPoolId, targetDocType: docType });
+    res.json({ poolId, fileHash, ...result });
+  } catch (e) {
+    if (e instanceof ReclassifyError) {
+      res.status(e.code === 'NOT_FOUND' ? 404 : 400).json({ error: e.message, code: e.code });
+      return;
+    }
+    throw e;
+  }
 });
 
 // ---------------------------------------------------------------------------

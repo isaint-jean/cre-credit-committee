@@ -361,6 +361,20 @@ export class DataRoomDocStore {
     return r.changes;
   }
 
+  /** Delete ONE routed doc by full address (the PK). Returns true if a row was
+   *  removed. The one net-new primitive for the manual reclassify/move: changing
+   *  a doc's (loan, docType) changes its PK, so a move is upsert-new + this
+   *  delete-old. Scoped to the exact 4-tuple → never touches another doc. */
+  deleteByAddress(poolId: string, loanInPoolId: string, docType: string, fileHash: string): boolean {
+    const r = this.db
+      .prepare(
+        `DELETE FROM data_room_doc
+          WHERE pool_id = ? AND loan_in_pool_id = ? AND doc_type = ? AND file_hash = ?`,
+      )
+      .run(poolId, loanInPoolId, docType, fileHash);
+    return r.changes > 0;
+  }
+
   /**
    * F2 — the first doc in a pool matching a content hash, in manifest `docs[]`
    * order (ORDER BY seq LIMIT 1). Reproduces `getDataRoomDoc`'s original

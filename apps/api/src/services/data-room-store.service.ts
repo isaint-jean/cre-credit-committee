@@ -716,6 +716,85 @@ export function projectTree(poolId: string, opts: ProjectTreeOptions = {}): Data
   };
 }
 
+// ---------------------------------------------------------------------------
+// Manual MOVE / RECLASSIFY (Chunk 2c) — re-file a routed doc.
+// ---------------------------------------------------------------------------
+
+export class ReclassifyError extends Error {
+  readonly code: 'NOT_FOUND' | 'INVALID_DOCTYPE';
+  constructor(code: 'NOT_FOUND' | 'INVALID_DOCTYPE', message: string) {
+    super(message);
+    this.name = 'ReclassifyError';
+    this.code = code;
+  }
+}
+
+export interface ReclassifyResult {
+  readonly moved: boolean;
+  readonly from: { loanInPoolId: string; docType: string; category: DocTypeCategory | null };
+  readonly to: { loanInPoolId: string; docType: string; category: DocTypeCategory | null };
+}
+
+/**
+ * Manual move / reclassify of a routed doc: re-type it (its CATEGORY re-derives
+ * from the new docType) and/or re-assign its loan. Patterned on the HELD identify
+ * flow — persist the new address, then delete the old. The only new primitive is
+ * store.deleteByAddress; upsert is reused. Idempotent no-op when the target equals
+ * the current address. Throws ReclassifyError('NOT_FOUND' | 'INVALID_DOCTYPE').
+ * Address-scoped writes → never disturbs any OTHER doc.
+ */
+export function reclassifyDataRoomDoc(args: {
+  poolId: string;
+  fileHash: string;
+  targetLoanInPoolId: string;
+  targetDocType: string;
+}): ReclassifyResult {
+  const store = docStore();
+  const current = store.firstByHash(args.poolId, args.fileHash);
+  if (!current) {
+    throw new ReclassifyError('NOT_FOUND', `data-room doc not found (pool ${args.poolId}, hash ${args.fileHash})`);
+  }
+  const target = docTypeById(args.targetDocType);
+  if (!target) {
+    throw new ReclassifyError('INVALID_DOCTYPE', `unknown docType: ${args.targetDocType}`);
+  }
+
+  const from = {
+    loanInPoolId: current.loanInPoolId,
+    docType: current.docType,
+    category: DOC_TYPE_CATEGORY[current.docType] ?? null,
+  };
+  const to = {
+    loanInPoolId: args.targetLoanInPoolId,
+    docType: args.targetDocType,
+    category: DOC_TYPE_CATEGORY[args.targetDocType] ?? null,
+  };
+
+  if (from.loanInPoolId === to.loanInPoolId && from.docType === to.docType) {
+    return { moved: false, from, to };
+  }
+
+  // Persist the new address FIRST, then delete the old (upsert-then-delete → a
+  // crash leaves a harmless duplicate, never a loss). tier/ingest come from the
+  // TARGET taxonomy entry; the content date carries over; pin resets (new slot).
+  store.upsert({
+    poolId: args.poolId,
+    loanInPoolId: to.loanInPoolId,
+    docType: to.docType,
+    fileHash: current.fileHash,
+    fileName: current.fileName,
+    mimeType: current.mimeType,
+    size: current.size,
+    uploadedAt: current.uploadedAt,
+    notes: current.notes,
+    tier: target.tier,
+    ingest: target.tier === 'ingesting',
+    docEffectiveDate: current.docEffectiveDate,
+  });
+  store.deleteByAddress(args.poolId, from.loanInPoolId, from.docType, current.fileHash);
+  return { moved: true, from, to };
+}
+
 /** Fetch a doc's bytes by (poolId, fileHash). fileHash is the content-addressed
  *  natural id; a doc can appear once per (loan, docType), so the pool + hash is
  *  enough to stream it. Returns null if the doc is not in this pool's manifest

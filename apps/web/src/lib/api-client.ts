@@ -1497,6 +1497,19 @@ export const api = {
   dataRoomTree: (poolId: string) =>
     request<DataRoomTree>(`/data-room/${poolId}/tree`),
 
+  // POST /data-room/:poolId/doc/:fileHash/reclassify → the manual MOVE control
+  // (Chunk 2c): re-file a routed doc to a different doc-type (→ re-derives its
+  // category) and/or loan. Guarded server-side (analysis:revise).
+  dataRoomReclassify: (
+    poolId: string,
+    fileHash: string,
+    target: { loanInPoolId: string; docType: string },
+  ) =>
+    request<{ poolId: string; fileHash: string; moved: boolean }>(
+      `/data-room/${poolId}/doc/${fileHash}/reclassify`,
+      { method: 'POST', body: JSON.stringify(target) },
+    ),
+
   // GET /data-room/:poolId/by-category → the SUMMARY control surface for the
   // room (Piece D). Returns per-category { category, count, unreadCount } — NOT
   // the file list (anti-bombardment: counts, never thousands of rows). count is

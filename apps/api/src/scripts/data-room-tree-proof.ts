@@ -82,6 +82,15 @@ function main(): void {
   check('every leaf is a loan-labeled file (no loan subfolder)', leaves.every((l) => typeof l.file.loanName === 'string' && l.file.loanName.length > 0));
   check('every leaf carries its doc-type as metadata', leaves.every((l) => l.file.docType.length > 0 && l.file.docTypeLabel.length > 0));
 
+  // 3b — CHUNK 2 taxonomy re-map: Excels holds ONLY seller_uw; financials moved to
+  //      Financial Statements. (Category is derived, so this proves the re-sort.)
+  const excelsLeaves = leaves.filter((l) => l.category === 'Excels');
+  check('Excels holds ONLY seller_uw', excelsLeaves.length > 0 && excelsLeaves.every((l) => l.file.docType === 'seller_uw'), excelsLeaves.map((l) => l.file.docType).join(',') || '(none)');
+  const financials = leaves.filter((l) => ['cf', 'rent_roll', 't12', 'occupancy', 'sponsor_pfs'].includes(l.file.docType));
+  check('financials (cf/rent_roll/occupancy/…) under Financial Statements', financials.length > 0 && financials.every((l) => l.category === 'Financial Statements'), `${financials.length} financial leaves`);
+  const sellerUw = leaves.filter((l) => l.file.docType === 'seller_uw');
+  check('seller_uw under Excels', sellerUw.length > 0 && sellerUw.every((l) => l.category === 'Excels'), `${sellerUw.length} seller_uw`);
+
   // 4 — Sunroad under GSMC, 640 under "GSMC, BMO".
   const sunroad = leaves.find((l) => l.file.loanName.toLowerCase().includes('sunroad'));
   const sixforty = leaves.find((l) => l.file.loanName.toLowerCase().includes('640'));

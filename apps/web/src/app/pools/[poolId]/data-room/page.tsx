@@ -314,9 +314,12 @@ export default function DataRoomPage() {
         />
       )}
 
-      {/* Read-only nested tree (Chunk 1): Deal → Loan → Category → file,
-          collapsed-by-default, on-demand folders, version/pin badges. */}
-      {view === 'tree' && tree !== null && <TreeView tree={tree} />}
+      {/* Nested tree (Chunk 1) + manual Move control (Chunk 2c): Deal → New Issue
+          → Deal → Bank → Category → loan-file, collapsed-by-default, version/pin
+          badges, per-file re-file. */}
+      {view === 'tree' && tree !== null && (
+        <TreeView tree={tree} poolId={poolId} docTypes={docTypes} loans={loanOptions} onMoved={refresh} />
+      )}
     </div>
   );
 }
