@@ -34,6 +34,7 @@ import { DOC_TYPE_CATEGORY } from '@cre/contracts';
 import { useSide } from '@/lib/side-context';
 import { sideAccent, withSide } from '@/lib/side-accent';
 import { DropAssign, type AssignLoanOption } from '@/components/DataRoom/DropAssign';
+import { InviteBuyerButton } from '@/components/DataRoom/InviteBuyerButton';
 import { CategoryView } from '@/components/DataRoom/CategoryView';
 import { ByDocTypeView } from '@/components/DataRoom/ByDocTypeView';
 import { ByLoanView } from '@/components/DataRoom/ByLoanView';
@@ -197,14 +198,18 @@ export default function DataRoomPage() {
               {unread.size > 0 && <span className={`ml-2 ${accent.text}`}>· {unread.size} unread</span>}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={downloadNew}
-            disabled={downloading}
-            className={`text-sm font-medium px-3 py-2 rounded-sm2 border transition-opacity disabled:opacity-50 ${accent.border} ${accent.softBg} ${accent.text}`}
-          >
-            {downloading ? 'Preparing…' : `Download what's new${unread.size > 0 ? ` (${unread.size})` : ''}`}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Chunk 3d — originator/admin can invite a buyer to this room. */}
+            {side !== 'buyer' && <InviteBuyerButton poolId={poolId} />}
+            <button
+              type="button"
+              onClick={downloadNew}
+              disabled={downloading}
+              className={`text-sm font-medium px-3 py-2 rounded-sm2 border transition-opacity disabled:opacity-50 ${accent.border} ${accent.softBg} ${accent.text}`}
+            >
+              {downloading ? 'Preparing…' : `Download what's new${unread.size > 0 ? ` (${unread.size})` : ''}`}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1497,6 +1497,25 @@ export const api = {
   dataRoomTree: (poolId: string) =>
     request<DataRoomTree>(`/data-room/${poolId}/tree`),
 
+  // ── Chunk 3d — buyer invite / accept ────────────────────────────────────────
+  // POST /invites → mint a single-use buyer invite (owner/admin only).
+  createInvite: (body: { resourceType: 'deal' | 'pool'; resourceKey: string; invitedEmail?: string; expiresInDays?: number }) =>
+    request<{ token: string; acceptUrl: string; resourceType: string; resourceKey: string; invitedEmail: string | null; expiresAt: string }>(
+      `/invites`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  // GET /invites/:token → preview for the accept page (throws on invalid/expired).
+  getInvite: (token: string) =>
+    request<{ valid: boolean; resourceType: 'deal' | 'pool'; resourceKey: string; invitedEmail: string | null; expiresAt: string }>(
+      `/invites/${token}`,
+    ),
+  // POST /invites/:token/accept → consume it → creates the explicit buyer grant.
+  acceptInvite: (token: string) =>
+    request<{ accepted: boolean; resourceType: 'deal' | 'pool'; resourceKey: string }>(
+      `/invites/${token}/accept`,
+      { method: 'POST' },
+    ),
+
   // POST /data-room/:poolId/doc/:fileHash/reclassify → the manual MOVE control
   // (Chunk 2c): re-file a routed doc to a different doc-type (→ re-derives its
   // category) and/or loan. Guarded server-side (analysis:revise).

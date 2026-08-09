@@ -16,6 +16,7 @@ import { sourceDocsRoutes } from './source-docs.routes.js';
 import { dataRoomRoutes } from './data-room.routes.js';
 import { poolRoutes } from './pool.routes.js';
 import { requireAuth } from '../middleware/auth.js';
+import { inviteRoutes } from './invite.routes.js';
 import { observabilityMiddleware } from '../middleware/observability.middleware.js';
 
 export const apiRouter = Router();
@@ -79,3 +80,6 @@ apiRouter.use('/data-room', requireAuth, dataRoomRoutes);
 // advance-tape orchestration + PR2 PoolStore. Auth-gated only; pool-specific
 // permissions deferred per PR4 E1a.
 apiRouter.use('/pools', requireAuth, poolRoutes);
+
+// Chunk 3d — buyer invite/accept (mint single-use token → explicit deal_access grant).
+apiRouter.use('/invites', requireAuth, inviteRoutes);
