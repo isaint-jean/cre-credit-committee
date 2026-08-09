@@ -36,6 +36,7 @@ import { adaptAnalysisToAdjustedInputs } from '../services/analysis-to-adjusted-
 import { buildFloorBindings } from '../services/build-floor-bindings.js';
 import { projectLegacyAnalysisFromGraph } from '../services/project-legacy-analysis-from-graph.js';
 import { resolveAnalysisForRead } from '../services/resolve-analysis-for-read.js';
+import { canAccessAnalysis } from '../middleware/deal-access.js';
 import { resolvePortfolioExport } from '../services/export-portfolio-dispatch.service.js';
 import { MalformedAnalysisIdError } from '../util/dispatch-by-id-format.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
@@ -632,6 +633,13 @@ function composeRenderPayloadFromQuery(
 
   if (!dealId) {
     return { status: 'error', httpStatus: 400, body: { error: 'dealId is required' } };
+  }
+  // Chunk 3b (dark): gate the deal BEFORE any render/export work or bytes flow (the
+  // stream trap — /export streams a file). Pass-through when the flag is off / for
+  // admin; fail-closed on an unresolvable id. Covers BOTH /render and /export.
+  const ru = req.user;
+  if (ru && !canAccessAnalysis(ru.userId, ru.role, dealId)) {
+    return { status: 'error', httpStatus: 403, body: { error: 'DEAL_ACCESS_DENIED' } };
   }
   if (!assetClassRaw) {
     return {

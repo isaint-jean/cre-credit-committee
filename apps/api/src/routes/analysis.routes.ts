@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { uploadDualFiles, uploadAnalysisFiles, upload } from '../middleware/upload.js';
-import { enforceAnalysisParam, filterAccessibleAnalyses, enforceDealForRoot } from '../middleware/deal-access.js';
+import { enforceAnalysisParam, filterAccessibleAnalyses, enforceDealForRoot, canAccessAnalysis } from '../middleware/deal-access.js';
 import { store } from '../storage/sqlite-store.js';
 import type { SqliteStore } from '../storage/sqlite-store.js';
 import { appendSourceDocToDeal } from '../services/append-source-doc.service.js';
@@ -289,6 +289,13 @@ analysisRoutes.get('/lookup', (req: Request, res: Response) => {
     return;
   }
   const head = matches[0]!;
+  // Chunk 3b (dark): resolve-then-check — if the resolved deal isn't accessible,
+  // answer as if it doesn't exist (no existence leak). Pass-through when flag off.
+  const u = req.user!;
+  if (!canAccessAnalysis(u.userId, u.role, head.graphId ?? head.legacyId)) {
+    res.json({ found: false });
+    return;
+  }
   res.json({
     found: true,
     // Converge phase i — prefer the graph id (lineage_root_id, present for every
@@ -314,6 +321,14 @@ analysisRoutes.get('/compare', (req: Request, res: Response) => {
     return;
   }
 
+  // Chunk 3b (dark): access-check BOTH ids; if either is inaccessible, answer with
+  // the SAME 404 as not-found (never leak that an inaccessible deal exists).
+  const cu = req.user!;
+  if (!canAccessAnalysis(cu.userId, cu.role, baseId) || !canAccessAnalysis(cu.userId, cu.role, compareId)) {
+    res.status(404).json({ error: 'One or both analyses not found' });
+    return;
+  }
+
   const comparison = compareAnalysisVersions(baseId, compareId);
   if (!comparison) {
     res.status(404).json({ error: 'One or both analyses not found' });
@@ -327,7 +342,10 @@ analysisRoutes.get('/compare', (req: Request, res: Response) => {
 analysisRoutes.get('/audit-log', (req: Request, res: Response) => {
   const assetType = req.query.assetType as string | undefined;
   const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-  const entries = store.getAuditLog({ assetType, limit });
+  // Chunk 3b (dark): per-ROW filter to the user's accessible deals (canAccessAnalysis
+  // is a pass-through when the flag is off / for admin).
+  const u = req.user!;
+  const entries = store.getAuditLog({ assetType, limit }).filter((e) => canAccessAnalysis(u.userId, u.role, e.analysisId));
   res.json({ entries });
 });
 

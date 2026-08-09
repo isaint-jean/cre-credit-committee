@@ -95,6 +95,17 @@ export function canAccessPool(userId: string, role: string | undefined, poolId: 
   return dealAccessStore().has('pool', poolId, userId);
 }
 
+/** Access by an analysis id (uuid OR 64-hex) — resolves to the lineageRoot, then
+ *  checks. Fail-closed: an unresolvable id DENIES (never leaks). Pass-through when
+ *  the flag is off / for admin. For lookup?dealRef → resolved id, compare (per id),
+ *  and underwriting render/export (dealId). */
+export function canAccessAnalysis(userId: string, role: string | undefined, analysisId: string): boolean {
+  if (!dealAccessEnforcementEnabled()) return true;
+  if (isAdmin(role)) return true;
+  const root = resolveAnalysisLineageRoot(analysisId);
+  return root !== null && canAccessDeal(userId, role, root);
+}
+
 export function canAccessDeal(userId: string, role: string | undefined, lineageRootId: string): boolean {
   if (!dealAccessEnforcementEnabled()) return true; // dark: allow all
   if (isAdmin(role)) return true;
