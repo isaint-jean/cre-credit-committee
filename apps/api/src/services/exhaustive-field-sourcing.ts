@@ -252,7 +252,7 @@ export function structuredXlsxText(buffer: Buffer): string {
 
 /* ------------------------------ capping ----------------------------------- */
 
-function normalizeWs(s: string): string {
+export function normalizeWs(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
@@ -262,7 +262,7 @@ function normalizeWs(s: string): string {
  *  is reduced — and then to head + keyword windows mined across its FULL length,
  *  so a keyword-locatable deep section is still reached. Returns { text,
  *  truncated } so the caller can FLAG a reduced doc (never a silent skip). */
-function excerptDoc(text: string, keywords: readonly string[]): { text: string; truncated: boolean } {
+export function excerptDoc(text: string, keywords: readonly string[]): { text: string; truncated: boolean } {
   if (text.length <= FULL_DOC_THRESHOLD) return { text, truncated: false };
   const head = text.slice(0, HEAD_CHARS);
   const windows: string[] = [];

@@ -33,6 +33,9 @@ type LoanOption = { loanInPoolId: string; label: string };
 type MoveCtx = { poolId: string; docTypes: readonly DocTypeEntry[]; loans: readonly LoanOption[]; onMoved: () => void };
 const MoveContext = createContext<MoveCtx | null>(null);
 
+/** The pool id, threaded to the leaf FileRow for the per-loan Q&A (differentiator). */
+const PoolIdContext = createContext<string | null>(null);
+
 /** A count pill (files under a node). */
 function CountPill({ n }: { n: number }) {
   return (
@@ -142,6 +145,7 @@ function MovePicker({ file, ctx, onDone }: { file: DataRoomTreeFile; ctx: MoveCt
  *  and (Chunk 2c) a Move control when the move context is present. */
 function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
   const ctx = useContext(MoveContext);
+  const poolId = useContext(PoolIdContext);
   const [moving, setMoving] = useState(false);
   const [verdict, setVerdict] = useState(false);
   const chip = tierChip(file.tier);
@@ -200,7 +204,7 @@ function FileRow({ file, depth }: { file: DataRoomTreeFile; depth: number }) {
           </button>
         )}
       </div>
-      {verdict && <LoanAnalysisSummary analysisId={file.analysisId} depth={depth} />}
+      {verdict && <LoanAnalysisSummary analysisId={file.analysisId} poolId={poolId} loanInPoolId={file.loanInPoolId} depth={depth} />}
       {ctx && moving && <MovePicker file={file} ctx={ctx} onDone={() => setMoving(false)} />}
     </div>
   );
@@ -287,6 +291,7 @@ export function TreeView({
   const moveCtx: MoveCtx | null =
     poolId && docTypes && onMoved ? { poolId, docTypes, loans: loans ?? [], onMoved } : null;
   return (
+    <PoolIdContext.Provider value={tree.poolId}>
     <MoveContext.Provider value={moveCtx}>
       <div className="rounded-lg border border-border-primary bg-bg-secondary">
         <div className="flex items-baseline gap-2 border-b border-border-primary px-4 py-3">
@@ -302,5 +307,6 @@ export function TreeView({
         </div>
       </div>
     </MoveContext.Provider>
+    </PoolIdContext.Provider>
   );
 }

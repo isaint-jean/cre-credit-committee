@@ -1497,6 +1497,18 @@ export const api = {
   dataRoomTree: (poolId: string) =>
     request<DataRoomTree>(`/data-room/${poolId}/tree`),
 
+  // ── Per-loan document Q&A (grounded, cited, refuse-when-absent) ─────────────
+  // POST /pools/:poolId/loans/:loanInPoolId/ask → { status, answer, sourceDoc,
+  // sourceQuote, scannedOnly }. status ∈ answered | not_stated | unavailable.
+  askLoanQuestion: (poolId: string, loanInPoolId: string, question: string) =>
+    request<{
+      status: 'answered' | 'not_stated' | 'unavailable';
+      answer: string | null;
+      sourceDoc: string | null;
+      sourceQuote: string | null;
+      scannedOnly: boolean;
+    }>(`/pools/${poolId}/loans/${loanInPoolId}/ask`, { method: 'POST', body: JSON.stringify({ question }) }),
+
   // ── Chunk 3c — confidentiality gate ─────────────────────────────────────────
   // GET /pools/:poolId/confidentiality/status → { required, accepted, agreementVersion }.
   confiStatus: (poolId: string) =>

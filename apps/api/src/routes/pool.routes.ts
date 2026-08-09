@@ -62,6 +62,7 @@ import { underwriteJobStore } from '../storage/underwrite-job-store.js';
 import { dealAccessStore } from '../storage/deal-access-store.js';
 import { enforcePoolParam, filterAccessiblePools, enforceDealForRoot, dataRoomConfiRequired } from '../middleware/deal-access.js';
 import { confiAcceptanceStore, CONFIDENTIALITY_AGREEMENT_VERSION } from '../storage/confi-acceptance-store.js';
+import { answerLoanQuestion } from '../services/loan-doc-qa.service.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import {
   advanceTapePhaseA,
@@ -764,6 +765,23 @@ poolRoutes.post('/:poolId/confidentiality/accept', (req: Request, res: Response)
   });
   dealAccessStore().markConfiAccepted('pool', poolId, u.userId, acceptedAt);
   return res.json({ accepted: true, acceptedAt, agreementVersion: CONFIDENTIALITY_AGREEMENT_VERSION });
+});
+
+// POST /api/pools/:poolId/loans/:loanInPoolId/ask — grounded per-loan document Q&A
+// (differentiator). Deal-access gated (pool param). Answers ONLY from the loan's
+// document text with a verbatim citation, or 'not_stated'; credit-gated → 'unavailable'
+// when there's no LLM budget. Read-only, no persistence. NEVER guesses (cite-or-discard).
+poolRoutes.post('/:poolId/loans/:loanInPoolId/ask', async (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as string;
+  const loanInPoolId = req.params['loanInPoolId'] as string;
+  const question = typeof req.body?.question === 'string' ? req.body.question : '';
+  if (question.trim().length === 0) return send400Bad(res, 'question is required');
+  try {
+    const result = await answerLoanQuestion({ poolId, loanInPoolId, question });
+    return res.json(result);
+  } catch (e) {
+    return mapThrow(res, e);
+  }
 });
 
 /** GET /api/pools/:poolId — pool detail + D3 derivation of currentWorkingTapeId. */
