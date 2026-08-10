@@ -65,6 +65,7 @@ import { confiAcceptanceStore, CONFIDENTIALITY_AGREEMENT_VERSION } from '../stor
 import { computeMissingDocs } from '../services/data-room-store.service.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readiness.service.js';
+import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -420,6 +421,17 @@ poolRoutes.post('/:poolId/tapes/freeze', (req: Request, res: Response) => {
       recordedBy,
       frozenAt: body['frozenAt'] as string,
     });
+
+    // ★ Chunk 2 — new loans just arrived. Re-scan the HELD backlog: any orphan doc
+    // that now confidently matches a (now-present) loan auto-attaches (held → routed)
+    // and, if it completed the loan, underwrites via Chunk 3. OFF the response path
+    // (idempotent + durable; re-fires on the next advance if a process dies mid-scan).
+    if (result.newLoanInPoolIds.length > 0) {
+      void rescanHeldOnLoanArrival(poolId).catch((e) => {
+        console.error('[tape-freeze] held auto-attach re-scan failed:', (e as Error)?.message ?? e);
+      });
+    }
+
     return res.status(201).json({
       tape: result.tape,
       newLoanInPoolIds: result.newLoanInPoolIds,
