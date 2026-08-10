@@ -234,25 +234,32 @@ function main(): void {
   assertSameSet(groupedIds, DOC_TYPE_TAXONOMY.map((e) => e.id), 'docTypesByCategory union vs taxonomy ids');
   for (const g of grouped) assert(VALID_CATEGORIES.has(g.category), `docTypesByCategory emitted unknown category '${String(g.category)}'`);
 
-  // Pin the intended category MAP so the placement can't silently drift, and so
-  // the ★ loose-fit decision (sponsor_pfs / om → General) is asserted, not prose.
+  // Pin the intended category MAP so the placement can't silently drift. Updated
+  // to the Chunk-2 re-map (commit e45beb5): 'Excels' is now seller_uw ONLY (no
+  // longer a format bucket) — cf/rent_roll/t12/occupancy moved to 'Financial
+  // Statements' beside the operating financials they belong with; sponsor_pfs
+  // moved General → 'Financial Statements' (a borrower credit doc, Isabelle's
+  // call); insurance promoted Legal → its own 'Insurance' folder. The sole
+  // remaining loose-fit is 'om' → General (never-misfile). These are the INTENDED
+  // categories (each rationale is documented on the taxonomy entry), not whatever
+  // the taxonomy happens to say.
   const EXPECTED_CATEGORY: Readonly<Record<string, DocTypeCategory>> = {
     asr: 'ASRs',
-    cf: 'Excels',
-    rent_roll: 'Excels',
+    cf: 'Financial Statements',
+    rent_roll: 'Financial Statements',
     seller_uw: 'Excels',
-    t12: 'Excels',
+    t12: 'Financial Statements',
     appraisal: 'Third-Party Reports',
     pca: 'Third-Party Reports',
     phase_i_esa: 'Third-Party Reports',
     legal: 'Legal',
     title: 'Legal',
-    insurance: 'Legal',
+    insurance: 'Insurance',
     closing: 'Legal',
     leases: 'Legal',
-    occupancy: 'Excels',
+    occupancy: 'Financial Statements',
     loan_terms: 'Legal',
-    sponsor_pfs: 'General',
+    sponsor_pfs: 'Financial Statements',
     om: 'General',
   };
   assertSameSet(Object.keys(EXPECTED_CATEGORY), DOC_TYPE_TAXONOMY.map((e) => e.id), 'EXPECTED_CATEGORY coverage vs taxonomy');
@@ -262,9 +269,10 @@ function main(): void {
       `category drift: '${id}' is '${String(DOC_TYPE_CATEGORY[id])}' but pinned to '${EXPECTED_CATEGORY[id]}'`,
     );
   }
-  // ★ Loose-fits are NOT misfiled: sponsor_pfs / om must NOT land in Legal or
-  // Third-Party Reports (the never-misfile rule).
-  for (const id of ['sponsor_pfs', 'om']) {
+  // ★ Loose-fit is NOT misfiled: 'om' must NOT land in Legal / Third-Party /
+  // Excels (the never-misfile rule). Post-Chunk-2, 'om' is the ONLY loose-fit —
+  // sponsor_pfs got a real home ('Financial Statements'), pinned above.
+  for (const id of ['om']) {
     const cat = DOC_TYPE_CATEGORY[id];
     assert(
       cat !== 'Legal' && cat !== 'Third-Party Reports' && cat !== 'Excels',
@@ -273,7 +281,7 @@ function main(): void {
   }
   const catCounts = grouped.map((g) => `${g.category}(${g.docTypes.length})`).join(' + ');
   console.log(`  ✓ category: every doc-type homed; groups complete & non-lossy: ${catCounts}`);
-  console.log('  ✓ loose-fits honestly homed: sponsor_pfs → General, om → General (never-misfile)');
+  console.log('  ✓ loose-fit honestly homed: om → General (never-misfile)');
 
   console.log('doc-type taxonomy consistency guard: ok');
 }
