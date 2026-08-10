@@ -56,7 +56,7 @@ import { unpackZipToSandbox, looksLikeFolderZip } from '../services/data-room/un
 import { promises as fsp } from 'node:fs';
 import { DocumentReadStateStore } from '../storage/document-read-state-store.js';
 import { PoolStore } from '../storage/pool-store.js';
-import { enqueueUnderwriteOnSettle } from '../services/pool/batch-settle-fanout.service.js';
+import { enqueueUnderwriteOnSettle, reevaluateAndEnqueueIfReady } from '../services/pool/batch-settle-fanout.service.js';
 import { enforcePermission } from '../middleware/require-permission.js';
 import { enforceDataRoomAccessParam } from '../middleware/deal-access.js';
 import { store as sqliteStore } from '../storage/sqlite-store.js';
@@ -494,12 +494,14 @@ dataRoomRoutes.post('/:poolId/held/:fileHash/identify', async (req: Request, res
     return;
   }
 
-  // The file just moved held → routed. If assigning it settled its original
-  // batch, the underwrite enqueue happens on the confirming POST /assign path; a
-  // manual identify is an out-of-band resolution of a genuinely-unidentified file,
-  // so it routes the doc (eligible for the underwrite queue on the next settle)
-  // without re-deriving a batch here.
-  res.json({ result });
+  // ★ Chunk 3 — continuous re-eval (fixes the /identify dead-end). The held doc just
+  // attached to `loanInPoolId`; that may have crossed the loan into READY (e.g. its
+  // ASR was in the backlog and it already had income). Re-run the readiness gate and
+  // enqueue if ready — so resolving a backlog doc that COMPLETES a loan underwrites it
+  // now, not only on some unrelated future settle. Dedup keeps it a no-op when a job
+  // is already active; a not-ready loan stays partial.
+  const reeval = reevaluateAndEnqueueIfReady(poolId, loanInPoolId);
+  res.json({ result, underwrite: reeval });
 });
 
 // ---------------------------------------------------------------------------
@@ -811,7 +813,12 @@ dataRoomRoutes.post('/:poolId/doc/:fileHash/reclassify', (req: Request, res: Res
   }
   try {
     const result = reclassifyDataRoomDoc({ poolId, fileHash, targetLoanInPoolId: loanInPoolId, targetDocType: docType });
-    res.json({ poolId, fileHash, ...result });
+    // ★ Chunk 3 — a move that COMPLETES the target loan (e.g. an ASR moved onto a loan
+    // that already had income) enqueues it now. The SOURCE loan possibly becoming
+    // no-longer-ready is intentionally left alone (a done underwrite stays; we never
+    // retroactively unwind). Dedup keeps a re-touch of an already-active loan a no-op.
+    const reeval = reevaluateAndEnqueueIfReady(poolId, loanInPoolId);
+    res.json({ poolId, fileHash, ...result, underwrite: reeval });
   } catch (e) {
     if (e instanceof ReclassifyError) {
       res.status(e.code === 'NOT_FOUND' ? 404 : 400).json({ error: e.message, code: e.code });

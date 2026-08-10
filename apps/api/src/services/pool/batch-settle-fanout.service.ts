@@ -225,3 +225,63 @@ export function enqueueUnderwriteOnSettle(
 
   return { settled: true, affectedLoans, enqueuedCount, jobs, skippedNotReady };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Chunk 3 — continuous re-eval (per-loan "became ready → underwrite").         */
+/* -------------------------------------------------------------------------- */
+
+export interface ReevalDeps {
+  readonly listPoolDocs?: typeof defaultListPoolDocs;
+  readonly poolStore?: PoolStore;
+  readonly jobStore?: UnderwriteJobStore;
+  /** Skip kicking the drain (proofs drive the worker manually). */
+  readonly kickDrain?: boolean;
+}
+
+export interface ReevalResult {
+  /** The loan currently passes the readiness gate (ASR + income present). */
+  readonly ready: boolean;
+  /** A NEW job was minted this call (false when dedup joined an active job, or not ready). */
+  readonly enqueued: boolean;
+  /** The loan's active job id (new or already-active), or null when not enqueued. */
+  readonly jobId: string | null;
+  /** Required slots still absent — present when not ready. */
+  readonly missing: readonly string[];
+}
+
+/**
+ * ★ Chunk 3 — the single "a loan became ready → underwrite it" primitive, called
+ * from EVERY loan-touching event (assign/settle already route through
+ * `enqueueUnderwriteOnSettle`; this covers the per-loan events: HELD identify + doc
+ * reclassify/move). Runs the SAME pre-extraction readiness predicate and, if ready,
+ * enqueues through the SAME one-active-job-per-loan dedup — so a loan underwrites the
+ * moment it crosses partial→ready, regardless of which event completed it.
+ *
+ * IDEMPOTENT: the dedup makes redundant calls safe — a loan with an already-active
+ * job re-touched (no genuinely new work) returns the SAME job, `enqueued:false`, no
+ * second run. Not ready → no job (stays partial). Unresolvable loan → no-op.
+ */
+export function reevaluateAndEnqueueIfReady(
+  poolId: string,
+  loanInPoolId: string,
+  deps: ReevalDeps = {},
+): ReevalResult {
+  const poolStore = deps.poolStore ?? new PoolStore();
+  const jobStore = deps.jobStore ?? defaultJobStore();
+
+  const loan = poolStore.getLoanInPool(loanInPoolId as LoanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return { ready: false, enqueued: false, jobId: null, missing: [] };
+  }
+
+  const readiness = evaluateUnderwriteReadiness(poolId, loanInPoolId, deps);
+  if (!readiness.ready) {
+    return { ready: false, enqueued: false, jobId: null, missing: readiness.missing };
+  }
+
+  const { job, created } = jobStore.enqueue(poolId, loanInPoolId);
+  if (deps.kickDrain !== false && created) {
+    kickUnderwriteDrain({ jobStore, poolStore });
+  }
+  return { ready: true, enqueued: created, jobId: job.id, missing: [] };
+}
