@@ -64,6 +64,7 @@ import { enforcePoolParam, filterAccessiblePools, enforceDealForRoot, dataRoomCo
 import { confiAcceptanceStore, CONFIDENTIALITY_AGREEMENT_VERSION } from '../storage/confi-acceptance-store.js';
 import { computeMissingDocs } from '../services/data-room-store.service.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
+import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readiness.service.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -539,6 +540,8 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/close', (req: Request, res: Respon
  *   202 → enqueued ({ enqueued: true, jobId, alreadyActive })
  *         alreadyActive:true means the dedup returned an in-flight job (no second
  *         run) — the UI just polls that job.
+ *   409 → NOT_READY (Chunk-1 gate): the loan lacks the minimum doc set (ASR +
+ *         income). Pass `force:true` to underwrite a partial loan on purpose.
  *   404 → loan not in this pool
  */
 poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: Response) => {
@@ -553,6 +556,23 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
     const loan = poolStore().getLoanInPool(loanInPoolId);
     if (loan === null || loan.poolId !== poolId) {
       return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+    }
+
+    // ★ Chunk-1 readiness gate — the manual route is gated BY DEFAULT (same predicate
+    // as the settle fan-out), so a stray click can't underwrite a half-supplied loan.
+    // BUT the human escape hatch is preserved: `force: true` (or `?force=true`)
+    // deliberately underwrites a partial loan on purpose (honest-floor engine still
+    // flags what's missing). Not-ready + not-forced → 409, with what it needs.
+    const force = req.body?.force === true || req.query['force'] === 'true';
+    if (!force) {
+      const readiness = evaluateUnderwriteReadiness(poolId, loanInPoolId);
+      if (!readiness.ready) {
+        return res.status(409).json({
+          error: 'NOT_READY',
+          message: `loan ${loanInPoolId} is not ready to underwrite — needs ${readiness.missing.join(' + ')}. Pass force:true to underwrite anyway.`,
+          missing: readiness.missing,
+        });
+      }
     }
 
     // Enqueue through the shared dedup (one ACTIVE job per loan) — identical to the

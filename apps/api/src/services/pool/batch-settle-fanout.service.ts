@@ -3,8 +3,15 @@
  *
  * When a staging batch SETTLES — every file in it assigned to a (loan, docType),
  * none still tray-pending — this service ENQUEUES ONE durable `underwrite_job`
- * per DISTINCT affected loan and returns FAST. It removes the manual
+ * per DISTINCT affected loan THAT IS READY and returns FAST. It removes the manual
  * "Underwrite now" click (which stays as an escape hatch in pool.routes.ts).
+ *
+ * ★ Chunk-1 READINESS GATE: settle ≠ complete. A batch settles when its dropped
+ * files are assigned, but the LOAN may still lack the minimum doc set. We enqueue
+ * ONLY loans that pass `evaluateUnderwriteReadiness` (ASR + income present) — a
+ * not-ready loan stays PARTIAL (no premature low-scored verdict) and is returned in
+ * `skippedNotReady` for the missing-docs UI. This fixes the partial-underwrite bug
+ * ("partial loans do NOT force an underwrite").
  *
  * This is a pure ORCHESTRATION seam over P1's proven pieces:
  *   - settle detection reads the staging batch + the data-room manifest (no ingest),
@@ -40,6 +47,7 @@ import { PoolStore } from '../../storage/pool-store.js';
 import type { UnderwriteJobStore } from '../../storage/underwrite-job-store.js';
 import { underwriteJobStore as defaultJobStore } from '../../storage/underwrite-job-store.js';
 import { kickUnderwriteDrain } from './underwrite-worker.service.js';
+import { evaluateUnderwriteReadiness } from './underwrite-readiness.service.js';
 
 /* -------------------------------------------------------------------------- */
 /* Settle detection.                                                          */
@@ -126,6 +134,12 @@ export interface AffectedLoan {
   readonly loanInPoolId: string;
   /** null when the loan can't be resolved in the pool store (skipped, not enqueued). */
   readonly dealRef: string | null;
+  /** Chunk-1 readiness gate: 'enqueued' when the loan had ASR + income present and a
+   *  job was minted/found; 'not_ready' when it was skipped (stays partial); 'unresolved'
+   *  when the loan wasn't in the pool store. */
+  readonly status: 'enqueued' | 'not_ready' | 'unresolved';
+  /** Required slots still absent — present only for 'not_ready' (what it needs). */
+  readonly missing?: readonly string[];
 }
 
 export interface EnqueueOnSettleDeps extends SettleDetectionDeps {
@@ -143,6 +157,9 @@ export interface EnqueueOnSettleResult {
   readonly enqueuedCount: number;
   /** The job ids per affected loan (new or already-active), for the response/chip. */
   readonly jobs: ReadonlyArray<{ loanInPoolId: string; jobId: string; created: boolean }>;
+  /** Chunk-1: loans the readiness gate held back (ASR+income not both present).
+   *  They stay PARTIAL — surfaced by coverage/missing-docs, NOT underwritten. */
+  readonly skippedNotReady: ReadonlyArray<{ loanInPoolId: string; missing: readonly string[] }>;
 }
 
 /**
@@ -167,11 +184,12 @@ export function enqueueUnderwriteOnSettle(
 
   const settle = detectSettledBatch(poolId, batchId, deps);
   if (!settle.settled) {
-    return { settled: false, affectedLoans: [], enqueuedCount: 0, jobs: [] };
+    return { settled: false, affectedLoans: [], enqueuedCount: 0, jobs: [], skippedNotReady: [] };
   }
 
   const affectedLoans: AffectedLoan[] = [];
   const jobs: Array<{ loanInPoolId: string; jobId: string; created: boolean }> = [];
+  const skippedNotReady: Array<{ loanInPoolId: string; missing: readonly string[] }> = [];
   let enqueuedCount = 0;
 
   for (const loanInPoolId of settle.affectedLoanIds) {
@@ -179,12 +197,22 @@ export function enqueueUnderwriteOnSettle(
     if (loan === null || loan.poolId !== poolId) {
       // Unresolvable / cross-pool — surface it but do NOT enqueue (nothing coherent
       // to underwrite; the worker would only fail it).
-      affectedLoans.push({ loanInPoolId, dealRef: null });
+      affectedLoans.push({ loanInPoolId, dealRef: null, status: 'unresolved' });
       continue;
     }
-    affectedLoans.push({ loanInPoolId, dealRef: loan.dealRef });
+    // ★ Chunk-1 readiness gate — auto-underwrite fires ONLY when the loan has the
+    // minimum doc set (ASR + income). A not-ready loan stays PARTIAL: no job, no
+    // premature low-scored verdict. It's surfaced by coverage/missing-docs and will
+    // enqueue on a LATER settle once its ASR + income are both present.
+    const readiness = evaluateUnderwriteReadiness(poolId, loanInPoolId, deps);
+    if (!readiness.ready) {
+      affectedLoans.push({ loanInPoolId, dealRef: loan.dealRef, status: 'not_ready', missing: readiness.missing });
+      skippedNotReady.push({ loanInPoolId, missing: readiness.missing });
+      continue;
+    }
     const { job, created } = jobStore.enqueue(poolId, loanInPoolId);
     if (created) enqueuedCount += 1;
+    affectedLoans.push({ loanInPoolId, dealRef: loan.dealRef, status: 'enqueued' });
     jobs.push({ loanInPoolId, jobId: job.id, created });
   }
 
@@ -195,5 +223,5 @@ export function enqueueUnderwriteOnSettle(
     kickUnderwriteDrain({ jobStore, poolStore });
   }
 
-  return { settled: true, affectedLoans, enqueuedCount, jobs };
+  return { settled: true, affectedLoans, enqueuedCount, jobs, skippedNotReady };
 }
