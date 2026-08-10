@@ -6,6 +6,18 @@
 The differentiator: when a buyer opens a data-room document/loan, show what the ENGINE already
 extracted/scored/flagged. No other VDR does this.
 
+> **Update 2026-08-10 — per-loan document Q&A ("Ask these documents") built, then REMOVED.**
+> A grounded cite-or-discard Q&A box was shipped (endpoint `POST /pools/:id/loans/:id/ask`,
+> `loan-doc-qa.service.ts`, an AskBox in the verdict panel, proof `data-room-qa-proof.ts`). It was
+> cut because the **structured views do the job better, credit-free, without over-refusing**: the
+> verdict (score/flags/mitigants), the missing-doc surface, the income/T-12 table, and the
+> rent_roll/pca/asr/appraisal extraction toggles answer the same buyer questions from already-
+> extracted data — no live LLM, no cite-or-discard "not stated" dead-ends. Removed cleanly (leaf
+> only); the shared machinery it had borrowed — `gatherDealDocTexts` / `excerptDoc` / `normalizeWs`
+> (`exhaustive-field-sourcing.ts`), the credit gate, `callAIWithContinuation`, deal-access
+> middleware — stays intact (still used by extraction + auto-underwrite). See
+> `2026-08-09-loan-doc-qa.md` for the original design.
+
 ## 1. The join path (data-room doc → engine output)
 
 ```

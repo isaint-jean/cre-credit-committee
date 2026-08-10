@@ -23,64 +23,6 @@ function toneClass(sev: string): string {
   return 'border-border-primary bg-bg-tertiary text-text-secondary';
 }
 
-type QaResult = { status: 'answered' | 'not_stated' | 'unavailable'; answer: string | null; sourceDoc: string | null; sourceQuote: string | null; scannedOnly: boolean };
-
-/** The grounded per-loan document Q&A box (differentiator). Ephemeral — nothing
- *  persisted; cleared when the verdict panel closes. */
-function AskBox({ poolId, loanInPoolId, depth }: { poolId: string | null; loanInPoolId: string; depth: number }) {
-  const [q, setQ] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [res, setRes] = useState<QaResult | null>(null);
-  const pad = { paddingLeft: `${8 + depth * 16 + 16}px` } as const;
-
-  async function ask() {
-    if (!poolId || q.trim().length === 0) return;
-    setBusy(true);
-    setRes(null);
-    try {
-      setRes(await api.askLoanQuestion(poolId, loanInPoolId, q.trim()));
-    } catch {
-      setRes({ status: 'unavailable', answer: null, sourceDoc: null, sourceQuote: null, scannedOnly: false });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mt-3 border-t border-border-primary/50 pt-2" style={pad}>
-      <p className="text-[11px] uppercase tracking-wide text-text-secondary">Ask these documents</p>
-      <div className="mt-1 flex gap-1">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') void ask(); }}
-          placeholder="e.g. what triggers cash management?"
-          className="w-full rounded border border-border-primary bg-bg-tertiary px-2 py-1 text-xs text-text-primary"
-        />
-        <button type="button" onClick={ask} disabled={busy || !q.trim()} className="rounded border border-accent/40 bg-accent-soft px-2 py-1 text-xs text-accent hover:opacity-80 disabled:opacity-50">
-          {busy ? 'Asking…' : 'Ask'}
-        </button>
-      </div>
-      {res && (
-        <div className="mt-2 text-xs">
-          {res.status === 'answered' && (
-            <>
-              <p className="text-text-primary">{res.answer}</p>
-              <p className="mt-1 text-text-secondary">Source: {res.sourceDoc}</p>
-              {res.sourceQuote && <p className="mt-0.5 truncate italic text-text-secondary" title={res.sourceQuote}>“{res.sourceQuote}”</p>}
-            </>
-          )}
-          {res.status === 'not_stated' && <p className="text-text-secondary">Not stated in these documents.</p>}
-          {res.status === 'unavailable' && <p className="text-text-secondary">Unavailable — the question service is offline.</p>}
-          {res.scannedOnly && res.status === 'not_stated' && (
-            <p className="mt-1 text-text-secondary">Note: some of this loan&apos;s documents are scans and not machine-readable.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Tier 2 (a) — the loan's missing ingest docs (set-difference; no engine call).
  *  Renders even for an un-underwritten loan / with credits exhausted. */
 function MissingDocs({ poolId, loanInPoolId, depth }: { poolId: string | null; loanInPoolId: string; depth: number }) {
@@ -138,7 +80,6 @@ export function LoanAnalysisSummary({ analysisId, poolId, loanInPoolId, depth }:
       <div>
         <div className="py-1 text-xs text-text-secondary" style={pad}>No underwriting yet for this loan.</div>
         <MissingDocs poolId={poolId} loanInPoolId={loanInPoolId} depth={depth} />
-        <AskBox poolId={poolId} loanInPoolId={loanInPoolId} depth={depth} />
       </div>
     );
   }
@@ -250,9 +191,6 @@ export function LoanAnalysisSummary({ analysisId, poolId, loanInPoolId, depth }:
           )}
         </div>
       )}
-
-      {/* Grounded per-loan document Q&A (ephemeral). */}
-      <AskBox poolId={poolId} loanInPoolId={loanInPoolId} depth={0} />
     </div>
   );
 }
