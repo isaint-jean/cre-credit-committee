@@ -148,7 +148,13 @@ export const DOC_TYPE_TAXONOMY: readonly DocTypeEntry[] = [
   // ── (a) engine-ingesting ────────────────────────────────────────────────
   {
     id: 'asr',
-    label: 'Annual Statement of Rents (ASR)',
+    // The 'asr' slot is the ASSET SUMMARY REPORT (aka Funded ASR / deal summary) —
+    // the doc feeding valuation / NOI / sources & uses / underwritten cash flows.
+    // It was mislabeled "Annual Statement of Rents"; the id/slot/classifier/extractor
+    // were always correct (classifier matches Asset/Anticipated/Acquisition Sale
+    // Report; extract-asr.ts parses S&U / sub-market / environmental / cash-flow
+    // sections). Rent statements belong in `rent_roll`, not here.
+    label: 'Asset Summary Report (ASR)',
     category: 'ASRs',
     tier: 'ingesting',
     slot: 'asr',
