@@ -60,6 +60,7 @@ import { enqueueUnderwriteOnSettle, reevaluateAndEnqueueIfReady } from '../servi
 import { enforcePermission } from '../middleware/require-permission.js';
 import { enforceDataRoomAccessParam } from '../middleware/deal-access.js';
 import { store as sqliteStore } from '../storage/sqlite-store.js';
+import { resolveServeMime } from '../util/mime-from-extension.js';
 import type { PoolId, LoanInPoolId } from '@cre/contracts';
 
 export const dataRoomRoutes = Router();
@@ -460,7 +461,9 @@ dataRoomRoutes.get('/:poolId/held/:fileHash', async (req: Request, res: Response
     res.status(404).json({ error: 'not_found' });
     return;
   }
-  res.setHeader('Content-Type', found.held.mimeType || 'application/octet-stream');
+  // Same fix as the doc endpoint: held docs (often ZIP-unpacked) store octet-stream;
+  // derive the served Content-Type from the extension when the stored mime is generic.
+  res.setHeader('Content-Type', resolveServeMime(found.held.mimeType, found.held.fileName));
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(found.held.fileName)}"`);
   res.setHeader('Content-Length', String(found.bytes.length));
   res.send(found.bytes);
@@ -891,7 +894,12 @@ dataRoomRoutes.get('/:poolId/doc/:fileHash', async (req: Request, res: Response)
     res.status(404).json({ error: 'not_found' });
     return;
   }
-  res.setHeader('Content-Type', found.entry.mimeType || 'application/octet-stream');
+  // Content-Type: trust a real stored mime, else derive from the filename extension.
+  // ZIP-unpacked docs are stored 'application/octet-stream' at ingest (the classifier
+  // routes on filename/content, not mime); serving that verbatim made the browser
+  // read the file as "unknown"/blank. Derive from the extension so those (and future
+  // ZIP drops) serve as application/pdf / the xlsx mime. Bytes + filename unchanged.
+  res.setHeader('Content-Type', resolveServeMime(found.entry.mimeType, found.entry.fileName));
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(found.entry.fileName)}"`);
   res.setHeader('Content-Length', String(found.bytes.length));
   res.send(found.bytes);
