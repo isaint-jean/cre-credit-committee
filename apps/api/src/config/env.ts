@@ -28,4 +28,16 @@ export const env = {
    * togglability; this entry documents the default.
    */
   dealAccessEnforcement: process.env.DEAL_ACCESS_ENFORCEMENT === 'true',
+  /**
+   * Shelve the bank↔buyer NEGOTIATION LOOP (dark-ship flag). Default OFF: the
+   * negotiation-framed surfaces (NegotiationSurface + BuyerDiffPanel and their
+   * negotiation-only routes — buyer-diff, overlay lever-agree/override, overlay
+   * comment threads) are hidden/disabled until this is 'true'. The
+   * CrossCheckResult PRODUCER, disposition/close/lifecycle, the committee-action
+   * LOG, and general commenting are NOT gated by this — they stay live. Flip to
+   * 'true' for full recovery, nothing deleted. The route guard
+   * (middleware/negotiation-flag.ts) reads process.env live for per-process/per-
+   * test togglability; this entry documents the default.
+   */
+  negotiationLoopEnabled: process.env.NEGOTIATION_LOOP_ENABLED === 'true',
 };

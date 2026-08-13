@@ -12,6 +12,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { api, type BuyerDiffSuggestionDTO } from '@/lib/api-client';
+import { negotiationLoopEnabled } from '@/lib/flags';
 
 type Decision = 'accepted' | 'rejected' | 'pending';
 
@@ -21,6 +22,8 @@ function fmt(s: BuyerDiffSuggestionDTO, v: number | null): string {
 }
 
 export function BuyerDiffPanel({ analysisId }: { readonly analysisId: string }): React.ReactElement | null {
+  // Shelved with the negotiation loop (default off). Constant flag → stable render.
+  if (!negotiationLoopEnabled) return null;
   const [findings, setFindings] = useState<BuyerDiffSuggestionDTO[] | null>(null);
   const [open, setOpen] = useState(false);            // quiet by default
   const [busy, setBusy] = useState<string | null>(null);

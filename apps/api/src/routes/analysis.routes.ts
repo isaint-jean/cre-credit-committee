@@ -42,6 +42,7 @@ import {
   buildBuyerDiffSuggestions, mergeDecisions, decidableFindingIds, type BuyerDiffDecision,
 } from '../services/buyer-diff-suggestions.service.js';
 import { generateBuyerDiffWorkbook } from '../services/generate-buyer-diff-workbook.service.js';
+import { requireNegotiationLoop } from '../middleware/negotiation-flag.js';
 import { resolveLoanForRoot } from '../services/pool/resolve-loan-for-root.js';
 import { augmentIntakeCompletenessWithSourcing } from '../services/augment-intake-completeness.js';
 import { getAssumedInputs } from '../services/assumed-inputs.service.js';
@@ -745,6 +746,7 @@ analysisRoutes.get('/:id/slot-extraction/:docType', (req: Request, res: Response
 // `?format=html` returns the visual tri-state view (with the show/hide-changes
 // toggle); default returns JSON. First-class + addressable — the bank-side centerpiece.
 analysisRoutes.get('/:id/buyer-diff', (req: Request, res: Response) => {
+  if (!requireNegotiationLoop(res)) return; // shelved when NEGOTIATION_LOOP_ENABLED is off
   let stored;
   try {
     stored = resolveAnalysisForRead(req.params.id, recordGraphStore, store);
@@ -809,6 +811,7 @@ function resolveBuyerDiffContext(id: string):
 // GET /api/analyses/:id/buyer-diff/decisions — the decidable adjustments + current
 // accept/reject state (pending by default). Only ENGINE-REAL adjustments appear.
 analysisRoutes.get('/:id/buyer-diff/decisions', (req: Request, res: Response) => {
+  if (!requireNegotiationLoop(res)) return; // shelved when NEGOTIATION_LOOP_ENABLED is off
   const ctx = resolveBuyerDiffContext(req.params.id);
   if (!ctx.ok) { res.status(ctx.status).json({ error: ctx.error }); return; }
   const suggestions = buildBuyerDiffSuggestions(ctx.adjustedInputs, ctx.extraction);
@@ -818,6 +821,7 @@ analysisRoutes.get('/:id/buyer-diff/decisions', (req: Request, res: Response) =>
 
 // PUT /api/analyses/:id/buyer-diff/decisions/:findingId — set accept/reject.
 analysisRoutes.put('/:id/buyer-diff/decisions/:findingId', (req: Request, res: Response) => {
+  if (!requireNegotiationLoop(res)) return; // shelved when NEGOTIATION_LOOP_ENABLED is off
   const ctx = resolveBuyerDiffContext(req.params.id);
   if (!ctx.ok) { res.status(ctx.status).json({ error: ctx.error }); return; }
   const decision = (req.body as { decision?: unknown } | undefined)?.decision;
@@ -840,6 +844,7 @@ analysisRoutes.put('/:id/buyer-diff/decisions/:findingId', (req: Request, res: R
 // from the current decisions: accepted adjustments marked (amber + comment + buyer #),
 // rejected/pending clean (issuer stands). Deterministic — same decisions → same file.
 analysisRoutes.get('/:id/buyer-diff/export', async (req: Request, res: Response) => {
+  if (!requireNegotiationLoop(res)) return; // shelved when NEGOTIATION_LOOP_ENABLED is off
   const ctx = resolveBuyerDiffContext(req.params.id);
   if (!ctx.ok) { res.status(ctx.status).json({ error: ctx.error }); return; }
   const merged = mergeDecisions(

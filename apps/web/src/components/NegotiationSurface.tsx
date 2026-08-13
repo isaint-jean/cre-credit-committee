@@ -52,6 +52,7 @@ import type {
 import { REASON_CATEGORIES, REASON_CATEGORY_OUTCOME, isReasonCategoryValidForOutcome } from '@cre/contracts';
 import { api, type LoanForRootResolution, type OverlayCommentView } from '@/lib/api-client';
 import { useSide, type Side } from '@/lib/side-context';
+import { negotiationLoopEnabled } from '@/lib/flags';
 
 type Role = 'bp_spire' | 'originator';
 
@@ -264,7 +265,10 @@ interface Props {
   readonly onWorkflowChanged?: () => void;
 }
 
-export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged }: Props): React.ReactElement {
+export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged }: Props): React.ReactElement | null {
+  // Shelved with the negotiation loop (default off). Constant flag → stable render;
+  // the parent (RenderedAnalysisView) also re-fronts to the workspace/score primary.
+  if (!negotiationLoopEnabled) return null;
   const side = useSide();
   const [role, setRole] = useState<Role>('bp_spire');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());

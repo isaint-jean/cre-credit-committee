@@ -44,6 +44,7 @@ import { SnapshotViewer } from './SnapshotViewer';
 import { WorkbookReadiness } from './WorkbookReadiness';
 import { NegotiationSurface } from './NegotiationSurface';
 import { BuyerDiffPanel } from './BuyerDiffPanel';
+import { negotiationLoopEnabled } from '@/lib/flags';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api-client';
 import { useSide, type Side } from '@/lib/side-context';
@@ -1720,7 +1721,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
               committee/graph context && out of edit mode (edit uses the drawer's Adjust
               tab so the ratify buttons don't compete with the editor). */}
           <main style={{ minWidth: 0 }}>
-            {workflow !== undefined && !editMode ? (
+            {negotiationLoopEnabled && workflow !== undefined && !editMode ? (
               <NegotiationSurface
                 data={data}
                 workflow={workflow}
@@ -1729,9 +1730,11 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
               />
             ) : (
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 20, color: C.ink2, fontSize: 13 }}>
-                {editMode
-                  ? 'Editing underwriting inputs — open the Underwriting workspace (Adjust inputs) below, then Save Changes. The negotiation surface returns when you exit edit mode.'
-                  : 'The negotiation surface mounts once the committee workflow is available for this deal. The underwriting detail is in the workspace drawer.'}
+                {!negotiationLoopEnabled
+                  ? 'The credit summary, score, and status are in the rail; the underwriting detail is in the Underwriting workspace (Adjust inputs) below.'
+                  : editMode
+                    ? 'Editing underwriting inputs — open the Underwriting workspace (Adjust inputs) below, then Save Changes. The negotiation surface returns when you exit edit mode.'
+                    : 'The negotiation surface mounts once the committee workflow is available for this deal. The underwriting detail is in the workspace drawer.'}
               </div>
             )}
 
@@ -1740,7 +1743,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             {/* Buyer-diff / seller-UW is the ORIGINATOR's private self-check ("what a buyer
                 would ask") — the BUYER must NOT see it. Shown for originator + platform/admin,
                 hidden for side === 'buyer' (mirror of the committee-chrome hide, opposite side). */}
-            {analysisId && side !== 'buyer' && <BuyerDiffPanel analysisId={analysisId} />}
+            {negotiationLoopEnabled && analysisId && side !== 'buyer' && <BuyerDiffPanel analysisId={analysisId} />}
           </main>
 
           {/* ── Sticky rail — score donut + headline metrics + status + memo ───── */}

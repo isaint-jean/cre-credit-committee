@@ -42,6 +42,7 @@ import {
   computeOverlayPatchId,
 } from '../util/content-hash.js';
 import { enforceDealForRoot } from '../middleware/deal-access.js';
+import { requireNegotiationLoop } from '../middleware/negotiation-flag.js';
 import { CommitteeActionsStore } from '../storage/committee-actions-store.js';
 import { AuditEventsStore } from '../storage/audit-events-store.js';
 import { CommitteeSnapshotsStore } from '../storage/committee-snapshots-store.js';
@@ -293,6 +294,7 @@ interface PostOverlayBody {
 }
 
 workflowRoutes.post('/overlays', requireAuth, (req: Request, res: Response) => {
+  if (!requireNegotiationLoop(res)) return; // negotiation lever-agree/override anchor — shelved when off
   const body = (req.body ?? {}) as PostOverlayBody;
 
   // Shape validation only.
@@ -403,6 +405,7 @@ interface PostOverlayCommentBody {
 }
 
 workflowRoutes.post('/overlay-comments', requireAuth, (req: Request, res: Response) => {
+  if (!requireNegotiationLoop(res)) return; // negotiation-framed comment thread — shelved when off
   const body = (req.body ?? {}) as PostOverlayCommentBody;
 
   // Shape validation only.
