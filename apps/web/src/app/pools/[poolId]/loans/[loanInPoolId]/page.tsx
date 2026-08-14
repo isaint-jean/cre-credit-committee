@@ -20,6 +20,7 @@ import { api } from '@/lib/api-client';
 import type { Disposition, DispositionKind, LoanInPool, LoanMembership, OnTapeStatus, ReasonCategory } from '@cre/contracts';
 import { REASON_CATEGORIES, REASON_CATEGORY_OUTCOME, isReasonCategoryValidForOutcome } from '@cre/contracts';
 import { useSide, type Side } from '@/lib/side-context';
+import { ServicerSiteVisit } from '@/components/ServicerSiteVisit';
 import { sideAccent, withSide } from '@/lib/side-accent';
 
 type LoadState = 'loading' | 'loaded' | 'error';
@@ -198,6 +199,12 @@ export default function LoanTrajectoryPage() {
           </Link>
         </div>
       </header>
+
+      {/* ★ Phase 2 — servicer site-visit input. Fillable by the servicer; flows into
+         the workbook + memo (display-only, never re-scores). */}
+      <div className="mb-6">
+        <ServicerSiteVisit poolId={poolId} loanInPoolId={loanInPoolId} />
+      </div>
 
       {/* ★ DispositionBar — the pool-lifecycle terminal for THIS loan. "Approve &
          close" is the LIVE lifecycle write (not the disposition path). It lives

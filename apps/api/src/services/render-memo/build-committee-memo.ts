@@ -161,6 +161,13 @@ export interface BuildCommitteeMemoInput {
    * existing honest-blank stands. NEVER derived from a finding.
    */
   readonly humanSponsorAssessment?: HumanSponsorAssessment;
+  /**
+   * Servicer site-visit note (Phase 2 human input) — DISPLAY-ONLY. When present it
+   * renders in the due-diligence red-flags section as a servicer-provided finding,
+   * clearly attributed. It is additive annotation: it does NOT enter flagCategory
+   * scoring and NEVER re-scores. Absent → nothing added (byte-identical).
+   */
+  readonly servicerSiteVisit?: { readonly text: string; readonly author: string; readonly at: string };
 }
 
 /** A single assumed (non-sourced) input surfaced in Underwriting Validation. */
@@ -521,11 +528,24 @@ function findingsTableHtml(findings: readonly CleanDoctrineFinding[]): string {
 // clearly-secondary sub-section. A finding is classified by its dimension id via the
 // render-time registry (flag-categories.ts); an unmapped finding classifies to 'other'
 // (a due-diligence bucket) — every finding renders, none is dropped.
-function renderKeyCreditRisks(narrative: NarrativeEvaluation, findings: readonly CleanDoctrineFinding[]): string {
+function renderKeyCreditRisks(
+  narrative: NarrativeEvaluation,
+  findings: readonly CleanDoctrineFinding[],
+  servicerSiteVisit?: { readonly text: string; readonly author: string; readonly at: string },
+): string {
   const dd = findings.filter(f => isDueDiligence(flagCategory(f.dimensionId)));
   const financial = findings.filter(f => !isDueDiligence(flagCategory(f.dimensionId)));
 
-  const ddBlock = dd.length === 0 ? '' : findingsTableHtml(dd);
+  // ★ Servicer site-visit note — a DISPLAY-ONLY human due-diligence red flag. Leads
+  // the DD block (the "something a spreadsheet won't tell you" layer). Attributed;
+  // NOT part of flagCategory scoring — never re-scores.
+  const siteVisitBlock = servicerSiteVisit === undefined ? '' : `
+      <div class="memo-servicer-flag">
+        <p class="memo-prose"><strong>Servicer site visit.</strong> ${esc(servicerSiteVisit.text)}</p>
+        <p class="memo-prose-fine">Entered ${esc(servicerSiteVisit.at.slice(0, 10))} by ${esc(servicerSiteVisit.author)} — servicer field observation, display-only (not scored).</p>
+      </div>`;
+
+  const ddBlock = (siteVisitBlock === '' && dd.length === 0) ? '' : `${siteVisitBlock}${dd.length === 0 ? '' : findingsTableHtml(dd)}`;
   const financialBlock = financial.length === 0 ? '' : `
       <h4 class="memo-subhead-secondary">Financial-metric risks (secondary — the leverage/coverage read)</h4>
       ${findingsTableHtml(financial)}`;
@@ -1287,7 +1307,7 @@ function renderHtml(
     header:                    () => renderHeader(input, auth),
     investment_overview:       () => renderInvestmentOverview(input, auth),
     investment_merits:         () => renderInvestmentMerits(auth, findings),
-    key_credit_risks:          () => renderKeyCreditRisks(input.narrative, findings),
+    key_credit_risks:          () => renderKeyCreditRisks(input.narrative, findings, input.servicerSiteVisit),
     sponsor_assessment:        () => renderSponsorAssessment(input),
     tenant_analysis:           () => renderTenantAnalysis(findings),
     market_position:           () => renderMarketPosition(input),

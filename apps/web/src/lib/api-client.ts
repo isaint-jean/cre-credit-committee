@@ -1332,6 +1332,16 @@ export const api = {
       }>;
     }>(`/pools/${poolId}/underwrite-jobs`),
 
+  // Phase 2 — servicer human inputs (site visit, etc.). Display-only, mint-safe.
+  // GET is a deal-access read; PUT is SERVICER-gated (analysis:revise) server-side.
+  getServicerInputs: (poolId: PoolId | string, loanInPoolId: string) =>
+    request<{ inputs: Array<{ fieldType: string; value: string; author: string; updatedAt: string }> }>(
+      `/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs`),
+  putServicerInput: (poolId: PoolId | string, loanInPoolId: string, fieldType: string, value: string) =>
+    request<{ input: { fieldType: string; value: string; author: string; updatedAt: string } }>(
+      `/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/${fieldType}`,
+      { method: 'PUT', body: JSON.stringify({ value }) }),
+
   // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3.
   // "Underwrite now". ★ ASYNC (was sync): ENQUEUES one durable underwrite_job
   // (the same dedup'd queue the settle fan-out uses) and returns FAST (202) — no

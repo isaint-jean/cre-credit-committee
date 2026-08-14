@@ -66,6 +66,8 @@ import { computeMissingDocs } from '../services/data-room-store.service.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readiness.service.js';
 import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
+import { getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
+import type { ServicerInputFieldType } from '../storage/servicer-inputs-store.js';
 import {
   advanceTapePhaseA,
   advanceTapePhaseB,
@@ -630,6 +632,44 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
  *
  * Response 200: { disposition, loan }  (the now-disposed loan, currentDispositionId set).
  */
+// ── Servicer human-input fields (Phase 2) — DISPLAY-ONLY, mint-safe ──────────
+// GET is a read for anyone with deal access; PUT is SERVICER-gated (analysis:revise —
+// the servicer/originator role holds it, the buyer does not). These flow into the
+// workbook + memo as additive annotation and NEVER re-score. Works with the
+// negotiation loop OFF (this is not the shelved overlay-comments store).
+const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary']);
+
+poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  return res.json({ inputs: getServicerInputs(poolId, loanInPoolId) });
+});
+
+poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/:fieldType', (req: Request, res: Response) => {
+  // ★ SERVICER-only write. analysis:revise is held by the servicer (originator) role,
+  // NOT the buyer — so a buyer PUT is a 403. Enforced before any write.
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const fieldType = req.params['fieldType'] as string;
+  if (!SERVICER_INPUT_FIELDS.has(fieldType)) {
+    return send400Bad(res, `unknown fieldType '${fieldType}' (site_visit | broker_feedback | tab_commentary)`);
+  }
+  const value = (req.body ?? {})['value'];
+  if (typeof value !== 'string') return send400Bad(res, 'value: required string');
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
+  const saved = upsertServicerInput({ poolId, loanInPoolId, fieldType: fieldType as ServicerInputFieldType, value, author });
+  return res.json({ input: saved });
+});
+
 poolRoutes.post('/:poolId/loans/:loanInPoolId/disposition', (req: Request, res: Response) => {
   const poolId = req.params['poolId'] as PoolId;
   const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
