@@ -77,4 +77,12 @@ export const COMMITTEE_MEMO_MANIFEST: CommitteeMemoManifest = {
   // callout now lives inside Credit Structure). Hash registered via
   // `npm run committee-memo:print-hash`.
   '2.0': '086a6d1c1ea268f295d5325ce205595e2eadfecb558050fb1e2518d09aa9c6d2' as ContentHash,
+  // v2.1 (2026-08-14) — RED-FLAGS-FIRST reprioritization (display-only). MEMO_SECTION_ORDER
+  // is reordered so the reader hits the due-diligence red flags (Key Credit Risks, Sponsor,
+  // Data Quality, Underwriting Validation) BEFORE "what's clean" (Investment Merits);
+  // Key Credit Risks renders due-diligence flags first + a demoted "Financial-metric risks"
+  // sub-section (render-time classification via flag-categories.ts). MEMO_SECTION_HEADINGS
+  // reframes credit_structure to "If Pursued: Structure & Conditions". No mint / doctrine
+  // change. Hash registered via `npm run committee-memo:print-hash`.
+  '2.1': 'dec41d67332795816734a3ff4e1dce88b9283d9a7f2270b40327e4a3817cea12' as ContentHash,
 };

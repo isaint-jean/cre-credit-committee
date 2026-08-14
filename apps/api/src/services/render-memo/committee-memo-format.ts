@@ -47,21 +47,25 @@
  * scores. Section 11 (Credit Structure) is the FIRST place leverage ratios and
  * sized mitigants appear. Sections 12–13 return to the thesis and the verdict.
  */
+// ★ v2.1 — RED-FLAGS-FIRST. The reader hits "what's wrong" (the due-diligence red
+// flags: risks, sponsor, data-quality/tie-out, validation) BEFORE "what's clean"
+// (Investment Merits). Restructuring stays LAST and reads as conditional. This is a
+// DISPLAY reorder — pure render sequence; nothing here touches the mint / doctrine.
 export const MEMO_SECTION_ORDER = [
   'header',
-  'investment_overview',        // 1 — the deal, in plain terms
-  'investment_merits',          // 2 — the case for the deal
-  'key_credit_risks',           // 3 — loss paths in plain English
-  'sponsor_assessment',         // 4 — sponsor read (honest-blank when absent)
-  'tenant_analysis',            // 5 — tenancy / concentration / rollover
-  'market_position',            // 6 — submarket (honest-blank when absent)
-  'exit_refinance',             // 7 — can the loan exit at maturity (narrative)
-  'appraisal_value_challenge',  // 8 — is the value real (narrative)
-  'underwriting_validation',    // 9 — does the underwriting hold up (assumptions)
-  'data_quality_review',        // 10 — what's missing vs what's unreliable
-  'credit_structure',           // 11 — FIRST ratios / leverage / sized mitigants
-  'committee_view',             // 12 — the committee's synthesis
-  'final_recommendation',       // 13 — the thesis surviving the numbers
+  'investment_overview',        // 1 — the deal, in plain terms (context)
+  'key_credit_risks',           // ★ RISK LEADS — loss paths; DD flags first, financial-metric demoted
+  'sponsor_assessment',         // sponsor read (honest-blank when absent)
+  'data_quality_review',        // what's missing vs what's unreliable (tie-out / due-diligence)
+  'underwriting_validation',    // does the underwriting hold up (assumptions to verify)
+  'investment_merits',          // the case for the deal — AFTER the risks ("what's clean")
+  'tenant_analysis',            // tenancy / concentration / rollover
+  'market_position',            // submarket (honest-blank when absent)
+  'exit_refinance',             // can the loan exit at maturity (narrative)
+  'appraisal_value_challenge',  // is the value real (narrative)
+  'credit_structure',           // ratios / leverage / sized mitigants — reframed as "If Pursued"
+  'committee_view',             // the committee's synthesis
+  'final_recommendation',       // the thesis surviving the numbers
   'footer',
 ] as const;
 export type MemoSectionId = (typeof MEMO_SECTION_ORDER)[number];
@@ -80,7 +84,7 @@ export const MEMO_SECTION_HEADINGS: Readonly<Record<Exclude<MemoSectionId, 'head
   appraisal_value_challenge: 'Appraisal & Value Challenge',
   underwriting_validation:   'Underwriting Validation',
   data_quality_review:       'Data Quality Review',
-  credit_structure:          'Credit Structure',
+  credit_structure:          'If Pursued: Structure & Conditions',
   committee_view:            'Investment Committee View',
   final_recommendation:      'Final Recommendation',
 } as const;

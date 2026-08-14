@@ -50,6 +50,7 @@ import {
   MEMO_NULL_SENTINEL,
   type MemoSectionId,
 } from './committee-memo-format.js';
+import { flagCategory, isDueDiligence } from './flag-categories.js';
 import {
   dimensionDisplayName,
   concernLevelLabel,
@@ -500,8 +501,9 @@ function renderInvestmentMerits(auth: AuthoritativeNumbers, findings: readonly C
 
 /* ----------------------------- §3 Key Credit Risks ---------------------- */
 
-function renderKeyCreditRisks(narrative: NarrativeEvaluation, findings: readonly CleanDoctrineFinding[]): string {
-  const findingsTable = findings.length === 0 ? '' : `
+/** Render one findings table (same markup as before; reused for both buckets). */
+function findingsTableHtml(findings: readonly CleanDoctrineFinding[]): string {
+  return `
     <table class="memo-table memo-table-findings">
       <thead><tr><th class="memo-th-label">Credit factor</th><th class="memo-th-tier">Concern level</th><th class="memo-th-note">Loss path</th></tr></thead>
       <tbody>
@@ -513,7 +515,22 @@ function renderKeyCreditRisks(narrative: NarrativeEvaluation, findings: readonly
           </tr>`).join('')}
       </tbody>
     </table>`;
-  return section('key_credit_risks', `${findingsTable}
+}
+
+// ★ v2.1 — DUE-DILIGENCE red flags LEAD; financial-metric risks are DEMOTED to a
+// clearly-secondary sub-section. A finding is classified by its dimension id via the
+// render-time registry (flag-categories.ts); an unmapped finding classifies to 'other'
+// (a due-diligence bucket) — every finding renders, none is dropped.
+function renderKeyCreditRisks(narrative: NarrativeEvaluation, findings: readonly CleanDoctrineFinding[]): string {
+  const dd = findings.filter(f => isDueDiligence(flagCategory(f.dimensionId)));
+  const financial = findings.filter(f => !isDueDiligence(flagCategory(f.dimensionId)));
+
+  const ddBlock = dd.length === 0 ? '' : findingsTableHtml(dd);
+  const financialBlock = financial.length === 0 ? '' : `
+      <h4 class="memo-subhead-secondary">Financial-metric risks (secondary — the leverage/coverage read)</h4>
+      ${findingsTableHtml(financial)}`;
+
+  return section('key_credit_risks', `${ddBlock}${financialBlock}
       <p class="memo-prose memo-prose-with-table">${proseToHtml(narrative.redFlagAssessment)}</p>`);
 }
 

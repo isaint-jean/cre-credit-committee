@@ -226,7 +226,7 @@ export const MITIGATION_ENGINE_VERSION = '1.8' as const;
  *      COMMITTEE_MEMO_MANIFEST.
  *   4. Run `npm run check:committee-memo` to verify the gate passes.
  */
-export const COMMITTEE_MEMO_VERSION = '2.0' as const;
+export const COMMITTEE_MEMO_VERSION = '2.1' as const;
 
 export type DoctrineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5';
 /**
@@ -255,7 +255,7 @@ export type NarrativeEngineVersion = '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.
  * replace) when bumping COMMITTEE_MEMO_VERSION; COMMITTEE_MEMO_MANIFEST
  * is keyed on this union.
  */
-export type CommitteeMemoVersion = '1.0' | '1.1' | '1.2' | '2.0';
+export type CommitteeMemoVersion = '1.0' | '1.1' | '1.2' | '2.0' | '2.1';
 
 /**
  * Historical-replay union: includes every MITIGATION_ENGINE_VERSION ever shipped so
