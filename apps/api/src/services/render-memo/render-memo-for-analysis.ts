@@ -44,7 +44,7 @@ import { computeContractedNoi } from '../contracted-basis.js';
 import { synthesizeUwModelFromInputs } from '../synthesize-uw-model-from-graph.js';
 import { recomputeAiAtLoan } from '../evaluate-and-narrate.js';
 import { buildCommitteeMemo, type MemoRenderSource } from './build-committee-memo.js';
-import { getSiteVisitForAnalysis, siteVisitMemoInput } from '../servicer-inputs.service.js';
+import { servicerNotesForAnalysis } from '../servicer-inputs.service.js';
 import { runDataIntegrityGate } from '../data-integrity/gate.js';
 import {
   cleanDoctrineFindingsFromSnapshot,
@@ -197,9 +197,9 @@ export function renderMemoForAnalysis(
       // AdjustedInputs. When present, §4 renders it as the committee's judgment,
       // distinct from the DD finding. Absent → honest-blank stands.
       humanSponsorAssessment: adjustedInputs.sponsorAssessment ?? undefined,
-      // Phase 2 — servicer site-visit note (display-only DD red flag; resolved via
-      // the analysis→loan join). Absent → undefined → memo byte-identical.
-      servicerSiteVisit: siteVisitMemoInput(getSiteVisitForAnalysis(analysis.graphRevisionId)),
+      // Phase 2 — servicer narrative notes (site visit, broker feedback) as display-
+      // only DD red flags; resolved via the analysis→loan join. Empty → memo byte-identical.
+      servicerNotes: servicerNotesForAnalysis(analysis.graphRevisionId),
       renderSource,
       dataConfidence: adjustedInputs.dataConfidence,
       dataQualityFlags: adjustedInputs.dataQualityFlags,
@@ -278,7 +278,7 @@ export function renderMemoForAnalysis(
     assumedInputs,
     // Human sponsor assessment also renders on the recompute-fallback path.
     humanSponsorAssessment: adjustedInputs.sponsorAssessment ?? undefined,
-    servicerSiteVisit: siteVisitMemoInput(getSiteVisitForAnalysis(analysis.graphRevisionId)),
+    servicerNotes: servicerNotesForAnalysis(analysis.graphRevisionId),
     narrativeVersionNote,
   });
   return { ok: true, html };

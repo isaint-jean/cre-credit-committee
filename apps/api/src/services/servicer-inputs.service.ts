@@ -56,37 +56,96 @@ export function getSiteVisitForAnalysis(graphRevisionId: string | null | undefin
 }
 
 /* -------------------------------------------------------------------------- */
-/* Workbook flow — the Site Inspection cell.                                   */
+/* Narrative-field config — one entry per fillable narrative field. Each maps  */
+/* to its own workbook 'hitl' cell + memo label. Adding a field is one entry.  */
 /* -------------------------------------------------------------------------- */
 
-/** The Site Inspection worksheet cell the site-visit note flows into. The tab is
- *  otherwise near-blank (only numberOfBuildings at C6); B10 is an empty note area.
- *  The 'hitl' scaffold anticipates analyst input here — a filled note lands in it. */
-export const SITE_VISIT_WORKBOOK_ADDRESS = 'Site Inspection!B10';
+export interface ServicerNarrativeFieldConfig {
+  readonly fieldType: ServicerInputFieldType;
+  /** Attribution label shown in the memo + prefixed into the workbook cell. */
+  readonly label: string;
+  /** The workbook cell this field's note flows into — a distinct 'hitl' cell per
+   *  field. Site visit → Site Inspection tab; broker feedback → Market tab (each
+   *  otherwise near-blank; the scaffold anticipates analyst input at these cells). */
+  readonly workbookAddress: string;
+}
 
-/**
- * Produce the additive workbook cell for a site-visit note. Returns null when the
- * note is empty/absent → NO injection (the tab stays in its existing blank state,
- * so the export is byte-identical). When present → the note lands in the Site
- * Inspection cell, attributed to the servicer.
- */
-export function siteVisitWorkbookCell(note: ServicerInput | null): { address: string; value: string } | null {
-  const text = note?.value?.trim();
-  if (!text) return null;
-  return { address: SITE_VISIT_WORKBOOK_ADDRESS, value: `Servicer site visit: ${text}` };
+export const SERVICER_NARRATIVE_FIELDS: readonly ServicerNarrativeFieldConfig[] = [
+  { fieldType: 'site_visit',      label: 'Servicer site visit',      workbookAddress: 'Site Inspection!B10' },
+  { fieldType: 'broker_feedback', label: 'Servicer broker feedback', workbookAddress: 'Market!B10' },
+  // tab_commentary is deferred (needs Isabelle's tab list) — no cell yet.
+];
+
+function configFor(fieldType: ServicerInputFieldType): ServicerNarrativeFieldConfig | undefined {
+  return SERVICER_NARRATIVE_FIELDS.find((f) => f.fieldType === fieldType);
 }
 
 /* -------------------------------------------------------------------------- */
-/* Memo flow — the due-diligence red-flags block.                              */
+/* Workbook flow — one 'hitl' cell per present narrative field.                */
 /* -------------------------------------------------------------------------- */
 
-export interface ServicerSiteVisitMemo {
+/**
+ * The additive workbook cells for ALL present servicer narrative notes on this
+ * analysis. A present note lands in its field's 'hitl' cell (attributed); an
+ * empty/absent note is OMITTED → NO injection (byte-identical). One resolve of the
+ * analysis→loan join; a read per configured field.
+ */
+export function servicerInputWorkbookCells(graphRevisionId: string | null | undefined): Array<{ address: string; value: string }> {
+  const loan = resolveLoanForAnalysis(graphRevisionId);
+  if (loan === null) return [];
+  const cells: Array<{ address: string; value: string }> = [];
+  for (const cfg of SERVICER_NARRATIVE_FIELDS) {
+    const note = getServicerInput(loan.poolId, loan.loanInPoolId, cfg.fieldType);
+    const text = note?.value?.trim();
+    if (text) cells.push({ address: cfg.workbookAddress, value: `${cfg.label}: ${text}` });
+  }
+  return cells;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Memo flow — the due-diligence red-flags blocks (one per present field).     */
+/* -------------------------------------------------------------------------- */
+
+export interface ServicerMemoNote {
+  readonly label: string;
   readonly text: string;
   readonly author: string;
   readonly at: string;
 }
 
-/** Project the site-visit note into the memo input shape, or undefined when empty. */
+/**
+ * All present servicer narrative notes projected into the memo shape (label +
+ * text + who/when), in config order. Empty when none — the memo adds nothing.
+ */
+export function servicerNotesForAnalysis(graphRevisionId: string | null | undefined): ServicerMemoNote[] {
+  const loan = resolveLoanForAnalysis(graphRevisionId);
+  if (loan === null) return [];
+  const notes: ServicerMemoNote[] = [];
+  for (const cfg of SERVICER_NARRATIVE_FIELDS) {
+    const note = getServicerInput(loan.poolId, loan.loanInPoolId, cfg.fieldType);
+    const text = note?.value?.trim();
+    if (text && note) notes.push({ label: cfg.label, text, author: note.author, at: note.updatedAt });
+  }
+  return notes;
+}
+
+/* --- thin per-field helpers (site-visit compatibility; unit-testable) ------ */
+
+export const SITE_VISIT_WORKBOOK_ADDRESS = configFor('site_visit')!.workbookAddress;
+
+/** One field's workbook cell (present → cell; empty → null). */
+export function servicerInputWorkbookCell(note: ServicerInput | null, fieldType: ServicerInputFieldType): { address: string; value: string } | null {
+  const cfg = configFor(fieldType);
+  const text = note?.value?.trim();
+  if (!cfg || !text) return null;
+  return { address: cfg.workbookAddress, value: `${cfg.label}: ${text}` };
+}
+export function siteVisitWorkbookCell(note: ServicerInput | null): { address: string; value: string } | null {
+  return servicerInputWorkbookCell(note, 'site_visit');
+}
+
+export interface ServicerSiteVisitMemo { readonly text: string; readonly author: string; readonly at: string; }
+/** Project one note into the memo input shape, or undefined when empty. */
 export function siteVisitMemoInput(note: ServicerInput | null): ServicerSiteVisitMemo | undefined {
   const text = note?.value?.trim();
   if (!text || !note) return undefined;

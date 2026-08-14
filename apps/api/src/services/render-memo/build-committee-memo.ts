@@ -162,12 +162,13 @@ export interface BuildCommitteeMemoInput {
    */
   readonly humanSponsorAssessment?: HumanSponsorAssessment;
   /**
-   * Servicer site-visit note (Phase 2 human input) — DISPLAY-ONLY. When present it
-   * renders in the due-diligence red-flags section as a servicer-provided finding,
-   * clearly attributed. It is additive annotation: it does NOT enter flagCategory
-   * scoring and NEVER re-scores. Absent → nothing added (byte-identical).
+   * Servicer narrative notes (Phase 2 human inputs — site visit, broker feedback)
+   * — DISPLAY-ONLY. Each renders in the due-diligence red-flags section as a
+   * servicer-provided finding, clearly attributed by its label. Additive
+   * annotation: NOT part of flagCategory scoring, NEVER re-scores. Empty → nothing
+   * added (byte-identical).
    */
-  readonly servicerSiteVisit?: { readonly text: string; readonly author: string; readonly at: string };
+  readonly servicerNotes?: ReadonlyArray<{ readonly label: string; readonly text: string; readonly author: string; readonly at: string }>;
 }
 
 /** A single assumed (non-sourced) input surfaced in Underwriting Validation. */
@@ -531,21 +532,22 @@ function findingsTableHtml(findings: readonly CleanDoctrineFinding[]): string {
 function renderKeyCreditRisks(
   narrative: NarrativeEvaluation,
   findings: readonly CleanDoctrineFinding[],
-  servicerSiteVisit?: { readonly text: string; readonly author: string; readonly at: string },
+  servicerNotes?: ReadonlyArray<{ readonly label: string; readonly text: string; readonly author: string; readonly at: string }>,
 ): string {
   const dd = findings.filter(f => isDueDiligence(flagCategory(f.dimensionId)));
   const financial = findings.filter(f => !isDueDiligence(flagCategory(f.dimensionId)));
 
-  // ★ Servicer site-visit note — a DISPLAY-ONLY human due-diligence red flag. Leads
-  // the DD block (the "something a spreadsheet won't tell you" layer). Attributed;
-  // NOT part of flagCategory scoring — never re-scores.
-  const siteVisitBlock = servicerSiteVisit === undefined ? '' : `
+  // ★ Servicer narrative notes (site visit, broker feedback) — DISPLAY-ONLY human
+  // due-diligence red flags. Lead the DD block (the "something a spreadsheet won't
+  // tell you" layer). Attributed by label; NOT part of flagCategory scoring — never
+  // re-scores.
+  const servicerBlock = (servicerNotes ?? []).map(n => `
       <div class="memo-servicer-flag">
-        <p class="memo-prose"><strong>Servicer site visit.</strong> ${esc(servicerSiteVisit.text)}</p>
-        <p class="memo-prose-fine">Entered ${esc(servicerSiteVisit.at.slice(0, 10))} by ${esc(servicerSiteVisit.author)} — servicer field observation, display-only (not scored).</p>
-      </div>`;
+        <p class="memo-prose"><strong>${esc(n.label)}.</strong> ${esc(n.text)}</p>
+        <p class="memo-prose-fine">Entered ${esc(n.at.slice(0, 10))} by ${esc(n.author)} — servicer field observation, display-only (not scored).</p>
+      </div>`).join('');
 
-  const ddBlock = (siteVisitBlock === '' && dd.length === 0) ? '' : `${siteVisitBlock}${dd.length === 0 ? '' : findingsTableHtml(dd)}`;
+  const ddBlock = (servicerBlock === '' && dd.length === 0) ? '' : `${servicerBlock}${dd.length === 0 ? '' : findingsTableHtml(dd)}`;
   const financialBlock = financial.length === 0 ? '' : `
       <h4 class="memo-subhead-secondary">Financial-metric risks (secondary — the leverage/coverage read)</h4>
       ${findingsTableHtml(financial)}`;
@@ -1307,7 +1309,7 @@ function renderHtml(
     header:                    () => renderHeader(input, auth),
     investment_overview:       () => renderInvestmentOverview(input, auth),
     investment_merits:         () => renderInvestmentMerits(auth, findings),
-    key_credit_risks:          () => renderKeyCreditRisks(input.narrative, findings, input.servicerSiteVisit),
+    key_credit_risks:          () => renderKeyCreditRisks(input.narrative, findings, input.servicerNotes),
     sponsor_assessment:        () => renderSponsorAssessment(input),
     tenant_analysis:           () => renderTenantAnalysis(findings),
     market_position:           () => renderMarketPosition(input),

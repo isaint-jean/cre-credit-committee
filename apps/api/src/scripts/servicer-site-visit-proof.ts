@@ -67,8 +67,11 @@ function partC(): void {
   check('service touches NO mint/doctrine', noMint(svc));
   const memoSrc = read('apps/api/src/services/render-memo/build-committee-memo.ts');
   const risks = memoSrc.slice(memoSrc.indexOf('function renderKeyCreditRisks'));
-  check('memo renders the site-visit as a DISPLAY block (not via flagCategory)', risks.includes('Servicer site visit') && !/flagCategory\(\s*servicerSiteVisit/.test(risks));
-  check('memo block is guarded (undefined → nothing added)', risks.includes("servicerSiteVisit === undefined ? ''"));
+  // Servicer notes render as attributed DISPLAY blocks (label-driven), NOT via flagCategory.
+  check('memo renders servicer notes as DISPLAY blocks (not via flagCategory)', risks.includes('memo-servicer-flag') && !/flagCategory\(\s*servicerNotes/.test(risks));
+  check('memo block is guarded (empty → nothing added)', risks.includes('servicerNotes ?? []'));
+  // The "Servicer site visit" attribution now lives in the service config (data-driven).
+  check('site_visit label configured (Servicer site visit)', svc.includes("label: 'Servicer site visit'"));
 }
 
 function partD(): void {

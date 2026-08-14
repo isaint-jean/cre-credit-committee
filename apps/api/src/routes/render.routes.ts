@@ -11,7 +11,7 @@
 import { Router, Request, Response } from 'express';
 import { store } from '../storage/sqlite-store.js';
 import { applyDocumentCompletenessDisplay } from '../services/document-completeness.service.js';
-import { resolveLoanForAnalysis, getServicerInput, siteVisitWorkbookCell } from '../services/servicer-inputs.service.js';
+import { servicerInputWorkbookCells } from '../services/servicer-inputs.service.js';
 import {
   buildRenderPayload,
   getAssetClassVariantModeTabs,
@@ -918,18 +918,18 @@ function composeRenderPayloadFromQuery(
     console.error('[doc-completeness] display fill error (swallowed):', (err as Error)?.message);
   }
 
-  // Phase 2 — servicer site-visit note (DISPLAY-ONLY). A filled note flows into the
-  // Site Inspection cell the 'hitl' scaffold anticipates; empty → NO injection (the
-  // tab stays in its existing blank state, byte-identical). Pure display: mutates
-  // one cell, never an underwriting value, never feeds projection. Swallowed like
+  // Phase 2 — servicer narrative notes (site visit, broker feedback) — DISPLAY-ONLY.
+  // Each filled note flows into ITS OWN cell (the 'hitl' scaffold anticipates one per
+  // field: site visit → Site Inspection, broker → Market); empty → NO injection (the
+  // tab stays in its existing blank state, byte-identical). Pure display: mutates only
+  // those cells, never an underwriting value, never feeds projection. Swallowed like
   // the doc-completeness fill — a failure must never block the export.
   try {
-    const loan = resolveLoanForAnalysis(analysis.graphRevisionId);
-    const note = loan ? getServicerInput(loan.poolId, loan.loanInPoolId, 'site_visit') : null;
-    const cell = siteVisitWorkbookCell(note);
-    if (cell !== null) payload.cellBindings[cell.address] = cell.value;
+    for (const cell of servicerInputWorkbookCells(analysis.graphRevisionId)) {
+      payload.cellBindings[cell.address] = cell.value;
+    }
   } catch (err) {
-    console.error('[servicer-site-visit] display fill error (swallowed):', (err as Error)?.message);
+    console.error('[servicer-inputs] display fill error (swallowed):', (err as Error)?.message);
   }
 
   return { status: 'ok', payload, analysis, assetClass, structuralVariantKey, underwritingMode };

@@ -20,7 +20,7 @@ import { api } from '@/lib/api-client';
 import type { Disposition, DispositionKind, LoanInPool, LoanMembership, OnTapeStatus, ReasonCategory } from '@cre/contracts';
 import { REASON_CATEGORIES, REASON_CATEGORY_OUTCOME, isReasonCategoryValidForOutcome } from '@cre/contracts';
 import { useSide, type Side } from '@/lib/side-context';
-import { ServicerSiteVisit } from '@/components/ServicerSiteVisit';
+import { ServicerNarrativeInput } from '@/components/ServicerNarrativeInput';
 import { sideAccent, withSide } from '@/lib/side-accent';
 
 type LoadState = 'loading' | 'loaded' | 'error';
@@ -200,10 +200,19 @@ export default function LoanTrajectoryPage() {
         </div>
       </header>
 
-      {/* ★ Phase 2 — servicer site-visit input. Fillable by the servicer; flows into
-         the workbook + memo (display-only, never re-scores). */}
-      <div className="mb-6">
-        <ServicerSiteVisit poolId={poolId} loanInPoolId={loanInPoolId} />
+      {/* ★ Phase 2 — servicer narrative inputs (site visit, broker feedback). Fillable
+         by the servicer; flow into the workbook + memo (display-only, never re-score). */}
+      <div className="mb-6 grid gap-4 md:grid-cols-2">
+        <ServicerNarrativeInput
+          poolId={poolId} loanInPoolId={loanInPoolId} fieldType="site_visit"
+          label="Site visit" eyebrow="Servicer field observation"
+          placeholder="What the servicer saw on site — condition, deferred maintenance, occupancy, anything a spreadsheet won't tell you."
+        />
+        <ServicerNarrativeInput
+          poolId={poolId} loanInPoolId={loanInPoolId} fieldType="broker_feedback"
+          label="Broker feedback" eyebrow="Servicer broker call"
+          placeholder="What the broker said — market tone, leasing velocity, comparable deals, buyer/seller sentiment."
+        />
       </div>
 
       {/* ★ DispositionBar — the pool-lifecycle terminal for THIS loan. "Approve &
