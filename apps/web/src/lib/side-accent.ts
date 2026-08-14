@@ -31,7 +31,7 @@ const ORIGINATOR: SideAccent = {
   hoverBorder: 'hover:border-originator',
   softBg: 'bg-originator-soft',
   border: 'border-originator',
-  label: 'Originator',
+  label: 'Servicer', // display label only — the theme-token class names above stay 'originator' (identity)
 };
 
 const BUYER: SideAccent = {

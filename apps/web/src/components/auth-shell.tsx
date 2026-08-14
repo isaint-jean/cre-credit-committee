@@ -75,7 +75,7 @@ interface Crumb {
 }
 
 const SIDE_LABEL: Record<Side, string> = {
-  originator: 'Originator',
+  originator: 'Servicer', // display only — the side KEY 'originator' is the identity value (unchanged)
   buyer: 'B-piece buyer',
 };
 
@@ -261,7 +261,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
               <span className="text-white/25">|</span>
               <div className="flex items-center gap-0.5" role="group" aria-label="View as">
                 <span className="text-white/40 mr-1 text-[10px] uppercase tracking-wide">View as</span>
-                {([['originator', 'Originator'], ['buyer', 'Buyer'], [null, 'Platform']] as const).map(([val, label]) => {
+                {([['originator', 'Servicer'], ['buyer', 'Buyer'], [null, 'Platform']] as const).map(([val, label]) => {
                   const active = side === val;
                   return (
                     <button

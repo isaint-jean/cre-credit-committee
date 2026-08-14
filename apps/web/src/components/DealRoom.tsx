@@ -142,7 +142,7 @@ function bindLevers(
 
 /** Map the active URL `?side` onto the DealRoom's explicit C palette (ochre / steel / neutral teal). */
 function sideAccentC(side: Side | null): { accent: string; soft: string; label: string } {
-  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Originator' };
+  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Servicer' }; // display label only; side value unchanged
   if (side === 'buyer') return { accent: C.contested, soft: '#EAF0F8', label: 'B-piece buyer' };
   return { accent: C.teal, soft: C.tealSoft, label: 'Platform' };
 }
@@ -158,7 +158,7 @@ function roleView(role: Role) {
   if (role === 'bp_spire') {
     return { label: 'BP Spire', accent: C.teal, railTitle: 'Your underwriting', access, canComment: true, pointActions: ['Respond', 'Resolve', 'Kick back'] };
   }
-  return { label: 'Originator', accent: C.amber, railTitle: 'Credit memo', access, canComment: false, pointActions: ['Provide evidence'] };
+  return { label: 'Servicer', accent: C.amber, railTitle: 'Credit memo', access, canComment: false, pointActions: ['Provide evidence'] };
 }
 
 export function DealRoom({ id }: { id: string }) {
@@ -359,7 +359,7 @@ export function DealRoom({ id }: { id: string }) {
                 return (
                   <button key={r} onClick={() => setRole(r)}
                     style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 14px', border: 'none', cursor: 'pointer', background: on ? a : C.surface, color: on ? '#fff' : C.ink2 }}>
-                    {r === 'bp_spire' ? 'BP Spire' : 'Originator'}
+                    {r === 'bp_spire' ? 'BP Spire' : 'Servicer'}
                   </button>
                 );
               })}
@@ -571,8 +571,8 @@ export function DealRoom({ id }: { id: string }) {
                             <PointComposer onPost={(stance, text) => postComment(p.id, stance, text)} />
                           ) : (
                             <div style={{ borderLeft: `3px solid ${C.amber}`, background: C.amberSoft, borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
-                              <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 3 }}>Originator — response</div>
-                              <div style={{ fontSize: 13, color: C.ink3, fontStyle: 'italic' }}>Awaiting response — the originator cannot post yet (no originator account).</div>
+                              <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 3 }}>Servicer — response</div>
+                              <div style={{ fontSize: 13, color: C.ink3, fontStyle: 'italic' }}>Awaiting response — the servicer cannot post yet (no servicer account).</div>
                             </div>
                           )}
 

@@ -60,7 +60,7 @@ function Eyebrow({ children, className = '' }: { children: ReactNode; className?
 const DOORS = [
   {
     href: '/pools?side=originator',
-    side: 'Originator',
+    side: 'Servicer', // display only — the ?side=originator URL param + text-originator theme token are identity (unchanged)
     accentText: 'text-originator',
     accentBorderTop: 'border-t-originator',
     hoverBorder: 'hover:border-originator',
@@ -68,7 +68,7 @@ const DOORS = [
     posture: 'Serves two masters — the borrower and the buyer',
     brings: 'ASR · rent roll · appraisal · PCA · operating statement',
     gets: [
-      ['Seller underwriting', 'the package you market the deal with', IconTable],
+      ['Servicer underwriting', 'the package you market the deal with', IconTable],
       ['Analysis page', 'red-flag and diligence coverage', IconShield],
       ['Credit memo', 'how the deal should be structured', IconScroll],
     ] as [string, string, DoorIcon][],
@@ -102,7 +102,7 @@ export default function Home() {
         The same deal reads two ways. Pick your side.
       </h1>
       <p className="text-center text-text-secondary max-w-[560px] mx-auto mb-9 text-[15px]">
-        Originators want to win the borrower and still clear a buyer. Buyers want to be paid for the
+        Servicers want to win the borrower and still clear a buyer. Buyers want to be paid for the
         risk. The platform runs both reads off one underwriting — and brings them together in the
         deal room.
       </p>

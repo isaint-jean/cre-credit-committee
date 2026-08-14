@@ -179,9 +179,9 @@ export function WorkbookReadiness({ analysisId, onAppended }: Props): React.Reac
     };
   }, [analysisId]);
 
-  // Buyer → "Create workbook"; originator → "Generate seller underwriting".
-  const ctaLabel = side === 'originator' ? 'Generate seller underwriting' : 'Create workbook';
-  const artifactLabel = side === 'originator' ? 'Seller underwriting' : 'Workbook';
+  // Buyer → "Create workbook"; servicer → "Generate servicer underwriting" (side value 'originator' unchanged).
+  const ctaLabel = side === 'originator' ? 'Generate servicer underwriting' : 'Create workbook';
+  const artifactLabel = side === 'originator' ? 'Servicer underwriting' : 'Workbook';
 
   const handleGenerate = useCallback(async (): Promise<void> => {
     if (data === null) return;

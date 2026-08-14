@@ -75,7 +75,7 @@ const num = (color: string = C.ink): React.CSSProperties => ({ fontFamily: MONO,
 
 /** Map the active `?side` onto the explicit C palette (ochre / steel / neutral teal). */
 function sideAccentC(side: Side | null): { accent: string; soft: string; label: string } {
-  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Originator' };
+  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Servicer' }; // display label only; side value unchanged
   if (side === 'buyer') return { accent: C.contested, soft: '#EAF0F8', label: 'B-piece buyer' };
   return { accent: C.teal, soft: C.tealSoft, label: 'Platform' };
 }
@@ -333,12 +333,12 @@ function DataQualityFlagChip({
             }}
           >
             {state === 'posting' ? 'Logging…'
-              : state === 'flagged' ? '✓ Logged — on the originator’s open-flags list'
-              : 'Flag to originator'}
+              : state === 'flagged' ? '✓ Logged — on the servicer’s open-flags list'
+              : 'Flag to servicer'}
           </button>
           {state === 'flagged' ? (
             <div style={{ fontSize: 10, color: C.ink3, marginBottom: 8 }}>
-              Logged (persisted, attributable) and now appears on the originator’s
+              Logged (persisted, attributable) and now appears on the servicer’s
               open-flags list for this deal. Not a notification — nothing is sent or
               delivered.
             </div>
@@ -367,10 +367,10 @@ function DataQualityFlagChip({
               >
                 {state === 'flagged'
                   ? '✓ Document request logged'
-                  : `Request ${documentLabel} from originator`}
+                  : `Request ${documentLabel} from servicer`}
               </button>
               <div style={{ fontSize: 10, color: C.ink3, marginTop: 6 }}>
-                Logs a request for the {documentLabel} on the originator’s open-flags
+                Logs a request for the {documentLabel} on the servicer’s open-flags
                 list. A request, not a self-entry — nothing is keyed in, sent, or
                 delivered.
               </div>

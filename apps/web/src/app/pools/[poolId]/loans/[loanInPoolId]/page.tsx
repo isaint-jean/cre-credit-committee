@@ -66,7 +66,7 @@ const REASON_CATEGORY_LABEL: Record<ReasonCategory, string> = {
   disqualifying:     'Disqualifying',
   couldnt_structure: "Couldn't structure",
   expired:           'Expired',
-  withdrawn:         'Withdrawn by originator',
+  withdrawn:         'Withdrawn by servicer',
 };
 
 /** Human labels for the two authoritative outcomes. */
@@ -172,7 +172,7 @@ export default function LoanTrajectoryPage() {
             <h1 className="text-2xl font-semibold text-text-primary mb-1">Loan trajectory</h1>
             <div className="text-sm text-text-secondary space-y-1">
               <div><span className="text-text-muted">Pool-side id</span> <span className="font-mono text-xs ml-1">{loan.id}</span></div>
-              <div><span className="text-text-muted">Originator ref</span> <span className="text-text-primary ml-1">{loan.originatorLoanRef ?? '—'}</span></div>
+              <div><span className="text-text-muted">Servicer ref</span> <span className="text-text-primary ml-1">{loan.originatorLoanRef ?? '—'}</span></div>
               {loan.propertyName !== null && (
                 <div><span className="text-text-muted">Property</span> <span className="text-text-primary ml-1">{loan.propertyName}</span></div>
               )}
@@ -276,7 +276,7 @@ export default function LoanTrajectoryPage() {
           <div className="border border-border-primary rounded bg-bg-secondary p-4 text-sm space-y-2">
             <div className="flex items-center gap-4">
               <div>
-                <span className="text-text-muted text-xs uppercase tracking-wide block">Originator label</span>
+                <span className="text-text-muted text-xs uppercase tracking-wide block">Servicer label</span>
                 <span className="font-mono">{disposition.originatorLabel}</span>
               </div>
               <span className="text-text-muted">→</span>

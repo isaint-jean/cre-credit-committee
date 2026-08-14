@@ -56,10 +56,10 @@ export function BuyerDiffPanel({ analysisId }: { readonly analysisId: string }):
   return (
     <section style={S.wrap}>
       <header style={S.header}>
-        <h3 style={S.title}>Seller Underwriting — Buyer&rsquo;s View</h3>
+        <h3 style={S.title}>Servicer Underwriting — Buyer&rsquo;s View</h3>
         <p style={S.sub}>
           These are the adjustments a B-piece buyer would make to your underwriting. Accepted changes
-          flow into the cash flow model and the seller UW you download.
+          flow into the cash flow model and the servicer UW you download.
         </p>
       </header>
       <button style={S.summary} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -106,7 +106,7 @@ export function BuyerDiffPanel({ analysisId }: { readonly analysisId: string }):
           <div style={S.footer}>
             <span style={S.footerNote}>Accept/reject changes only the download — never the underwriting score.</span>
             <button style={S.download} onClick={() => api.downloadBuyerDiffWorkbook(analysisId)}>
-              ⬇ Download seller UW
+              ⬇ Download servicer UW
             </button>
           </div>
         </div>

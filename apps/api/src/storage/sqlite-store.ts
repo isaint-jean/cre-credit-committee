@@ -960,7 +960,7 @@ export class SqliteStore {
     // JWT boundary). Additive — no existing user or role is modified.
     const seeds: ReadonlyArray<{ email: string; name: string; role: string; password: string }> = [
       { email: 'admin@cre.com',      name: 'Admin',      role: 'admin',      password: 'admin123' },
-      { email: 'originator@cre.com', name: 'Originator', role: 'originator', password: 'originator123' },
+      { email: 'originator@cre.com', name: 'Servicer',   role: 'originator', password: 'originator123' }, // display name only — email + role value 'originator' are identity (unchanged)
       { email: 'buyer@cre.com',      name: 'Buyer',      role: 'buyer',      password: 'buyer123' },
     ];
     for (const s of seeds) {

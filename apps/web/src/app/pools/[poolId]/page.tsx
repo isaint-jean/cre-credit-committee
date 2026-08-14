@@ -308,7 +308,7 @@ function FinalTapeView({ poolId, side }: { readonly poolId: PoolId; readonly sid
               <tr className="text-left text-text-secondary text-xs uppercase tracking-wide">
                 <th className="px-3 py-2 font-medium">Property</th>
                 <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Originator ref</th>
+                <th className="px-3 py-2 font-medium">Servicer ref</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium"></th>
               </tr>

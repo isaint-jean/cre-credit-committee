@@ -87,7 +87,7 @@ const REASON_CATEGORY_LABEL: Record<ReasonCategory, string> = {
   disqualifying: 'Disqualifying',
   couldnt_structure: "Couldn't structure",
   expired: 'Expired',
-  withdrawn: 'Withdrawn by originator',
+  withdrawn: 'Withdrawn by servicer',
 };
 
 // ── Wireframe palette (explicit; scoped to this surface) ───────────────────────
@@ -199,7 +199,7 @@ function bindLevers(mitigations: readonly RenderedMitigationProposal[]): LeverBi
 
 /** Map the active URL `?side` onto the explicit C palette (ochre / steel / teal). */
 function sideAccentC(side: Side | null): { accent: string; soft: string; label: string } {
-  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Originator' };
+  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Servicer' };
   if (side === 'buyer') return { accent: C.contested, soft: '#EAF0F8', label: 'B-piece buyer' };
   return { accent: C.teal, soft: C.tealSoft, label: 'Platform' };
 }
@@ -210,7 +210,7 @@ function sideAccentC(side: Side | null): { accent: string; soft: string; label: 
  * READ-BACK tag — distinct from the viewer's own `?side` chip.
  */
 function commentSideTag(side: OverlayCommentView['side']): { accent: string; soft: string; label: string } {
-  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Originator' };
+  if (side === 'originator') return { accent: C.amber, soft: C.amberSoft, label: 'Servicer' };
   if (side === 'buyer') return { accent: C.contested, soft: '#EAF0F8', label: 'B-piece buyer' };
   return { accent: C.conceded, soft: C.surface2, label: 'Unattributed' };
 }
@@ -226,7 +226,7 @@ function roleView(role: Role) {
   if (role === 'bp_spire') {
     return { label: 'BP Spire', accent: C.teal, canComment: true, pointActions: ['Respond', 'Resolve', 'Kick back'] };
   }
-  return { label: 'Originator', accent: C.amber, canComment: false, pointActions: ['Provide evidence'] };
+  return { label: 'Servicer', accent: C.amber, canComment: false, pointActions: ['Provide evidence'] };
 }
 
 /* ───────────────────────────── Ratification read ─────────────────────────────── */
@@ -555,8 +555,8 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
                         />
                       ) : (
                         <div style={{ borderLeft: `3px solid ${C.amber}`, background: C.amberSoft, borderRadius: '0 8px 8px 0', padding: '10px 12px' }}>
-                          <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 3 }}>Originator — response</div>
-                          <div style={{ fontSize: 13, color: C.ink3, fontStyle: 'italic' }}>Awaiting response — the originator cannot post yet (no originator account).</div>
+                          <div style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', color: C.amber, fontWeight: 600, marginBottom: 3 }}>Servicer — response</div>
+                          <div style={{ fontSize: 13, color: C.ink3, fontStyle: 'italic' }}>Awaiting response — the servicer cannot post yet (no servicer account).</div>
                         </div>
                       )}
                       <div style={{ display: 'flex', gap: 8, paddingTop: 2, flexWrap: 'wrap' }}>
@@ -606,7 +606,7 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
                 return (
                   <button key={r} onClick={() => setRole(r)}
                     style={{ fontSize: 12, fontWeight: on ? 600 : 500, padding: '6px 14px', border: 'none', cursor: 'pointer', background: on ? a : C.surface, color: on ? '#fff' : C.ink2 }}>
-                    {r === 'bp_spire' ? 'BP Spire' : 'Originator'}
+                    {r === 'bp_spire' ? 'BP Spire' : 'Servicer'}
                   </button>
                 );
               })}
@@ -633,10 +633,10 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
               : s === 'CALL_REQUESTED' ? 'You requested a call'
               : 'You pushed back');
           const tail = isBuyer
-            ? (s === 'SENT_TO_BUYER' ? '— the seller underwriting is with you for review.'
+            ? (s === 'SENT_TO_BUYER' ? '— the servicer underwriting is with you for review.'
               : s === 'CALL_REQUESTED' ? '— they want to talk this through.'
               : '— they are contesting a requirement and proposing to structure instead.')
-            : (s === 'SENT_TO_BUYER' ? '— your seller underwriting is with the buyer for review.'
+            : (s === 'SENT_TO_BUYER' ? '— your servicer underwriting is with the buyer for review.'
               : s === 'CALL_REQUESTED' ? '— awaiting the buyer to schedule.'
               : '— your position is on the buyer’s desk.');
           return (
@@ -720,7 +720,7 @@ export function NegotiationSurface({ data, workflow, timeline, onWorkflowChanged
               </button>
               <button
                 disabled={busyAction !== null}
-                onClick={() => { void postOriginatorAction('send', { kind: 'SEND_TO_BUYER', summary: 'Seller underwriting submitted to the buyer for review.' }, 'SEND_TO_BUYER'); }}
+                onClick={() => { void postOriginatorAction('send', { kind: 'SEND_TO_BUYER', summary: 'Servicer underwriting submitted to the buyer for review.' }, 'SEND_TO_BUYER'); }}
                 style={{ fontSize: 13, fontWeight: 600, padding: '7px 16px', borderRadius: 7, cursor: busyAction ? 'not-allowed' : 'pointer', border: 'none', background: C.teal, color: '#fff', opacity: busyAction && busyAction !== 'send' ? 0.6 : 1 }}>
                 {busyAction === 'send' ? 'Sending…' : 'Send to buyer'}
               </button>
