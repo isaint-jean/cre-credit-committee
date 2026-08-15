@@ -21,6 +21,7 @@ import type { Disposition, DispositionKind, LoanInPool, LoanMembership, OnTapeSt
 import { REASON_CATEGORIES, REASON_CATEGORY_OUTCOME, isReasonCategoryValidForOutcome } from '@cre/contracts';
 import { useSide, type Side } from '@/lib/side-context';
 import { ServicerNarrativeInput } from '@/components/ServicerNarrativeInput';
+import { SiteVisitChecklist } from '@/components/SiteVisitChecklist';
 import { sideAccent, withSide } from '@/lib/side-accent';
 
 type LoadState = 'loading' | 'loaded' | 'error';
@@ -213,6 +214,13 @@ export default function LoanTrajectoryPage() {
           label="Broker feedback" eyebrow="Servicer broker call"
           placeholder="What the broker said — market tone, leasing velocity, comparable deals, buyer/seller sentiment."
         />
+      </div>
+
+      {/* ★ Phase 2 v1 — site-visit / PCR checklist (generates from asset type;
+         servicer checks items off + adds their own + AM-visit toggle). Collapsible;
+         structured JSON state on servicer_inputs (display-only, never re-scores). */}
+      <div className="mb-6">
+        <SiteVisitChecklist poolId={poolId} loanInPoolId={loanInPoolId} assetType={loan.assetType} />
       </div>
 
       {/* ★ DispositionBar — the pool-lifecycle terminal for THIS loan. "Approve &

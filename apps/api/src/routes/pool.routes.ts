@@ -637,7 +637,9 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
 // the servicer/originator role holds it, the buyer does not). These flow into the
 // workbook + memo as additive annotation and NEVER re-score. Works with the
 // negotiation loop OFF (this is not the shelved overlay-comments store).
-const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary']);
+// site_visit_checklist carries a structured JSON payload (checklist state) in `value`;
+// the others are narrative text. All are display-only / mint-safe additive annotation.
+const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist']);
 
 poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs', (req: Request, res: Response) => {
   const poolId = req.params['poolId'] as PoolId;
@@ -657,7 +659,7 @@ poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/:fieldType', (req: 
   const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
   const fieldType = req.params['fieldType'] as string;
   if (!SERVICER_INPUT_FIELDS.has(fieldType)) {
-    return send400Bad(res, `unknown fieldType '${fieldType}' (site_visit | broker_feedback | tab_commentary)`);
+    return send400Bad(res, `unknown fieldType '${fieldType}' (site_visit | broker_feedback | tab_commentary | site_visit_checklist)`);
   }
   const value = (req.body ?? {})['value'];
   if (typeof value !== 'string') return send400Bad(res, 'value: required string');
