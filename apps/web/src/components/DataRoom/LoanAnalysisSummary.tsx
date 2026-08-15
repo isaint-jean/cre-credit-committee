@@ -37,11 +37,11 @@ function MissingDocs({ poolId, loanInPoolId, depth }: { poolId: string | null; l
   if (!missing || missing.length === 0) return null;
   return (
     <div className="mt-2" style={pad}>
-      <p className="text-[11px] uppercase tracking-wide text-text-secondary">Missing documents</p>
+      <p className="text-[11px] uppercase tracking-wide text-text-secondary">Request from bank</p>
       <ul className="mt-1 space-y-0.5">
         {missing.map((m) => (
           <li key={m.slot} className="text-xs text-text-secondary">
-            <span className="text-risk-high">⚠ {m.label}</span> not provided — blocks {m.blocks}
+            <span className="text-risk-high">⚠ {m.label}</span> not provided by bank — blocks {m.blocks}
           </li>
         ))}
       </ul>
