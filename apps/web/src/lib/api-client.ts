@@ -30,6 +30,7 @@ import type {
 import { isRenderedAnalysis } from './rendered-analysis-guard';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
+import type { NoiReconciliationDetail } from '@cre/contracts';
 import type { AppraisalSlotExtraction, AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
@@ -1346,6 +1347,10 @@ export const api = {
   resolveLoanForRoot: (rootId: string) =>
     request<{ resolved: boolean; poolId?: string; loanInPoolId?: string; assetType?: string | null; dealName?: string | null; reason?: string }>(
       `/pools/loan-for-root/${rootId}`),
+  // NOI-reconciliation receipts for the deal-room's red NOI banner — the SAME builder the
+  // memo uses (byte-identical rows). Render-time/display-only; { detail: null } when absent.
+  getNoiReconciliation: (rootId: string) =>
+    request<{ detail: NoiReconciliationDetail | null }>(`/pools/loan-for-root/${rootId}/noi-reconciliation`),
 
   // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3.
   // "Underwrite now". ★ ASYNC (was sync): ENQUEUES one durable underwrite_job

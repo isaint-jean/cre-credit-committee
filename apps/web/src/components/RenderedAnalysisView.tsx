@@ -45,6 +45,7 @@ import { WorkbookReadiness } from './WorkbookReadiness';
 import { NegotiationSurface } from './NegotiationSurface';
 import { BuyerDiffPanel } from './BuyerDiffPanel';
 import { DealRoomServicerInputs } from './DealRoomServicerInputs';
+import { NoiReconciliationReceipts } from './NoiReconciliationReceipts';
 import type { AssetType } from '@cre/contracts';
 import { negotiationLoopEnabled } from '@/lib/flags';
 import { useAuth } from '@/lib/auth';
@@ -1722,6 +1723,9 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             <div className="border-l-4 border-red-600 bg-red-50 p-4 rounded">
               <div className="text-sm font-semibold text-red-900 mb-1">NOI materially below trailing-twelve actual</div>
               <p className="text-sm text-red-800">{data.summary.noiDivergence.caveat.displayValue}</p>
+              {/* ★ Receipts expander — the same value·source·variance rows as the memo
+                  (shared builder via a read endpoint). Inside the existing banner, not a new box. */}
+              <NoiReconciliationReceipts rootId={data.rootId} />
             </div>
           </section>
         ) : null}

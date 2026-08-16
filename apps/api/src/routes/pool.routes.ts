@@ -41,6 +41,7 @@ import type { Request, Response } from 'express';
 import type {
   ConditionRef,
   DispositionKind,
+  DoctrineEvaluationId,
   LoanInPoolId,
   Pool,
   PoolId,
@@ -54,6 +55,8 @@ import type { ReasonCategory } from '@cre/contracts';
 
 import { enforcePermission } from '../middleware/require-permission.js';
 import { store as sqliteStore } from '../storage/sqlite-store.js';
+import { recordGraphStore } from '../storage/record-graph-store.js';
+import { buildNoiReconciliationDetail } from '../services/render-memo/noi-reconciliation-detail.js';
 import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } from '../storage/pool-store.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
@@ -673,6 +676,23 @@ poolRoutes.get('/loan-for-root/:rootId', (req: Request, res: Response) => {
     assetType,
     dealName: dealNameFromLoan(loan),
   });
+});
+
+// NOI-reconciliation receipts for the deal-room's red NOI banner — the SAME builder the
+// memo uses, so the deal-room rows are byte-identical to the memo's. data.rootId is a
+// doctrine_evaluation_id → read its extraction + concluded NOI and build the detail.
+// READ-ONLY over the mint (no re-mint, no payload change); deal-access gated like the
+// sibling. { detail: null } when the root has no evaluation/extraction (404-safe/honest).
+poolRoutes.get('/loan-for-root/:rootId/noi-reconciliation', (req: Request, res: Response) => {
+  const rootId = req.params['rootId'] as string;
+  if (!enforceDealForRoot(req, res, rootId)) return; // gate the deal (mirrors the query-param resolver)
+  const de = recordGraphStore.getDoctrineEvaluation(rootId as DoctrineEvaluationId);
+  if (de === null) return res.json({ detail: null });
+  const extraction = recordGraphStore.getExtractionResult(de.extractionResultId);
+  if (extraction === null) return res.json({ detail: null });
+  const adjusted = recordGraphStore.getAdjustedInputs(de.adjustedInputsId);
+  const detail = buildNoiReconciliationDetail(extraction, adjusted?.metrics.noi ?? null);
+  return res.json({ detail });
 });
 
 poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs', (req: Request, res: Response) => {
