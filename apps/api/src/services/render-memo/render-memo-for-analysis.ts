@@ -44,6 +44,7 @@ import { computeContractedNoi } from '../contracted-basis.js';
 import { synthesizeUwModelFromInputs } from '../synthesize-uw-model-from-graph.js';
 import { recomputeAiAtLoan } from '../evaluate-and-narrate.js';
 import { buildCommitteeMemo, type MemoRenderSource } from './build-committee-memo.js';
+import { buildNoiReconciliationDetail } from './noi-reconciliation-detail.js';
 import { servicerNotesForAnalysis } from '../servicer-inputs.service.js';
 import { runDataIntegrityGate } from '../data-integrity/gate.js';
 import {
@@ -160,6 +161,11 @@ export function renderMemoForAnalysis(
   // rate, which is a MANUAL fill because the pre-sale materials state no coupon.
   const assumedInputs = getAssumedInputs(adjustedInputs);
 
+  // Render-time "receipts" for the NOI-reconciliation flag — sourced side-by-side figures
+  // assembled from the ExtractionResult + concluded NOI (display-only; not minted). The
+  // memo renders it inside a collapsible on the flag when ≥2 figures are present.
+  const noiReconciliation = buildNoiReconciliationDetail(extraction, adjustedInputs.metrics.noi);
+
   // ── PR (ii) read-instead-of-recompute branch ─────────────────────────
   // Prefer the persisted snapshot when present + supported-version (true
   // pin-faithfulness: numbers were captured at eval-write time under THIS
@@ -203,6 +209,7 @@ export function renderMemoForAnalysis(
       renderSource,
       dataConfidence: adjustedInputs.dataConfidence,
       dataQualityFlags: adjustedInputs.dataQualityFlags,
+      noiReconciliation,
       assumedInputs,
       appraisalDisclosure,
       noiBasis,
@@ -275,6 +282,7 @@ export function renderMemoForAnalysis(
     dataIntegrityReport,
     dataConfidence: adjustedInputs.dataConfidence,
     dataQualityFlags: adjustedInputs.dataQualityFlags,
+    noiReconciliation,
     assumedInputs,
     // Human sponsor assessment also renders on the recompute-fallback path.
     humanSponsorAssessment: adjustedInputs.sponsorAssessment ?? undefined,

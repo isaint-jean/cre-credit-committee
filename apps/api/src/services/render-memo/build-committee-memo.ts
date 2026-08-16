@@ -24,7 +24,7 @@
  *
  * NO EXTERNAL DEPS: inline CSS only; opens identically offline, prints cleanly.
  */
-import type { NarrativeEvaluation, JudgmentEngineRuleId, SnapshotExternalDD, HumanSponsorAssessment, SponsorFactorRating } from '@cre/contracts';
+import type { NarrativeEvaluation, JudgmentEngineRuleId, SnapshotExternalDD, HumanSponsorAssessment, SponsorFactorRating, NoiReconciliationDetail } from '@cre/contracts';
 import { COMMITTEE_MEMO_VERSION } from '@cre/contracts';
 import {
   projectAuthoritativeNumbers,
@@ -133,6 +133,12 @@ export interface BuildCommitteeMemoInput {
    * sourced facts. Optional.
    */
   readonly dataQualityFlags?: readonly JudgmentEngineRuleId[];
+  /**
+   * Render-time "receipts" for the NOI-reconciliation flag — the sourced side-by-side
+   * figures shown inside a collapsible on the flag. Built at render from the
+   * ExtractionResult (display-only, never minted). Absent → the flag renders terse only.
+   */
+  readonly noiReconciliation?: NoiReconciliationDetail;
   /**
    * v2 — the assumed (non-sourced) inputs the verdict rests on (surface D:
    * getAssumedInputs). These are line items with `raw === null` filled from a
@@ -733,6 +739,39 @@ const ASSUMPTION_FLAG_ORDER: readonly JudgmentEngineRuleId[] = [
   'JE_NOI_BELOW_TRAILING_ACTUAL',
 ];
 
+/** The NOI-reconciliation flags whose terse line gets an expandable sourced side-by-side. */
+const NOI_RECONCILIATION_FLAGS: ReadonlySet<string> = new Set([
+  'JE_NOI_DIVERGES_FROM_ASR',
+  'JE_NOI_BELOW_TRAILING_ACTUAL',
+]);
+
+/**
+ * The collapsible "receipts" appended to a NOI-reconciliation flag line: value · source
+ * document · variance for the figures that are present. Renders nothing unless there are
+ * at least two figures to compare (a side-by-side needs two). NO page numbers — source
+ * document only (that provenance is not captured; fabricating one would break grounding).
+ */
+function noiReconciliationExpander(detail: NoiReconciliationDetail | undefined): string {
+  if (detail === undefined || detail.rows.length < 2) return '';
+  const rows = detail.rows.map(r => `
+            <tr>
+              <td class="memo-td-label">${esc(r.label)}</td>
+              <td class="memo-td-note">${esc(r.valueFormatted)}</td>
+              <td class="memo-td-note">${esc(r.sourceDocument)}</td>
+            </tr>`).join('');
+  const variance = detail.variance ? `<p class="memo-prose-fine">${esc(detail.variance)}</p>` : '';
+  return `
+      <details class="memo-noi-reconciliation">
+        <summary>Show the figures compared</summary>
+        <table class="memo-table memo-table-findings">
+          <thead><tr><th class="memo-th-label">Figure</th><th class="memo-th-note">Value</th><th class="memo-th-note">Source document</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${variance}
+        <p class="memo-prose-fine">Source documents shown; page-level provenance is not captured for these figures.</p>
+      </details>`;
+}
+
 function renderUnderwritingValidation(input: BuildCommitteeMemoInput): string {
   const dc = input.dataConfidence;
   const flags = input.dataQualityFlags ?? [];
@@ -759,7 +798,9 @@ function renderUnderwritingValidation(input: BuildCommitteeMemoInput): string {
       const note = a.note ? ` ${esc(scrubResidualIdentifiers(a.note))}` : '';
       return `<li><strong>${esc(assumedLabel(a))}</strong> — assumed at ${esc(fmtAssumed(a))}; an assumption, not a figure sourced from the loan documents.${feeds}${note}</li>`;
     }),
-    ...flagPresent.map(f => `<li>${esc(judgmentRuleSentence(f))}</li>`),
+    // ★ NOI-reconciliation flags render terse, with an expandable sourced side-by-side
+    // (value · source-document · variance) built at render from the ExtractionResult.
+    ...flagPresent.map(f => `<li>${esc(judgmentRuleSentence(f))}${NOI_RECONCILIATION_FLAGS.has(f) ? noiReconciliationExpander(input.noiReconciliation) : ''}</li>`),
   ];
   const assumptionsBlock = items.length === 0
     ? ''
