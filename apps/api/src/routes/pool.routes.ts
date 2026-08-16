@@ -641,6 +641,34 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
 // the others are narrative text. All are display-only / mint-safe additive annotation.
 const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist']);
 
+// Resolve a graph ROOT (the deal-room holds only data.rootId) → its pool coordinates
+// + a display deal name. The deal-room needs poolId/loanInPoolId/assetType to mount the
+// servicer inputs, and the real deal name for its title. READ-ONLY (resolveLoanForRoot
+// re-derives fresh; no write) and display-only. Registered before the '/:poolId/...'
+// routes: it is a distinct 2-segment path, never shadowed by them.
+function dealNameFromLoan(loan: { propertyName: string | null; originatorLoanRef: string | null }): string | null {
+  const proper = loan.propertyName?.trim();
+  if (proper && proper.length > 0) return proper; // a real property name is already cased — use as-is
+  const ref = loan.originatorLoanRef?.trim();
+  if (ref && ref.length > 0) return ref.replace(/\b\w/g, (c) => c.toUpperCase()); // the ref is stored lowercase → title-case
+  return null;
+}
+
+poolRoutes.get('/loan-for-root/:rootId', (req: Request, res: Response) => {
+  const rootId = req.params['rootId'] as string;
+  const r = resolveLoanForRoot(rootId);
+  if (!r.resolved) return res.json({ resolved: false, reason: r.reason });
+  const loan = poolStore().getLoanInPool(r.loanInPoolId as LoanInPoolId);
+  if (loan === null) return res.json({ resolved: false, reason: 'NONE' });
+  return res.json({
+    resolved: true,
+    poolId: r.poolId,
+    loanInPoolId: r.loanInPoolId,
+    assetType: loan.assetType ?? null,
+    dealName: dealNameFromLoan(loan),
+  });
+});
+
 poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs', (req: Request, res: Response) => {
   const poolId = req.params['poolId'] as PoolId;
   const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;

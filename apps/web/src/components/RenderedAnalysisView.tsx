@@ -44,6 +44,8 @@ import { SnapshotViewer } from './SnapshotViewer';
 import { WorkbookReadiness } from './WorkbookReadiness';
 import { NegotiationSurface } from './NegotiationSurface';
 import { BuyerDiffPanel } from './BuyerDiffPanel';
+import { DealRoomServicerInputs } from './DealRoomServicerInputs';
+import type { AssetType } from '@cre/contracts';
 import { negotiationLoopEnabled } from '@/lib/flags';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api-client';
@@ -1300,22 +1302,28 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving'>('idle');
 
   // Fix 2 — the deal name at the top (every role needs to know which deal they're on).
-  // The rendered payload carries no dealRef/propertyName, so we source it from the
-  // buyer-diff context endpoint (the only wired id→name path today) and strip a trailing
-  // "(...)" qualifier for a clean title. Falls back to the generic "Analysis" label.
+  // The rendered payload carries no propertyName, so we resolve the deal name + the pool
+  // coordinates from the graph root via GET /pools/loan-for-root/:rootId (resolveLoanForRoot
+  // — the reliable id→loan path that keys pooled deals by name, so Sunroad/640 resolve to
+  // their real name, not a benchmark slug). poolCtx also feeds the servicer inputs below.
+  // Falls back to the generic "Analysis" label only when the root is genuinely un-pooled.
   const [dealName, setDealName] = useState<string | null>(null);
+  const [poolCtx, setPoolCtx] = useState<{ poolId: string; loanInPoolId: string; assetType: AssetType | null } | null>(null);
   useEffect(() => {
-    if (analysisId === undefined) return;
+    const rootId = data.rootId;
+    if (rootId === undefined || rootId === null) return;
     let live = true;
-    api.getBuyerDiffDecisions(analysisId)
+    api.resolveLoanForRoot(rootId)
       .then((r) => {
         if (!live) return;
-        const n = (r.dealRef ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim();
-        if (n.length > 0) setDealName(n);
+        if (r.resolved && r.poolId !== undefined && r.loanInPoolId !== undefined) {
+          setPoolCtx({ poolId: r.poolId, loanInPoolId: r.loanInPoolId, assetType: (r.assetType ?? null) as AssetType | null });
+          if (r.dealName !== undefined && r.dealName !== null && r.dealName.length > 0) setDealName(r.dealName);
+        }
       })
-      .catch(() => { /* no name available → keep the generic title */ });
+      .catch(() => { /* un-pooled / unresolved → keep the generic title, no inputs */ });
     return () => { live = false; };
-  }, [analysisId]);
+  }, [data.rootId]);
   const [saveError, setSaveError] = useState<{ message: string; code?: string; path?: string } | null>(null);
   // Tabbed workspace drawer — the deep read-only sections behind tabs (Stage 3).
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -1641,6 +1649,15 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             ) : null}
             <div>{saveError.message}</div>
           </div>
+        ) : null}
+
+        {/* Servicer inputs (site visit, broker feedback, checklist) — mounted here because
+            the servicer lands on the deal-room via "Open underwriting". Shares the same
+            servicer_inputs store as the pool loan page (same pool+loan+fieldType keys), so
+            state is consistent across both surfaces. Renders only once the root resolves to
+            a pool loan. Collapsible; display-only; gating is inside the child components. */}
+        {poolCtx !== null ? (
+          <DealRoomServicerInputs poolId={poolCtx.poolId} loanInPoolId={poolCtx.loanInPoolId} assetType={poolCtx.assetType} />
         ) : null}
 
         {/* Committee status + action buttons + snapshot — full-width above the split.

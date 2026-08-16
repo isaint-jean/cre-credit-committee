@@ -1341,6 +1341,11 @@ export const api = {
     request<{ input: { fieldType: string; value: string; author: string; updatedAt: string } }>(
       `/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/${fieldType}`,
       { method: 'PUT', body: JSON.stringify({ value }) }),
+  // Resolve a graph root (the deal-room only has data.rootId) → its pool coordinates
+  // + display deal name, so the deal-room can mount the servicer inputs and title itself.
+  resolveLoanForRoot: (rootId: string) =>
+    request<{ resolved: boolean; poolId?: string; loanInPoolId?: string; assetType?: string | null; dealName?: string | null; reason?: string }>(
+      `/pools/loan-for-root/${rootId}`),
 
   // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3.
   // "Underwrite now". ★ ASYNC (was sync): ENQUEUES one durable underwrite_job
