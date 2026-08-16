@@ -722,6 +722,27 @@ export class PoolStore {
       .run(JSON.stringify(body), loanInPoolId);
   }
 
+  /**
+   * Write-back the engine's asset type onto the pool loan (fix b). The row is minted with
+   * assetType:null (advance-tape hardcodes it) because underwriting hasn't run yet; once
+   * the engine produces the AssetProfile, this fills it in so the loan page + checklist see
+   * the real type. Updates BOTH the `asset_type` column and the payload copy `getLoanInPool`
+   * actually reads. Pool-layer / DISPLAY-DATA only — outside the doctrine hash. Returns true
+   * when a row was updated.
+   */
+  setLoanAssetType(loanInPoolId: LoanInPoolId, assetType: AssetType): boolean {
+    const row = this.db
+      .prepare(`SELECT payload FROM loan_in_pool WHERE id = ?`)
+      .get(loanInPoolId) as PayloadRow | undefined;
+    if (!row) return false;
+    const body = JSON.parse(row.payload) as Record<string, unknown>;
+    body['assetType'] = assetType;
+    this.db
+      .prepare(`UPDATE loan_in_pool SET asset_type = ?, payload = ? WHERE id = ?`)
+      .run(assetType, JSON.stringify(body), loanInPoolId);
+    return true;
+  }
+
   /* ------------------------- Disposition ------------------------------- */
 
   /** Append-only record. Verifies `disposition.id === computeDispositionId(hashInput)`.

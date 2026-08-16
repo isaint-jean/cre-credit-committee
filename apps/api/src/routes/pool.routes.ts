@@ -49,10 +49,11 @@ import type {
   WorkingTapeId,
 } from '@cre/contracts';
 import { ON_TAPE_STATUSES, DISPOSITION_KINDS, REASON_CATEGORIES } from '@cre/contracts';
-import { isReasonCategoryValidForOutcome } from '@cre/contracts';
+import { isReasonCategoryValidForOutcome, normalizeAssetType } from '@cre/contracts';
 import type { ReasonCategory } from '@cre/contracts';
 
 import { enforcePermission } from '../middleware/require-permission.js';
+import { store as sqliteStore } from '../storage/sqlite-store.js';
 import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } from '../storage/pool-store.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
@@ -660,11 +661,16 @@ poolRoutes.get('/loan-for-root/:rootId', (req: Request, res: Response) => {
   if (!r.resolved) return res.json({ resolved: false, reason: r.reason });
   const loan = poolStore().getLoanInPool(r.loanInPoolId as LoanInPoolId);
   if (loan === null) return res.json({ resolved: false, reason: 'NONE' });
+  // Fix (c) — read-time resolve: the pool row is minted with assetType:null, so when it's
+  // null, derive the real type from the engine's AssetProfile (via the root's doctrine eval)
+  // and normalize casing. Faithful to the engine; un-underwritten loans (no profile) stay
+  // null → the checklist's generic list. READ-ONLY over the mint; no data mutation here.
+  const assetType = loan.assetType ?? normalizeAssetType(sqliteStore.getPropertyTypeForRoot(rootId));
   return res.json({
     resolved: true,
     poolId: r.poolId,
     loanInPoolId: r.loanInPoolId,
-    assetType: loan.assetType ?? null,
+    assetType,
     dealName: dealNameFromLoan(loan),
   });
 });

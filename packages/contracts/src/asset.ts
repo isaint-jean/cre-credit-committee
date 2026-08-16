@@ -45,6 +45,20 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
  */
 export type PropertyType = AssetType;
 
+/**
+ * Normalize a raw asset-type string (any casing) to the canonical PascalCase `AssetType`,
+ * or null when it isn't one of the nine. AssetProfile.propertyType is authored across
+ * surfaces and can arrive lowercased (e.g. "office"); this maps it back to the enum so
+ * downstream consumers (the site-visit checklist) key off a canonical value rather than
+ * falling to the generic bucket. Unknown / null / blank → null.
+ */
+export function normalizeAssetType(raw: string | null | undefined): AssetType | null {
+  if (raw === null || raw === undefined) return null;
+  const k = raw.trim().toLowerCase();
+  if (k.length === 0) return null;
+  return ASSET_TYPES.find((t) => t.toLowerCase() === k) ?? null;
+}
+
 export const BUSINESS_PLANS = ['Stabilized', 'LeaseUp_or_Transitional'] as const;
 export type BusinessPlan = (typeof BUSINESS_PLANS)[number];
 

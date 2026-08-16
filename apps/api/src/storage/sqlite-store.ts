@@ -715,6 +715,34 @@ export class SqliteStore {
   }
 
   /**
+   * The engine's asset type for a graph id — reads AssetProfile.propertyType off the
+   * doctrine evaluation. Accepts ANY of the three graph ids a caller might hold: a
+   * `doctrine_evaluation_id` (what RenderedAnalysis.rootId is — the deal-room path), a
+   * `lineage_root_id`, or a `revision_id` (what the underwrite result carries). READ-ONLY
+   * over the content-hashed graph — never mutates the mint. Returns the raw propertyType
+   * (may be un-normalized casing); callers normalize via `normalizeAssetType`. null when
+   * the id has no profiled evaluation (e.g. an un-underwritten loan).
+   */
+  getPropertyTypeForRoot(graphId: string): string | null {
+    const row = this.db
+      .prepare(`
+        SELECT ap.payload AS payload
+        FROM asset_profiles ap
+        JOIN doctrine_evaluations de ON de.asset_profile_id = ap.id
+        LEFT JOIN revision_lineage_envelopes rle ON rle.doctrine_evaluation_id = de.id
+        WHERE de.id = @id OR rle.lineage_root_id = @id OR rle.revision_id = @id
+        LIMIT 1
+      `)
+      .get({ id: graphId }) as { payload: string } | undefined;
+    if (!row) return null;
+    try {
+      return (JSON.parse(row.payload) as { propertyType?: string | null }).propertyType ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Soft-archive primitive. Flips analyses.archived. Reversible — pass false to
    * restore. Returns false when the id doesn't exist. Touches ONLY the analyses
    * row; the graph spine + content-addressed blobs are untouched.

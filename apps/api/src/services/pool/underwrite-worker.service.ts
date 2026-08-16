@@ -28,6 +28,8 @@
 import type { UnderwriteJobStore } from '../../storage/underwrite-job-store.js';
 import { underwriteJobStore as defaultJobStore } from '../../storage/underwrite-job-store.js';
 import { PoolStore } from '../../storage/pool-store.js';
+import { store as defaultSqliteStore } from '../../storage/sqlite-store.js';
+import { normalizeAssetType, type AssetType } from '@cre/contracts';
 import {
   underwriteLoan as defaultUnderwriteLoan,
   UnderwriteLoanError,
@@ -38,6 +40,9 @@ export interface UnderwriteWorkerDeps {
   readonly jobStore?: UnderwriteJobStore;
   readonly poolStore?: PoolStore;
   readonly underwriteLoan?: typeof defaultUnderwriteLoan;
+  /** Fix (b): derive the engine's asset type for a produced revision id (default reads
+   *  AssetProfile.propertyType via the sqlite store). Injectable so proofs can stub it. */
+  readonly resolveAssetType?: (graphId: string) => AssetType | null;
   /** Injected so proofs can observe each job's terminal outcome. */
   readonly onJobSettled?: (o: DrainOutcome) => void;
 }
@@ -65,6 +70,8 @@ export function drainUnderwriteJobs(deps: UnderwriteWorkerDeps = {}): Promise<Dr
   const run = (async (): Promise<DrainOutcome[]> => {
     const poolStore = deps.poolStore ?? new PoolStore();
     const underwriteLoan = deps.underwriteLoan ?? defaultUnderwriteLoan;
+    const resolveAssetType =
+      deps.resolveAssetType ?? ((graphId: string) => normalizeAssetType(defaultSqliteStore.getPropertyTypeForRoot(graphId)));
     const onJobSettled = deps.onJobSettled;
     const outcomes: DrainOutcome[] = [];
 
@@ -98,6 +105,21 @@ export function drainUnderwriteJobs(deps: UnderwriteWorkerDeps = {}): Promise<Dr
           outcomes.push(o);
           onJobSettled?.(o);
           continue;
+        }
+
+        // Fix (b) — write-back the engine's asset type onto the pool loan. The row was minted
+        // with assetType:null (advance-tape hardcodes it); now that underwrite produced the
+        // AssetProfile, fill it in — only when still null (faithful, never overwrites). Runs
+        // for any scored outcome (ingested/appended, done or narrative-deferred). Pool-layer /
+        // display-data only; does NOT touch the mint.
+        if (loan.assetType === null) {
+          const graphId = result.outcome === 'ingested' ? result.rootId
+            : result.outcome === 'appended' ? result.childRevisionId
+            : null;
+          if (graphId !== null) {
+            const at = resolveAssetType(graphId);
+            if (at !== null) poolStore.setLoanAssetType(job.loanInPoolId as LoanInPoolId, at);
+          }
         }
 
         // The loan is SCORED (doctrine tail + head persisted). If the narrative
