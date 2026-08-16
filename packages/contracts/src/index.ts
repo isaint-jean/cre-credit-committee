@@ -25,6 +25,7 @@ export * from './revision-lineage.js';
 // Domain primitives
 export * from './asset.js';
 export * from './site-visit-checklist-catalog.js';
+export * from './site-photos.js';
 export * from './noi-reconciliation.js';
 export * from './source-tier.js';
 export * from './external-finding.js';

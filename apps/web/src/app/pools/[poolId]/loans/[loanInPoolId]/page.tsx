@@ -22,6 +22,7 @@ import { REASON_CATEGORIES, REASON_CATEGORY_OUTCOME, isReasonCategoryValidForOut
 import { useSide, type Side } from '@/lib/side-context';
 import { ServicerNarrativeInput } from '@/components/ServicerNarrativeInput';
 import { SiteVisitChecklist } from '@/components/SiteVisitChecklist';
+import { SitePhotos } from '@/components/SitePhotos';
 import { sideAccent, withSide } from '@/lib/side-accent';
 
 type LoadState = 'loading' | 'loaded' | 'error';
@@ -219,8 +220,9 @@ export default function LoanTrajectoryPage() {
       {/* ★ Phase 2 v1 — site-visit / PCR checklist (generates from asset type;
          servicer checks items off + adds their own + AM-visit toggle). Collapsible;
          structured JSON state on servicer_inputs (display-only, never re-scores). */}
-      <div className="mb-6">
+      <div className="mb-6 space-y-4">
         <SiteVisitChecklist poolId={poolId} loanInPoolId={loanInPoolId} assetType={loan.assetType} />
+        <SitePhotos poolId={poolId} loanInPoolId={loanInPoolId} />
       </div>
 
       {/* ★ DispositionBar — the pool-lifecycle terminal for THIS loan. "Approve &

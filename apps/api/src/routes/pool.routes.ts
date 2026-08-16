@@ -40,9 +40,11 @@ import type { Request, Response } from 'express';
 
 import type {
   ConditionRef,
+  ContentHash,
   DispositionKind,
   DoctrineEvaluationId,
   LoanInPoolId,
+  SitePhotoRef,
   Pool,
   PoolId,
   TapeId,
@@ -50,7 +52,7 @@ import type {
   WorkingTapeId,
 } from '@cre/contracts';
 import { ON_TAPE_STATUSES, DISPOSITION_KINDS, REASON_CATEGORIES } from '@cre/contracts';
-import { isReasonCategoryValidForOutcome, normalizeAssetType } from '@cre/contracts';
+import { isReasonCategoryValidForOutcome, normalizeAssetType, parseSitePhotos, serializeSitePhotos } from '@cre/contracts';
 import type { ReasonCategory } from '@cre/contracts';
 
 import { enforcePermission } from '../middleware/require-permission.js';
@@ -70,7 +72,10 @@ import { computeMissingDocs } from '../services/data-room-store.service.js';
 import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.js';
 import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readiness.service.js';
 import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
-import { getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
+import { getServicerInput, getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
+import { upload } from '../middleware/upload.js';
+import { blobStore } from '../storage/blob-store.js';
+import { resolveServeMime } from '../util/mime-from-extension.js';
 import type { ServicerInputFieldType } from '../storage/servicer-inputs-store.js';
 import {
   advanceTapePhaseA,
@@ -643,7 +648,7 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
 // negotiation loop OFF (this is not the shelved overlay-comments store).
 // site_visit_checklist carries a structured JSON payload (checklist state) in `value`;
 // the others are narrative text. All are display-only / mint-safe additive annotation.
-const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist']);
+const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos']);
 
 // Resolve a graph ROOT (the deal-room holds only data.rootId) → its pool coordinates
 // + a display deal name. The deal-room needs poolId/loanInPoolId/assetType to mount the
@@ -713,7 +718,7 @@ poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/:fieldType', (req: 
   const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
   const fieldType = req.params['fieldType'] as string;
   if (!SERVICER_INPUT_FIELDS.has(fieldType)) {
-    return send400Bad(res, `unknown fieldType '${fieldType}' (site_visit | broker_feedback | tab_commentary | site_visit_checklist)`);
+    return send400Bad(res, `unknown fieldType '${fieldType}' (site_visit | broker_feedback | tab_commentary | site_visit_checklist | site_photos)`);
   }
   const value = (req.body ?? {})['value'];
   if (typeof value !== 'string') return send400Bad(res, 'value: required string');
@@ -724,6 +729,74 @@ poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/:fieldType', (req: 
   const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
   const saved = upsertServicerInput({ poolId, loanInPoolId, fieldType: fieldType as ServicerInputFieldType, value, author });
   return res.json({ input: saved });
+});
+
+/* ── Site photos (Chunk 1: capture) ──────────────────────────────────────────
+ * The servicer uploads site-visit photos (any count); bytes → the content-addressed
+ * blob store, refs → servicer_inputs 'site_photos' JSON. DISPLAY/EXPORT-ONLY / MINT-SAFE
+ * (blobs are outside the doctrine hash; servicer_inputs is outside the mint). No resize
+ * (Chunk 4) and no Excel embedding (Chunk 3) yet — capture / list / serve / delete only. */
+
+function loadSitePhotos(poolId: PoolId, loanInPoolId: LoanInPoolId): SitePhotoRef[] {
+  return [...parseSitePhotos(getServicerInput(poolId, loanInPoolId, 'site_photos')?.value ?? null).photos];
+}
+function saveSitePhotos(poolId: PoolId, loanInPoolId: LoanInPoolId, photos: readonly SitePhotoRef[], author: string): SitePhotoRef[] {
+  const saved = upsertServicerInput({ poolId, loanInPoolId, fieldType: 'site_photos', value: serializeSitePhotos(photos), author });
+  return parseSitePhotos(saved.value).photos.slice();
+}
+
+// POST upload — multi-file (any count). Servicer-gated (analysis:revise).
+poolRoutes.post('/:poolId/loans/:loanInPoolId/servicer-inputs/site-photos/upload', upload.array('photos', 100), async (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) return send400Bad(res, 'no photos uploaded (multipart field: photos)');
+  const photos = loadSitePhotos(poolId, loanInPoolId);
+  for (const f of files) {
+    const hash = await blobStore.putBlob(f.buffer);
+    photos.push({ hash, order: photos.length, fileName: f.originalname });
+  }
+  const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
+  return res.json({ photos: saveSitePhotos(poolId, loanInPoolId, photos, author) });
+});
+
+// GET serve one photo's bytes (thumbnails). Read for anyone with deal access; the hash
+// MUST belong to THIS loan's set (never serves an arbitrary blob).
+poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/site-photos/:hash', async (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const hash = req.params['hash'] as string;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const ref = loadSitePhotos(poolId, loanInPoolId).find((p) => p.hash === hash);
+  if (ref === undefined) return res.status(404).json({ error: 'NOT_FOUND', message: 'photo not found for this loan' });
+  const bytes = await blobStore.getBlob(hash as ContentHash);
+  if (bytes === null) return res.status(404).json({ error: 'NOT_FOUND', message: 'photo bytes not in blob store' });
+  res.setHeader('Content-Type', resolveServeMime(null, ref.fileName));
+  res.setHeader('Content-Disposition', `inline; filename="${ref.fileName.replace(/[^\w.\- ]+/g, '_')}"`);
+  return res.send(bytes);
+});
+
+// DELETE one photo ref (leaves the blob — content-addressed, may be shared). Servicer-gated.
+poolRoutes.delete('/:poolId/loans/:loanInPoolId/servicer-inputs/site-photos/:hash', (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const hash = req.params['hash'] as string;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const remaining = loadSitePhotos(poolId, loanInPoolId).filter((p) => p.hash !== hash);
+  const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
+  return res.json({ photos: saveSitePhotos(poolId, loanInPoolId, remaining, author) });
 });
 
 poolRoutes.post('/:poolId/loans/:loanInPoolId/disposition', (req: Request, res: Response) => {

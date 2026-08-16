@@ -31,6 +31,7 @@ import { isRenderedAnalysis } from './rendered-analysis-guard';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
 import type { NoiReconciliationDetail } from '@cre/contracts';
+import type { SitePhotoRef } from '@cre/contracts';
 import type { AppraisalSlotExtraction, AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
@@ -1351,6 +1352,20 @@ export const api = {
   // memo uses (byte-identical rows). Render-time/display-only; { detail: null } when absent.
   getNoiReconciliation: (rootId: string) =>
     request<{ detail: NoiReconciliationDetail | null }>(`/pools/loan-for-root/${rootId}/noi-reconciliation`),
+  // Site photos (Chunk 1) — multi-file upload / delete / serve-url. Servicer-gated on write.
+  uploadSitePhotos: async (poolId: string, loanInPoolId: string, files: readonly File[]) => {
+    const fd = new FormData();
+    for (const f of files) fd.append('photos', f);
+    const res = await fetch(`${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-photos/upload`, {
+      method: 'POST', headers: { ...getAuthHeader() }, body: fd,
+    });
+    if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+    return res.json() as Promise<{ photos: SitePhotoRef[] }>;
+  },
+  deleteSitePhoto: (poolId: string, loanInPoolId: string, hash: string) =>
+    request<{ photos: SitePhotoRef[] }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-photos/${hash}`, { method: 'DELETE' }),
+  sitePhotoUrl: (poolId: string, loanInPoolId: string, hash: string) =>
+    `${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-photos/${hash}`,
 
   // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3.
   // "Underwrite now". ★ ASYNC (was sync): ENQUEUES one durable underwrite_job

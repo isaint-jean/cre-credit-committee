@@ -14,6 +14,7 @@
  */
 import { useState } from 'react';
 import { SiteVisitChecklist } from './SiteVisitChecklist';
+import { SitePhotos } from './SitePhotos';
 import { ServicerNarrativeInput } from './ServicerNarrativeInput';
 import type { AssetType } from '@cre/contracts';
 
@@ -53,6 +54,7 @@ export function DealRoomServicerInputs({
             />
           </div>
           <SiteVisitChecklist poolId={poolId} loanInPoolId={loanInPoolId} assetType={assetType} />
+          <SitePhotos poolId={poolId} loanInPoolId={loanInPoolId} />
         </div>
       )}
     </section>
