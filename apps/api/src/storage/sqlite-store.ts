@@ -701,6 +701,20 @@ export class SqliteStore {
   }
 
   /**
+   * Translate a `doctrine_evaluation_id` → its `lineage_root_id` (1:1; an eval id
+   * appears on exactly one revision envelope). Used to normalize the id the render
+   * surface holds — `RenderedAnalysis.rootId` is a DoctrineEvaluationId, but the
+   * forward loan resolver keys on `lineage_root_id`. Returns null when the id is not
+   * a known doctrine_evaluation_id (e.g. it is already a lineage_root_id, or garbage).
+   */
+  getLineageRootForEvaluation(evalId: string): string | null {
+    const row = this.db
+      .prepare(`SELECT lineage_root_id FROM revision_lineage_envelopes WHERE doctrine_evaluation_id = ? LIMIT 1`)
+      .get(evalId) as { lineage_root_id: string } | undefined;
+    return row?.lineage_root_id ?? null;
+  }
+
+  /**
    * Soft-archive primitive. Flips analyses.archived. Reversible — pass false to
    * restore. Returns false when the id doesn't exist. Touches ONLY the analyses
    * row; the graph spine + content-addressed blobs are untouched.

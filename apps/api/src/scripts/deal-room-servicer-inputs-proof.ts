@@ -42,40 +42,59 @@ function dealNameFromLoan(loan: { propertyName: string | null; originatorLoanRef
   return null;
 }
 
-const HEAD_640_ROOT = '8c454c15cfe81b4a5133b08ab8a9081979f8819329661c75aaff4fdc1439a953';
+// 640 head, as the deal-room actually holds it: RenderedAnalysis.rootId is a
+// doctrine_evaluation_id (NOT the lineage_root_id). The OLD proof drove the resolver
+// with the lineage_root_id — which always resolved — and so false-greened the live bug.
+const HEAD_640_EVAL_ID = '8259948db54784048bc63cc367731d087d2b0f2f0e9fe8bbb6cd6b74e74812a8'; // = data.rootId
+const HEAD_640_LINEAGE_ROOT = '8c454c15cfe81b4a5133b08ab8a9081979f8819329661c75aaff4fdc1439a953';
 
 function partA_B(): void {
-  console.log('\n(A/B) resolver + deal name for real pooled roots:');
+  console.log('\n(A/B) resolver accepts the EVAL id (what the deal-room actually passes):');
   const ps = new PoolStore(DB);
   const db = new Database(DB, { readonly: true });
-  const roots = db.prepare('SELECT DISTINCT lineage_root_id FROM revision_lineage_envelopes').all() as Array<{ lineage_root_id: string }>;
+  // Drive the resolver with doctrine_evaluation_id — the id RenderedAnalysis.rootId holds.
+  const evalRows = db.prepare('SELECT DISTINCT doctrine_evaluation_id AS evalId FROM revision_lineage_envelopes WHERE doctrine_evaluation_id IS NOT NULL').all() as Array<{ evalId: string }>;
   db.close();
 
-  // Resolve every root; collect the ones that map to a single pool loan.
-  const resolved: Array<{ root: string; poolId: string; loanInPoolId: string; assetType: string | null; dealName: string | null; ref: string | null }> = [];
-  for (const { lineage_root_id } of roots) {
-    const r = resolveLoanForRoot(lineage_root_id);
-    if (r.resolved) {
-      const loan = ps.getLoanInPool(r.loanInPoolId as never);
-      if (loan) resolved.push({ root: lineage_root_id, poolId: r.poolId, loanInPoolId: r.loanInPoolId, assetType: loan.assetType ?? null, dealName: dealNameFromLoan(loan), ref: loan.originatorLoanRef });
+  // ── The live path: resolve BY THE EVAL id (previously ROOT_NOT_FOUND; now fixed). ──
+  const byEval = resolveLoanForRoot(HEAD_640_EVAL_ID);
+  check('resolve(EVAL id) resolves — the real live deal-room path', byEval.resolved === true, byEval.resolved ? `${byEval.poolId}/${byEval.loanInPoolId}` : (byEval as { reason?: string }).reason ?? '');
+  if (byEval.resolved) {
+    const loan = ps.getLoanInPool(byEval.loanInPoolId as never);
+    check("640 eval-id → real name '640 5th Avenue' (not a benchmark slug)", dealNameFromLoan(loan!) === '640 5th Avenue', `dealName='${dealNameFromLoan(loan!)}'`);
+  }
+
+  // ── REGRESSION GUARD: resolve(evalId) must equal resolve(its lineage_root). ──
+  // If someone reverts the fix, resolve(evalId) → ROOT_NOT_FOUND and this fails —
+  // it can no longer false-green by only testing the lineage root.
+  const byRoot = resolveLoanForRoot(HEAD_640_LINEAGE_ROOT);
+  check(
+    'resolve(evalId) === resolve(lineage_root) — same loan (no false-green)',
+    byEval.resolved === true && byRoot.resolved === true && byEval.poolId === byRoot.poolId && byEval.loanInPoolId === byRoot.loanInPoolId,
+  );
+
+  // ── Backward compatible: a lineage_root_id STILL resolves. ──
+  check('lineage_root_id STILL resolves (backward compatible)', byRoot.resolved === true);
+
+  // ── Sunroad, driven by its EVAL id → 'Sunroad Centrum'. ──
+  let sunroadEvalId: string | null = null;
+  for (const { evalId } of evalRows) {
+    const res = resolveLoanForRoot(evalId);
+    if (res.resolved) {
+      const loan = ps.getLoanInPool(res.loanInPoolId as never);
+      if ((loan?.originatorLoanRef ?? '').toLowerCase().includes('sunroad')) { sunroadEvalId = evalId; break; }
     }
   }
-  check('at least one root resolves to a pool loan (resolver works)', resolved.length > 0, `${resolved.length}/${roots.length} roots resolved`);
-
-  // 640-head root resolves to pool coords + a real name.
-  const head = resolveLoanForRoot(HEAD_640_ROOT);
-  check('640-head root resolves to a single pool loan', head.resolved === true, head.resolved ? `${head.poolId}/${head.loanInPoolId}` : `ambiguous:${(head as { reason?: string }).reason}`);
-  if (head.resolved) {
-    const loan = ps.getLoanInPool(head.loanInPoolId as never);
-    const name = dealNameFromLoan(loan!);
-    const isSlug = name === null || /^bmark/i.test(name) || name.includes('-');
-    check('640 deal name is a real name (not a benchmark slug)', !isSlug, `dealName='${name}' (ref='${loan?.originatorLoanRef}')`);
+  check('a Sunroad EVAL id resolves (deal-room live path)', sunroadEvalId !== null, sunroadEvalId ? `evalId=${sunroadEvalId.slice(0, 12)}…` : 'none found');
+  if (sunroadEvalId) {
+    const res = resolveLoanForRoot(sunroadEvalId);
+    const loan = res.resolved ? ps.getLoanInPool(res.loanInPoolId as never) : null;
+    check("Sunroad eval-id → 'Sunroad Centrum'", loan !== null && dealNameFromLoan(loan) === 'Sunroad Centrum', `dealName='${loan ? dealNameFromLoan(loan) : null}'`);
   }
 
-  // A Sunroad root → 'Sunroad Centrum'.
-  const sun = resolved.find((x) => (x.ref ?? '').toLowerCase().includes('sunroad'));
-  check('a Sunroad root resolves', sun !== undefined, sun ? `ref='${sun.ref}'` : 'none found among resolved roots');
-  if (sun) check("Sunroad deal name title-cases to 'Sunroad Centrum'", sun.dealName === 'Sunroad Centrum', `dealName='${sun.dealName}'`);
+  // ── Honest fallback: a genuinely unknown id → resolved:false (no false mount). ──
+  const bogus = resolveLoanForRoot('deadbeef'.repeat(8));
+  check('unknown id → resolved:false (honest un-pooled fallback)', bogus.resolved === false);
 }
 
 function partC(): void {
