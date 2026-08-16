@@ -723,6 +723,21 @@ export class SqliteStore {
    * (may be un-normalized casing); callers normalize via `normalizeAssetType`. null when
    * the id has no profiled evaluation (e.g. an un-underwritten loan).
    */
+  /** Distinct lineage roots that have an AssetProfile on their evaluation — the
+   *  set of underwritten deals whose engine asset type can be backfilled onto the
+   *  pool loan. READ-ONLY. */
+  listRootsWithAssetProfile(): string[] {
+    const rows = this.db
+      .prepare(`
+        SELECT DISTINCT rle.lineage_root_id AS root
+        FROM revision_lineage_envelopes rle
+        JOIN doctrine_evaluations de ON de.id = rle.doctrine_evaluation_id
+        WHERE de.asset_profile_id IS NOT NULL
+      `)
+      .all() as Array<{ root: string }>;
+    return rows.map((r) => r.root);
+  }
+
   getPropertyTypeForRoot(graphId: string): string | null {
     const row = this.db
       .prepare(`
