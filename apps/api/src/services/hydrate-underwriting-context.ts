@@ -716,12 +716,75 @@ function buildIssuerUwAtoms(analysis: Analysis): Record<string, number | string 
 
 /** Atom-builder for the T12 historical column (H). Same mapping as
  *  buildIssuerUwAtoms; reads analysis.t12Extraction. All-null when absent. */
+/**
+ * ★ Ladder → Column-H atoms (the REVERSE of ac9fd1d's mapT12ActualToLadder). Used ONLY
+ * as the t12Extraction-absent fallback in buildT12Atoms. The field correspondence mirrors
+ * mapT12ActualToLadder exactly so Column H shows the same values a t12Extraction would have
+ * (verified vs the June-30 reference: Total Revenues = EGR 6,899,325; reimbursements =
+ * commercialReimbursementRevenue; G&A/R&M/utilities/mgmt/taxes/insurance; capex/TI/LC).
+ * Fields the ASR ladder doesn't separate (uwAdjustments, janitorial) stay null. The T-12
+ * period year is derived as the year AFTER the latest historical `y{YYYY}` ladder present
+ * (Sunroad: max(2021,2022,2023)+1 = 2024) → the row-3 headers.
+ */
+function ladderToT12Atoms(
+  l: AsrCashFlowLadder,
+  analysis: Analysis,
+  vintage: string | null,
+  creditSignal: string | null,
+): Record<string, number | string | null> {
+  const pgr = l.baseRentalRevenue ?? null;
+  const economicOccupancy =
+    typeof pgr === 'number' && pgr > 0 && typeof l.vacancyLoss === 'number'
+      ? 1 - (-l.vacancyLoss / pgr)
+      : null;
+  const periodYear = (() => {
+    const years = Object.keys(analysis.underwrittenCashFlows ?? {})
+      .map((k) => /^y(\d{4})$/.exec(k))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => Number(m[1]));
+    return years.length > 0 ? Math.max(...years) + 1 : null;
+  })();
+  return {
+    pgr,
+    economicOccupancy,
+    badDebt:                       null,
+    uwAdjustments:                 null, // the ASR ladder carries no separate UW-adjustment line
+    otherIncome:                   l.otherRevenue ?? null,
+    reimbursements:                l.commercialReimbursementRevenue ?? null,
+    expensesGeneralAdmin:          l.generalAndAdministrative ?? null,
+    expensesRepairsMaintenance:    l.repairsAndMaintenance ?? null,
+    expensesUtilities:             l.utilities ?? null,
+    expensesOtherVariable:         null, // no janitorial equivalent on the ladder
+    expensesManagement:            l.managementFee ?? null,
+    expensesTaxes:                 l.realEstateTaxes ?? null,
+    expensesInsurance:             l.insurance ?? null,
+    capex:                         l.replacementReserves ?? null,
+    tenantImprovements:            l.tenantImprovements ?? null,
+    leasingCommissions:            l.leasingCommissions ?? null,
+    // H17 "Total Revenues" = the ACTUAL total revenue = effective gross (matches June-30's
+    // 6,899,325); potentialGrossRevenue is the pre-vacancy fallback.
+    totalIncome:                   l.effectiveGrossRevenue ?? l.potentialGrossRevenue ?? null,
+    periodYear,
+    vintage, creditSignal,
+  };
+}
+
 function buildT12Atoms(analysis: Analysis): Record<string, number | string | null> {
   const t12 = analysis.t12Extraction;
   // v18 — display notes (independent of the numeric extraction).
   const vintage = analysis.t12Notes?.vintage ?? null;
   const creditSignal = analysis.t12Notes?.creditSignal ?? null;
   if (!t12) {
+    // ★ FALLBACK (mirror of ac9fd1d, render-only): when the deal's separately-
+    // extracted T-12 ACTUALS (`t12Extraction`) are absent BUT the ASR discloses its
+    // OWN T-12 ladder (`underwrittenCashFlows.t12`), map that ladder → the Column-H
+    // atoms so Operating-History Column H populates from data the graph ALREADY holds
+    // — no re-ingest, no re-mint. Symmetric completion of ac9fd1d, which handles the
+    // OPPOSITE case (has actuals, no ASR ladder → 640). GUARDED: this branch runs ONLY
+    // when t12Extraction is absent, so every deal currently populating Column H (incl.
+    // 640's actuals-fallback path) is byte-identical to today — purely additive.
+    const ladder = analysis.underwrittenCashFlows?.t12;
+    if (ladder) return ladderToT12Atoms(ladder, analysis, vintage, creditSignal);
     return {
       pgr: null, economicOccupancy: null, badDebt: null,
       uwAdjustments: null, otherIncome: null, reimbursements: null,
