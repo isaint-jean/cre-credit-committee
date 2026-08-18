@@ -18,7 +18,7 @@ import type {
 } from '@cre/shared';
 import type { PropertyMetadata, RentRoll, RentRollLine } from '@cre/contracts';
 import { matchProvenancePattern } from './render-output-scrubber.js';
-import { addSitePhotosGrid } from './render-memo/site-photos-grid.js';
+import { addSitePhotosGrid, type SitePhotoImage } from './render-memo/site-photos-grid.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2494,7 +2494,7 @@ function applyProFormaProjectionInputs(workbook: ExcelJS.Workbook, assetClass: s
 export async function applyRenderPayloadToTemplate(
   templateBuffer: Buffer,
   payload: RenderPayload,
-  opts?: { readonly sitePhotos?: { readonly dealName?: string; readonly boxCount?: number } },
+  opts?: { readonly sitePhotos?: { readonly dealName?: string; readonly boxCount?: number; readonly photos?: readonly SitePhotoImage[] } },
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(templateBuffer as any);

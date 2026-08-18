@@ -13,6 +13,13 @@ import type ExcelJS from 'exceljs';
 
 export const SITE_PHOTOS_SHEET = 'Site Photos';
 
+/** A photo to embed — the raw bytes + an exceljs image extension + an optional caption. */
+export interface SitePhotoImage {
+  readonly buffer: Buffer;
+  readonly extension: 'png' | 'jpeg' | 'gif';
+  readonly caption?: string;
+}
+
 /** One photo box: the 1-indexed cell rectangle for the image + its caption cell. */
 export interface SitePhotoBox {
   readonly index: number;       // 0-based box number
@@ -57,15 +64,20 @@ export function sitePhotoBoxAnchors(count: number): SitePhotoBox[] {
 }
 
 /**
- * Add the empty "Site Photos" grid to the workbook. Idempotent (no-op if the sheet exists).
- * Chunk 2: header + bordered boxes + "Photo N" captions only — NO images.
+ * Add the "Site Photos" grid to the workbook. Idempotent (no-op if the sheet exists).
+ *  - Chunk 2 (no `photos`): header + bordered boxes + "Photo N" captions, empty default grid.
+ *  - Chunk 3 (`photos` present): COUNT-AGNOSTIC — one box per photo (2/row, rows grow), each
+ *    photo EMBEDDED into its box via workbook.addImage + worksheet.addImage (tl/br cell-range,
+ *    editAs 'oneCell'). No resize — original bytes (Chunk 4 adds jimp). Empty photos → the empty
+ *    default grid so the tab stays discoverable.
  */
 export function addSitePhotosGrid(
   workbook: ExcelJS.Workbook,
-  opts: { readonly dealName?: string; readonly boxCount?: number } = {},
+  opts: { readonly dealName?: string; readonly boxCount?: number; readonly photos?: readonly SitePhotoImage[] } = {},
 ): void {
   if (workbook.getWorksheet(SITE_PHOTOS_SHEET) !== undefined) return;
-  const count = Math.max(0, opts.boxCount ?? 8);
+  const photos = opts.photos ?? [];
+  const count = photos.length > 0 ? photos.length : Math.max(0, opts.boxCount ?? 8);
   const ws = workbook.addWorksheet(SITE_PHOTOS_SHEET);
 
   for (let c = 1; c <= 8; c++) ws.getColumn(c).width = 16;
@@ -77,15 +89,30 @@ export function addSitePhotosGrid(
 
   const thin = { style: 'thin' as const, color: { argb: 'FFBFBFBF' } };
   for (const b of sitePhotoBoxAnchors(count)) {
+    const photo = photos[b.index];
     const cap = ws.getCell(b.captionRow, b.captionCol);
-    cap.value = `Photo ${b.index + 1}`;
+    cap.value = photo?.caption ?? `Photo ${b.index + 1}`;
     cap.font = { size: 10, color: { argb: 'FF666666' } };
 
+    // The box: bordered light-gray frame + row heights (behind any embedded image).
     ws.mergeCells(b.tlRow, b.tlCol, b.brRow, b.brCol);
     const box = ws.getCell(b.tlRow, b.tlCol);
     box.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
     box.border = { top: thin, left: thin, bottom: thin, right: thin };
     box.alignment = { horizontal: 'center', vertical: 'middle' };
     for (let r = b.tlRow; r <= b.brRow; r++) ws.getRow(r).height = 16;
+
+    // Chunk 3 — embed the photo into the box's tl/br cell-range anchor (0-indexed for exceljs;
+    // sitePhotoBoxAnchors is 1-indexed). editAs 'oneCell' moves-with-cells without resizing.
+    if (photo !== undefined) {
+      const imageId = workbook.addImage({ buffer: photo.buffer as unknown as ExcelJS.Buffer, extension: photo.extension });
+      // exceljs's runtime accepts a partial {col,row} anchor (the prototype proved this);
+      // its .d.ts Anchor type demands native* offsets, so cast the range.
+      ws.addImage(imageId, {
+        tl: { col: b.tlCol - 1, row: b.tlRow - 1 },
+        br: { col: b.brCol, row: b.brRow },
+        editAs: 'oneCell',
+      } as never);
+    }
   }
 }

@@ -57,6 +57,7 @@ import {
   TemplateIntegrityError,
   validateTemplateCompatibility,
 } from '../services/template-engine.service.js';
+import { loadSitePhotosForExport } from '../services/render-memo/site-photos-for-export.js';
 import { RENDER_CONTRACT_VERSION } from '@cre/shared';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -1109,10 +1110,12 @@ renderRoutes.get('/export', async (req: Request, res: Response) => {
   // Step 5 — apply the payload. Pre-validated; failures here are unexpected.
   let applied;
   try {
-    // ★ Site Photos (Chunk 2) — opt in the empty anchor grid, threading the deal name.
-    // Default 8 boxes; Chunk 3 derives the count from the loan's stored site_photos refs.
+    // ★ Site Photos (Chunk 3) — load the loan's uploaded photos (servicer_inputs 'site_photos'
+    // → blob store) and embed each into its grid box. Count-agnostic; no photos → empty default
+    // grid (discoverable). No resize (original bytes; Chunk 4 adds jimp).
+    const sitePhotos = await loadSitePhotosForExport(result.analysis.graphRevisionId);
     applied = await applyRenderPayloadToTemplate(template.fileData, result.payload, {
-      sitePhotos: { dealName: result.analysis.name, boxCount: 8 },
+      sitePhotos: { dealName: result.analysis.name, boxCount: 8, photos: sitePhotos },
     });
   } catch (err: any) {
     res.status(500).json({
