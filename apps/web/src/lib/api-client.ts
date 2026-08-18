@@ -31,6 +31,7 @@ import { isRenderedAnalysis } from './rendered-analysis-guard';
 import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
 import type { NoiReconciliationDetail } from '@cre/contracts';
+import type { FlagDetail } from '@cre/contracts';
 import type { SitePhotoRef } from '@cre/contracts';
 import type { AppraisalSlotExtraction, AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
@@ -1352,6 +1353,9 @@ export const api = {
   // memo uses (byte-identical rows). Render-time/display-only; { detail: null } when absent.
   getNoiReconciliation: (rootId: string) =>
     request<{ detail: NoiReconciliationDetail | null }>(`/pools/loan-for-root/${rootId}/noi-reconciliation`),
+  // "How I determined this" flag details, keyed by dimensionId / ruleId (shared with the memo).
+  getFlagDetails: (rootId: string) =>
+    request<{ details: Record<string, FlagDetail> }>(`/pools/loan-for-root/${rootId}/flag-details`),
   // Site photos (Chunk 1) — multi-file upload / delete / serve-url. Servicer-gated on write.
   uploadSitePhotos: async (poolId: string, loanInPoolId: string, files: readonly File[]) => {
     const fd = new FormData();

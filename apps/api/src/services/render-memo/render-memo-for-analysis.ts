@@ -45,6 +45,7 @@ import { synthesizeUwModelFromInputs } from '../synthesize-uw-model-from-graph.j
 import { recomputeAiAtLoan } from '../evaluate-and-narrate.js';
 import { buildCommitteeMemo, type MemoRenderSource } from './build-committee-memo.js';
 import { buildNoiReconciliationDetail } from './noi-reconciliation-detail.js';
+import { buildFlagDetailsForRoot } from './flag-details-for-root.js';
 import { servicerNotesForAnalysis } from '../servicer-inputs.service.js';
 import { runDataIntegrityGate } from '../data-integrity/gate.js';
 import {
@@ -166,6 +167,10 @@ export function renderMemoForAnalysis(
   // memo renders it inside a collapsible on the flag when ≥2 figures are present.
   const noiReconciliation = buildNoiReconciliationDetail(extraction, adjustedInputs.metrics.noi);
 
+  // "How I determined this" detail per flag (shared with the deal-room modal). Built once
+  // via a deterministic re-eval; passed into the memo so each flag gets an inline <details>.
+  const flagDetails = buildFlagDetailsForRoot(envelope.doctrineEvaluationId, store) ?? {};
+
   // ── PR (ii) read-instead-of-recompute branch ─────────────────────────
   // Prefer the persisted snapshot when present + supported-version (true
   // pin-faithfulness: numbers were captured at eval-write time under THIS
@@ -210,6 +215,7 @@ export function renderMemoForAnalysis(
       dataConfidence: adjustedInputs.dataConfidence,
       dataQualityFlags: adjustedInputs.dataQualityFlags,
       noiReconciliation,
+      flagDetails,
       assumedInputs,
       appraisalDisclosure,
       noiBasis,
@@ -283,6 +289,7 @@ export function renderMemoForAnalysis(
     dataConfidence: adjustedInputs.dataConfidence,
     dataQualityFlags: adjustedInputs.dataQualityFlags,
     noiReconciliation,
+    flagDetails,
     assumedInputs,
     // Human sponsor assessment also renders on the recompute-fallback path.
     humanSponsorAssessment: adjustedInputs.sponsorAssessment ?? undefined,

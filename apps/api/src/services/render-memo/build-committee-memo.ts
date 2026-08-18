@@ -24,7 +24,7 @@
  *
  * NO EXTERNAL DEPS: inline CSS only; opens identically offline, prints cleanly.
  */
-import type { NarrativeEvaluation, JudgmentEngineRuleId, SnapshotExternalDD, HumanSponsorAssessment, SponsorFactorRating, NoiReconciliationDetail } from '@cre/contracts';
+import type { NarrativeEvaluation, JudgmentEngineRuleId, SnapshotExternalDD, HumanSponsorAssessment, SponsorFactorRating, NoiReconciliationDetail, FlagDetail } from '@cre/contracts';
 import { COMMITTEE_MEMO_VERSION } from '@cre/contracts';
 import {
   projectAuthoritativeNumbers,
@@ -139,6 +139,12 @@ export interface BuildCommitteeMemoInput {
    * ExtractionResult (display-only, never minted). Absent → the flag renders terse only.
    */
   readonly noiReconciliation?: NoiReconciliationDetail;
+  /**
+   * "How I determined this" detail per flag (keyed by dimensionId / ruleId), shared with the
+   * deal-room modal. When present, each flag line gets an inline <details> with the reasoning
+   * + sourced evidence. Render-time/display-only; absent → flags render terse as before.
+   */
+  readonly flagDetails?: Record<string, FlagDetail>;
   /**
    * v2 — the assumed (non-sourced) inputs the verdict rests on (surface D:
    * getAssumedInputs). These are line items with `raw === null` filled from a
@@ -515,8 +521,32 @@ function renderInvestmentMerits(auth: AuthoritativeNumbers, findings: readonly C
 
 /* ----------------------------- §3 Key Credit Risks ---------------------- */
 
-/** Render one findings table (same markup as before; reused for both buckets). */
-function findingsTableHtml(findings: readonly CleanDoctrineFinding[]): string {
+/**
+ * The inline "How this was determined" <details> for a flag — the SAME content the deal-room
+ * modal shows (shared FlagDetail). Renders nothing when no detail is available. Inside a
+ * section body only (no section reorder/heading change → no memo version bump).
+ */
+function flagDetailHtml(detail: FlagDetail | undefined): string {
+  if (detail === undefined) return '';
+  const evidence = detail.evidence.length === 0
+    ? '<p class="memo-prose-fine"><em>No structured evidence was captured for this flag.</em></p>'
+    : `<table class="memo-table memo-table-findings">
+          <thead><tr><th class="memo-th-label">Figure</th><th class="memo-th-note">Value</th><th class="memo-th-note">Source</th></tr></thead>
+          <tbody>${detail.evidence.map(e => `
+            <tr><td class="memo-td-label">${esc(e.label)}</td><td class="memo-td-note">${esc(e.value)}</td><td class="memo-td-note">${esc(e.source)}</td></tr>`).join('')}
+          </tbody>
+        </table>`;
+  return `
+      <details class="memo-flag-detail">
+        <summary>How this was determined</summary>
+        <p class="memo-prose-fine">${esc(detail.howDetermined)}</p>
+        ${evidence}
+        <p class="memo-prose-fine">Source documents are named, not linked; page-level provenance is not captured.</p>
+      </details>`;
+}
+
+/** Render one findings table. Each finding gets an inline "how determined" <details>. */
+function findingsTableHtml(findings: readonly CleanDoctrineFinding[], flagDetails?: Record<string, FlagDetail>): string {
   return `
     <table class="memo-table memo-table-findings">
       <thead><tr><th class="memo-th-label">Credit factor</th><th class="memo-th-tier">Concern level</th><th class="memo-th-note">Loss path</th></tr></thead>
@@ -525,7 +555,7 @@ function findingsTableHtml(findings: readonly CleanDoctrineFinding[]): string {
           <tr>
             <td class="memo-td-label">${esc(dimensionDisplayName(f.dimensionId))}</td>
             <td class="memo-td-tier">${esc(concernLevelLabel(f.tier))}</td>
-            <td class="memo-td-note">${esc(f.headline)}</td>
+            <td class="memo-td-note">${esc(f.headline)}${flagDetailHtml(flagDetails?.[f.dimensionId])}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -539,6 +569,7 @@ function renderKeyCreditRisks(
   narrative: NarrativeEvaluation,
   findings: readonly CleanDoctrineFinding[],
   servicerNotes?: ReadonlyArray<{ readonly label: string; readonly text: string; readonly author: string; readonly at: string }>,
+  flagDetails?: Record<string, FlagDetail>,
 ): string {
   const dd = findings.filter(f => isDueDiligence(flagCategory(f.dimensionId)));
   const financial = findings.filter(f => !isDueDiligence(flagCategory(f.dimensionId)));
@@ -553,10 +584,10 @@ function renderKeyCreditRisks(
         <p class="memo-prose-fine">Entered ${esc(n.at.slice(0, 10))} by ${esc(n.author)} — servicer field observation, display-only (not scored).</p>
       </div>`).join('');
 
-  const ddBlock = (servicerBlock === '' && dd.length === 0) ? '' : `${servicerBlock}${dd.length === 0 ? '' : findingsTableHtml(dd)}`;
+  const ddBlock = (servicerBlock === '' && dd.length === 0) ? '' : `${servicerBlock}${dd.length === 0 ? '' : findingsTableHtml(dd, flagDetails)}`;
   const financialBlock = financial.length === 0 ? '' : `
       <h4 class="memo-subhead-secondary">Financial-metric risks (secondary — the leverage/coverage read)</h4>
-      ${findingsTableHtml(financial)}`;
+      ${findingsTableHtml(financial, flagDetails)}`;
 
   return section('key_credit_risks', `${ddBlock}${financialBlock}
       <p class="memo-prose memo-prose-with-table">${proseToHtml(narrative.redFlagAssessment)}</p>`);
@@ -800,7 +831,7 @@ function renderUnderwritingValidation(input: BuildCommitteeMemoInput): string {
     }),
     // ★ NOI-reconciliation flags render terse, with an expandable sourced side-by-side
     // (value · source-document · variance) built at render from the ExtractionResult.
-    ...flagPresent.map(f => `<li>${esc(judgmentRuleSentence(f))}${NOI_RECONCILIATION_FLAGS.has(f) ? noiReconciliationExpander(input.noiReconciliation) : ''}</li>`),
+    ...flagPresent.map(f => `<li>${esc(judgmentRuleSentence(f))}${NOI_RECONCILIATION_FLAGS.has(f) ? noiReconciliationExpander(input.noiReconciliation) : flagDetailHtml(input.flagDetails?.[f])}</li>`),
   ];
   const assumptionsBlock = items.length === 0
     ? ''
@@ -1350,7 +1381,7 @@ function renderHtml(
     header:                    () => renderHeader(input, auth),
     investment_overview:       () => renderInvestmentOverview(input, auth),
     investment_merits:         () => renderInvestmentMerits(auth, findings),
-    key_credit_risks:          () => renderKeyCreditRisks(input.narrative, findings, input.servicerNotes),
+    key_credit_risks:          () => renderKeyCreditRisks(input.narrative, findings, input.servicerNotes, input.flagDetails),
     sponsor_assessment:        () => renderSponsorAssessment(input),
     tenant_analysis:           () => renderTenantAnalysis(findings),
     market_position:           () => renderMarketPosition(input),

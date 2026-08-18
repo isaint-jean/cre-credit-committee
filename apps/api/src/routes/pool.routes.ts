@@ -59,6 +59,7 @@ import { enforcePermission } from '../middleware/require-permission.js';
 import { store as sqliteStore } from '../storage/sqlite-store.js';
 import { recordGraphStore } from '../storage/record-graph-store.js';
 import { buildNoiReconciliationDetail } from '../services/render-memo/noi-reconciliation-detail.js';
+import { buildFlagDetailsForRoot } from '../services/render-memo/flag-details-for-root.js';
 import { PoolStore, WorkingTapeAlreadyOpenError, WorkingTapeUnresolvedError } from '../storage/pool-store.js';
 import { RecordIdMismatchError } from '../storage/record-graph-store.js';
 import { deriveClearedForDealRef } from '../services/pool/derive-cleared.js';
@@ -688,6 +689,17 @@ poolRoutes.get('/loan-for-root/:rootId', (req: Request, res: Response) => {
 // doctrine_evaluation_id → read its extraction + concluded NOI and build the detail.
 // READ-ONLY over the mint (no re-mint, no payload change); deal-access gated like the
 // sibling. { detail: null } when the root has no evaluation/extraction (404-safe/honest).
+// Flag details ("how I determined this") for every red flag on the deal — the same shared
+// builder the memo uses. data.rootId (a doctrine_evaluation_id) → re-run doctrine eval →
+// per-flag { statement, howDetermined, evidence[] }, keyed by dimensionId / ruleId. READ-ONLY
+// over the mint (deterministic re-eval; no LLM, no write); deal-access gated. {} when unresolved.
+poolRoutes.get('/loan-for-root/:rootId/flag-details', (req: Request, res: Response) => {
+  const rootId = req.params['rootId'] as string;
+  if (!enforceDealForRoot(req, res, rootId)) return;
+  const details = buildFlagDetailsForRoot(rootId, recordGraphStore);
+  return res.json({ details: details ?? {} });
+});
+
 poolRoutes.get('/loan-for-root/:rootId/noi-reconciliation', (req: Request, res: Response) => {
   const rootId = req.params['rootId'] as string;
   if (!enforceDealForRoot(req, res, rootId)) return; // gate the deal (mirrors the query-param resolver)

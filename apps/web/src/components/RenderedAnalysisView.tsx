@@ -46,6 +46,8 @@ import { NegotiationSurface } from './NegotiationSurface';
 import { BuyerDiffPanel } from './BuyerDiffPanel';
 import { DealRoomServicerInputs } from './DealRoomServicerInputs';
 import { NoiReconciliationReceipts } from './NoiReconciliationReceipts';
+import { FlagDetailModal } from './FlagDetailModal';
+import type { FlagDetail } from '@cre/contracts';
 import type { AssetType } from '@cre/contracts';
 import { negotiationLoopEnabled } from '@/lib/flags';
 import { useAuth } from '@/lib/auth';
@@ -1058,8 +1060,21 @@ function NarrativeSection(
   );
 }
 
+/** A subtle "how was this determined?" affordance that opens the flag-detail modal. */
+function HowDeterminedButton({ onClick }: { onClick: () => void }): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-2 text-[11px] font-medium underline decoration-dotted underline-offset-2 opacity-80 hover:opacity-100"
+    >
+      How was this determined?
+    </button>
+  );
+}
+
 function FindingsList(
-  { findings }: { findings: readonly RenderedFinding[] },
+  { findings, onOpen }: { findings: readonly RenderedFinding[]; onOpen?: (ruleId: string, reasonCode: string) => void },
 ): React.ReactElement {
   // D04: producer-owned semantics, rendered exactly as materialized. Order preserved
   // from the producer's reasons[] array. No grouping, no severity reconstruction, no
@@ -1078,7 +1093,12 @@ function FindingsList(
           </thead>
           <tbody>
             {findings.map((f, i) => (
-              <tr key={f.ruleId + ':' + f.reasonCode + ':' + i} className="border-t border-gray-100">
+              <tr
+                key={f.ruleId + ':' + f.reasonCode + ':' + i}
+                className={`border-t border-gray-100 ${onOpen ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                onClick={onOpen ? () => onOpen(f.ruleId, f.reasonCode) : undefined}
+                title={onOpen ? 'How was this determined?' : undefined}
+              >
                 <td className="px-3 py-2 font-mono text-xs text-gray-600">{f.ruleId}</td>
                 <td className="px-3 py-2 font-mono text-xs text-gray-900">{f.reasonCode}</td>
               </tr>
@@ -1325,6 +1345,23 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
       .catch(() => { /* un-pooled / unresolved → keep the generic title, no inputs */ });
     return () => { live = false; };
   }, [data.rootId]);
+
+  // "How I determined this" — flag details for the click-to-open modal (shared with the
+  // memo's inline <details>). Fetched once by rootId; a clicked flag opens the modal.
+  const [flagDetails, setFlagDetails] = useState<Record<string, FlagDetail>>({});
+  const [openFlag, setOpenFlag] = useState<FlagDetail | null>(null);
+  useEffect(() => {
+    const rootId = data.rootId;
+    if (rootId === undefined || rootId === null) return;
+    let live = true;
+    api.getFlagDetails(rootId).then((r) => { if (live) setFlagDetails(r.details); }).catch(() => { /* modal stays message-only */ });
+    return () => { live = false; };
+  }, [data.rootId]);
+  // Open the modal for a flag id (dimensionId / ruleId), or a client-built fallback detail.
+  const openFlagDetail = (id: string, fallback?: FlagDetail): void => {
+    setOpenFlag(flagDetails[id] ?? fallback ?? null);
+  };
+
   const [saveError, setSaveError] = useState<{ message: string; code?: string; path?: string } | null>(null);
   // Tabbed workspace drawer — the deep read-only sections behind tabs (Stage 3).
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -1568,7 +1605,18 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
       case 'narrative':
         return <NarrativeSection narrative={data.narrative} />;
       case 'findings':
-        return data.findings.length > 0 ? <FindingsList findings={data.findings} /> : null;
+        return data.findings.length > 0 ? (
+          <FindingsList
+            findings={data.findings}
+            onOpen={(ruleId, reasonCode) => openFlagDetail(ruleId, {
+              flagId: ruleId,
+              statement: reasonCode || ruleId,
+              howDetermined: `Doctrine finding ${ruleId}${reasonCode ? ' — ' + reasonCode : ''}. See the committee memo for the full reasoning.`,
+              evidence: [],
+              tier: 'message',
+            })}
+          />
+        ) : null;
       case 'quality':
         return data.dataQuality.flags.length > 0 ? (
           <section className="space-y-3">
@@ -1681,7 +1729,11 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         ) : null}
         {workflow !== undefined && side !== 'originator' ? <div style={{ marginBottom: 12 }}><SnapshotViewer workflow={workflow} /></div> : null}
 
-        {/* ── Doctrine banners (full-bleed, above the split — unchanged logic) ──── */}
+        {/* ★ "How I determined this" modal — opens over the page for a clicked red flag. */}
+        {openFlag !== null ? <FlagDetailModal detail={openFlag} onClose={() => setOpenFlag(null)} /> : null}
+
+        {/* ── Doctrine banners (full-bleed, above the split — unchanged logic; now each
+            carries a "how was this determined?" affordance that opens the modal). ──── */}
         {data.summary.dataConfidence.value === 'unvalidated' ? (
           <section className="space-y-3 mb-3">
             <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
@@ -1689,6 +1741,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
               <p className="text-sm text-amber-800">
                 The figures below are provisional, resting on conservative library fallbacks rather than validated cash flow. See the committee recommendation below.
               </p>
+              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:dataConfidence', statement: 'Insufficient data — provisional figures', howDetermined: 'The concluded figures could not be validated against an independent trailing-12 operating statement, so they rest on conservative library fallbacks. Data confidence is unvalidated until a trailing operating statement is obtained.', evidence: [{ label: 'Data confidence', value: 'unvalidated', source: 'Absence of a validated cash-flow source' }], tier: 'message' })} />
             </div>
           </section>
         ) : data.summary.dataConfidence.value === 'low_confidence' ? (
@@ -1698,6 +1751,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
               <p className="text-sm text-blue-800">
                 Concluded on in-place / underwriting figures — no trailing-12 actuals were available to validate against. This reflects documentation depth, not credit quality; obtain trailing operating statements to raise data confidence.
               </p>
+              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:dataConfidence', statement: 'Low data confidence', howDetermined: 'The underwriting was validated only against an in-place / seller-projection figure, not a trailing-12 actual. Confidence is limited; a trailing operating statement would firm it up.', evidence: [{ label: 'Data confidence', value: 'low_confidence', source: 'Validated against in-place / projection, not a trailing actual' }], tier: 'message' })} />
             </div>
           </section>
         ) : null}
@@ -1707,6 +1761,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             <div className="border-l-4 border-slate-500 bg-slate-50 p-4 rounded">
               <div className="text-sm font-semibold text-slate-900 mb-1">Insufficient coverage — engine abstained</div>
               <p className="text-sm text-slate-800">{data.summary.coverage.bannerCopy.displayValue}</p>
+              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:coverage', statement: 'Insufficient coverage — engine abstained', howDetermined: data.summary.coverage.bannerCopy.displayValue, evidence: [{ label: 'Coverage gate', value: 'insufficient', source: 'Absence of enough evaluable dimensions' }], tier: 'message' })} />
             </div>
           </section>
         ) : data.summary.coverage.bandCapApplied.value === true ? (
@@ -1714,6 +1769,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             <div className="border-l-4 border-indigo-400 bg-indigo-50 p-4 rounded">
               <div className="text-sm font-semibold text-indigo-900 mb-1">Band capped — risk dimensions unevaluated</div>
               <p className="text-sm text-indigo-800">{data.summary.coverage.bannerCopy.displayValue}</p>
+              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:bandCap', statement: 'Band capped — risk dimensions unevaluated', howDetermined: data.summary.coverage.bannerCopy.displayValue, evidence: [{ label: 'Rating band', value: 'capped', source: 'Unevaluated risk dimensions' }], tier: 'message' })} />
             </div>
           </section>
         ) : null}
@@ -1726,6 +1782,7 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
               {/* ★ Receipts expander — the same value·source·variance rows as the memo
                   (shared builder via a read endpoint). Inside the existing banner, not a new box. */}
               <NoiReconciliationReceipts rootId={data.rootId} />
+              <HowDeterminedButton onClick={() => openFlagDetail('JE_NOI_BELOW_TRAILING_ACTUAL', { flagId: 'JE_NOI_BELOW_TRAILING_ACTUAL', statement: 'NOI materially below trailing-twelve actual', howDetermined: data.summary.noiDivergence?.caveat.displayValue ?? '', evidence: [], tier: 'message' })} />
             </div>
           </section>
         ) : null}
