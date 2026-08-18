@@ -1109,7 +1109,11 @@ renderRoutes.get('/export', async (req: Request, res: Response) => {
   // Step 5 — apply the payload. Pre-validated; failures here are unexpected.
   let applied;
   try {
-    applied = await applyRenderPayloadToTemplate(template.fileData, result.payload);
+    // ★ Site Photos (Chunk 2) — opt in the empty anchor grid, threading the deal name.
+    // Default 8 boxes; Chunk 3 derives the count from the loan's stored site_photos refs.
+    applied = await applyRenderPayloadToTemplate(template.fileData, result.payload, {
+      sitePhotos: { dealName: result.analysis.name, boxCount: 8 },
+    });
   } catch (err: any) {
     res.status(500).json({
       error: err?.message || 'Failed to apply RenderPayload to template',

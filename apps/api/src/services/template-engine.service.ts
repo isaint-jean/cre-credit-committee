@@ -18,6 +18,7 @@ import type {
 } from '@cre/shared';
 import type { PropertyMetadata, RentRoll, RentRollLine } from '@cre/contracts';
 import { matchProvenancePattern } from './render-output-scrubber.js';
+import { addSitePhotosGrid } from './render-memo/site-photos-grid.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2493,6 +2494,7 @@ function applyProFormaProjectionInputs(workbook: ExcelJS.Workbook, assetClass: s
 export async function applyRenderPayloadToTemplate(
   templateBuffer: Buffer,
   payload: RenderPayload,
+  opts?: { readonly sitePhotos?: { readonly dealName?: string; readonly boxCount?: number } },
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(templateBuffer as any);
@@ -2682,6 +2684,13 @@ export async function applyRenderPayloadToTemplate(
   // calcProperties.fullCalcOnLoad emits <calcPr fullCalcOnLoad="1"/> in
   // xl/workbook.xml, which tells Excel to recompute ALL formulas on open.
   workbook.calcProperties.fullCalcOnLoad = true;
+
+  // ★ Site Photos (Chunk 2) — add the empty anchor grid as a dedicated sheet BEFORE
+  // writeBuffer. Opt-in: only callers that pass opts.sitePhotos get the sheet (so other
+  // applyRenderPayloadToTemplate consumers are byte-unchanged). No images yet (Chunk 3).
+  if (opts?.sitePhotos !== undefined) {
+    addSitePhotosGrid(workbook, opts.sitePhotos);
+  }
 
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
