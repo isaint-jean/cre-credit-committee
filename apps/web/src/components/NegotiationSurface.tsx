@@ -104,7 +104,7 @@ const num = (color: string = C.ink): React.CSSProperties => ({ fontFamily: MONO,
 
 /* ───────────────────────── Contested points (RA-native) ─────────────────────── */
 
-interface ContestedPoint {
+export interface ContestedPoint {
   readonly id: string;
   readonly title: string;
   readonly summary: string;
@@ -123,7 +123,7 @@ const oneLine = (s: string, max = 130): string => {
  * (ruleId + reasonCode only — no title/explanation/severity), so it feeds the card's
  * subtitle, while the badge label leads.
  */
-function deriveContestedPoints(data: RenderedAnalysis): ContestedPoint[] {
+export function deriveContestedPoints(data: RenderedAnalysis): ContestedPoint[] {
   const fromFlags: ContestedPoint[] = data.doctrine.flags.map((b) => ({
     id: `flag:${b.code}`,
     title: b.label,

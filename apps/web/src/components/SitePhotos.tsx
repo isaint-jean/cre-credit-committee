@@ -18,6 +18,7 @@ export function SitePhotos({ poolId, loanInPoolId }: { poolId: string; loanInPoo
   const canEdit = side === 'originator'; // the servicer uploads; others view read-only
   const [photos, setPhotos] = useState<SitePhotoRef[]>([]);
   const [state, setState] = useState<'loading' | 'idle' | 'uploading' | 'error'>('loading');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -39,11 +40,13 @@ export function SitePhotos({ poolId, loanInPoolId }: { poolId: string; loanInPoo
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0 || !canEdit) return;
     setState('uploading');
+    setErrorMsg(null);
     try {
       const r = await api.uploadSitePhotos(poolId, loanInPoolId, files);
       setPhotos(r.photos);
       setState('idle');
-    } catch {
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
       setState('error');
     }
     if (fileRef.current) fileRef.current.value = '';
@@ -120,7 +123,7 @@ export function SitePhotos({ poolId, loanInPoolId }: { poolId: string; loanInPoo
                 className="text-xs text-text-secondary"
               />
               {state === 'uploading' && <span className="text-[11px] text-text-muted">Uploading…</span>}
-              {state === 'error' && <span className="text-[11px] text-risk-high">Something went wrong — try again.</span>}
+              {state === 'error' && <span className="text-[11px] text-risk-high">{errorMsg ?? 'Something went wrong — try again.'}</span>}
             </div>
           )}
 

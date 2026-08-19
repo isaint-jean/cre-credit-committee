@@ -32,6 +32,40 @@ export const upload = multer({
   },
 });
 
+// ── Site-photos — a DEDICATED image-accepting multer instance ────────────────
+// Kept SEPARATE from `upload` on purpose: the shared instance above guards every
+// doc / ASR / ZIP upload (fail-closed to office/pdf/zip), and must not learn to
+// accept images. Servicer site photos are their own path. We accept broadly here
+// (incl. webp/heic/heif); the export layer (exportImageExtension) skips the ones
+// exceljs can't embed — they're still stored, just not drawn into the workbook.
+const ALLOWED_IMAGE_MIMES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'application/octet-stream', // some clients don't detect image MIME; extension is re-checked
+];
+
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif'];
+
+export const uploadImages = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB — parity with the shared instance
+  fileFilter: (_req, file, cb) => {
+    const ext = (file.originalname || '').toLowerCase().slice(file.originalname.lastIndexOf('.'));
+    const mime = file.mimetype.toLowerCase();
+    // octet-stream only passes when the extension is a real image extension.
+    const mimeOk = ALLOWED_IMAGE_MIMES.includes(mime) && mime !== 'application/octet-stream';
+    if (mimeOk || ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported image type: ${file.mimetype} (${ext}). Accepted: JPEG, PNG, GIF, WEBP, HEIC`));
+    }
+  },
+});
+
 export const uploadDualFiles = upload.fields([
   { name: 'asr', maxCount: 1 },
   { name: 'uw', maxCount: 1 },

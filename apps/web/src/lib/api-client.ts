@@ -1363,7 +1363,14 @@ export const api = {
     const res = await fetch(`${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-photos/upload`, {
       method: 'POST', headers: { ...getAuthHeader() }, body: fd,
     });
-    if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+    if (!res.ok) {
+      // Surface the server's real reason (e.g. multer's "Unsupported image type …")
+      // so the widget can show it instead of an opaque "something went wrong".
+      const body = await res.text().catch(() => '');
+      let detail = body;
+      try { const j = JSON.parse(body) as { error?: string; message?: string }; detail = j.message ?? j.error ?? body; } catch { /* plain text */ }
+      throw new Error(detail && detail.trim().length > 0 ? `Upload failed (${res.status}): ${detail.trim()}` : `Upload failed (${res.status})`);
+    }
     return res.json() as Promise<{ photos: SitePhotoRef[] }>;
   },
   deleteSitePhoto: (poolId: string, loanInPoolId: string, hash: string) =>

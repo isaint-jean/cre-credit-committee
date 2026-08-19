@@ -74,7 +74,7 @@ import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.
 import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readiness.service.js';
 import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
 import { getServicerInput, getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
-import { upload } from '../middleware/upload.js';
+import { upload, uploadImages } from '../middleware/upload.js';
 import { blobStore } from '../storage/blob-store.js';
 import { resolveServeMime } from '../util/mime-from-extension.js';
 import type { ServicerInputFieldType } from '../storage/servicer-inputs-store.js';
@@ -758,7 +758,7 @@ function saveSitePhotos(poolId: PoolId, loanInPoolId: LoanInPoolId, photos: read
 }
 
 // POST upload — multi-file (any count). Servicer-gated (analysis:revise).
-poolRoutes.post('/:poolId/loans/:loanInPoolId/servicer-inputs/site-photos/upload', upload.array('photos', 100), async (req: Request, res: Response) => {
+poolRoutes.post('/:poolId/loans/:loanInPoolId/servicer-inputs/site-photos/upload', uploadImages.array('photos', 100), async (req: Request, res: Response) => {
   if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
   const poolId = req.params['poolId'] as PoolId;
   const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;

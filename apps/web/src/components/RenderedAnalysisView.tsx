@@ -42,7 +42,7 @@ import { CommitteeActionButtons } from './CommitteeActionButtons';
 import { AuditViewToggle } from './AuditViewToggle';
 import { SnapshotViewer } from './SnapshotViewer';
 import { WorkbookReadiness } from './WorkbookReadiness';
-import { NegotiationSurface } from './NegotiationSurface';
+import { NegotiationSurface, deriveContestedPoints } from './NegotiationSurface';
 import { BuyerDiffPanel } from './BuyerDiffPanel';
 import { DealRoomServicerInputs } from './DealRoomServicerInputs';
 import { NoiReconciliationReceipts } from './NoiReconciliationReceipts';
@@ -1073,6 +1073,13 @@ function HowDeterminedButton({ onClick }: { onClick: () => void }): React.ReactE
   );
 }
 
+// Left-border tone for a Red-Flags card, mirroring the banner palette (calm, by severity).
+function redFlagCardTone(sev: string): { border: string; bg: string; title: string; body: string } {
+  if (sev === 'critical') return { border: 'border-red-600', bg: 'bg-red-50', title: 'text-red-900', body: 'text-red-800' };
+  if (sev === 'warning') return { border: 'border-amber-500', bg: 'bg-amber-50', title: 'text-amber-900', body: 'text-amber-800' };
+  return { border: 'border-slate-400', bg: 'bg-slate-50', title: 'text-slate-800', body: 'text-slate-600' };
+}
+
 function FindingsList(
   { findings, onOpen }: { findings: readonly RenderedFinding[]; onOpen?: (ruleId: string, reasonCode: string) => void },
 ): React.ReactElement {
@@ -1361,6 +1368,30 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
   const openFlagDetail = (id: string, fallback?: FlagDetail): void => {
     setOpenFlag(flagDetails[id] ?? fallback ?? null);
   };
+
+  // ── "Red Flags" section (PRIMARY surface) — the doctrine flags + non-duplicate
+  // findings as separate cards, each → the same FlagDetailModal the banners use. This is
+  // independent of negotiationLoopEnabled (that surface stays shelved). We DEDUPE against
+  // the banners folded under the same header: a flag already shown as a banner (e.g. NOI
+  // divergence → JE_NOI_BELOW_TRAILING_ACTUAL) is not re-listed as a card.
+  const bannerCoveredCodes = new Set<string>();
+  if (data.summary.noiDivergence?.status.value === 'flagged') bannerCoveredCodes.add('JE_NOI_BELOW_TRAILING_ACTUAL');
+  const redFlagCards = deriveContestedPoints(data)
+    .filter((p) => ![...bannerCoveredCodes].some((c) => p.id.includes(c)))
+    .map((p) => ({
+      key: p.id,
+      // The id flagDetails is keyed by: `flag:<code>` → code; `finding:<ruleId>:<reason>` → ruleId.
+      matchId: p.id.startsWith('flag:') ? p.id.slice('flag:'.length) : (p.id.split(':')[1] ?? p.id),
+      title: p.title,
+      summary: p.summary,
+      severity: p.severity as string,
+    }));
+  const redFlagBannerCount = [
+    data.summary.dataConfidence.value === 'unvalidated' || data.summary.dataConfidence.value === 'low_confidence',
+    data.summary.coverage.insufficientCoverageGate.value === true || data.summary.coverage.bandCapApplied.value === true,
+    data.summary.noiDivergence?.status.value === 'flagged',
+  ].filter(Boolean).length;
+  const redFlagTotal = redFlagBannerCount + redFlagCards.length;
 
   const [saveError, setSaveError] = useState<{ message: string; code?: string; path?: string } | null>(null);
   // Tabbed workspace drawer — the deep read-only sections behind tabs (Stage 3).
@@ -1732,6 +1763,18 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         {/* ★ "How I determined this" modal — opens over the page for a clicked red flag. */}
         {openFlag !== null ? <FlagDetailModal detail={openFlag} onClose={() => setOpenFlag(null)} /> : null}
 
+        {/* ── "Red Flags" — ONE titled group on the primary surface: the doctrine banners
+            (folded in below) + the flag/finding cards, each → the same FlagDetailModal.
+            Independent of negotiationLoopEnabled (that surface stays shelved). Deduped
+            (a banner-covered flag isn't re-listed as a card); calm empty-state when none. */}
+        <section className="space-y-3 mb-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Red Flags</h2>
+            <span className="text-[11px] text-gray-400">
+              {redFlagTotal === 0 ? 'none open' : `${redFlagTotal} flag${redFlagTotal === 1 ? '' : 's'}`}
+            </span>
+          </div>
+
         {/* ── Doctrine banners (full-bleed, above the split — unchanged logic; now each
             carries a "how was this determined?" affordance that opens the modal). ──── */}
         {data.summary.dataConfidence.value === 'unvalidated' ? (
@@ -1786,6 +1829,30 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
             </div>
           </section>
         ) : null}
+
+          {/* Flag/finding cards — one SEPARATE card per flag, each clickable → the modal. */}
+          {redFlagCards.map((c) => {
+            const tone = redFlagCardTone(c.severity);
+            return (
+              <div key={c.key} className={`border-l-4 ${tone.border} ${tone.bg} p-4 rounded`}>
+                <div className={`text-sm font-semibold ${tone.title} mb-1`}>{c.title}</div>
+                {c.summary && c.summary !== c.title ? <p className={`text-sm ${tone.body}`}>{c.summary}</p> : null}
+                <HowDeterminedButton onClick={() => openFlagDetail(c.matchId, {
+                  flagId: c.matchId,
+                  statement: c.title,
+                  howDetermined: `Doctrine ${c.severity} flag ${c.matchId}. See the committee memo for the full reasoning.`,
+                  evidence: [],
+                  tier: 'message',
+                })} />
+              </div>
+            );
+          })}
+
+          {/* Calm empty-state — no awkward empty titled box when a deal has no flags. */}
+          {redFlagTotal === 0 ? (
+            <p className="text-sm text-gray-500">No red flags — the doctrine engine surfaced nothing to contest on this deal.</p>
+          ) : null}
+        </section>
 
         {/* P3b — advisory intake-completeness readiness + Create-workbook CTA. */}
         {analysisId !== undefined ? <div style={{ marginBottom: 16 }}><WorkbookReadiness analysisId={analysisId} onAppended={onRevisionSaved} /></div> : null}
