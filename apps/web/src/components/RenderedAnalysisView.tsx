@@ -1460,9 +1460,14 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
     // flagDetails is keyed by: `flag:<code>` → code; `finding:<ruleId>:<reason>` → ruleId.
     const matchId = p.id.startsWith('flag:') ? p.id.slice('flag:'.length) : (p.id.split(':')[1] ?? p.id);
     const severity: RedFlagSeverity = p.severity === 'critical' ? 'critical' : p.severity === 'warning' ? 'warning' : 'info';
+    // ★ ONE source of truth: the human headline (with the real number) from the shared
+    // FlagDetail builder. Falls back to the derived title only until the detail loads.
+    const detail = flagDetails[matchId];
+    const title = detail?.statement ?? p.title;
     redFlagItems.push({
-      key: p.id, severity, category: redFlagCategory(matchId), title: p.title,
-      body: p.summary && p.summary !== p.title ? p.summary : undefined,
+      key: p.id, severity, category: redFlagCategory(matchId), title,
+      // Once we show the human statement, the raw-code summary would be noise — drop it.
+      body: detail?.statement !== undefined ? undefined : (p.summary && p.summary !== p.title ? p.summary : undefined),
       onOpen: () => openFlagDetail(matchId, { flagId: matchId, statement: p.title, howDetermined: `Doctrine ${severity} flag ${matchId}. See the committee memo for the full reasoning.`, evidence: [], tier: 'message' }),
     });
   }

@@ -41,6 +41,9 @@ function fmtOutput(key: string, v: number | string): string {
   // boolean-ish flags (isIo, basisIsIo, …) — render Yes/No, not "$1".
   if (/(^is[A-Z])|Is[A-Z]|IsIo$/i.test(key) && (v === 0 || v === 1)) return v === 1 ? 'Yes' : 'No';
   if (/ltv|occupanc|vacancy/i.test(key) && Math.abs(v) <= 1.5) return `${(v * 100).toFixed(1)}%`;
+  // A 0–1 tenant/income SHARE renders as a whole percent ("52%"), not "0.52". Scoped to
+  // *Share keys so it drives BOTH the headline and the evidence row identically (no drift).
+  if (/share/i.test(key) && Math.abs(v) <= 1) return `${Math.round(v * 100)}%`;
   if (/rate|yield|pct/i.test(key) && Math.abs(v) <= 1) return `${(v * 100).toFixed(2)}%`;
   if (/dscr|ratio|multiple|aggressiveness/i.test(key)) return `${v.toFixed(2)}×`;
   if (/value|noi|ncf|amount|loan|reserve|expense|income|revenue|debt|service|balance/i.test(key)) return fmtUsd(v);
@@ -104,10 +107,47 @@ function dimensionOutputSource(dimensionId: string, key: string, valueDocLabel: 
   return 'Underwriting inputs';
 }
 
+// Plain-language titles for dimensions whose triggering number isn't cleanly reachable at
+// render (never a bare metric label). rollover's share is trapped in rationale prose (the
+// producer isn't touched this pass); asset-class is an enum; sponsor is HITL.
+const DIMENSION_FALLBACK_TITLE: Readonly<Record<string, string>> = {
+  'rollover': 'Large share of leases roll within the loan term',
+  'asset-class': 'Secondary / higher-risk asset type',
+  'sponsor-borrower-quality': 'Sponsor quality unverified',
+};
+
+/**
+ * The specific, human headline WITH the real triggering number — pulled from derivedOutputs
+ * via the SAME fmtOutput the evidence rows use, so the headline number is byte-identical to
+ * the modal evidence (zero drift, never invented). Returns null when the expected number is
+ * absent/unformattable → the caller uses the plain-language fallback (never a blank / NaN).
+ */
+function dimensionHeadline(c: DimensionContribution): string | null {
+  const o = c.derivedOutputs ?? {};
+  const num = (k: string): string | null => {
+    const v = o[k];
+    return typeof v === 'number' && Number.isFinite(v) ? fmtOutput(k, v) : null;
+  };
+  let x: string | null;
+  switch (c.dimensionId) {
+    case 'coverage-dscr': x = num('stressedDscr'); return x ? `Thin coverage — DSCR ${x} barely clears debt service` : null;
+    case 'leverage-ltv': x = num('stressedLtv'); return x ? `High leverage — ${x} LTV against a stressed value` : null;
+    case 'debt-yield': x = num('debtYield'); return x ? `Low debt yield — ${x}` : null;
+    case 'refinance-feasibility': x = num('exitDscr'); return x ? `Won't refinance — exit DSCR ${x} below 1.0×` : null;
+    case 'cap-rate-valuation-stress': x = num('stressedCapRateGoingIn'); return x ? `Aggressive valuation — implies a ${x} cap vs the stressed floor` : null;
+    case 'income-concentration': x = num('topTenantShare'); return x ? `Concentrated income — top tenant ${x} of income` : null;
+    default: return null;
+  }
+}
+
 /** Rich dimension detail: rationale (how) + derivedOutputs (values). Thin for HITL/sponsor. */
 export function dimensionFlagDetail(c: DimensionContribution, ctx: DimensionDocContext = NO_DOC_CTX): FlagDetail {
   const thin = c.applicability === 'hitl-needed' || c.dimensionId === 'sponsor-borrower-quality';
-  const statement = dimensionRiskSentence(c.dimensionId, c.tier);
+  // ★ Human headline WITH the real number where reachable; else the plain-language title;
+  // else the qualitative risk sentence — NEVER a bare metric label.
+  const statement = dimensionHeadline(c)
+    ?? DIMENSION_FALLBACK_TITLE[c.dimensionId]
+    ?? dimensionRiskSentence(c.dimensionId, c.tier);
   if (thin) {
     // Bucket C — sponsor / HITL: honest-thin, NEVER a fabricated document.
     return {

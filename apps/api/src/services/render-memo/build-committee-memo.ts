@@ -539,6 +539,7 @@ function flagDetailHtml(detail: FlagDetail | undefined): string {
   return `
       <details class="memo-flag-detail">
         <summary>How this was determined</summary>
+        <p class="memo-prose-fine"><strong>${esc(detail.statement)}</strong></p>
         <p class="memo-prose-fine">${esc(detail.howDetermined)}</p>
         ${evidence}
         <p class="memo-prose-fine">Source documents are named, not linked; page-level provenance is not captured.</p>
