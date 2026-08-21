@@ -89,8 +89,11 @@ async function partC(): Promise<void> {
     resolve: (() => ({ resolved: true, poolId: 'P', loanInPoolId: 'L', matchedBy: 'exact-deal-ref' })) as never,
     getInput: (() => ({ value } as never)) as never,
     getBlob: async (h) => (h === 'hmiss' ? null : Buffer.from(`img-${h}`)),
+    // Chunk 4 added a real jimp resize in the loader; these fixtures aren't real images, so
+    // inject a passthrough resize to keep this ordering/skip test decoupled from decoding.
+    resize: async (buf) => ({ buffer: buf, width: 10, height: 10, extension: 'jpeg' as const }),
   });
-  check('ordered by ref.order (front.png then roof.jpg)', loaded.length === 2 && loaded[0]!.extension === 'png' && loaded[1]!.extension === 'jpeg');
+  check('ordered by ref.order (front.png then roof.jpg)', loaded.length === 2 && loaded[0]!.buffer.toString().includes('h0') && loaded[1]!.buffer.toString().includes('h1'));
   check('webp skipped + missing blob skipped', !loaded.some((p) => p.buffer.toString().includes('h2')) && !loaded.some((p) => p.buffer.toString().includes('hmiss')));
   const none = await loadSitePhotosForExport(null);
   check('no graphRevisionId → [] (no crash)', none.length === 0);
