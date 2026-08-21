@@ -1060,24 +1060,73 @@ function NarrativeSection(
   );
 }
 
-/** A subtle "how was this determined?" affordance that opens the flag-detail modal. */
-function HowDeterminedButton({ onClick }: { onClick: () => void }): React.ReactElement {
+// ── Red Flags — ONE card system ──────────────────────────────────────────────
+// Both the doctrine banners and the dimension/finding flags render through
+// RedFlagCard. Severity → (left-accent + soft tint) is mapped ONCE from the same
+// tokens SEVERITY_TONE / the C palette use, so color intensity reads consistently.
+type RedFlagSeverity = 'critical' | 'warning' | 'info';
+const RED_FLAG_TONE: Readonly<Record<RedFlagSeverity, { accent: string; tint: string }>> = {
+  critical: { accent: C.kicked, tint: '#FBECEB' },      // = SEVERITY_TONE.critical
+  warning: { accent: C.flagged, tint: C.amberSoft },    // = SEVERITY_TONE.warning
+  info: { accent: C.contested, tint: '#EAF0F8' },       // = SEVERITY_TONE.info
+};
+const RED_FLAG_SEV_LABEL: Readonly<Record<RedFlagSeverity, string>> = {
+  critical: 'Critical', warning: 'Flagged', info: 'Finding',
+};
+
+/** Category cue from a flag id / rule id — structure that encodes what the flag is about. */
+function redFlagCategory(id: string): string {
+  const s = id.toUpperCase();
+  if (/NOI|RECONCIL|T12|TRAILING_ACTUAL/.test(s)) return 'Reconciliation';
+  if (/MISSING/.test(s)) return 'Missing doc';
+  if (/SPONSOR|BORROWER/.test(s)) return 'Sponsor';
+  if (/ROLLOVER|TENANT|CONCENTRAT|LEASE/.test(s)) return 'Tenancy';
+  if (/PCA|CAPEX|RESERVE|REPAIR|TILC/.test(s)) return 'Capex';
+  if (/DSCR|DEBT.?YIELD|COVERAGE/.test(s)) return 'Coverage';
+  if (/LTV|VALUE|CAP.?RATE|VALUATION|LEVERAGE/.test(s)) return 'Valuation';
+  return 'Finding';
+}
+
+interface RedFlagItem {
+  readonly key: string;
+  readonly severity: RedFlagSeverity;
+  readonly category: string;
+  readonly title: string;
+  readonly body?: string;
+  readonly extra?: React.ReactNode;   // e.g. the NOI receipts expander
+  readonly onOpen: () => void;        // opens the FlagDetailModal
+}
+
+function RedFlagChip({ text, filled, accent }: { text: string; filled: boolean; accent: string }): React.ReactElement {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="mt-2 text-[11px] font-medium underline decoration-dotted underline-offset-2 opacity-80 hover:opacity-100"
-    >
-      How was this determined?
-    </button>
+    <span style={{
+      fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase',
+      padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap',
+      color: filled ? '#fff' : C.ink3,
+      background: filled ? accent : C.surface,
+      border: filled ? `1px solid ${accent}` : `1px solid ${C.border}`,
+    }}>{text}</span>
   );
 }
 
-// Left-border tone for a Red-Flags card, mirroring the banner palette (calm, by severity).
-function redFlagCardTone(sev: string): { border: string; bg: string; title: string; body: string } {
-  if (sev === 'critical') return { border: 'border-red-600', bg: 'bg-red-50', title: 'text-red-900', body: 'text-red-800' };
-  if (sev === 'warning') return { border: 'border-amber-500', bg: 'bg-amber-50', title: 'text-amber-900', body: 'text-amber-800' };
-  return { border: 'border-slate-400', bg: 'bg-slate-50', title: 'text-slate-800', body: 'text-slate-600' };
+function RedFlagCard({ item }: { item: RedFlagItem }): React.ReactElement {
+  const t = RED_FLAG_TONE[item.severity];
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderLeft: `3px solid ${t.accent}`, background: t.tint, borderRadius: 10, padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <RedFlagChip text={RED_FLAG_SEV_LABEL[item.severity]} filled accent={t.accent} />
+        <RedFlagChip text={item.category} filled={false} accent={t.accent} />
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{item.title}</div>
+      {item.body ? <p style={{ fontSize: 12.5, color: C.ink2, margin: '4px 0 0', lineHeight: 1.5 }}>{item.body}</p> : null}
+      {item.extra}
+      <div style={{ marginTop: 8 }}>
+        <button type="button" onClick={item.onOpen} style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 }}>
+          How was this determined?
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function FindingsList(
@@ -1369,29 +1418,54 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
     setOpenFlag(flagDetails[id] ?? fallback ?? null);
   };
 
-  // ── "Red Flags" section (PRIMARY surface) — the doctrine flags + non-duplicate
-  // findings as separate cards, each → the same FlagDetailModal the banners use. This is
-  // independent of negotiationLoopEnabled (that surface stays shelved). We DEDUPE against
-  // the banners folded under the same header: a flag already shown as a banner (e.g. NOI
-  // divergence → JE_NOI_BELOW_TRAILING_ACTUAL) is not re-listed as a card.
+  // ── "Red Flags" (PRIMARY surface) — ONE list, ONE card system. The doctrine banners
+  // AND the dimension/finding flags become RedFlagItems and render through RedFlagCard.
+  // Independent of negotiationLoopEnabled (that surface stays shelved). Deduped: a flag
+  // already shown as a banner (e.g. NOI → JE_NOI_BELOW_TRAILING_ACTUAL) is not re-carded.
+  const redFlagItems: RedFlagItem[] = [];
+
+  // Banners → items (severity mapped so intensity is consistent with the cards).
+  if (data.summary.dataConfidence.value === 'unvalidated') {
+    redFlagItems.push({ key: 'banner:dataConfidence', severity: 'warning', category: 'Data',
+      title: 'Insufficient data — provisional figures',
+      body: 'The figures below are provisional, resting on conservative library fallbacks rather than validated cash flow. See the committee recommendation below.',
+      onOpen: () => setOpenFlag({ flagId: 'banner:dataConfidence', statement: 'Insufficient data — provisional figures', howDetermined: 'The concluded figures could not be validated against an independent trailing-12 operating statement, so they rest on conservative library fallbacks. Data confidence is unvalidated until a trailing operating statement is obtained.', evidence: [{ label: 'Data confidence', value: 'unvalidated', source: 'Absence of a validated cash-flow source' }], tier: 'message' }) });
+  } else if (data.summary.dataConfidence.value === 'low_confidence') {
+    redFlagItems.push({ key: 'banner:dataConfidence', severity: 'info', category: 'Data',
+      title: 'Low data confidence — underwriting on in-place / projected figures',
+      body: 'Concluded on in-place / underwriting figures — no trailing-12 actuals were available to validate against. This reflects documentation depth, not credit quality; obtain trailing operating statements to raise data confidence.',
+      onOpen: () => setOpenFlag({ flagId: 'banner:dataConfidence', statement: 'Low data confidence', howDetermined: 'The underwriting was validated only against an in-place / seller-projection figure, not a trailing-12 actual. Confidence is limited; a trailing operating statement would firm it up.', evidence: [{ label: 'Data confidence', value: 'low_confidence', source: 'Validated against in-place / projection, not a trailing actual' }], tier: 'message' }) });
+  }
+  if (data.summary.coverage.insufficientCoverageGate.value === true) {
+    redFlagItems.push({ key: 'banner:coverage', severity: 'warning', category: 'Coverage',
+      title: 'Insufficient coverage — engine abstained', body: data.summary.coverage.bannerCopy.displayValue,
+      onOpen: () => setOpenFlag({ flagId: 'banner:coverage', statement: 'Insufficient coverage — engine abstained', howDetermined: data.summary.coverage.bannerCopy.displayValue, evidence: [{ label: 'Coverage gate', value: 'insufficient', source: 'Absence of enough evaluable dimensions' }], tier: 'message' }) });
+  } else if (data.summary.coverage.bandCapApplied.value === true) {
+    redFlagItems.push({ key: 'banner:bandCap', severity: 'info', category: 'Coverage',
+      title: 'Band capped — risk dimensions unevaluated', body: data.summary.coverage.bannerCopy.displayValue,
+      onOpen: () => setOpenFlag({ flagId: 'banner:bandCap', statement: 'Band capped — risk dimensions unevaluated', howDetermined: data.summary.coverage.bannerCopy.displayValue, evidence: [{ label: 'Rating band', value: 'capped', source: 'Unevaluated risk dimensions' }], tier: 'message' }) });
+  }
+  if (data.summary.noiDivergence?.status.value === 'flagged') {
+    redFlagItems.push({ key: 'banner:noi', severity: 'critical', category: 'Reconciliation',
+      title: 'NOI materially below trailing-twelve actual', body: data.summary.noiDivergence.caveat.displayValue,
+      extra: <NoiReconciliationReceipts rootId={data.rootId} />,
+      onOpen: () => openFlagDetail('JE_NOI_BELOW_TRAILING_ACTUAL', { flagId: 'JE_NOI_BELOW_TRAILING_ACTUAL', statement: 'NOI materially below trailing-twelve actual', howDetermined: data.summary.noiDivergence?.caveat.displayValue ?? '', evidence: [], tier: 'message' }) });
+  }
+
+  // Dimension / finding flags → cards (deduped against the banner-covered flags above).
   const bannerCoveredCodes = new Set<string>();
   if (data.summary.noiDivergence?.status.value === 'flagged') bannerCoveredCodes.add('JE_NOI_BELOW_TRAILING_ACTUAL');
-  const redFlagCards = deriveContestedPoints(data)
-    .filter((p) => ![...bannerCoveredCodes].some((c) => p.id.includes(c)))
-    .map((p) => ({
-      key: p.id,
-      // The id flagDetails is keyed by: `flag:<code>` → code; `finding:<ruleId>:<reason>` → ruleId.
-      matchId: p.id.startsWith('flag:') ? p.id.slice('flag:'.length) : (p.id.split(':')[1] ?? p.id),
-      title: p.title,
-      summary: p.summary,
-      severity: p.severity as string,
-    }));
-  const redFlagBannerCount = [
-    data.summary.dataConfidence.value === 'unvalidated' || data.summary.dataConfidence.value === 'low_confidence',
-    data.summary.coverage.insufficientCoverageGate.value === true || data.summary.coverage.bandCapApplied.value === true,
-    data.summary.noiDivergence?.status.value === 'flagged',
-  ].filter(Boolean).length;
-  const redFlagTotal = redFlagBannerCount + redFlagCards.length;
+  for (const p of deriveContestedPoints(data)) {
+    if ([...bannerCoveredCodes].some((c) => p.id.includes(c))) continue;
+    // flagDetails is keyed by: `flag:<code>` → code; `finding:<ruleId>:<reason>` → ruleId.
+    const matchId = p.id.startsWith('flag:') ? p.id.slice('flag:'.length) : (p.id.split(':')[1] ?? p.id);
+    const severity: RedFlagSeverity = p.severity === 'critical' ? 'critical' : p.severity === 'warning' ? 'warning' : 'info';
+    redFlagItems.push({
+      key: p.id, severity, category: redFlagCategory(matchId), title: p.title,
+      body: p.summary && p.summary !== p.title ? p.summary : undefined,
+      onOpen: () => openFlagDetail(matchId, { flagId: matchId, statement: p.title, howDetermined: `Doctrine ${severity} flag ${matchId}. See the committee memo for the full reasoning.`, evidence: [], tier: 'message' }),
+    });
+  }
 
   const [saveError, setSaveError] = useState<{ message: string; code?: string; path?: string } | null>(null);
   // Tabbed workspace drawer — the deep read-only sections behind tabs (Stage 3).
@@ -1763,95 +1837,27 @@ export function RenderedAnalysisView({ data, workflow, timeline, onWorkflowChang
         {/* ★ "How I determined this" modal — opens over the page for a clicked red flag. */}
         {openFlag !== null ? <FlagDetailModal detail={openFlag} onClose={() => setOpenFlag(null)} /> : null}
 
-        {/* ── "Red Flags" — ONE titled group on the primary surface: the doctrine banners
-            (folded in below) + the flag/finding cards, each → the same FlagDetailModal.
-            Independent of negotiationLoopEnabled (that surface stays shelved). Deduped
-            (a banner-covered flag isn't re-listed as a card); calm empty-state when none. */}
-        <section className="space-y-3 mb-4">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-sm uppercase tracking-wide font-semibold text-gray-700">Red Flags</h2>
-            <span className="text-[11px] text-gray-400">
-              {redFlagTotal === 0 ? 'none open' : `${redFlagTotal} flag${redFlagTotal === 1 ? '' : 's'}`}
+        {/* ── "Red Flags" — ONE card system on the primary surface: banners + dimension/
+            finding flags all render through RedFlagCard (severity accent + category chip).
+            Independent of negotiationLoopEnabled (that surface stays shelved). Deduped;
+            framed empty-state when none. */}
+        <section style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h2 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700, color: C.ink2, margin: 0 }}>Red Flags</h2>
+            <span style={{ fontSize: 11, color: C.ink3 }}>
+              {redFlagItems.length === 0 ? 'none open' : `${redFlagItems.length} open`}
             </span>
           </div>
-
-        {/* ── Doctrine banners (full-bleed, above the split — unchanged logic; now each
-            carries a "how was this determined?" affordance that opens the modal). ──── */}
-        {data.summary.dataConfidence.value === 'unvalidated' ? (
-          <section className="space-y-3 mb-3">
-            <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
-              <div className="text-sm font-semibold text-amber-900 mb-1">Insufficient data — provisional figures</div>
-              <p className="text-sm text-amber-800">
-                The figures below are provisional, resting on conservative library fallbacks rather than validated cash flow. See the committee recommendation below.
-              </p>
-              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:dataConfidence', statement: 'Insufficient data — provisional figures', howDetermined: 'The concluded figures could not be validated against an independent trailing-12 operating statement, so they rest on conservative library fallbacks. Data confidence is unvalidated until a trailing operating statement is obtained.', evidence: [{ label: 'Data confidence', value: 'unvalidated', source: 'Absence of a validated cash-flow source' }], tier: 'message' })} />
+          {redFlagItems.length === 0 ? (
+            <div style={{ border: `1px solid ${C.border}`, background: C.surface2, borderRadius: 10, padding: '18px 16px', textAlign: 'center' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink2 }}>No red flags</div>
+              <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>Nothing to contest on this deal.</div>
             </div>
-          </section>
-        ) : data.summary.dataConfidence.value === 'low_confidence' ? (
-          <section className="space-y-3 mb-3">
-            <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
-              <div className="text-sm font-semibold text-blue-900 mb-1">Low data confidence — underwriting on in-place / projected figures</div>
-              <p className="text-sm text-blue-800">
-                Concluded on in-place / underwriting figures — no trailing-12 actuals were available to validate against. This reflects documentation depth, not credit quality; obtain trailing operating statements to raise data confidence.
-              </p>
-              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:dataConfidence', statement: 'Low data confidence', howDetermined: 'The underwriting was validated only against an in-place / seller-projection figure, not a trailing-12 actual. Confidence is limited; a trailing operating statement would firm it up.', evidence: [{ label: 'Data confidence', value: 'low_confidence', source: 'Validated against in-place / projection, not a trailing actual' }], tier: 'message' })} />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {redFlagItems.map((it) => <RedFlagCard key={it.key} item={it} />)}
             </div>
-          </section>
-        ) : null}
-
-        {data.summary.coverage.insufficientCoverageGate.value === true ? (
-          <section className="space-y-3 mb-3">
-            <div className="border-l-4 border-slate-500 bg-slate-50 p-4 rounded">
-              <div className="text-sm font-semibold text-slate-900 mb-1">Insufficient coverage — engine abstained</div>
-              <p className="text-sm text-slate-800">{data.summary.coverage.bannerCopy.displayValue}</p>
-              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:coverage', statement: 'Insufficient coverage — engine abstained', howDetermined: data.summary.coverage.bannerCopy.displayValue, evidence: [{ label: 'Coverage gate', value: 'insufficient', source: 'Absence of enough evaluable dimensions' }], tier: 'message' })} />
-            </div>
-          </section>
-        ) : data.summary.coverage.bandCapApplied.value === true ? (
-          <section className="space-y-3 mb-3">
-            <div className="border-l-4 border-indigo-400 bg-indigo-50 p-4 rounded">
-              <div className="text-sm font-semibold text-indigo-900 mb-1">Band capped — risk dimensions unevaluated</div>
-              <p className="text-sm text-indigo-800">{data.summary.coverage.bannerCopy.displayValue}</p>
-              <HowDeterminedButton onClick={() => setOpenFlag({ flagId: 'banner:bandCap', statement: 'Band capped — risk dimensions unevaluated', howDetermined: data.summary.coverage.bannerCopy.displayValue, evidence: [{ label: 'Rating band', value: 'capped', source: 'Unevaluated risk dimensions' }], tier: 'message' })} />
-            </div>
-          </section>
-        ) : null}
-
-        {data.summary.noiDivergence?.status.value === 'flagged' ? (
-          <section className="space-y-3 mb-3">
-            <div className="border-l-4 border-red-600 bg-red-50 p-4 rounded">
-              <div className="text-sm font-semibold text-red-900 mb-1">NOI materially below trailing-twelve actual</div>
-              <p className="text-sm text-red-800">{data.summary.noiDivergence.caveat.displayValue}</p>
-              {/* ★ Receipts expander — the same value·source·variance rows as the memo
-                  (shared builder via a read endpoint). Inside the existing banner, not a new box. */}
-              <NoiReconciliationReceipts rootId={data.rootId} />
-              <HowDeterminedButton onClick={() => openFlagDetail('JE_NOI_BELOW_TRAILING_ACTUAL', { flagId: 'JE_NOI_BELOW_TRAILING_ACTUAL', statement: 'NOI materially below trailing-twelve actual', howDetermined: data.summary.noiDivergence?.caveat.displayValue ?? '', evidence: [], tier: 'message' })} />
-            </div>
-          </section>
-        ) : null}
-
-          {/* Flag/finding cards — one SEPARATE card per flag, each clickable → the modal. */}
-          {redFlagCards.map((c) => {
-            const tone = redFlagCardTone(c.severity);
-            return (
-              <div key={c.key} className={`border-l-4 ${tone.border} ${tone.bg} p-4 rounded`}>
-                <div className={`text-sm font-semibold ${tone.title} mb-1`}>{c.title}</div>
-                {c.summary && c.summary !== c.title ? <p className={`text-sm ${tone.body}`}>{c.summary}</p> : null}
-                <HowDeterminedButton onClick={() => openFlagDetail(c.matchId, {
-                  flagId: c.matchId,
-                  statement: c.title,
-                  howDetermined: `Doctrine ${c.severity} flag ${c.matchId}. See the committee memo for the full reasoning.`,
-                  evidence: [],
-                  tier: 'message',
-                })} />
-              </div>
-            );
-          })}
-
-          {/* Calm empty-state — no awkward empty titled box when a deal has no flags. */}
-          {redFlagTotal === 0 ? (
-            <p className="text-sm text-gray-500">No red flags — the doctrine engine surfaced nothing to contest on this deal.</p>
-          ) : null}
+          )}
         </section>
 
         {/* P3b — advisory intake-completeness readiness + Create-workbook CTA. */}
