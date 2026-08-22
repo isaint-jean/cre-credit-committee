@@ -175,7 +175,35 @@ export interface RollUpMath {
   readonly portfolioLtv: number | null;
   /** Portfolio debt yield = ΣNOI ÷ whole-loan balance (null when either is absent). */
   readonly portfolioDebtYield: number | null;
+  /** Phase B 1a — the template's SUM(C:Z) line-item totals (the matrix's additive rows). */
+  readonly lineItems: RollUpLineItems;
+  /** Phase B 1a — allocation-weighted cap rate = Σ(capRate·alloc) ÷ Σalloc (the template's
+   *  SUMPRODUCT-by-allocation basis). Null when caps/allocations are absent. */
+  readonly allocationWeightedCapRate: number | null;
+  /** Phase B 1a — allocation-weighted rollover = Σ(rolloverPct·alloc) ÷ Σalloc. */
+  readonly portfolioRolloverPct: number | null;
   readonly concentration: PortfolioConcentration;
+}
+
+/**
+ * Phase B 1a — the additive per-property line items summed across the portfolio (the
+ * template's AB column = SUM(C:Z)). Each is honest-null when NO property carries it.
+ * noi / ncf mirror math.aggregateNoi / aggregateNcf (repeated here for a complete
+ * matrix feed). Stabilized single-year figures; per-year vectors are Phase C.
+ */
+export interface RollUpLineItems {
+  readonly originalBalance: number | null;
+  readonly cutoffBalance: number | null;
+  readonly pgi: number | null;
+  readonly otherIncome: number | null;
+  readonly expenseReimbursements: number | null;
+  readonly egi: number | null;
+  readonly operatingExpenses: number | null;
+  readonly noi: number | null;
+  readonly replacementReserves: number | null;
+  readonly tiLc: number | null;
+  readonly otherCapEx: number | null;
+  readonly ncf: number | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -285,6 +313,25 @@ function sumDefined(xs: ReadonlyArray<number | null>): number | null {
   const present = xs.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
   if (present.length === 0) return null;
   return present.reduce((s, x) => s + x, 0);
+}
+
+/** Allocation-weighted average = Σ(value·weight) ÷ Σweight, over rows where BOTH are
+ *  present (the template's SUMPRODUCT-by-allocation). Null when no such row exists. */
+function allocationWeighted(
+  components: readonly PropertyComponent[],
+  pick: (c: PropertyComponent) => number | null | undefined,
+): number | null {
+  let num = 0;
+  let den = 0;
+  for (const c of components) {
+    const v = pick(c);
+    const w = c.allocatedLoanAmount;
+    if (typeof v === 'number' && Number.isFinite(v) && typeof w === 'number' && Number.isFinite(w) && w > 0) {
+      num += v * w;
+      den += w;
+    }
+  }
+  return den > 0 ? num / den : null;
 }
 
 function computeConcentration(components: readonly PropertyComponent[]): PortfolioConcentration {
@@ -420,6 +467,25 @@ export function aggregatePortfolio(
       ? aggregateNoi / wholeLoanBalance
       : null;
 
+  // ★ Phase B 1a — SUM the additive line items (the template's AB = SUM(C:Z) rows) and
+  //   the allocation-weighted rates (SUMPRODUCT-by-allocation). Honest-null when absent.
+  const lineItems: RollUpLineItems = {
+    originalBalance: sumDefined(components.map((c) => c.originalBalance ?? null)),
+    cutoffBalance: sumDefined(components.map((c) => c.cutoffBalance ?? null)),
+    pgi: sumDefined(components.map((c) => c.pgi ?? null)),
+    otherIncome: sumDefined(components.map((c) => c.otherIncome ?? null)),
+    expenseReimbursements: sumDefined(components.map((c) => c.expenseReimbursements ?? null)),
+    egi: sumDefined(components.map((c) => c.egi ?? null)),
+    operatingExpenses: sumDefined(components.map((c) => c.operatingExpenses ?? null)),
+    noi: aggregateNoi,
+    replacementReserves: sumDefined(components.map((c) => c.replacementReserves ?? null)),
+    tiLc: sumDefined(components.map((c) => c.tiLc ?? null)),
+    otherCapEx: sumDefined(components.map((c) => c.otherCapEx ?? null)),
+    ncf: aggregateNcf,
+  };
+  const allocationWeightedCapRate = allocationWeighted(components, (c) => c.capRate);
+  const portfolioRolloverPct = allocationWeighted(components, (c) => c.rolloverPctWithinTerm);
+
   const math: RollUpMath = {
     loanCount: components.length,
     blendedValue,
@@ -431,6 +497,9 @@ export function aggregatePortfolio(
     wholeLoanBalance,
     portfolioLtv,
     portfolioDebtYield,
+    lineItems,
+    allocationWeightedCapRate,
+    portfolioRolloverPct,
     concentration,
   };
 

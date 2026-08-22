@@ -38,7 +38,12 @@ const approx = (a: number | null, b: number, tol = 1e-6): boolean => a !== null 
 
 // A realistic 3-property manual portfolio (values ~ Prime Storage-Blue shape).
 function prop(name: string, value: number, noi: number, ncf: number, alloc: number, type = 'Self-Storage', state = 'NJ'): ManualPortfolioProperty {
-  return { propertyName: name, address: null, city: null, state, propertyType: type, netRentableSF: null, value, noi, ncf, occupancyPct: 0.92, allocatedLoanAmount: alloc };
+  return {
+    propertyName: name, address: null, city: null, state, propertyType: type, netRentableSF: null,
+    value, noi, ncf, occupancyPct: 0.92, allocatedLoanAmount: alloc,
+    originalBalance: null, cutoffBalance: null, pgi: null, otherIncome: null, expenseReimbursements: null,
+    egi: null, operatingExpenses: null, replacementReserves: null, tiLc: null, otherCapEx: null, rolloverPctWithinTerm: null,
+  };
 }
 const DEF: ManualPortfolioDefinition = {
   properties: [

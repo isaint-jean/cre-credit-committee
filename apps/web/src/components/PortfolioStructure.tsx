@@ -16,6 +16,9 @@ import type { ManualPortfolioProperty, ManualPortfolioDefinition } from '@cre/co
 const BLANK_PROP: ManualPortfolioProperty = {
   propertyName: null, address: null, city: null, state: null, propertyType: null,
   netRentableSF: null, value: null, noi: null, ncf: null, occupancyPct: null, allocatedLoanAmount: null,
+  originalBalance: null, cutoffBalance: null, pgi: null, otherIncome: null, expenseReimbursements: null,
+  egi: null, operatingExpenses: null, replacementReserves: null, tiLc: null, otherCapEx: null,
+  rolloverPctWithinTerm: null,
 };
 
 const numField = (v: number | null): string => (v === null ? '' : String(v));
@@ -98,6 +101,7 @@ export function PortfolioStructure({ poolId, loanInPoolId }: { poolId: string; l
                       <button type="button" onClick={() => setProps((ps) => ps.filter((_, j) => j !== i))} className="text-[11px] text-risk-high hover:underline">Remove</button>
                     )}
                   </div>
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">Identity &amp; headline</div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     <Field label="Name" value={p.propertyName ?? ''} onChange={(v) => edit(i, { propertyName: strField(v) })} disabled={!canEdit} />
                     <Field label="City" value={p.city ?? ''} onChange={(v) => edit(i, { city: strField(v) })} disabled={!canEdit} />
@@ -106,9 +110,26 @@ export function PortfolioStructure({ poolId, loanInPoolId }: { poolId: string; l
                     <Field label="Net rentable SF" value={numField(p.netRentableSF)} onChange={(v) => edit(i, { netRentableSF: parseNum(v) })} disabled={!canEdit} />
                     <Field label="Occupancy (0–1)" value={numField(p.occupancyPct)} onChange={(v) => edit(i, { occupancyPct: parseNum(v) })} disabled={!canEdit} />
                     <Field label="Value ($)" value={numField(p.value)} onChange={(v) => edit(i, { value: parseNum(v) })} disabled={!canEdit} />
-                    <Field label="NOI ($)" value={numField(p.noi)} onChange={(v) => edit(i, { noi: parseNum(v) })} disabled={!canEdit} />
-                    <Field label="NCF ($)" value={numField(p.ncf)} onChange={(v) => edit(i, { ncf: parseNum(v) })} disabled={!canEdit} />
                     <Field label="Allocated loan ($)" value={numField(p.allocatedLoanAmount)} onChange={(v) => edit(i, { allocatedLoanAmount: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="Rollover % in term (0–1)" value={numField(p.rolloverPctWithinTerm)} onChange={(v) => edit(i, { rolloverPctWithinTerm: parseNum(v) })} disabled={!canEdit} />
+                  </div>
+                  <div className="mb-1 mt-2 text-[10px] font-semibold uppercase tracking-wide text-text-muted">Balances</div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <Field label="Original balance ($)" value={numField(p.originalBalance)} onChange={(v) => edit(i, { originalBalance: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="Cutoff balance ($)" value={numField(p.cutoffBalance)} onChange={(v) => edit(i, { cutoffBalance: parseNum(v) })} disabled={!canEdit} />
+                  </div>
+                  <div className="mb-1 mt-2 text-[10px] font-semibold uppercase tracking-wide text-text-muted">Pro-forma line items (stabilized)</div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <Field label="PGI ($)" value={numField(p.pgi)} onChange={(v) => edit(i, { pgi: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="Other income ($)" value={numField(p.otherIncome)} onChange={(v) => edit(i, { otherIncome: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="Expense reimb. ($)" value={numField(p.expenseReimbursements)} onChange={(v) => edit(i, { expenseReimbursements: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="EGI ($)" value={numField(p.egi)} onChange={(v) => edit(i, { egi: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="Operating expenses ($)" value={numField(p.operatingExpenses)} onChange={(v) => edit(i, { operatingExpenses: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="NOI ($)" value={numField(p.noi)} onChange={(v) => edit(i, { noi: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="Replacement reserves ($)" value={numField(p.replacementReserves)} onChange={(v) => edit(i, { replacementReserves: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="TI / LC ($)" value={numField(p.tiLc)} onChange={(v) => edit(i, { tiLc: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="Other capex ($)" value={numField(p.otherCapEx)} onChange={(v) => edit(i, { otherCapEx: parseNum(v) })} disabled={!canEdit} />
+                    <Field label="NCF ($)" value={numField(p.ncf)} onChange={(v) => edit(i, { ncf: parseNum(v) })} disabled={!canEdit} />
                   </div>
                 </div>
               ))}

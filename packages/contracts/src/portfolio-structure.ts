@@ -25,6 +25,19 @@ export interface ManualPortfolioProperty {
   readonly occupancyPct: number | null;      // 0..1 fraction
   /** The whole-loan balance allocated to this property (drives the SUMPRODUCT weights). */
   readonly allocatedLoanAmount: number | null;
+
+  // — Phase B 1a line-item set (all optional; honest-blank when omitted) —
+  readonly originalBalance: number | null;
+  readonly cutoffBalance: number | null;
+  readonly pgi: number | null;
+  readonly otherIncome: number | null;
+  readonly expenseReimbursements: number | null;
+  readonly egi: number | null;
+  readonly operatingExpenses: number | null;
+  readonly replacementReserves: number | null;
+  readonly tiLc: number | null;
+  readonly otherCapEx: number | null;
+  readonly rolloverPctWithinTerm: number | null;   // 0..1 share expiring within term
 }
 
 export interface ManualPortfolioDefinition {
@@ -63,6 +76,17 @@ export function parseManualPortfolio(raw: string | null | undefined): ManualPort
             ncf: numOrNull(q.ncf),
             occupancyPct: numOrNull(q.occupancyPct),
             allocatedLoanAmount: numOrNull(q.allocatedLoanAmount),
+            originalBalance: numOrNull(q.originalBalance),
+            cutoffBalance: numOrNull(q.cutoffBalance),
+            pgi: numOrNull(q.pgi),
+            otherIncome: numOrNull(q.otherIncome),
+            expenseReimbursements: numOrNull(q.expenseReimbursements),
+            egi: numOrNull(q.egi),
+            operatingExpenses: numOrNull(q.operatingExpenses),
+            replacementReserves: numOrNull(q.replacementReserves),
+            tiLc: numOrNull(q.tiLc),
+            otherCapEx: numOrNull(q.otherCapEx),
+            rolloverPctWithinTerm: numOrNull(q.rolloverPctWithinTerm),
           };
         })
       : [];
@@ -87,6 +111,17 @@ export function serializeManualPortfolio(def: ManualPortfolioDefinition): string
       ncf: p.ncf,
       occupancyPct: p.occupancyPct,
       allocatedLoanAmount: p.allocatedLoanAmount,
+      originalBalance: p.originalBalance,
+      cutoffBalance: p.cutoffBalance,
+      pgi: p.pgi,
+      otherIncome: p.otherIncome,
+      expenseReimbursements: p.expenseReimbursements,
+      egi: p.egi,
+      operatingExpenses: p.operatingExpenses,
+      replacementReserves: p.replacementReserves,
+      tiLc: p.tiLc,
+      otherCapEx: p.otherCapEx,
+      rolloverPctWithinTerm: p.rolloverPctWithinTerm,
     })),
     wholeLoanDebtService: def.wholeLoanDebtService,
   });
@@ -119,5 +154,16 @@ export function manualPortfolioToComponents(def: ManualPortfolioDefinition): Pro
     occupancyPct: p.occupancyPct,
     capRate: p.value !== null && p.value > 0 && p.noi !== null ? p.noi / p.value : null,
     allocatedLoanAmount: p.allocatedLoanAmount,
+    originalBalance: p.originalBalance,
+    cutoffBalance: p.cutoffBalance,
+    pgi: p.pgi,
+    otherIncome: p.otherIncome,
+    expenseReimbursements: p.expenseReimbursements,
+    egi: p.egi,
+    operatingExpenses: p.operatingExpenses,
+    replacementReserves: p.replacementReserves,
+    tiLc: p.tiLc,
+    otherCapEx: p.otherCapEx,
+    rolloverPctWithinTerm: p.rolloverPctWithinTerm,
   }));
 }

@@ -1080,6 +1080,24 @@ export interface PropertyComponent {
    * never guessed. Single-loan deals never set it.
    */
   readonly allocatedLoanAmount?: number | null;
+
+  // — portfolio line-item set (Phase B 1a) — the per-property values the Phase C
+  //   rollup matrix consumes (the template's SUM(C:Z) rows). ALL optional / nullable;
+  //   honest-blank when the servicer doesn't supply. Single-loan deals never set them.
+  //   Stabilized (single-year) figures — the matrix's headline rows; per-year vectors
+  //   are deferred to Phase C. NOI / NCF above are the stabilized NOI / NCF.
+  readonly originalBalance?: number | null;
+  readonly cutoffBalance?: number | null;
+  readonly pgi?: number | null;                    // potential gross income
+  readonly otherIncome?: number | null;
+  readonly expenseReimbursements?: number | null;
+  readonly egi?: number | null;                    // effective gross income
+  readonly operatingExpenses?: number | null;
+  readonly replacementReserves?: number | null;
+  readonly tiLc?: number | null;                   // tenant improvements + leasing commissions
+  readonly otherCapEx?: number | null;
+  /** Compact rollover summary: share (0..1) of income/SF expiring within the loan term. */
+  readonly rolloverPctWithinTerm?: number | null;
 }
 
 /* ------------------------------ ExtractionResult ---------------------------- */
