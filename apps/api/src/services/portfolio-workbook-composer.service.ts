@@ -281,35 +281,147 @@ function buildAllocationReleaseTab(wb: ExcelJS.Workbook, ps: PortfolioStructureT
   return name;
 }
 
-function buildBlendedProFormaTab(wb: ExcelJS.Workbook, agg: PortfolioAggregation): string {
-  const name = 'Blended Pro-Forma';
-  const ws = wb.addWorksheet(name);
-  ws.getColumn(1).width = 30;
-  for (let i = 2; i <= 6; i++) ws.getColumn(i).width = 18;
-  // Header: one column per property + a Portfolio total (VALUE, not a live SUM).
-  ws.getCell('A1').value = 'BLENDED PRO-FORMA (roll-up — built once)';
-  const comps = agg.scoredComponents;
-  ws.getCell('A3').value = 'Line item';
-  comps.forEach((s, i) => { ws.getCell(3, 2 + i).value = s.propertyName ?? s.componentId; });
-  ws.getCell(3, 2 + comps.length).value = 'Portfolio';
+/* ------------------------------------------------------------------ */
+/*  Rollup MATRIX tab (Phase C) — the template's "Rollup Tab" shape     */
+/* ------------------------------------------------------------------ */
+// Column layout matches Isabelle's Blank Rollup UW Template's "Rollup Tab":
+//   B = data field · C..Z = properties 1..24 · AB (col 28) = Totals.
+const MATRIX_LABEL_COL = 2;    // B
+const MATRIX_FIRST_PROP_COL = 3; // C
+const MATRIX_TOTAL_COL = 28;   // AB (matches the template; AA stays blank)
+
+type PC = PropertyComponent;
+type MatrixRule =
+  | { kind: 'sum'; field: (c: PC) => number | null | undefined; total: number | null }
+  | { kind: 'weighted'; field: (c: PC) => number | null | undefined; total: number | null }
+  | { kind: 'ratio'; total: number | null } // per-property blank; only a portfolio total
+  | { kind: 'blank' };                       // label only (no data 1a carries yet)
+
+interface MatrixRow { readonly label: string; readonly rule: MatrixRule; }
+
+/** Σ over present values, or null when none present (honest — never a 0-guess). */
+function sumField(components: readonly PC[], pick: (c: PC) => number | null | undefined): number | null {
+  const xs = components.map(pick).filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  return xs.length === 0 ? null : xs.reduce((s, x) => s + x, 0);
+}
+
+/**
+ * The template's Rollup-Tab headline rows (template rows 5-142) in order, mapped to the
+ * Phase-1a per-property line-item set. Additive rows → SUM; Concluded Cap Rate →
+ * allocation-weighted (SUMPRODUCT); rows 1a has no data for (appraisal figures, the
+ * rollover SF/tenants/rent schedule, and pro-forma years 2-10) → honest-blank (label only).
+ * Stabilized single-year figures are threaded into "Year 1"; Years 2-10 stay blank pending
+ * the 1a→per-year-vectors follow-on.
+ */
+function matrixRowsForTemplate(components: readonly PC[], agg: PortfolioAggregation): MatrixRow[] {
   const m = agg.math;
-  const writeLine = (row: number, label: string, per: (i: number) => number | null, total: number | null): void => {
-    ws.getCell(row, 1).value = label;
-    comps.forEach((_s, i) => {
-      const v = per(i);
-      ws.getCell(row, 2 + i).value = v === null ? null : v;
-    });
-    // ★ Portfolio total is a VALUE from the aggregation (Σ proven upstream), NOT
-    //   a live "=SUM(...)" across the property columns. See CROSS_SHEET decision.
-    ws.getCell(row, 2 + comps.length).value = total === null ? null : total;
-  };
-  const compArr = agg.scoredComponents;
-  writeLine(4, 'Value', (i) => compArr[i]?.dealBag.concludedValue ?? null, m.blendedValue);
-  writeLine(5, 'NOI', (i) => compArr[i]?.dealBag.uwY1Noi ?? null, m.aggregateNoi);
-  // NCF is not on the DealBag; pull from math aggregate only (per-property NCF
-  // lives on the component, but the composer only carries the scored view here).
-  ws.getCell(6, 1).value = 'Aggregate NCF';
-  ws.getCell(6, 2 + comps.length).value = m.aggregateNcf;
+  const li = m.lineItems;
+  const rows: MatrixRow[] = [
+    { label: 'Original Balance', rule: { kind: 'sum', field: (c) => c.originalBalance, total: li.originalBalance } },
+    { label: 'Cutoff Balance', rule: { kind: 'sum', field: (c) => c.cutoffBalance, total: li.cutoffBalance } },
+    { label: 'Net Rentable Area', rule: { kind: 'sum', field: (c) => c.netRentableSF, total: sumField(components, (c) => c.netRentableSF) } },
+    { label: 'Appraisal Value', rule: { kind: 'blank' } },
+    { label: 'Appraisal NOI', rule: { kind: 'blank' } },
+    { label: 'Appraisal LTV', rule: { kind: 'blank' } },
+    { label: 'Concluded Value', rule: { kind: 'sum', field: (c) => c.value, total: m.blendedValue } },
+    { label: 'Concluded Cap Rate', rule: { kind: 'weighted', field: (c) => c.capRate, total: m.allocationWeightedCapRate } },
+  ];
+  // Rollover SF / tenants / rent by year — 1a carries only a stabilized rollover SHARE
+  // (rolloverPctWithinTerm), not the per-year SF/tenant/rent schedule → honest-blank.
+  const perYear = (base: string): MatrixRow[] => Array.from({ length: 10 }, (_v, i) => ({ label: `${base} Year ${i + 1}`, rule: { kind: 'blank' as const } }));
+  rows.push(...Array.from({ length: 10 }, (_v, i) => ({ label: `Rollover Year ${i + 1} - SF`, rule: { kind: 'blank' as const } })));
+  rows.push(...Array.from({ length: 10 }, (_v, i) => ({ label: `Tenants Rolling Year ${i + 1}`, rule: { kind: 'blank' as const } })));
+  rows.push(...Array.from({ length: 10 }, (_v, i) => ({ label: `Rollover Year ${i + 1} - Rent`, rule: { kind: 'blank' as const } })));
+  // The 10 pro-forma line-item groups (Yr1-10). Year 1 ← the stabilized 1a figure; Yr2-10 blank.
+  const proforma: Array<{ base: string; field: (c: PC) => number | null | undefined; total: number | null }> = [
+    { base: 'PGI', field: (c) => c.pgi, total: li.pgi },
+    { base: 'Other Income', field: (c) => c.otherIncome, total: li.otherIncome },
+    { base: 'Expense Reimbursements', field: (c) => c.expenseReimbursements, total: li.expenseReimbursements },
+    { base: 'EGI', field: (c) => c.egi, total: li.egi },
+    { base: 'Operating Expenses', field: (c) => c.operatingExpenses, total: li.operatingExpenses },
+    { base: 'NOI', field: (c) => c.noi, total: li.noi },
+    { base: 'Reserves', field: (c) => c.replacementReserves, total: li.replacementReserves },
+    { base: 'TI / LC', field: (c) => c.tiLc, total: li.tiLc },
+    { base: 'Other CapEx', field: (c) => c.otherCapEx, total: li.otherCapEx },
+    { base: 'NCF', field: (c) => c.ncf, total: li.ncf },
+  ];
+  for (const g of proforma) {
+    rows.push({ label: `${g.base} Year 1`, rule: { kind: 'sum', field: g.field, total: g.total } });
+    rows.push(...perYear(g.base).slice(1)); // Year 2..10 → blank
+  }
+  return rows;
+}
+
+/**
+ * The rollup MATRIX tab — the template's "Rollup Tab" shape: field rows (col B) ×
+ * property columns (C..Z) + an aggregated Totals column (AB). Per-property columns show
+ * each property's real 1a value; the Totals column reuses the aggregator's already-computed
+ * totals (SUM / SUMPRODUCT-by-allocation / ratio-of-totals) — the row total EQUALS the
+ * aggregator's total (single source, zero drift). VALUES-FROM-AGGREGATION (flattened, no
+ * live cross-workbook formulas). Honest-blank throughout.
+ */
+function buildRollupMatrixTab(wb: ExcelJS.Workbook, components: readonly PC[], agg: PortfolioAggregation): string {
+  const name = 'Rollup Tab';
+  const ws = wb.addWorksheet(name);
+  ws.getColumn(MATRIX_LABEL_COL).width = 30;
+  for (let i = 0; i < components.length; i++) ws.getColumn(MATRIX_FIRST_PROP_COL + i).width = 15;
+  ws.getColumn(MATRIX_TOTAL_COL).width = 18;
+
+  // Header rows: Data Field | 1..N | Totals ; Allocated Portion ; Property Name.
+  ws.getCell(1, MATRIX_LABEL_COL).value = 'Data Field';
+  ws.getCell(1, MATRIX_LABEL_COL).font = { bold: true };
+  components.forEach((_c, i) => { ws.getCell(1, MATRIX_FIRST_PROP_COL + i).value = i + 1; });
+  ws.getCell(1, MATRIX_TOTAL_COL).value = 'Totals';
+  ws.getCell(1, MATRIX_TOTAL_COL).font = { bold: true };
+
+  const totalAlloc = sumField(components, (c) => c.allocatedLoanAmount);
+  ws.getCell(2, MATRIX_LABEL_COL).value = 'Allocated Portion';
+  components.forEach((c, i) => {
+    const a = c.allocatedLoanAmount;
+    // Honest-blank: no allocation → blank weight (the SUMPRODUCT rows then read honest-null).
+    ws.getCell(2, MATRIX_FIRST_PROP_COL + i).value = a !== null && a !== undefined && totalAlloc ? a / totalAlloc : null;
+  });
+  ws.getCell(2, MATRIX_TOTAL_COL).value = totalAlloc ? 1 : null;
+
+  ws.getCell(3, MATRIX_LABEL_COL).value = 'Property Name';
+  components.forEach((c, i) => { ws.getCell(3, MATRIX_FIRST_PROP_COL + i).value = c.propertyName ?? c.componentId ?? null; });
+
+  // Data rows (template order). Row 4 onward.
+  let r = 4;
+  for (const row of matrixRowsForTemplate(components, agg)) {
+    ws.getCell(r, MATRIX_LABEL_COL).value = row.label;
+    if (row.rule.kind === 'sum' || row.rule.kind === 'weighted') {
+      const pick = row.rule.field;
+      components.forEach((c, i) => {
+        const v = pick(c);
+        ws.getCell(r, MATRIX_FIRST_PROP_COL + i).value = typeof v === 'number' && Number.isFinite(v) ? v : null;
+      });
+      ws.getCell(r, MATRIX_TOTAL_COL).value = row.rule.total === null ? null : row.rule.total;
+    } else if (row.rule.kind === 'ratio') {
+      ws.getCell(r, MATRIX_TOTAL_COL).value = row.rule.total === null ? null : row.rule.total;
+    }
+    // 'blank' → label only (honest-blank; never a fabricated or smeared value).
+    r += 1;
+  }
+
+  // ── Portfolio ratios (ratio-of-totals) — a small computed section below the matrix.
+  //    These are the whole-loan-balance-derived ratios (Phase A), all honest-null when the
+  //    inputs are absent. Kept as clearly-labeled TOTAL-column values (no per-property cell).
+  r += 1;
+  ws.getCell(r, MATRIX_LABEL_COL).value = 'Portfolio ratios (ratio-of-totals)';
+  ws.getCell(r, MATRIX_LABEL_COL).font = { bold: true };
+  r += 1;
+  const ratios: Array<[string, number | null]> = [
+    ['Portfolio LTV (Σ allocated ÷ Σ value)', agg.math.portfolioLtv],
+    ['Portfolio Debt Yield (Σ NOI ÷ Σ allocated)', agg.math.portfolioDebtYield],
+    ['Aggregate DSCR (Σ NCF ÷ whole-loan DS)', agg.math.aggregateDscr],
+    ['Allocation-weighted rollover % in term', agg.math.portfolioRolloverPct],
+  ];
+  for (const [label, val] of ratios) {
+    ws.getCell(r, MATRIX_LABEL_COL).value = label;
+    ws.getCell(r, MATRIX_TOTAL_COL).value = val === null ? null : val;
+    r += 1;
+  }
   return name;
 }
 
@@ -346,12 +458,14 @@ export async function composePortfolioWorkbook(
     leafSheetNames.push(cloneLeafForProperty(wb, leafTemplateSheetName, c));
   }
 
-  // Roll-up tabs — built ONCE from the Phase-2 aggregation (NOT cloned).
+  // Roll-up tabs — built ONCE from the aggregation (NOT cloned). The MATRIX (Phase C —
+  // the template's "Rollup Tab" shape) is the PRIMARY rollup tab; it supersedes the old
+  // 3-line Blended Pro-Forma (which the matrix's per-property columns + totals contain).
   const rollUpSheetNames: string[] = [
+    buildRollupMatrixTab(wb, components, aggregation),
     buildPortfolioSummaryTab(wb, aggregation),
     buildConcentrationTab(wb, aggregation),
     buildAllocationReleaseTab(wb, aggregation.portfolioStructure),
-    buildBlendedProFormaTab(wb, aggregation),
   ];
 
   const cfRulesDropped = sanitizeConditionalFormatting(wb);
