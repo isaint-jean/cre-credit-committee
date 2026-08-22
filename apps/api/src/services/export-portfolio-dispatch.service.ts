@@ -28,6 +28,7 @@ import type { RecordGraphStore } from '../storage/record-graph-store.js';
 import type { SqliteStore } from '../storage/sqlite-store.js';
 import { resolveAnalysisForRead } from './resolve-analysis-for-read.js';
 import { aggregatePortfolio } from './portfolio-aggregator.service.js';
+import { resolveManualPortfolioComponents } from './portfolio-structure.service.js';
 import {
   composePortfolioWorkbook,
   type ComposePortfolioWorkbookResult,
@@ -102,13 +103,20 @@ export async function resolvePortfolioExport(args: {
   const analysis = resolveAnalysisForRead(dealId, recordGraphStore, store);
   if (analysis === null) return null;
 
-  // ADDITIVE GATE 2 — the deal must carry per-property children (N>1).
-  const components = resolvePropertiesFromGraph(analysis.graphRevisionId, recordGraphStore);
+  // ADDITIVE GATE 2 — the deal must carry per-property children (N>1). Phase A adds a
+  // MANUAL OVERRIDE: a servicer's hand-defined portfolio (servicer_inputs) is read FIRST;
+  // it carries the human-supplied allocated loan amounts + optional whole-loan debt
+  // service. Falls back to the (EX-102) graph properties when there's no manual def.
+  const manual = resolveManualPortfolioComponents(analysis.graphRevisionId);
+  const components = manual?.components ?? resolvePropertiesFromGraph(analysis.graphRevisionId, recordGraphStore);
   if (components === null || components.length <= 1) return null;
 
-  // Portfolio → compose the proven 38-sheet workbook (N per-property leaf tabs +
-  // 4 roll-up tabs). Honest-null pari-passu DSCR (no wholeLoanDebtService).
-  const aggregation = aggregatePortfolio(components);
+  // Portfolio → compose the workbook (N per-property leaf tabs + 4 roll-up tabs). The
+  // manual path supplies wholeLoanDebtService (→ honest aggregate DSCR); the allocated
+  // loan amounts on the components drive the whole-loan balance → LTV / debt yield.
+  const aggregation = aggregatePortfolio(components, {
+    wholeLoanDebtService: manual?.wholeLoanDebtService ?? null,
+  });
   const workbook = await composePortfolioWorkbook({
     templatePath: PORTFOLIO_TEMPLATE_PATH,
     leafTemplateSheetName: PORTFOLIO_LEAF_SHEET,

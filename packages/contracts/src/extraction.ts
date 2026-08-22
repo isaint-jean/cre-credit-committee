@@ -1070,6 +1070,16 @@ export interface PropertyComponent {
 
   // — computed —
   readonly capRate: number | null;        // noi / value
+
+  // — portfolio allocation (Phase A) —
+  /**
+   * The whole-loan balance ALLOCATED to this property (the "allocated loan amount"
+   * from the loan doc). Human-supplied — there is no reliable extraction source
+   * (EX-102 carries only a trust piece). Absent → honest-blank: the SUMPRODUCT
+   * weights + whole-loan-balance-derived LTV/debt-yield stay honest-unavailable,
+   * never guessed. Single-loan deals never set it.
+   */
+  readonly allocatedLoanAmount?: number | null;
 }
 
 /* ------------------------------ ExtractionResult ---------------------------- */

@@ -168,6 +168,13 @@ export interface RollUpMath {
   /** Aggregate DSCR = ΣNCF ÷ whole-loan debt service (null when DS not supplied). */
   readonly aggregateDscr: number | null;
   readonly dscrBasis: DscrBasis;
+  /** Σ per-property allocated loan amount = the whole-loan balance (Phase A). Null
+   *  when no property carries an allocation (honest — no guessed denominator). */
+  readonly wholeLoanBalance: number | null;
+  /** Portfolio LTV = whole-loan balance ÷ Σvalue (null when either is absent). */
+  readonly portfolioLtv: number | null;
+  /** Portfolio debt yield = ΣNOI ÷ whole-loan balance (null when either is absent). */
+  readonly portfolioDebtYield: number | null;
   readonly concentration: PortfolioConcentration;
 }
 
@@ -400,6 +407,19 @@ export function aggregatePortfolio(
 
   const concentration = computeConcentration(components);
 
+  // ★ Whole-loan balance = Σ per-property allocated loan amount (Phase A — human-
+  //   supplied). Enables portfolio LTV + debt yield that the EX-102 source could not.
+  //   Absent (no allocations supplied) → honest-null, no guessed denominator.
+  const wholeLoanBalance = sumDefined(components.map((c) => c.allocatedLoanAmount ?? null));
+  const portfolioLtv =
+    wholeLoanBalance !== null && blendedValue !== null && blendedValue > 0
+      ? wholeLoanBalance / blendedValue
+      : null;
+  const portfolioDebtYield =
+    wholeLoanBalance !== null && wholeLoanBalance > 0 && aggregateNoi !== null
+      ? aggregateNoi / wholeLoanBalance
+      : null;
+
   const math: RollUpMath = {
     loanCount: components.length,
     blendedValue,
@@ -408,6 +428,9 @@ export function aggregatePortfolio(
     blendedCapRate,
     aggregateDscr,
     dscrBasis,
+    wholeLoanBalance,
+    portfolioLtv,
+    portfolioDebtYield,
     concentration,
   };
 

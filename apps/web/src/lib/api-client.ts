@@ -32,7 +32,7 @@ import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
 import type { NoiReconciliationDetail } from '@cre/contracts';
 import type { FlagDetail } from '@cre/contracts';
-import type { SitePhotoRef } from '@cre/contracts';
+import type { SitePhotoRef, ManualPortfolioDefinition } from '@cre/contracts';
 import type { AppraisalSlotExtraction, AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
@@ -1377,6 +1377,15 @@ export const api = {
     request<{ photos: SitePhotoRef[] }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-photos/${hash}`, { method: 'DELETE' }),
   sitePhotoUrl: (poolId: string, loanInPoolId: string, hash: string) =>
     `${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-photos/${hash}`,
+
+  // Portfolio structure (Phase A) — the servicer's MANUAL N-property definition +
+  // allocated loan amounts. Servicer-gated on write; drives the rollup export.
+  getPortfolioStructure: (poolId: string, loanInPoolId: string) =>
+    request<{ definition: ManualPortfolioDefinition }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/portfolio-structure`),
+  putPortfolioStructure: (poolId: string, loanInPoolId: string, definition: ManualPortfolioDefinition) =>
+    request<{ definition: ManualPortfolioDefinition }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/portfolio-structure`, {
+      method: 'PUT', body: JSON.stringify({ definition }),
+    }),
 
   // POST /api/pools/:poolId/loans/:loanInPoolId/underwrite → Data-Room Phase 3.
   // "Underwrite now". ★ ASYNC (was sync): ENQUEUES one durable underwrite_job

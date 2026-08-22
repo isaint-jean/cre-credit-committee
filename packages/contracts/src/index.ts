@@ -26,6 +26,7 @@ export * from './revision-lineage.js';
 export * from './asset.js';
 export * from './site-visit-checklist-catalog.js';
 export * from './site-photos.js';
+export * from './portfolio-structure.js';
 export * from './noi-reconciliation.js';
 export * from './flag-detail.js';
 export * from './source-tier.js';

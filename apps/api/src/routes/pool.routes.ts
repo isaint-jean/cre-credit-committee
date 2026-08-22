@@ -52,7 +52,7 @@ import type {
   WorkingTapeId,
 } from '@cre/contracts';
 import { ON_TAPE_STATUSES, DISPOSITION_KINDS, REASON_CATEGORIES } from '@cre/contracts';
-import { isReasonCategoryValidForOutcome, normalizeAssetType, parseSitePhotos, serializeSitePhotos } from '@cre/contracts';
+import { isReasonCategoryValidForOutcome, normalizeAssetType, parseSitePhotos, serializeSitePhotos, parseManualPortfolio, type ManualPortfolioDefinition } from '@cre/contracts';
 import type { ReasonCategory } from '@cre/contracts';
 
 import { enforcePermission } from '../middleware/require-permission.js';
@@ -74,6 +74,7 @@ import { kickUnderwriteDrain } from '../services/pool/underwrite-worker.service.
 import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readiness.service.js';
 import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
 import { getServicerInput, getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
+import { setPortfolioStructure } from '../services/portfolio-structure.service.js';
 import { upload, uploadImages } from '../middleware/upload.js';
 import { blobStore } from '../storage/blob-store.js';
 import { resolveServeMime } from '../util/mime-from-extension.js';
@@ -649,7 +650,7 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
 // negotiation loop OFF (this is not the shelved overlay-comments store).
 // site_visit_checklist carries a structured JSON payload (checklist state) in `value`;
 // the others are narrative text. All are display-only / mint-safe additive annotation.
-const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos']);
+const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos', 'portfolio_structure']);
 
 // Resolve a graph ROOT (the deal-room holds only data.rootId) → its pool coordinates
 // + a display deal name. The deal-room needs poolId/loanInPoolId/assetType to mount the
@@ -741,6 +742,38 @@ poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/:fieldType', (req: 
   const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
   const saved = upsertServicerInput({ poolId, loanInPoolId, fieldType: fieldType as ServicerInputFieldType, value, author });
   return res.json({ input: saved });
+});
+
+/* ── Portfolio structure (Phase A: manual portfolio definition) ───────────────
+ * A servicer hand-defines ONE loan's N properties + allocated loan amounts so the
+ * already-built portfolio aggregator/composer/export run on a real cross-collateralized
+ * loan (no per-property doc extraction yet — Phase B). Rides servicer_inputs
+ * 'portfolio_structure'. DISPLAY/EXPORT-ONLY / MINT-SAFE. Servicer-gated on write. */
+
+poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/portfolio-structure', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const def = parseManualPortfolio(getServicerInput(poolId, loanInPoolId, 'portfolio_structure')?.value ?? null);
+  return res.json({ definition: def });
+});
+
+poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/portfolio-structure', (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  // Re-parse the incoming definition defensively (drops junk, honest-blanks omissions).
+  const def: ManualPortfolioDefinition = parseManualPortfolio(JSON.stringify((req.body ?? {})['definition'] ?? {}));
+  const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
+  const saved = setPortfolioStructure({ poolId, loanInPoolId, definition: def, author });
+  return res.json({ definition: saved });
 });
 
 /* ── Site photos (Chunk 1: capture) ──────────────────────────────────────────
