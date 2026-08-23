@@ -52,7 +52,7 @@ import type {
   WorkingTapeId,
 } from '@cre/contracts';
 import { ON_TAPE_STATUSES, DISPOSITION_KINDS, REASON_CATEGORIES } from '@cre/contracts';
-import { isReasonCategoryValidForOutcome, normalizeAssetType, parseSitePhotos, serializeSitePhotos, parseManualPortfolio, type ManualPortfolioDefinition } from '@cre/contracts';
+import { isReasonCategoryValidForOutcome, normalizeAssetType, parseSitePhotos, serializeSitePhotos, parseManualPortfolio, type ManualPortfolioDefinition, parseSalesComps, serializeSalesComps, type SalesCompsPayload } from '@cre/contracts';
 import type { ReasonCategory } from '@cre/contracts';
 
 import { enforcePermission } from '../middleware/require-permission.js';
@@ -650,7 +650,7 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
 // negotiation loop OFF (this is not the shelved overlay-comments store).
 // site_visit_checklist carries a structured JSON payload (checklist state) in `value`;
 // the others are narrative text. All are display-only / mint-safe additive annotation.
-const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos', 'portfolio_structure']);
+const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos', 'portfolio_structure', 'sales_comps']);
 
 // Resolve a graph ROOT (the deal-room holds only data.rootId) → its pool coordinates
 // + a display deal name. The deal-room needs poolId/loanInPoolId/assetType to mount the
@@ -774,6 +774,70 @@ poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/portfolio-structure
   const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
   const saved = setPortfolioStructure({ poolId, loanInPoolId, definition: def, author });
   return res.json({ definition: saved });
+});
+
+/* ── Sales comps (servicer input) ─────────────────────────────────────────────
+ * The servicer enters up to 4 sale comps (fields + a photo each) → filled into the
+ * workbook's "Sales Comps" tab at export. Fields ride servicer_inputs 'sales_comps' JSON;
+ * photo bytes → the blob store (referenced by hash). DISPLAY/EXPORT-ONLY / MINT-SAFE. */
+
+poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/sales-comps', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  return res.json({ salesComps: parseSalesComps(getServicerInput(poolId, loanInPoolId, 'sales_comps')?.value ?? null) });
+});
+
+poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/sales-comps', (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  // Re-parse defensively (drops junk, honest-blanks omissions, caps at 4).
+  const payload: SalesCompsPayload = parseSalesComps(JSON.stringify((req.body ?? {})['salesComps'] ?? {}));
+  const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
+  const saved = upsertServicerInput({ poolId, loanInPoolId, fieldType: 'sales_comps', value: serializeSalesComps(payload), author });
+  return res.json({ salesComps: parseSalesComps(saved.value) });
+});
+
+// POST a comp photo → blob store; returns {hash, fileName} the client stores on the comp.
+// Reuses uploadImages (the image-accepting multer). Servicer-gated.
+poolRoutes.post('/:poolId/loans/:loanInPoolId/servicer-inputs/sales-comps/photo', uploadImages.single('photo'), async (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const file = req.file;
+  if (file === undefined) return send400Bad(res, 'no photo uploaded (multipart field: photo)');
+  const hash = await blobStore.putBlob(file.buffer);
+  return res.json({ hash, fileName: file.originalname });
+});
+
+// GET serve a comp photo's bytes (thumbnails). The hash MUST belong to THIS loan's comps.
+poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/sales-comps/photo/:hash', async (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const hash = req.params['hash'] as string;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const comps = parseSalesComps(getServicerInput(poolId, loanInPoolId, 'sales_comps')?.value ?? null).comps;
+  const ref = comps.find((c) => c.photoHash === hash);
+  if (ref === undefined) return res.status(404).json({ error: 'NOT_FOUND', message: 'photo not found for this loan' });
+  const bytes = await blobStore.getBlob(hash as ContentHash);
+  if (bytes === null) return res.status(404).json({ error: 'NOT_FOUND', message: 'photo bytes not in blob store' });
+  res.setHeader('Content-Type', resolveServeMime(null, ref.photoFileName ?? 'photo.jpg'));
+  return res.send(bytes);
 });
 
 /* ── Site photos (Chunk 1: capture) ──────────────────────────────────────────

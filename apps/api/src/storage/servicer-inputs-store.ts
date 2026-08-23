@@ -33,7 +33,7 @@ const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'cre.db');
 /** The human-input field types (extend as broker/commentary/comps land).
  *  'site_visit_checklist' is a STRUCTURED field — its `value` is a JSON payload
  *  (checklist state), not narrative text; it rides the same TEXT column. */
-export type ServicerInputFieldType = 'site_visit' | 'broker_feedback' | 'tab_commentary' | 'site_visit_checklist' | 'site_photos' | 'portfolio_structure';
+export type ServicerInputFieldType = 'site_visit' | 'broker_feedback' | 'tab_commentary' | 'site_visit_checklist' | 'site_photos' | 'portfolio_structure' | 'sales_comps';
 
 export interface ServicerInput {
   readonly poolId: string;

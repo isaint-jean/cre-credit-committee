@@ -19,6 +19,8 @@ import type {
 import type { PropertyMetadata, RentRoll, RentRollLine } from '@cre/contracts';
 import { matchProvenancePattern } from './render-output-scrubber.js';
 import { addSitePhotosGrid, type SitePhotoImage } from './render-memo/site-photos-grid.js';
+import { fillSalesCompsTab } from './render-memo/sales-comps-fill.js';
+import type { SaleCompForExport } from './render-memo/sales-comps-for-export.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2494,7 +2496,10 @@ function applyProFormaProjectionInputs(workbook: ExcelJS.Workbook, assetClass: s
 export async function applyRenderPayloadToTemplate(
   templateBuffer: Buffer,
   payload: RenderPayload,
-  opts?: { readonly sitePhotos?: { readonly dealName?: string; readonly boxCount?: number; readonly photos?: readonly SitePhotoImage[] } },
+  opts?: {
+    readonly sitePhotos?: { readonly dealName?: string; readonly boxCount?: number; readonly photos?: readonly SitePhotoImage[] };
+    readonly salesComps?: readonly SaleCompForExport[];
+  },
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(templateBuffer as any);
@@ -2690,6 +2695,12 @@ export async function applyRenderPayloadToTemplate(
   // applyRenderPayloadToTemplate consumers are byte-unchanged). No images yet (Chunk 3).
   if (opts?.sitePhotos !== undefined) {
     addSitePhotosGrid(workbook, opts.sitePhotos);
+  }
+
+  // ★ Sales Comps — fill the "Sales Comps" tab (rows 7-10 + embed each comp's photo) from the
+  // servicer's entered comps. Opt-in: absent/empty → the tab (and workbook) is byte-unchanged.
+  if (opts?.salesComps !== undefined && opts.salesComps.length > 0) {
+    fillSalesCompsTab(workbook, opts.salesComps);
   }
 
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());
