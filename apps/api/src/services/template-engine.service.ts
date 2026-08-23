@@ -21,6 +21,8 @@ import { matchProvenancePattern } from './render-output-scrubber.js';
 import { addSitePhotosGrid, type SitePhotoImage } from './render-memo/site-photos-grid.js';
 import { fillSalesCompsTab } from './render-memo/sales-comps-fill.js';
 import type { SaleCompForExport } from './render-memo/sales-comps-for-export.js';
+import { fillLeaseCompsTab } from './render-memo/lease-comps-fill.js';
+import type { LeaseCompForExport } from './render-memo/lease-comps-for-export.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2499,6 +2501,7 @@ export async function applyRenderPayloadToTemplate(
   opts?: {
     readonly sitePhotos?: { readonly dealName?: string; readonly boxCount?: number; readonly photos?: readonly SitePhotoImage[] };
     readonly salesComps?: readonly SaleCompForExport[];
+    readonly leaseComps?: { readonly comps: readonly LeaseCompForExport[]; readonly assetType?: string | null };
   },
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
@@ -2701,6 +2704,12 @@ export async function applyRenderPayloadToTemplate(
   // servicer's entered comps. Opt-in: absent/empty → the tab (and workbook) is byte-unchanged.
   if (opts?.salesComps !== undefined && opts.salesComps.length > 0) {
     fillSalesCompsTab(workbook, opts.salesComps);
+  }
+
+  // ★ Lease Comps — fill the "Lease Comps" tab (rows 7-10, asset-type-switched rate columns +
+  // force-overwritten formula columns + embedded photos). Opt-in: absent/empty → byte-unchanged.
+  if (opts?.leaseComps !== undefined && opts.leaseComps.comps.length > 0) {
+    fillLeaseCompsTab(workbook, opts.leaseComps.comps, opts.leaseComps.assetType ?? null);
   }
 
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());

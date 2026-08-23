@@ -28,6 +28,7 @@ export * from './site-visit-checklist-catalog.js';
 export * from './site-photos.js';
 export * from './portfolio-structure.js';
 export * from './sales-comps.js';
+export * from './lease-comps.js';
 export * from './noi-reconciliation.js';
 export * from './flag-detail.js';
 export * from './source-tier.js';

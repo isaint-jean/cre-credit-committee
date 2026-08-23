@@ -59,6 +59,7 @@ import {
 } from '../services/template-engine.service.js';
 import { loadSitePhotosForExport } from '../services/render-memo/site-photos-for-export.js';
 import { loadSalesCompsForExport } from '../services/render-memo/sales-comps-for-export.js';
+import { loadLeaseCompsForExport } from '../services/render-memo/lease-comps-for-export.js';
 import { RENDER_CONTRACT_VERSION } from '@cre/shared';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -1117,9 +1118,12 @@ renderRoutes.get('/export', async (req: Request, res: Response) => {
     const sitePhotos = await loadSitePhotosForExport(result.analysis.graphRevisionId);
     // ★ Sales Comps — load the servicer's entered comps (+ resized photos) → fill the tab.
     const salesComps = await loadSalesCompsForExport(result.analysis.graphRevisionId);
+    // ★ Lease Comps — same, with the deal's asset type driving the rate-column switch.
+    const leaseComps = await loadLeaseCompsForExport(result.analysis.graphRevisionId);
     applied = await applyRenderPayloadToTemplate(template.fileData, result.payload, {
       sitePhotos: { dealName: result.analysis.name, boxCount: 8, photos: sitePhotos },
       salesComps,
+      leaseComps: { comps: leaseComps, assetType: result.assetClass },
     });
   } catch (err: any) {
     res.status(500).json({

@@ -32,7 +32,7 @@ import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
 import type { NoiReconciliationDetail } from '@cre/contracts';
 import type { FlagDetail } from '@cre/contracts';
-import type { SitePhotoRef, ManualPortfolioDefinition, SalesCompsPayload } from '@cre/contracts';
+import type { SitePhotoRef, ManualPortfolioDefinition, SalesCompsPayload, LeaseCompsPayload } from '@cre/contracts';
 import type { AppraisalSlotExtraction, AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
@@ -1402,6 +1402,31 @@ export const api = {
   },
   salesCompPhotoUrl: (poolId: string, loanInPoolId: string, hash: string) =>
     `${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/sales-comps/photo/${hash}`,
+
+  // Lease comps (servicer input) — up to 4 lease comps (shared fields + asset-type rate
+  // metrics + a photo each) that fill the workbook's Lease Comps tab at export.
+  getLeaseComps: (poolId: string, loanInPoolId: string) =>
+    request<{ leaseComps: LeaseCompsPayload }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/lease-comps`),
+  putLeaseComps: (poolId: string, loanInPoolId: string, leaseComps: LeaseCompsPayload) =>
+    request<{ leaseComps: LeaseCompsPayload }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/lease-comps`, {
+      method: 'PUT', body: JSON.stringify({ leaseComps }),
+    }),
+  uploadLeaseCompPhoto: async (poolId: string, loanInPoolId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('photo', file);
+    const res = await fetch(`${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/lease-comps/photo`, {
+      method: 'POST', headers: { ...getAuthHeader() }, body: fd,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      let detail = body;
+      try { const j = JSON.parse(body) as { error?: string; message?: string }; detail = j.message ?? j.error ?? body; } catch { /* plain */ }
+      throw new Error(detail && detail.trim().length > 0 ? `Upload failed (${res.status}): ${detail.trim()}` : `Upload failed (${res.status})`);
+    }
+    return res.json() as Promise<{ hash: string; fileName: string }>;
+  },
+  leaseCompPhotoUrl: (poolId: string, loanInPoolId: string, hash: string) =>
+    `${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/lease-comps/photo/${hash}`,
 
   // Portfolio structure (Phase A) — the servicer's MANUAL N-property definition +
   // allocated loan amounts. Servicer-gated on write; drives the rollup export.

@@ -17,6 +17,7 @@ import { SiteVisitChecklist } from './SiteVisitChecklist';
 import { SitePhotos } from './SitePhotos';
 import { PortfolioStructure } from './PortfolioStructure';
 import { Comps } from './Comps';
+import { LeaseComps } from './LeaseComps';
 import { ServicerNarrativeInput } from './ServicerNarrativeInput';
 import type { AssetType } from '@cre/contracts';
 
@@ -58,6 +59,7 @@ export function DealRoomServicerInputs({
           <SiteVisitChecklist poolId={poolId} loanInPoolId={loanInPoolId} assetType={assetType} />
           <SitePhotos poolId={poolId} loanInPoolId={loanInPoolId} />
           <Comps poolId={poolId} loanInPoolId={loanInPoolId} />
+          <LeaseComps poolId={poolId} loanInPoolId={loanInPoolId} assetType={assetType} />
           <PortfolioStructure poolId={poolId} loanInPoolId={loanInPoolId} />
         </div>
       )}
