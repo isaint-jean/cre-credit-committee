@@ -9,6 +9,7 @@
  *
  * Credit-free: extraction already happened at ingest; this only surfaces it.
  */
+import type { MarketRentSummary } from './extraction.js';
 
 /** One rent-roll row, normalized across the tenant/unit discriminated union. */
 export interface RentRollUnitDTO {
@@ -123,6 +124,12 @@ export interface AsrSlotExtraction {
   readonly uses: readonly AsrSourceUseDTO[];
   /** Underwritten Cash Flows ladder, one entry per present column ([] when absent). */
   readonly cashFlows: readonly AsrCashFlowColumnDTO[];
+  /**
+   * Submarket market-rent summary (submarket name, vacancy 0..1, avg rent PSF) — the
+   * deterministic "Sub-Market Overview" parse. Exposed so a servicer input can show what the
+   * appraisal/ASR already pulled ("what's already there"). null when the ASR didn't carry it.
+   */
+  readonly marketRent: MarketRentSummary | null;
 }
 
 /** A compact appraisal pro-forma line (EGI / OpEx / NOI) — display only. */

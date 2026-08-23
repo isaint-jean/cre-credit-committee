@@ -175,6 +175,8 @@ export function projectAsr(asr: ASRExtraction): AsrSlotExtraction {
     sources,
     uses,
     cashFlows,
+    // (b) — expose the deterministic submarket rent summary for the "what's already there" UI.
+    marketRent: asr.marketRent ?? null,
   };
 }
 

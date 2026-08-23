@@ -26,6 +26,8 @@ import type { LeaseCompForExport } from './render-memo/lease-comps-for-export.js
 import { fillSiteInspectionTab } from './render-memo/site-inspection-fill.js';
 import type { SiteInspection } from '@cre/contracts';
 import { fillBorrowerKeyPrincipals } from './render-memo/borrower-key-principals-fill.js';
+import { fillMarketTab } from './render-memo/market-fill.js';
+import type { MarketRentSummary } from '@cre/contracts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2507,6 +2509,7 @@ export async function applyRenderPayloadToTemplate(
     readonly leaseComps?: { readonly comps: readonly LeaseCompForExport[]; readonly assetType?: string | null };
     readonly siteInspection?: SiteInspection | null;
     readonly borrowerSponsors?: readonly string[] | null;
+    readonly marketRent?: MarketRentSummary | null;
   },
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
@@ -2727,6 +2730,12 @@ export async function applyRenderPayloadToTemplate(
   // absent/empty → byte-unchanged (D13 keeps the render-schema sponsorName). Honest-blank.
   if (opts?.borrowerSponsors !== undefined && opts.borrowerSponsors !== null && opts.borrowerSponsors.length > 0) {
     fillBorrowerKeyPrincipals(workbook, opts.borrowerSponsors);
+  }
+
+  // ★ Market — bind the extracted submarket rent (vacancy J4, avg rent J7). Opt-in; null →
+  // byte-unchanged. Auto columns (Appraisal/UW formulas) untouched; submarketName skipped.
+  if (opts?.marketRent !== undefined && opts.marketRent !== null) {
+    fillMarketTab(workbook, opts.marketRent);
   }
 
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());

@@ -61,6 +61,7 @@ import { loadSitePhotosForExport } from '../services/render-memo/site-photos-for
 import { loadSalesCompsForExport } from '../services/render-memo/sales-comps-for-export.js';
 import { loadLeaseCompsForExport } from '../services/render-memo/lease-comps-for-export.js';
 import { loadSiteInspectionForExport } from '../services/render-memo/site-inspection-fill.js';
+import { loadMarketRentForExport } from '../services/render-memo/market-fill.js';
 import { RENDER_CONTRACT_VERSION } from '@cre/shared';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -1126,12 +1127,15 @@ renderRoutes.get('/export', async (req: Request, res: Response) => {
     // ★ Borrower — the extracted sponsor principals (parties.sponsors[], deterministic ASR
     // extraction) → the Key Principals rows. Discarded until now; render-time, honest-blank.
     const borrowerSponsors = result.analysis.partiesExtraction?.sponsors ?? null;
+    // ★ Market — the extracted submarket rent (vacancy, avg rent PSF) → Market tab J4/J7.
+    const marketRent = loadMarketRentForExport(result.analysis.graphRevisionId);
     applied = await applyRenderPayloadToTemplate(template.fileData, result.payload, {
       sitePhotos: { dealName: result.analysis.name, boxCount: 8, photos: sitePhotos },
       salesComps,
       leaseComps: { comps: leaseComps, assetType: result.assetClass },
       siteInspection,
       borrowerSponsors,
+      marketRent,
     });
   } catch (err: any) {
     res.status(500).json({
