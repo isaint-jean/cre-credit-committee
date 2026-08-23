@@ -52,17 +52,18 @@ export function DealRoomServicerInputs({
   const canEdit = side === 'originator';
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'single_loan' | 'roll_up'>('single_loan');
+  const [modeSource, setModeSource] = useState<'tape' | 'manual' | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api.getDealMode(poolId, loanInPoolId).then((r) => { if (!cancelled) setMode(r.mode); }).catch(() => { /* default single_loan */ });
+    api.getDealMode(poolId, loanInPoolId).then((r) => { if (!cancelled) { setMode(r.mode); setModeSource(r.source); } }).catch(() => { /* default single_loan */ });
     return () => { cancelled = true; };
   }, [poolId, loanInPoolId]);
 
   async function toggleMode(next: 'single_loan' | 'roll_up'): Promise<void> {
     if (!canEdit) return;
-    setMode(next); // optimistic
-    try { const r = await api.putDealMode(poolId, loanInPoolId, next); setMode(r.mode); } catch { /* revert on next load */ }
+    setMode(next); setModeSource('manual'); // optimistic — the toggle is a manual override
+    try { const r = await api.putDealMode(poolId, loanInPoolId, next); setMode(r.mode); /* a toggle is always a manual override */ } catch { /* revert on next load */ }
   }
 
   return (
@@ -114,6 +115,13 @@ export function DealRoomServicerInputs({
           {/* Portfolio — the persisted mode toggle (the on-ramp, always shown) gates the
               N-property input + the rollup export + the dashboard label. */}
           <Group title="Portfolio" hint="Loan type → input + rollup export + dashboard">
+            <p className="text-[11px] text-text-muted">
+              {modeSource === 'tape'
+                ? `Data tape indicates: ${mode === 'roll_up' ? 'Portfolio' : 'Single Loan'}. Toggle to override.`
+                : modeSource === 'manual'
+                  ? 'Set manually (overrides the tape).'
+                  : 'Set automatically from the data tape when present; toggle to override.'}
+            </p>
             <label className="flex items-center gap-2 text-xs text-text-primary">
               <input
                 type="checkbox"

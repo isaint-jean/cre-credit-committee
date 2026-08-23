@@ -94,6 +94,10 @@ export interface IncomingTapeRow {
   readonly mortgageLoanSeller?: string | null;
   readonly city?:               string | null;
   readonly state?:              string | null;
+
+  /* ★ Tape-derived property count (Properties-per-Loan column ∪ decimal-breakout count).
+   * >1 ⇒ portfolio. Consumed post-ingest by deriveDealModesFromTape to set deal_mode. */
+  readonly propertyCount?:      number | null;
 }
 
 export interface IncomingTape {

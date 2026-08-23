@@ -112,6 +112,14 @@ const COLS = {
   cutOffBalance: 'Cut-off Date Balance ($)',
 } as const;
 
+// ★ Portfolio indicator — the "properties per loan" column. OPTIONAL + alias-tolerant across
+// tape formats; when absent the decimal-breakout-row count is the fallback (format-robust).
+const PROPS_PER_LOAN_ALIASES: readonly string[] = [
+  'properties per loan', '# of properties', 'number of properties', 'no. of properties',
+  'prop count', 'property count', '# properties', 'num properties',
+];
+const normHeader = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
+
 /* -------------------------------------------------------------------------- */
 /* AssetType mapping (raw tape labels → @cre/contracts AssetType)             */
 /* -------------------------------------------------------------------------- */
@@ -201,6 +209,35 @@ export async function parseBmarkTapeXlsx(
   const cPropType    = colOf(COLS.propertyType);
   const cCutoffBal   = colOf(COLS.cutOffBalance);
 
+  // ★ OPTIONAL "properties per loan" column (alias-tolerant). undefined → rely on the
+  //   decimal-breakout-row count only.
+  let cPropsPerLoan: number | undefined;
+  for (const [name, idx] of colByName) {
+    if (PROPS_PER_LOAN_ALIASES.includes(normHeader(name))) { cPropsPerLoan = idx; break; }
+  }
+
+  // ★ PRE-SCAN — count decimal property-breakout rows (6.01, 6.02, …) per whole-loan integer
+  //   prefix, and capture the column's stated count. The property count for whole loan N is
+  //   max(column value, breakout-row count, 1) — >1 marks a portfolio. Universal (the decimal
+  //   breakout pattern holds regardless of column naming).
+  const breakoutByPrefix = new Map<number, number>();
+  const colCountByPrefix = new Map<number, number>();
+  for (let r = HEADER_ROW + 1; r <= ws.rowCount; r++) {
+    const idNum = numberOrNull(ws.getRow(r).getCell(cLoanId).value);
+    if (idNum === null) continue;
+    const prefix = Math.floor(idNum + 1e-6);
+    if (Number.isInteger(idNum)) {
+      if (cPropsPerLoan !== undefined) {
+        const n = numberOrNull(ws.getRow(r).getCell(cPropsPerLoan).value);
+        if (n !== null && Number.isFinite(n)) colCountByPrefix.set(prefix, Math.round(n));
+      }
+    } else {
+      breakoutByPrefix.set(prefix, (breakoutByPrefix.get(prefix) ?? 0) + 1);
+    }
+  }
+  const propertyCountFor = (loanIdInt: number): number =>
+    Math.max(colCountByPrefix.get(loanIdInt) ?? 0, breakoutByPrefix.get(loanIdInt) ?? 0, 1);
+
   const rows: IncomingTapeRow[] = [];
   let tapePosition = 0;
   let totalLoanCount = 0;
@@ -242,6 +279,8 @@ export async function parseBmarkTapeXlsx(
       mortgageLoanSeller: stringOrNull(row.getCell(cSeller).value),
       city:               stringOrNull(row.getCell(cCity).value),
       state:              stringOrNull(row.getCell(cState).value),
+      // ★ tape-derived property count (column ∪ decimal-breakout count); >1 ⇒ portfolio.
+      propertyCount:      propertyCountFor(loanIdNum),
     });
   }
 

@@ -75,7 +75,7 @@ import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readine
 import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
 import { getServicerInput, getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
 import { setPortfolioStructure } from '../services/portfolio-structure.service.js';
-import { getDealMode, setDealMode, listPortfolioPoolIds, type DealMode } from '../services/deal-mode.service.js';
+import { getDealMode, setDealMode, getDealModeSource, listPortfolioPoolIds, type DealMode } from '../services/deal-mode.service.js';
 import { upload, uploadImages } from '../middleware/upload.js';
 import { blobStore } from '../storage/blob-store.js';
 import { resolveServeMime } from '../util/mime-from-extension.js';
@@ -853,7 +853,7 @@ poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/deal-mode', (req: R
   if (loan === null || loan.poolId !== poolId) {
     return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
   }
-  return res.json({ mode: getDealMode(poolId, loanInPoolId) });
+  return res.json({ mode: getDealMode(poolId, loanInPoolId), source: getDealModeSource(poolId, loanInPoolId) });
 });
 
 poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/deal-mode', (req: Request, res: Response) => {

@@ -31,6 +31,7 @@ import {
 } from '../services/pool/advance-tape.service.js';
 import { mintPoolId } from '../util/pool-ids.js';
 import { parseBmarkTapeXlsx, normalizePropertyName } from '../services/parse-bmark-tape-xlsx.js';
+import { deriveDealModesFromTape } from '../services/deal-mode.service.js';
 
 const SHELF_NAME = 'BMARK 2024-V8';
 const VINTAGE = 2024;
@@ -182,7 +183,12 @@ async function main(): Promise<void> {
     priorIncomingByRef = new Map(incoming.rows.map((r) => [r.originatorLoanRef!, r]));
   }
 
-  void priorIncomingByRef;  // reserved for richer disposition labelling
+  // ★ Derive deal_mode from the tape — the last tape's rows carry the tape-derived
+  //   propertyCount per loan (Properties-per-Loan ∪ decimal-breakout count). >1 ⇒ roll_up.
+  //   Manual overrides (if a servicer toggled) are preserved. Portfolio-ness comes from the
+  //   source data, not a human toggle.
+  const modeUpdates = deriveDealModesFromTape(store, POOL_ID, [...priorIncomingByRef.values()]);
+  console.log(`  deal_mode derived from tape for ${modeUpdates} loan(s).`);
 
   // ── Summary ─────────────────────────────────────────────────────────────
   const finalPool = store.getPool(POOL_ID)!;

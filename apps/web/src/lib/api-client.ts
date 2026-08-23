@@ -1214,7 +1214,7 @@ export const api = {
   },
   // Deal mode (the persisted single_loan vs roll_up flag). Servicer-gated on write.
   getDealMode: (poolId: string, loanInPoolId: string) =>
-    request<{ mode: 'single_loan' | 'roll_up' }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/deal-mode`),
+    request<{ mode: 'single_loan' | 'roll_up'; source: 'tape' | 'manual' | null }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/deal-mode`),
   putDealMode: (poolId: string, loanInPoolId: string, mode: 'single_loan' | 'roll_up') =>
     request<{ mode: 'single_loan' | 'roll_up' }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/deal-mode`, {
       method: 'PUT', body: JSON.stringify({ mode }),
