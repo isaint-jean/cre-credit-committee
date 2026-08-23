@@ -60,6 +60,7 @@ import {
 import { loadSitePhotosForExport } from '../services/render-memo/site-photos-for-export.js';
 import { loadSalesCompsForExport } from '../services/render-memo/sales-comps-for-export.js';
 import { loadLeaseCompsForExport } from '../services/render-memo/lease-comps-for-export.js';
+import { loadSiteInspectionForExport } from '../services/render-memo/site-inspection-fill.js';
 import { RENDER_CONTRACT_VERSION } from '@cre/shared';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -1120,10 +1121,13 @@ renderRoutes.get('/export', async (req: Request, res: Response) => {
     const salesComps = await loadSalesCompsForExport(result.analysis.graphRevisionId);
     // ★ Lease Comps — same, with the deal's asset type driving the rate-column switch.
     const leaseComps = await loadLeaseCompsForExport(result.analysis.graphRevisionId);
+    // ★ Site Inspection — the servicer's structured form fills the Site Inspection tab.
+    const siteInspection = loadSiteInspectionForExport(result.analysis.graphRevisionId);
     applied = await applyRenderPayloadToTemplate(template.fileData, result.payload, {
       sitePhotos: { dealName: result.analysis.name, boxCount: 8, photos: sitePhotos },
       salesComps,
       leaseComps: { comps: leaseComps, assetType: result.assetClass },
+      siteInspection,
     });
   } catch (err: any) {
     res.status(500).json({

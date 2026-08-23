@@ -23,6 +23,8 @@ import { fillSalesCompsTab } from './render-memo/sales-comps-fill.js';
 import type { SaleCompForExport } from './render-memo/sales-comps-for-export.js';
 import { fillLeaseCompsTab } from './render-memo/lease-comps-fill.js';
 import type { LeaseCompForExport } from './render-memo/lease-comps-for-export.js';
+import { fillSiteInspectionTab } from './render-memo/site-inspection-fill.js';
+import type { SiteInspection } from '@cre/contracts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2502,6 +2504,7 @@ export async function applyRenderPayloadToTemplate(
     readonly sitePhotos?: { readonly dealName?: string; readonly boxCount?: number; readonly photos?: readonly SitePhotoImage[] };
     readonly salesComps?: readonly SaleCompForExport[];
     readonly leaseComps?: { readonly comps: readonly LeaseCompForExport[]; readonly assetType?: string | null };
+    readonly siteInspection?: SiteInspection | null;
   },
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
@@ -2710,6 +2713,12 @@ export async function applyRenderPayloadToTemplate(
   // force-overwritten formula columns + embedded photos). Opt-in: absent/empty → byte-unchanged.
   if (opts?.leaseComps !== undefined && opts.leaseComps.comps.length > 0) {
     fillLeaseCompsTab(workbook, opts.leaseComps.comps, opts.leaseComps.assetType ?? null);
+  }
+
+  // ★ Site Inspection — fill the tab from the servicer's structured form. Opt-in: absent/null →
+  // byte-unchanged. Only mapped blank cells are written; the 4 auto (named-range) cells are left.
+  if (opts?.siteInspection !== undefined && opts.siteInspection !== null) {
+    fillSiteInspectionTab(workbook, opts.siteInspection);
   }
 
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());

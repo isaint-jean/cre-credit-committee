@@ -32,7 +32,7 @@ import type { DocTypeEntry, DocTypeCategory } from '@cre/contracts';
 import type { DataRoomTree } from '@cre/contracts';
 import type { NoiReconciliationDetail } from '@cre/contracts';
 import type { FlagDetail } from '@cre/contracts';
-import type { SitePhotoRef, ManualPortfolioDefinition, SalesCompsPayload, LeaseCompsPayload } from '@cre/contracts';
+import type { SitePhotoRef, ManualPortfolioDefinition, SalesCompsPayload, LeaseCompsPayload, SiteInspection } from '@cre/contracts';
 import type { AppraisalSlotExtraction, AsrSlotExtraction, PcaSlotExtraction, RentRollSlotExtraction } from '@cre/contracts';
 
 // Re-export the taxonomy entry type so Data-Room (D4) components can pull it
@@ -1427,6 +1427,14 @@ export const api = {
   },
   leaseCompPhotoUrl: (poolId: string, loanInPoolId: string, hash: string) =>
     `${API_BASE}/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/lease-comps/photo/${hash}`,
+
+  // Site inspection (servicer input) — a structured form that fills the Site Inspection tab.
+  getSiteInspection: (poolId: string, loanInPoolId: string) =>
+    request<{ siteInspection: SiteInspection }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-inspection`),
+  putSiteInspection: (poolId: string, loanInPoolId: string, siteInspection: SiteInspection) =>
+    request<{ siteInspection: SiteInspection }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/site-inspection`, {
+      method: 'PUT', body: JSON.stringify({ siteInspection }),
+    }),
 
   // Portfolio structure (Phase A) — the servicer's MANUAL N-property definition +
   // allocated loan amounts. Servicer-gated on write; drives the rollup export.

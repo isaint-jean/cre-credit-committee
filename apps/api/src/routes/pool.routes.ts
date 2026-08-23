@@ -52,7 +52,7 @@ import type {
   WorkingTapeId,
 } from '@cre/contracts';
 import { ON_TAPE_STATUSES, DISPOSITION_KINDS, REASON_CATEGORIES } from '@cre/contracts';
-import { isReasonCategoryValidForOutcome, normalizeAssetType, parseSitePhotos, serializeSitePhotos, parseManualPortfolio, type ManualPortfolioDefinition, parseSalesComps, serializeSalesComps, type SalesCompsPayload, parseLeaseComps, serializeLeaseComps, type LeaseCompsPayload } from '@cre/contracts';
+import { isReasonCategoryValidForOutcome, normalizeAssetType, parseSitePhotos, serializeSitePhotos, parseManualPortfolio, type ManualPortfolioDefinition, parseSalesComps, serializeSalesComps, type SalesCompsPayload, parseLeaseComps, serializeLeaseComps, type LeaseCompsPayload, parseSiteInspection, serializeSiteInspection, type SiteInspection } from '@cre/contracts';
 import type { ReasonCategory } from '@cre/contracts';
 
 import { enforcePermission } from '../middleware/require-permission.js';
@@ -650,7 +650,7 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
 // negotiation loop OFF (this is not the shelved overlay-comments store).
 // site_visit_checklist carries a structured JSON payload (checklist state) in `value`;
 // the others are narrative text. All are display-only / mint-safe additive annotation.
-const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos', 'portfolio_structure', 'sales_comps', 'lease_comps']);
+const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos', 'portfolio_structure', 'sales_comps', 'lease_comps', 'site_inspection']);
 
 // Resolve a graph ROOT (the deal-room holds only data.rootId) → its pool coordinates
 // + a display deal name. The deal-room needs poolId/loanInPoolId/assetType to mount the
@@ -838,6 +838,35 @@ poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/sales-comps/photo/:
   if (bytes === null) return res.status(404).json({ error: 'NOT_FOUND', message: 'photo bytes not in blob store' });
   res.setHeader('Content-Type', resolveServeMime(null, ref.photoFileName ?? 'photo.jpg'));
   return res.send(bytes);
+});
+
+/* ── Site inspection (servicer input) ─────────────────────────────────────────
+ * A structured inspection FORM (~57 free-text/number fields, 7 sections) → fills the
+ * workbook's "Site Inspection" tab at export. Rides servicer_inputs 'site_inspection'
+ * JSON. Text-only (no photos). DISPLAY/EXPORT-ONLY / MINT-SAFE. */
+
+poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/site-inspection', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  return res.json({ siteInspection: parseSiteInspection(getServicerInput(poolId, loanInPoolId, 'site_inspection')?.value ?? null) });
+});
+
+poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/site-inspection', (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const data: SiteInspection = parseSiteInspection(JSON.stringify((req.body ?? {})['siteInspection'] ?? {}));
+  const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
+  const saved = upsertServicerInput({ poolId, loanInPoolId, fieldType: 'site_inspection', value: serializeSiteInspection(data), author });
+  return res.json({ siteInspection: parseSiteInspection(saved.value) });
 });
 
 /* ── Lease comps (servicer input) ─────────────────────────────────────────────
