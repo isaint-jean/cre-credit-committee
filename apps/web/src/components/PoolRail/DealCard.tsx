@@ -91,7 +91,7 @@ function fmtBalance(b: number | null): string {
 
 type LoadState = 'loading' | 'loaded' | 'error';
 
-export function DealCard({ pool }: { readonly pool: Pool }) {
+export function DealCard({ pool, isPortfolio = false }: { readonly pool: Pool; readonly isPortfolio?: boolean }) {
   const side = useSide();
   const accent = sideAccent(side);
   const [state, setState] = useState<DealCardState | null>(null);
@@ -149,6 +149,11 @@ export function DealCard({ pool }: { readonly pool: Pool }) {
             <div className="text-xs text-text-secondary mt-0.5 flex items-center gap-2 flex-wrap font-body">
               <span>{pool.vintage}</span>
               {pool.seller !== null && <><span className="text-text-muted">·</span><span className="truncate">{pool.seller}</span></>}
+              {/* Loan Type (#4) — reads the same persisted deal-mode flag as the input + export. */}
+              <span className="text-text-muted">·</span>
+              <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${isPortfolio ? 'bg-accent-soft text-accent' : 'bg-bg-tertiary text-text-muted'}`}>
+                {isPortfolio ? 'Portfolio' : 'Single Loan'}
+              </span>
             </div>
           </div>
           <StatusBadge pool={pool} attention={attentionCount} hasOpenWorkingTape={hasOpenWorkingTape} accentText={accent.text} accentSoft={accent.softBg} />

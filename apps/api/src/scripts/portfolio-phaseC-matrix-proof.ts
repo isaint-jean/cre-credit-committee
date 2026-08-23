@@ -120,7 +120,7 @@ function rowFor(ws: ExcelJS.Worksheet, label: string): number {
   const head = db.prepare(`SELECT 1 FROM revision_lineage_envelopes WHERE revision_id LIKE '221235987967%' LIMIT 1`).get();
   db.close();
   const composerSrc = readFileSync(path.join(process.cwd(), 'src/services/export-portfolio-dispatch.service.ts'), 'utf8');
-  check('matrix reachable only via composer (roll_up + N>1 gate intact)', /underwritingMode !== 'roll_up'\) return null/.test(composerSrc) && /length <= 1\) return null/.test(composerSrc));
+  check('matrix reachable only via composer (roll_up + N>1 gate intact)', /resolveDealModeForAnalysis\(analysis\.graphRevisionId\) !== 'roll_up'\) return null/.test(composerSrc) && /length <= 1\) return null/.test(composerSrc));
   check('canonical byte-identical (BMARK 17 + 640 head 221235987967)', bmark === 17 && !!head, `BMARK ${bmark}`);
 
   console.log(failures === 0 ? '\nPhase C proof: OK\n' : `\nPhase C proof: ${failures} FAILURE(S)\n`);

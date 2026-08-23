@@ -41,6 +41,7 @@ export default function PoolHomeBasePage() {
   const side = useSide();
   const accent = sideAccent(side);
   const [pools, setPools] = useState<Pool[]>([]);
+  const [portfolioPoolIds, setPortfolioPoolIds] = useState<ReadonlySet<string>>(new Set());
   const [load, setLoad] = useState<LoadState>('loading');
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [vintage, setVintage] = useState<string>('');
@@ -56,6 +57,7 @@ export default function PoolHomeBasePage() {
       if (seller.trim() !== '') filter.seller = seller.trim();
       const res = await api.listPools(filter);
       setPools(res.pools);
+      setPortfolioPoolIds(new Set(res.portfolioPoolIds ?? []));
       setLoad('loaded');
     } catch (e) {
       setErrMsg((e as Error).message);
@@ -153,7 +155,7 @@ export default function PoolHomeBasePage() {
             <section className="mb-10">
               <h2 className="text-xs uppercase tracking-wide text-text-muted mb-3 font-medium">Active</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {active.map(p => <DealCard key={p.id} pool={p} />)}
+                {active.map(p => <DealCard key={p.id} pool={p} isPortfolio={portfolioPoolIds.has(p.id)} />)}
               </div>
             </section>
           ) : (
@@ -181,7 +183,7 @@ export default function PoolHomeBasePage() {
               </button>
               {showInactive && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 opacity-75">
-                  {inactive.map(p => <DealCard key={p.id} pool={p} />)}
+                  {inactive.map(p => <DealCard key={p.id} pool={p} isPortfolio={portfolioPoolIds.has(p.id)} />)}
                 </div>
               )}
             </section>

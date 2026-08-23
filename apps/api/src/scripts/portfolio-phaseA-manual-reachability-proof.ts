@@ -135,7 +135,7 @@ function partG(): void {
   const dispatch = readFileSync(path.join(process.cwd(), 'src/services/export-portfolio-dispatch.service.ts'), 'utf8');
   check('dispatch reads resolveManualPortfolioComponents (manual override)', /resolveManualPortfolioComponents\(analysis\.graphRevisionId\)/.test(dispatch));
   check('manual override precedes the graph fallback (?? resolvePropertiesFromGraph)', /manual\?\.components \?\? resolvePropertiesFromGraph/.test(dispatch));
-  check('single-loan gate intact (mode !== roll_up → null)', /underwritingMode !== 'roll_up'\) return null/.test(dispatch));
+  check('single-loan gate intact (persisted deal mode !== roll_up → null)', /resolveDealModeForAnalysis\(analysis\.graphRevisionId\) !== 'roll_up'\) return null/.test(dispatch));
   check('dispatch passes wholeLoanDebtService to the aggregator', /wholeLoanDebtService: manual\?\.wholeLoanDebtService/.test(dispatch));
   const svc = readFileSync(path.join(process.cwd(), 'src/services/portfolio-structure.service.ts'), 'utf8');
   check('manual override requires N>1 (single-property never routes to portfolio)', /def\.properties\.length <= 1\) return null/.test(svc));

@@ -75,6 +75,7 @@ import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readine
 import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
 import { getServicerInput, getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
 import { setPortfolioStructure } from '../services/portfolio-structure.service.js';
+import { getDealMode, setDealMode, listPortfolioPoolIds, type DealMode } from '../services/deal-mode.service.js';
 import { upload, uploadImages } from '../middleware/upload.js';
 import { blobStore } from '../storage/blob-store.js';
 import { resolveServeMime } from '../util/mime-from-extension.js';
@@ -650,7 +651,7 @@ poolRoutes.post('/:poolId/loans/:loanInPoolId/underwrite', (req: Request, res: R
 // negotiation loop OFF (this is not the shelved overlay-comments store).
 // site_visit_checklist carries a structured JSON payload (checklist state) in `value`;
 // the others are narrative text. All are display-only / mint-safe additive annotation.
-const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos', 'portfolio_structure', 'sales_comps', 'lease_comps', 'site_inspection']);
+const SERVICER_INPUT_FIELDS: ReadonlySet<string> = new Set(['site_visit', 'broker_feedback', 'tab_commentary', 'site_visit_checklist', 'site_photos', 'portfolio_structure', 'sales_comps', 'lease_comps', 'site_inspection', 'deal_mode']);
 
 // Resolve a graph ROOT (the deal-room holds only data.rootId) → its pool coordinates
 // + a display deal name. The deal-room needs poolId/loanInPoolId/assetType to mount the
@@ -838,6 +839,36 @@ poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/sales-comps/photo/:
   if (bytes === null) return res.status(404).json({ error: 'NOT_FOUND', message: 'photo bytes not in blob store' });
   res.setHeader('Content-Type', resolveServeMime(null, ref.photoFileName ?? 'photo.jpg'));
   return res.send(bytes);
+});
+
+/* ── Deal mode (single_loan vs roll_up) — the persisted portfolio flag ─────────
+ * The ONE source of truth that silos portfolio from single-loan: drives the portfolio
+ * input visibility, the Create-Workbook export routing, and the dashboard Loan Type
+ * column. Set by an explicit servicer toggle. Rides servicer_inputs 'deal_mode'. */
+
+poolRoutes.get('/:poolId/loans/:loanInPoolId/servicer-inputs/deal-mode', (req: Request, res: Response) => {
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  return res.json({ mode: getDealMode(poolId, loanInPoolId) });
+});
+
+poolRoutes.put('/:poolId/loans/:loanInPoolId/servicer-inputs/deal-mode', (req: Request, res: Response) => {
+  if (!enforcePermission(req, res, 'analysis:revise' as never)) return;
+  const poolId = req.params['poolId'] as PoolId;
+  const loanInPoolId = req.params['loanInPoolId'] as LoanInPoolId;
+  const loan = poolStore().getLoanInPool(loanInPoolId);
+  if (loan === null || loan.poolId !== poolId) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `loan ${loanInPoolId} not found in pool ${poolId}` });
+  }
+  const raw = (req.body ?? {})['mode'];
+  if (raw !== 'single_loan' && raw !== 'roll_up') return send400Bad(res, "mode: 'single_loan' | 'roll_up'");
+  const author = req.user?.email ?? req.user?.userId ?? 'anonymous';
+  const mode = setDealMode({ poolId, loanInPoolId, mode: raw as DealMode, author });
+  return res.json({ mode });
 });
 
 /* ── Site inspection (servicer input) ─────────────────────────────────────────
@@ -1097,7 +1128,9 @@ poolRoutes.get('/', (req: Request, res: Response) => {
     // Chunk 3b (dark): per-ROW filter to the pools the user may see (never a blanket
     // 403 on the list). Pass-through when the flag is off / for admin.
     const pools = filterAccessiblePools(req, poolStore().listPools(filter), (p) => p.id);
-    return res.json({ pools });
+    // #4 — the dashboard "Loan Type" column reads the SAME persisted flag: pool ids with a
+    // roll_up loan (one batch query, no per-card N+1). A pool absent from this set is single.
+    return res.json({ pools, portfolioPoolIds: listPortfolioPoolIds() });
   } catch (e) { return mapThrow(res, e); }
 });
 

@@ -33,7 +33,7 @@ const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'cre.db');
 /** The human-input field types (extend as broker/commentary/comps land).
  *  'site_visit_checklist' is a STRUCTURED field — its `value` is a JSON payload
  *  (checklist state), not narrative text; it rides the same TEXT column. */
-export type ServicerInputFieldType = 'site_visit' | 'broker_feedback' | 'tab_commentary' | 'site_visit_checklist' | 'site_photos' | 'portfolio_structure' | 'sales_comps' | 'lease_comps' | 'site_inspection';
+export type ServicerInputFieldType = 'site_visit' | 'broker_feedback' | 'tab_commentary' | 'site_visit_checklist' | 'site_photos' | 'portfolio_structure' | 'sales_comps' | 'lease_comps' | 'site_inspection' | 'deal_mode';
 
 export interface ServicerInput {
   readonly poolId: string;
@@ -136,6 +136,15 @@ export class ServicerInputsStore {
       )
       .run(row);
     return toInput(row);
+  }
+
+  /** Distinct pool ids that have at least one loan with (field_type, value) — a single
+   *  batch query for the dashboard (e.g. pools with a 'deal_mode' = 'roll_up' loan). */
+  distinctPoolIdsWithFieldValue(fieldType: ServicerInputFieldType, value: string): string[] {
+    const rows = this.db
+      .prepare(`SELECT DISTINCT pool_id FROM servicer_inputs WHERE field_type = ? AND value = ?`)
+      .all(fieldType, value) as Array<{ pool_id: string }>;
+    return rows.map((r) => r.pool_id);
   }
 
   /** Test-only handle. */

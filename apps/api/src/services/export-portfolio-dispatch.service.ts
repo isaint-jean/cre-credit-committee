@@ -29,6 +29,7 @@ import type { SqliteStore } from '../storage/sqlite-store.js';
 import { resolveAnalysisForRead } from './resolve-analysis-for-read.js';
 import { aggregatePortfolio } from './portfolio-aggregator.service.js';
 import { resolveManualPortfolioComponents } from './portfolio-structure.service.js';
+import { resolveDealModeForAnalysis } from './deal-mode.service.js';
 import {
   composePortfolioWorkbook,
   type ComposePortfolioWorkbookResult,
@@ -92,10 +93,7 @@ export async function resolvePortfolioExport(args: {
   recordGraphStore: RecordGraphStore;
   store: SqliteStore;
 }): Promise<PortfolioExport | null> {
-  const { dealId, underwritingMode, recordGraphStore, store } = args;
-
-  // ADDITIVE GATE 1 — only roll_up mode is a portfolio candidate.
-  if (underwritingMode !== 'roll_up') return null;
+  const { dealId, recordGraphStore, store } = args;
 
   // Resolve the deal via the SAME shared resolver /export uses (graph + legacy).
   // A malformed id throws MalformedAnalysisIdError — let the caller map it (the
@@ -103,12 +101,20 @@ export async function resolvePortfolioExport(args: {
   const analysis = resolveAnalysisForRead(dealId, recordGraphStore, store);
   if (analysis === null) return null;
 
+  // ADDITIVE GATE 1 — the deal must be marked roll_up. This reads the PERSISTED deal mode
+  // (the servicer's explicit toggle), NOT the per-request query param — so ANY Create-Workbook
+  // button routes correctly (fixes the buttons that hardcode 'single_loan'). A single_loan
+  // deal → null → the existing single-property pipeline, byte-identical.
+  if (resolveDealModeForAnalysis(analysis.graphRevisionId) !== 'roll_up') return null;
+
   // ADDITIVE GATE 2 — the deal must carry per-property children (N>1). Phase A adds a
   // MANUAL OVERRIDE: a servicer's hand-defined portfolio (servicer_inputs) is read FIRST;
   // it carries the human-supplied allocated loan amounts + optional whole-loan debt
   // service. Falls back to the (EX-102) graph properties when there's no manual def.
   const manual = resolveManualPortfolioComponents(analysis.graphRevisionId);
   const components = manual?.components ?? resolvePropertiesFromGraph(analysis.graphRevisionId, recordGraphStore);
+  // HONEST EDGE — marked roll_up but <2 properties defined: fall back to the single-loan
+  // export (never a silent empty rollup). The deal-room warns the servicer to add properties.
   if (components === null || components.length <= 1) return null;
 
   // Portfolio → compose the workbook (N per-property leaf tabs + 4 roll-up tabs). The

@@ -1210,8 +1210,15 @@ export const api = {
     if (filter?.vintage !== undefined) q.push(`vintage=${filter.vintage}`);
     if (filter?.seller) q.push(`seller=${encodeURIComponent(filter.seller)}`);
     const qs = q.length > 0 ? `?${q.join('&')}` : '';
-    return request<{ pools: Pool[] }>(`/pools${qs}`);
+    return request<{ pools: Pool[]; portfolioPoolIds: string[] }>(`/pools${qs}`);
   },
+  // Deal mode (the persisted single_loan vs roll_up flag). Servicer-gated on write.
+  getDealMode: (poolId: string, loanInPoolId: string) =>
+    request<{ mode: 'single_loan' | 'roll_up' }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/deal-mode`),
+  putDealMode: (poolId: string, loanInPoolId: string, mode: 'single_loan' | 'roll_up') =>
+    request<{ mode: 'single_loan' | 'roll_up' }>(`/pools/${poolId}/loans/${loanInPoolId}/servicer-inputs/deal-mode`, {
+      method: 'PUT', body: JSON.stringify({ mode }),
+    }),
   /* Data Room v2 Piece A — MINT a pool (the pool IS the deal). POST /pools with
    * { shelfName, vintage, seller? } → 201 { pool }. The server mints id via
    * mintPoolId(). The data room keys on the returned pool.id from birth
