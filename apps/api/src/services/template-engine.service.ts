@@ -25,6 +25,7 @@ import { fillLeaseCompsTab } from './render-memo/lease-comps-fill.js';
 import type { LeaseCompForExport } from './render-memo/lease-comps-for-export.js';
 import { fillSiteInspectionTab } from './render-memo/site-inspection-fill.js';
 import type { SiteInspection } from '@cre/contracts';
+import { fillBorrowerKeyPrincipals } from './render-memo/borrower-key-principals-fill.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2505,6 +2506,7 @@ export async function applyRenderPayloadToTemplate(
     readonly salesComps?: readonly SaleCompForExport[];
     readonly leaseComps?: { readonly comps: readonly LeaseCompForExport[]; readonly assetType?: string | null };
     readonly siteInspection?: SiteInspection | null;
+    readonly borrowerSponsors?: readonly string[] | null;
   },
 ): Promise<RenderApplyResult> {
   const workbook = new ExcelJS.Workbook();
@@ -2719,6 +2721,12 @@ export async function applyRenderPayloadToTemplate(
   // byte-unchanged. Only mapped blank cells are written; the 4 auto (named-range) cells are left.
   if (opts?.siteInspection !== undefined && opts.siteInspection !== null) {
     fillSiteInspectionTab(workbook, opts.siteInspection);
+  }
+
+  // ★ Borrower Key Principals — surface the extracted sponsor principals in D13:D18. Opt-in;
+  // absent/empty → byte-unchanged (D13 keeps the render-schema sponsorName). Honest-blank.
+  if (opts?.borrowerSponsors !== undefined && opts.borrowerSponsors !== null && opts.borrowerSponsors.length > 0) {
+    fillBorrowerKeyPrincipals(workbook, opts.borrowerSponsors);
   }
 
   let populatedBuffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());

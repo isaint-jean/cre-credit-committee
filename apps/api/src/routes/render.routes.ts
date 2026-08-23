@@ -1123,11 +1123,15 @@ renderRoutes.get('/export', async (req: Request, res: Response) => {
     const leaseComps = await loadLeaseCompsForExport(result.analysis.graphRevisionId);
     // ★ Site Inspection — the servicer's structured form fills the Site Inspection tab.
     const siteInspection = loadSiteInspectionForExport(result.analysis.graphRevisionId);
+    // ★ Borrower — the extracted sponsor principals (parties.sponsors[], deterministic ASR
+    // extraction) → the Key Principals rows. Discarded until now; render-time, honest-blank.
+    const borrowerSponsors = result.analysis.partiesExtraction?.sponsors ?? null;
     applied = await applyRenderPayloadToTemplate(template.fileData, result.payload, {
       sitePhotos: { dealName: result.analysis.name, boxCount: 8, photos: sitePhotos },
       salesComps,
       leaseComps: { comps: leaseComps, assetType: result.assetClass },
       siteInspection,
+      borrowerSponsors,
     });
   } catch (err: any) {
     res.status(500).json({
