@@ -75,7 +75,7 @@ import { evaluateUnderwriteReadiness } from '../services/pool/underwrite-readine
 import { rescanHeldOnLoanArrival } from '../services/pool/rescan-held-on-loan-arrival.service.js';
 import { getServicerInput, getServicerInputs, upsertServicerInput } from '../services/servicer-inputs.service.js';
 import { setPortfolioStructure } from '../services/portfolio-structure.service.js';
-import { getDealMode, setDealMode, getDealModeSource, listPortfolioPoolIds, type DealMode } from '../services/deal-mode.service.js';
+import { getDealMode, setDealMode, getDealModeSource, listPortfolioPoolIds, deriveDealModesFromTape, type DealMode } from '../services/deal-mode.service.js';
 import { upload, uploadImages } from '../middleware/upload.js';
 import { blobStore } from '../storage/blob-store.js';
 import { resolveServeMime } from '../util/mime-from-extension.js';
@@ -180,12 +180,19 @@ function validateRow(v: unknown, idx: number): IncomingTapeRow | string {
   if (r['propertyName'] !== null && typeof r['propertyName'] !== 'string') return `rows[${idx}].propertyName: string|null`;
   if (r['assetType'] !== null && typeof r['assetType'] !== 'string') return `rows[${idx}].assetType: AssetType|null`;
   if (!isInt(r['tapePosition'])) return `rows[${idx}].tapePosition: integer`;
+  // OPTIONAL: tape-derived property count (Properties-per-Loan ∪ decimal-breakout count).
+  // When present it must be a non-negative number; absent/null → single-loan default downstream.
+  const rawCount = r['propertyCount'];
+  if (rawCount !== undefined && rawCount !== null && (typeof rawCount !== 'number' || !Number.isFinite(rawCount) || rawCount < 0)) {
+    return `rows[${idx}].propertyCount: non-negative number|null`;
+  }
   return {
     originatorLoanRef: r['originatorLoanRef'] as string | null,
     dealRef: r['dealRef'] as string,
     propertyName: r['propertyName'] as string | null,
     assetType: r['assetType'] as IncomingTapeRow['assetType'],
     tapePosition: r['tapePosition'] as number,
+    propertyCount: (rawCount ?? null) as number | null,
   };
 }
 
@@ -435,6 +442,28 @@ poolRoutes.post('/:poolId/tapes/freeze', (req: Request, res: Response) => {
       recordedBy,
       frozenAt: body['frozenAt'] as string,
     });
+
+    // ★ Derive deal_mode FROM THE TAPE — parity with the seed path (seed-pool-bmark).
+    // The working tape's pending entries carry the tape-derived propertyCount
+    // (Properties-per-Loan ∪ decimal-breakout count); after Phase B the loans exist,
+    // so deriveDealModesFromTape joins each row to its loan by originatorLoanRef and
+    // sets deal_mode (propertyCount>1 ⇒ roll_up), source='tape'. A manual override
+    // (source='manual') still wins. Reuses the shipped service — no forked logic.
+    const derivedRows = wt.pendingMembership
+      .map((e) =>
+        e.kind === 'bound'
+          ? { originatorLoanRef: e.incomingOriginatorRef, propertyCount: e.propertyCount ?? null }
+          : e.kind === 'unmatched-needs-confirm'
+            ? { originatorLoanRef: e.incomingOriginatorRef, propertyCount: e.propertyCount ?? null }
+            : null,
+      )
+      .filter((r): r is { originatorLoanRef: string | null; propertyCount: number | null } => r !== null);
+    try {
+      deriveDealModesFromTape(poolStore(), poolId, derivedRows);
+    } catch (e) {
+      // Additive intake write — never fail the freeze on a deal_mode derive hiccup.
+      console.error('[tape-freeze] deal_mode derive failed:', (e as Error)?.message ?? e);
+    }
 
     // ★ Chunk 2 — new loans just arrived. Re-scan the HELD backlog: any orphan doc
     // that now confidently matches a (now-present) loan auto-attaches (held → routed)

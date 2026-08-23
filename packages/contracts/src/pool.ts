@@ -167,6 +167,10 @@ export type PendingMembershipEntry =
       readonly binding: LoanMembership;
       /** Originator-supplied identifier on this incoming tape; retained for audit. */
       readonly incomingOriginatorRef: string | null;
+      /** Tape-derived property count (Properties-per-Loan ∪ decimal-breakout count).
+       *  Carried on the WORKING-tape entry (never hashed / never on the frozen Tape) so
+       *  Phase B can derive deal_mode from the tape without re-passing IncomingTape. */
+      readonly propertyCount?: number | null;
     }
   | {
       readonly kind: 'unmatched-needs-confirm';
@@ -190,6 +194,9 @@ export type PendingMembershipEntry =
       readonly mortgageLoanSeller?: string | null;
       readonly city?:               string | null;
       readonly state?:              string | null;
+      /** Tape-derived property count — carried so a later confirm-new mint derives
+       *  deal_mode from the tape. Working-tape only (never hashed / never on Tape). */
+      readonly propertyCount?:      number | null;
     }
   | {
       readonly kind: 'new-loan-confirmed';

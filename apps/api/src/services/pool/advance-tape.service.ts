@@ -219,6 +219,8 @@ function classifyRow(
           state:              row.state ?? null,
         },
         incomingOriginatorRef: row.originatorLoanRef,
+        // Tape-derived; carried on the working-tape entry for deal_mode derivation at Phase B.
+        propertyCount:      row.propertyCount ?? null,
       };
     }
   }
@@ -240,6 +242,8 @@ function classifyRow(
     mortgageLoanSeller: row.mortgageLoanSeller ?? null,
     city:               row.city ?? null,
     state:              row.state ?? null,
+    // Tape-derived; carried so a later confirm-new mint derives deal_mode from the tape.
+    propertyCount:      row.propertyCount ?? null,
   };
 }
 
